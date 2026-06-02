@@ -1,0 +1,446 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   MURLAN — design system (Phase 1)
+   Single source of truth for the premium "card-club" look, extracted from
+   murlan-mockup-v2.html. Palette = CSS variables; reusable pieces = component
+   classes in @layer components. Purely visual — no game/logic/money here.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+  --bg-0: #160407; --bg-1: #2a080c;
+  --maroon: #4d0c12;
+  /* Classic poker-green felt (the table); themeable via cosmetics. */
+  --felt: #1c6b3e; --felt-hi: #2c9258; --felt-edge: #0a3a20;
+  --gold: #e6c570; --gold-hi: #fff1c4; --gold-deep: #9a7528; --gold-line: #c9a14d;
+  --bulb: #ffe6a3;
+  --blue: #3f6fd6; --green: #34c46a;
+  --cream: #fbfaf5; --ink: #14110c; --red: #c21f1f;
+  --txt: #f0e7d4; --muted: #c39a93;
+  --panel: rgba(255, 235, 200, 0.05);
+  --panel-line: rgba(230, 197, 112, 0.28);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Outfit', system-ui, 'Segoe UI', sans-serif;
+  color: var(--txt);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  background:
+    radial-gradient(110% 80% at 50% 25%, rgba(150, 30, 40, 0.55), transparent 55%),
+    radial-gradient(140% 120% at 50% 120%, rgba(230, 197, 112, 0.1), transparent 60%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0) 70%);
+  /* No background-attachment:fixed — it forces full-page repaints on mobile
+     scroll; the fixed .bgfx layer carries the pinned atmosphere instead. */
+  background-color: var(--bg-0);
+}
+
+/* Keyboard focus rings on every interactive element (mouse clicks stay clean). */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[role='switch']:focus-visible,
+[role='button']:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--gold-hi);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@layer components {
+  /* ---- Display type ------------------------------------------------------ */
+  .gold-text {
+    background: linear-gradient(180deg, var(--gold-hi) 10%, var(--gold) 55%, var(--gold-deep));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(60, 30, 0, 0.35);
+    filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.35));
+  }
+
+  /* ---- Glass panel (gold top-highlight + drop shadow) -------------------- */
+  .panel {
+    position: relative;
+    overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 20px;
+    box-shadow: 0 26px 60px -28px #000, inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(230, 197, 112, 0.6), transparent);
+  }
+  .panel-solid {
+    background: linear-gradient(180deg, rgba(40, 12, 16, 0.92), rgba(20, 6, 8, 0.92));
+    border: 1px solid var(--panel-line);
+    border-radius: 20px;
+    box-shadow: 0 26px 60px -24px #000, inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  /* ---- Buttons ----------------------------------------------------------- */
+  .btn {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    font-size: 13px;
+    border: 0;
+    cursor: pointer;
+    border-radius: 11px;
+    padding: 9px 18px;
+    color: var(--ink);
+    transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease, opacity 0.2s;
+  }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-gold { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 8px 18px -8px rgba(230, 197, 112, 0.7); }
+  .btn-green { color: #06210f; background: linear-gradient(180deg, #4fe08c, #1f9a58); box-shadow: 0 8px 18px -8px rgba(52, 196, 106, 0.6); }
+  .btn-ghost { background: transparent; color: var(--txt); border: 1px solid rgba(255, 255, 255, 0.18); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--gold); }
+  .btn-danger { color: #fff; background: linear-gradient(180deg, #d8473a, #9a261c); box-shadow: 0 8px 18px -8px rgba(216, 58, 44, 0.55); }
+  .btn-lg { padding: 13px 34px; font-size: 15px; border-radius: 14px; }
+  .btn-block { display: block; width: 100%; text-align: center; }
+
+  /* ---- Segmented tabs / pills ------------------------------------------- */
+  .seg { display: inline-flex; gap: 4px; padding: 5px; border-radius: 14px; background: var(--panel); border: 1px solid var(--panel-line); }
+  .seg-tab {
+    font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.7px; font-size: 13px;
+    padding: 8px 22px; border-radius: 10px; cursor: pointer; color: var(--muted); border: 0; background: transparent;
+    transition: color 0.15s, background 0.2s;
+  }
+  .seg-tab.active { color: var(--ink); background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 6px 16px -6px rgba(230, 197, 112, 0.6); }
+
+  /* ---- Status tags ------------------------------------------------------- */
+  .tag { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.3px; }
+  .tag-open { color: #9ff0c4; background: rgba(52, 196, 106, 0.14); border: 1px solid rgba(52, 196, 106, 0.45); }
+  .tag-live { color: #ffd9a0; background: rgba(216, 58, 44, 0.2); border: 1px solid rgba(216, 58, 44, 0.55); }
+  .tag-live .pls { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e0533f; margin-right: 5px; vertical-align: middle; animation: twinkle 1.3s infinite; }
+
+  /* ---- Balance chip + coin ----------------------------------------------- */
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 9px; border-radius: 999px;
+    font-weight: 600; font-size: 15px; color: var(--txt); cursor: pointer;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.3));
+    border: 1px solid var(--panel-line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .coin { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffe6a3, #bb8f2c); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.18); }
+  .chip .plus { margin-left: 2px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--ink); font-weight: 800; background: linear-gradient(180deg, #3fd07e, #1f8a52); }
+
+  /* ---- Round icon button ------------------------------------------------- */
+  .iconbtn {
+    width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 17px;
+    color: var(--gold-hi); cursor: pointer; background: linear-gradient(180deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.25));
+    border: 1px solid var(--panel-line); transition: border-color 0.2s, transform 0.12s;
+  }
+  .iconbtn:hover { border-color: var(--gold); transform: translateY(-1px); }
+
+  /* ---- Inputs & selects -------------------------------------------------- */
+  .field-label { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.2px; }
+  .field {
+    width: 100%; margin-top: 4px; border-radius: 11px; padding: 10px 12px; font-size: 14px; color: var(--txt);
+    background: rgba(0, 0, 0, 0.35); border: 1px solid var(--panel-line); outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(230, 197, 112, 0.18); }
+  .field::placeholder { color: rgba(195, 154, 147, 0.7); }
+  select.field { appearance: none; -webkit-appearance: none; cursor: pointer; }
+
+  /* ---- Avatar + level ring + XP ----------------------------------------- */
+  .pfp {
+    position: relative; width: 54px; height: 54px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #2b6fae, #0f2c4a);
+    border: 2px solid var(--gold); box-shadow: 0 6px 16px -6px #000, 0 0 14px rgba(230, 197, 112, 0.4);
+    display: grid; place-items: center; font-family: 'Oswald', sans-serif; font-weight: 700; color: #eaf2ff;
+  }
+  .pfp .lvl {
+    position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; color: #1a1207;
+    background: linear-gradient(180deg, var(--gold-hi), var(--gold)); border-radius: 999px; padding: 1px 9px; box-shadow: 0 2px 6px -2px #000;
+  }
+  .xpbar { width: 120px; height: 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.4); margin-top: 4px; overflow: hidden; border: 1px solid rgba(230, 197, 112, 0.25); }
+  .xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold-hi)); }
+}
+
+@layer components {
+  /* ---- Lobby side rail (round nav icons) --------------------------------- */
+  .rail-item { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; background: none; border: 0; }
+  .rail-ic {
+    position: relative; width: 58px; height: 58px; border-radius: 18px; display: grid; place-items: center; font-size: 23px;
+    background: linear-gradient(180deg, rgba(40, 12, 16, 0.9), rgba(20, 6, 8, 0.9)); border: 1px solid var(--panel-line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px -8px #000; transition: transform 0.14s, box-shadow 0.2s, border-color 0.2s;
+  }
+  .rail-item:hover .rail-ic { transform: translateY(-2px); box-shadow: 0 12px 24px -10px #000, 0 0 16px rgba(230, 197, 112, 0.35); border-color: var(--gold); }
+  .rail-ic .badge {
+    position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff;
+    background: #d83a2c; display: grid; place-items: center; padding: 0 4px; border: 1px solid #2a0808;
+  }
+  .rail-lbl { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: var(--gold-hi); }
+
+  /* ---- Hero mode cards --------------------------------------------------- */
+  .mode {
+    position: relative; border-radius: 24px; padding: 22px; min-height: 300px; cursor: pointer; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: flex-end; border: 2px solid var(--gold-line);
+    box-shadow: 0 26px 60px -24px #000, inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 26px rgba(230, 197, 112, 0.18);
+    transition: transform 0.18s ease, box-shadow 0.25s ease;
+  }
+  .mode:hover { transform: translateY(-6px); box-shadow: 0 36px 70px -22px #000, 0 0 36px rgba(230, 197, 112, 0.4); }
+  .mode:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 3px; }
+  .mode .art { position: absolute; inset: 0; z-index: 0; }
+  .mode.casual .art { background: radial-gradient(120% 90% at 60% 30%, #1f4f86, #0c2746 70%, #08182e); }
+  .mode.tourn .art { background: radial-gradient(120% 90% at 40% 30%, #2c6a3e, #123b22 70%, #0a2415); }
+  .mode .art::after { content: ''; position: absolute; inset: 0; background: radial-gradient(60% 50% at 50% 38%, rgba(255, 230, 163, 0.25), transparent 60%); }
+  .mode .motif { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); display: flex; z-index: 1; filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.6)); }
+  .pcard { width: 80px; height: 112px; border-radius: 11px; background: linear-gradient(160deg, #fffef9, #f1ead6); position: relative; color: var(--ink); }
+  .pcard.two { transform: rotate(12deg) translateX(-24px); z-index: -1; }
+  .pcard.red { color: var(--red); }
+  .pcard .pr { position: absolute; top: 8px; left: 10px; font-weight: 800; font-size: 19px; }
+  .pcard .pb { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; }
+  .mode .mname { position: relative; z-index: 1; font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 28px; letter-spacing: 1px; text-align: center; text-transform: uppercase; }
+  .mode .mdesc { position: relative; z-index: 1; text-align: center; color: rgba(255, 245, 225, 0.8); font-size: 13px; margin-top: 4px; }
+  .mode .mcta {
+    position: relative; z-index: 1; align-self: center; margin-top: 14px; font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.6px; font-size: 13px;
+    padding: 9px 22px; border-radius: 999px; color: #1a1207; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 10px 22px -10px rgba(230, 197, 112, 0.7);
+  }
+
+  /* ---- Modal ------------------------------------------------------------- */
+  .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(8, 2, 4, 0.72); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 16px; }
+
+  /* ---- Waiting-screen crest --------------------------------------------- */
+  .crest { font-family: 'Cinzel', serif; font-weight: 900; letter-spacing: 6px; }
+}
+
+@layer components {
+  /* ===== TABLE — ornate rail + felt ====================================== */
+  .rail-outer {
+    position: relative; border-radius: 150px / 38%; padding: 26px;
+    /* Black padded-leather rail (the bumper), like a real poker table. */
+    background: linear-gradient(180deg, #43434a 0%, #2a2a2f 26%, #1a1a1e 64%, #0c0c0e 100%);
+    box-shadow:
+      0 52px 100px -34px #000,
+      inset 0 3px 4px rgba(255, 255, 255, 0.14),
+      inset 0 -7px 16px rgba(0, 0, 0, 0.75),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+  /* Recessed cup-holder on the rail. */
+  .cupholder {
+    position: absolute; width: 24px; height: 24px; border-radius: 50%; z-index: 6;
+    background: radial-gradient(circle at 50% 38%, #050506, #1c1c20 78%);
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.85), inset 0 -1px 2px rgba(255, 255, 255, 0.07), 0 1px 1px rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.55);
+  }
+  .rail-inner {
+    position: relative; border-radius: 132px / 33%; min-height: clamp(340px, 48vh, 520px);
+    /* Warm overhead spotlight over a deep felt that darkens to the edges. */
+    background:
+      radial-gradient(56% 40% at 50% 30%, rgba(255, 244, 214, 0.13), transparent 62%),
+      radial-gradient(125% 96% at 50% 42%, var(--felt-hi), var(--felt) 52%, var(--felt-edge) 100%);
+    box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.4), inset 0 0 120px rgba(0, 0, 0, 0.62), inset 0 8px 30px rgba(255, 255, 255, 0.06);
+  }
+  /* The betting ring — a faint gold ellipse where the pile is played. */
+  .felt-ring {
+    position: absolute; inset: 17% 13%; border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3);
+    pointer-events: none; z-index: 1;
+  }
+  .rail-inner::before {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; opacity: 0.08;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='90' height='90'><text x='10' y='34' font-size='26' fill='%23ffffff'>%E2%99%A5</text><text x='54' y='78' font-size='26' fill='%23ffffff'>%E2%99%A0</text></svg>");
+  }
+  .bulb { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--bulb); box-shadow: 0 0 9px 3px rgba(255, 224, 150, 0.85); animation: twinkle 2.4s infinite; z-index: 4; }
+  .tlogo {
+    position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
+    font-family: 'Cinzel', serif; font-weight: 900; font-size: clamp(28px, 4.4vw, 44px); letter-spacing: 8px;
+    color: rgba(255, 232, 170, 0.1); pointer-events: none; white-space: nowrap;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  /* ---- Seat avatar + status rings --------------------------------------- */
+  .av {
+    position: relative; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
+    font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 16px; color: #0c1410;
+    background: linear-gradient(180deg, #dfe9f5, #9fb3cf); box-shadow: 0 8px 18px -8px #000; border: 3px solid var(--blue);
+  }
+  .av.green { border-color: var(--green); }
+  .av.turn { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(230, 197, 112, 0.5), 0 0 22px rgba(230, 197, 112, 0.6); }
+  .av.turn::after {
+    content: ''; position: absolute; inset: -7px; border-radius: 50%;
+    background: conic-gradient(var(--gold) var(--p, 70%), transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+    animation: spin360 8s linear infinite;
+    will-change: transform;
+  }
+  .av.off { opacity: 0.5; }
+  .seat-cnt { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 13px; color: #7cffa8; text-shadow: 0 1px 2px #000; }
+  .seat-nm { font-size: 12px; font-weight: 600; text-shadow: 0 1px 3px #000; }
+  .seat-nm.partner { color: #9bd0f5; }
+  .lastp { font-size: 10px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 2px 8px; letter-spacing: 0.3px; }
+
+  /* ---- Face-down mini fan (opponents — COUNT only, never identities) ----- */
+  .mini {
+    width: 22px; height: 32px; border-radius: 4px; margin-left: -13px;
+    background: var(--cb, repeating-linear-gradient(45deg, #8f2620 0 4px, #a23029 4px 8px));
+    box-shadow: 0 4px 8px -3px #000, inset 0 0 0 1.5px #f1deae, inset 0 0 0 2px rgba(0, 0, 0, 0.25);
+  }
+  .mini:first-child { margin-left: 0; }
+
+  /* ---- Playing-card face ------------------------------------------------- */
+  .gcard {
+    position: relative; flex: 0 0 auto; border-radius: 8px; width: 56px; height: 82px;
+    background: linear-gradient(160deg, #fffef9, var(--cream)); color: var(--ink); font-family: 'Outfit', sans-serif;
+    box-shadow: 0 8px 16px -8px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+  .gcard.red { color: var(--red); }
+  .gcard.lg { width: 74px; height: 104px; }
+  .gcard.sm { width: 30px; height: 44px; }
+  .gc-r { position: absolute; top: 4px; left: 6px; font-weight: 800; font-size: 15px; line-height: 1; }
+  .gc-s { position: absolute; top: 20px; left: 7px; font-size: 11px; line-height: 1; }
+  .gc-big { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 27px; }
+  .gc-br { position: absolute; bottom: 4px; right: 6px; transform: rotate(180deg); font-weight: 800; font-size: 15px; line-height: 1; }
+  .gcard.lg .gc-r, .gcard.lg .gc-br { font-size: 18px; }
+  .gcard.lg .gc-big { font-size: 34px; }
+  .gcard.lg .gc-s { top: 24px; font-size: 13px; }
+  .gcard.sm .gc-r, .gcard.sm .gc-br { font-size: 10px; }
+  .gcard.sm .gc-s { display: none; }
+  .gcard.sm .gc-big { font-size: 16px; }
+  .gcard.sel { box-shadow: 0 26px 44px -14px rgba(230, 197, 112, 0.6), 0 0 0 2px var(--gold); z-index: 9; }
+
+  /* ---- Hand (drag-to-reorder fan; cards absolutely placed by JS) ---------- */
+  .hand-stage { position: relative; margin: 0 auto; }
+  .hand-card {
+    position: absolute; transform-origin: bottom center; cursor: grab; touch-action: none;
+    transition: left 0.18s ease, transform 0.18s ease;
+  }
+  .hand-card:active { cursor: grabbing; }
+
+  /* ---- (legacy) flex fan classes, kept harmless ------------------------- */
+  .hand-fan { display: flex; justify-content: center; align-items: flex-end; min-height: 124px; padding: 0 6px 4px; }
+  .hand-slot { margin-left: -30px; }
+  .hand-slot:first-child { margin-left: 0; }
+  .hand-slot.deal { animation: dealfly 0.42s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+  .hand-fan .gcard { transform-origin: bottom center; cursor: pointer; transition: transform 0.16s, box-shadow 0.16s; }
+  .hand-fan .gcard:hover { transform: translateY(-16px) scale(1.05) !important; z-index: 9; }
+
+  /* ---- Center pile (overlapping) ---------------------------------------- */
+  .pile-cards { display: flex; }
+  .pile-cards .gcard { margin-left: -30px; box-shadow: 0 16px 30px -12px rgba(0, 0, 0, 0.7); }
+  .pile-cards .gcard:first-child { margin-left: 0; }
+
+  /* ---- Corner table controls -------------------------------------------- */
+  .tcorner {
+    width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; font-size: 18px; color: var(--gold-hi); cursor: pointer;
+    background: linear-gradient(180deg, rgba(40, 12, 16, 0.9), rgba(20, 6, 8, 0.85)); border: 1px solid var(--panel-line); transition: border-color 0.2s, transform 0.12s;
+  }
+  .tcorner:hover { border-color: var(--gold); transform: translateY(-1px); }
+
+  /* ---- Scorebar (team / target) ----------------------------------------- */
+  .team-box { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 13px; background: var(--panel); border: 1px solid var(--panel-line); }
+  .team-pip { width: 12px; height: 12px; border-radius: 3px; }
+  .team-sc { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 20px; }
+}
+
+/* ---- Equipped cosmetics (Phase 6): felt themes + card-back skins ---------- */
+/* Applied as classes on the table container; they override the felt CSS vars
+   (which .rail-inner reads) and the card-back gradient var (which .mini reads). */
+.felt_red { --felt-hi: #94202b; --felt: #7c1620; --felt-edge: #330a0e; }
+.felt_emerald { --felt-hi: #1f9a6a; --felt: #0f6a44; --felt-edge: #06281a; }
+.felt_midnight { --felt-hi: #2a3a6a; --felt: #16224a; --felt-edge: #070c1c; }
+.cb_gold { --cb: repeating-linear-gradient(45deg, #9a7528 0 4px, #c9a14d 4px 8px); }
+.cb_royal { --cb: repeating-linear-gradient(45deg, #2f2467 0 4px, #5a4a9a 4px 8px); }
+
+@keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dealfly {
+  from { opacity: 0; transform: translateY(-200px) rotate(10deg) scale(0.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes confettiFall {
+  to { transform: translateY(105vh) translateX(var(--drift, 0)) rotate(var(--rot, 180deg)); opacity: 0.15; }
+}
+
+/* ---- Background atmosphere (suit watermark, grain, vignette, sparkles) --- */
+.bgfx { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.bgfx .suits {
+  position: absolute; inset: 0; opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><text x='14' y='44' font-size='34' fill='%23ffffff'>%E2%99%A0</text><text x='74' y='100' font-size='34' fill='%23ffffff'>%E2%99%A5</text></svg>");
+}
+.bgfx .vig { position: absolute; inset: 0; background: radial-gradient(120% 100% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.6)); }
+/* Static noise overlay. NO mix-blend-mode — blending forces a full-viewport
+   recomposite on every paint underneath (scrolling lists, the animating table),
+   which tanks frames on mid-range phones. The SVG is rasterized once as a
+   background image; a plain low opacity keeps the grain look without the cost. */
+.bgfx .grain {
+  position: absolute; inset: 0; opacity: 0.04;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+.spark {
+  position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--bulb);
+  box-shadow: 0 0 8px 2px rgba(255, 230, 163, 0.8); animation: twinkle 3s infinite;
+}
+
+/* Selected cards lift up out of the fanned hand (table view). */
+.card-selected { transform: translateY(-18px); }
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+/* ---- Mobile-first table fixes (phones ≤480px) ---------------------------- */
+@media (max-width: 480px) {
+  /* Hand: left-anchor so the overflow only accrues on the right and every card
+     stays reachable by horizontal scroll; tighten the fan & shrink cards. */
+  .hand-fan { justify-content: flex-start; padding-left: 14px; padding-right: 14px; }
+  .hand-fan .gcard { width: 58px; height: 84px; }
+  .hand-slot { margin-left: -24px; }
+  .hand-fan .gcard .gc-r,
+  .hand-fan .gcard .gc-br { font-size: 15px; }
+  .hand-fan .gcard .gc-big { font-size: 26px; }
+  .hand-fan .gcard .gc-s { top: 20px; font-size: 11px; }
+
+  /* Shrink seat footprint so 2v2 side seats clear the centre pile. */
+  .av { width: 46px; height: 46px; font-size: 14px; border-width: 2px; }
+  .seat-nm { max-width: 64px; font-size: 11px; }
+  .rail-inner { min-height: clamp(300px, 42vh, 400px); }
+  .tlogo { font-size: 28px; letter-spacing: 4px; }
+  /* 16px inputs stop iOS Safari from auto-zooming on focus (pinch-zoom is now allowed). */
+  .field { font-size: 16px; }
+  /* Lighter hero on phones so the open-rooms list is reachable with less scroll. */
+  .mode { min-height: 210px; padding: 16px; }
+  .mode .mname { font-size: 24px; }
+}
+
+/* Touch devices have no hover: press affordance + ≥44px tap targets (WCAG). */
+@media (hover: none) {
+  .hand-fan .gcard:active { transform: translateY(-12px) scale(1.04) !important; z-index: 9; }
+  .iconbtn { width: 44px; height: 44px; }
+  .tcorner { width: 44px; height: 44px; }
+  .btn { padding-top: 12px; padding-bottom: 12px; }
+  .seg-tab { padding-top: 11px; padding-bottom: 11px; }
+}
+
+/* Respect reduced-motion: kill the decorative loops & reveals. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .spark,
+  .tag-live .pls { animation: none; opacity: 0.7; }
+}

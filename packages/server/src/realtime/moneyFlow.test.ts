@@ -1,0 +1,123 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer, type Server as HttpServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { Server } from 'socket.io';
+import { io as ioClient } from 'socket.io-client';
+import type { Card } from '@murlan/engine';
+import { InMemoryUserRepository } from '../auth/userRepository.ts';
+import { TokenService } from '../auth/tokens.ts';
+import { AuthService } from '../auth/authService.ts';
+import { RoomManager } from '../room/roomManager.ts';
+import { GameGateway } from './gateway.ts';
+import { InMemoryLedger } from '../money/ledger.ts';
+import { WalletService } from '../money/walletService.ts';
+import { InMemoryMatchesRepository } from '../money/matchesRepository.ts';
+import { MoneyService } from '../money/moneyService.ts';
+
+const c = (rank: any, suit: any): Card => ({ kind: 'standard', rank, suit });
+
+function once<T = any>(socket: any, event: string, timeoutMs = 2_000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout ${event}`)), timeoutMs);
+    socket.once(event, (d: T) => { clearTimeout(t); resolve(d); });
+  });
+}
+function emitAck<T = any>(socket: any, event: string, ...args: any[]): Promise<T> {
+  return new Promise((resolve) => socket.emit(event, ...args, (r: T) => resolve(r)));
+}
+
+interface Harness {
+  port: number;
+  wallet: WalletService;
+  u1: string;
+  u2: string;
+  t1: string;
+  t2: string;
+  close: () => Promise<void>;
+}
+
+/** A staked 1v1 server with both players funded $10, seat 0 holding the 3♠. */
+async function staked1v1(startTarget: number): Promise<Harness> {
+  const httpServer: HttpServer = createServer();
+  const io = new Server(httpServer);
+  const repo = new InMemoryUserRepository();
+  const ledger = new InMemoryLedger();
+  const wallet = new WalletService(repo, ledger);
+  const money = new MoneyService(wallet, new InMemoryMatchesRepository());
+  const auth = new AuthService(repo, new TokenService({ accessSecret: 'a', refreshSecret: 'r' }));
+  const rooms = new RoomManager({
+    startTarget,
+    dealerFactory: () => () => [[c('3', 'S')], [c('4', 'S')]].map((h) => h.map((x) => ({ ...x }))),
+    idFactory: (() => { let n = 0; return () => `room_${(n += 1)}`; })(),
+  });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, money, rakeBps: 1_000, abandonMs: 60_000, provablyFair: false });
+
+  await new Promise<void>((res) => httpServer.listen(0, res));
+  const port = (httpServer.address() as AddressInfo).port;
+  const u1 = await auth.register({ username: 'alpha', email: 'a@a.com', password: 'password1' });
+  const u2 = await auth.register({ username: 'beta', email: 'b@b.com', password: 'password2' });
+  await wallet.credit(u1.user.id, 1000, { type: 'deposit' });
+  await wallet.credit(u2.user.id, 1000, { type: 'deposit' });
+
+  return {
+    port, wallet,
+    u1: u1.user.id, u2: u2.user.id,
+    t1: u1.tokens.accessToken, t2: u2.tokens.accessToken,
+    close: () => new Promise<void>((res) => { io.close(); httpServer.close(() => res()); }),
+  };
+}
+
+async function startStakedMatch(h: Harness): Promise<{ c1: any; c2: any }> {
+  const c1: any = ioClient(`http://localhost:${h.port}`, { auth: { token: h.t1 }, transports: ['websocket'], forceNew: true });
+  const c2: any = ioClient(`http://localhost:${h.port}`, { auth: { token: h.t2 }, transports: ['websocket'], forceNew: true });
+  await Promise.all([once(c1, 'connect'), once(c2, 'connect')]);
+  await emitAck(c1, 'room:create', { type: '1v1', stakeCents: 1000 });
+  await emitAck(c2, 'room:join', { roomId: 'room_1' });
+  const started = once(c1, 'game:start');
+  await emitAck(c1, 'room:ready', true);
+  await emitAck(c2, 'room:ready', true);
+  await started;
+  return { c1, c2 };
+}
+
+test('staked 1v1: stakes escrowed at start; winner paid pot − rake; ledger reconciles', async () => {
+  const h = await staked1v1(1); // a single won game ends the match
+  const { c1, c2 } = await startStakedMatch(h);
+  try {
+    assert.equal(await h.wallet.getBalance(h.u1), 0); // escrowed
+    assert.equal(await h.wallet.getBalance(h.u2), 0);
+
+    const end = once(c1, 'match:end');
+    await emitAck(c1, 'game:play', { cards: [c('3', 'S')] }); // seat 0 wins
+    const result = await end;
+
+    assert.equal(result.payoutCents, 1800);
+    assert.equal(await h.wallet.getBalance(h.u1), 1800);
+    assert.equal(await h.wallet.getBalance(h.u2), 0);
+    assert.equal((await h.wallet.reconcile()).ok, true);
+  } finally {
+    c1.close(); c2.close(); await h.close();
+  }
+});
+
+test('leaving mid-match forfeits the pot to the opponent — escrow is never leaked', async () => {
+  const h = await staked1v1(100); // match would otherwise continue
+  const { c1, c2 } = await startStakedMatch(h);
+  try {
+    assert.equal(await h.wallet.getBalance(h.u1), 0);
+    assert.equal(await h.wallet.getBalance(h.u2), 0);
+
+    const end = once(c1, 'match:end');
+    await emitAck(c2, 'room:leave'); // seat 1 walks away mid-match
+    const result = await end;
+
+    assert.deepEqual(result.winnerSeats, [0]);   // opponent takes it
+    assert.equal(result.payoutCents, 1800);
+    assert.equal(await h.wallet.getBalance(h.u1), 1800); // paid, not stuck escrowed
+    assert.equal(await h.wallet.getBalance(h.u2), 0);
+    assert.equal((await h.wallet.reconcile()).ok, true);
+  } finally {
+    c1.close(); c2.close(); await h.close();
+  }
+});

@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Builds
+**/dist/
+**/.vite/
+
+# Prisma generated client
+node_modules/.prisma/
+
+# Logs / OS
+*.log
+.DS_Store

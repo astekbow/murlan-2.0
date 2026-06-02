@@ -1,0 +1,16 @@
+{
+  "name": "@murlan/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Murlan rules engine — the single source of truth for card logic.",
+  "main": "./src/engine.ts",
+  "types": "./src/engine.ts",
+  "exports": {
+    ".": "./src/engine.ts"
+  },
+  "scripts": {
+    "test": "tsx src/engine.test.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@murlan/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Murlan authoritative game server — single-game & match state machines, Socket.IO, money.",
+  "main": "./src/index.ts",
+  "scripts": {
+    "start": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
+    "dev": "node --env-file-if-exists=../../.env --watch --import tsx src/index.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "prisma generate --schema prisma/schema.prisma && tsc --noEmit",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^10.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@murlan/engine": "*",
+    "@murlan/shared": "*",
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/client": "^5.22.0",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "fastify": "^5.8.5",
+    "ioredis": "^5.11.0",
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "prisma": "^5.22.0",
+    "socket.io-client": "^4.8.3"
+  }
+}

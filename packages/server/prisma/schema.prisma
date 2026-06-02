@@ -1,0 +1,280 @@
+// Murlan persistence schema (spec §11). The server uses in-memory repositories
+// by default; when DATABASE_URL is set it uses the Prisma-backed adapters that
+// implement the same repository interfaces, with $transaction for atomic money.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (Supabase pooler, port 6543) for the app
+  directUrl = env("DIRECT_URL")   // direct (port 5432) for `prisma migrate`
+}
+
+enum UserRole {
+  user
+  admin
+}
+
+enum KycStatus {
+  none
+  pending
+  verified
+}
+
+enum TransactionType {
+  deposit
+  withdrawal
+  bet
+  payout
+  rake
+  admin_adjust
+}
+
+enum TransactionStatus {
+  pending
+  completed
+  failed
+}
+
+enum MatchStatus {
+  active
+  settled
+  cancelled
+}
+
+enum WithdrawalStatus {
+  pending
+  completed
+  rejected
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String // display value (original case)
+  usernameLower String   @unique // case-insensitive uniqueness/lookup key
+  email         String   @unique // stored lowercased
+  passwordHash  String
+  role         UserRole @default(user)
+  balanceCents Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  // Bumped to force-invalidate ALL of a user's refresh tokens at once (e.g. on
+  // ban or "log out of all devices"). Checked on every refresh.
+  tokenVersion  Int     @default(0)
+  emailVerified Boolean @default(false)
+
+  // Compliance (§13)
+  kycStatus         KycStatus @default(none)
+  dateOfBirth       String?
+  country           String?
+  selfExcludedUntil DateTime?
+
+  // Progression & cosmetics (§2.3) — XP/stats only, never cashable. Level is
+  // DERIVED from xp (see profile/level helper), not stored.
+  xp              Int     @default(0)
+  gamesPlayed     Int     @default(0)
+  wins            Int     @default(0)
+  biggestPotCents Int     @default(0)
+  currentStreak   Int     @default(0)
+  avatar          String? // cosmetic avatar id from a preset set
+
+  // Engagement rewards (§2.6) — XP/cosmetic ONLY, never cashable. Gated by the
+  // rewardsEnabled config (per-jurisdiction off switch).
+  lastDailyClaim    DateTime?
+  dailyStreak       Int      @default(0)
+  cosmetics         String[] @default([]) // owned cosmetic ids
+  cardBack          String? // equipped card-back id
+  tableFelt         String? // equipped felt-theme id
+  claimedChallenges String[] @default([]) // claimed challenge ids
+
+  transactions   Transaction[]
+  withdrawals    Withdrawal[]
+  matchSeats     MatchPlayer[]
+  friendRequests Friendship[] @relation("FriendRequests")
+  friendOf       Friendship[] @relation("FriendOf")
+  refreshTokens  RefreshToken[]
+  adminActions   AdminAction[] @relation("AdminActor")
+  verificationTokens VerificationToken[]
+
+  @@map("users")
+}
+
+enum VerificationTokenType {
+  email_verify
+  password_reset
+}
+
+// Single-use, hashed, expiring tokens for email verification + password reset.
+// Only the SHA-256 hash is stored (the raw token lives only in the emailed link),
+// so a DB leak can't be used to verify/reset. Consumed on use (usedAt set).
+model VerificationToken {
+  id        String                @id @default(cuid())
+  userId    String
+  type      VerificationTokenType
+  tokenHash String                @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("verification_tokens")
+}
+
+enum FriendStatus {
+  pending
+  accepted
+  blocked
+}
+
+// Server-side record of issued refresh tokens (rotation + reuse detection +
+// real revocation). A refresh JWT carries a `jti`; /refresh verifies the jti is
+// present and unrevoked, rotates (revokes old, issues new), and on a reused jti
+// revokes the whole `family`. Logout revokes the current jti.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  jti       String   @unique
+  userId    String
+  family    String // rotation family id (shared across a rotation chain)
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([family])
+  @@map("refresh_tokens")
+}
+
+// Audit trail for privileged admin actions (balance adjust, KYC change,
+// withdrawal approve/reject). Immutable, append-only — the core fraud/AML control.
+model AdminAction {
+  id           String   @id @default(cuid())
+  adminId      String
+  action       String // 'balance_adjust' | 'kyc_set' | 'withdrawal_approve' | 'withdrawal_reject'
+  targetUserId String?
+  amountCents  Int?
+  detail       String?
+  createdAt    DateTime @default(now())
+
+  admin User @relation("AdminActor", fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([targetUserId])
+  @@map("admin_actions")
+}
+
+model Friendship {
+  id          String       @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status      FriendStatus @default(pending)
+  createdAt   DateTime     @default(now())
+
+  requester User @relation("FriendRequests", fields: [requesterId], references: [id])
+  addressee User @relation("FriendOf", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+  @@map("friendships")
+}
+
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String
+  type        TransactionType
+  amountCents Int // signed
+  currency    String            @default("USD")
+  status      TransactionStatus @default(completed)
+  providerRef String?           @unique
+  matchId     String?
+  reason      String?
+  createdAt   DateTime          @default(now())
+
+  user  User   @relation(fields: [userId], references: [id])
+  match Match? @relation(fields: [matchId], references: [id])
+
+  @@index([userId])
+  @@index([matchId])
+  @@map("transactions")
+}
+
+model Match {
+  id         String      @id
+  type       String // '1v1' | '1v1v1' | '2v2'
+  stakeCents Int
+  rakeBps    Int
+  potCents   Int
+  status     MatchStatus @default(active)
+  targetT    Int         @default(21)
+  winnerSide Int?
+  createdAt  DateTime    @default(now())
+  endedAt    DateTime?
+
+  players      MatchPlayer[]
+  games        Game[]
+  transactions Transaction[]
+
+  @@map("matches")
+}
+
+model MatchPlayer {
+  matchId    String
+  userId     String
+  seat       Int
+  team       Int?
+  finalScore Int  @default(0)
+
+  match Match @relation(fields: [matchId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@id([matchId, seat])
+  @@index([userId])
+  @@map("match_players")
+}
+
+model Game {
+  id             String   @id @default(cuid())
+  matchId        String
+  index          Int
+  finishingOrder Int[]
+  serverSeed     String?  // null until revealed
+  serverSeedHash String
+  clientSeed     String
+  nonce          Int
+  revealed       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@unique([matchId, index])
+  @@map("games")
+}
+
+model Withdrawal {
+  id          String           @id @default(cuid())
+  userId      String
+  amountCents Int
+  destination String
+  status      WithdrawalStatus @default(pending)
+  createdAt   DateTime         @default(now())
+  resolvedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("withdrawals")
+}
+
+model DepositIntent {
+  providerRef String   @id
+  userId      String
+  amountCents Int
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+
+  @@map("deposit_intents")
+}

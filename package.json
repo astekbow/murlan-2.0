@@ -1,0 +1,31 @@
+{
+  "name": "murlan-online",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Murlan Online — real-time multiplayer Albanian card game (real money)",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace @murlan/server",
+    "dev:client": "npm run dev --workspace @murlan/client",
+    "start": "npm run dev",
+    "make-admin": "node --env-file-if-exists=.env --import tsx packages/server/scripts/makeAdmin.ts",
+    "set-password": "node --env-file-if-exists=.env --import tsx packages/server/scripts/setPassword.ts",
+    "test": "npm run test --workspaces --if-present",
+    "test:engine": "npm run test --workspace @murlan/engine",
+    "test:server": "npm run test --workspace @murlan/server",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

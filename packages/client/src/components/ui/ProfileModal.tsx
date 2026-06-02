@@ -1,0 +1,151 @@
+// Profile modal — shows a player's avatar, level, XP bar and lifetime stats.
+// For the signed-in user it also offers a preset-avatar picker. Read-only data
+// is fetched via profileApi.get; avatar changes go through profileApi.setAvatar
+// and then refresh both the local profile and the auth store.
+import { useEffect, useState } from 'react';
+import { Modal } from './Modal.tsx';
+import { profileApi, ApiError, type Profile } from '../../lib/api.ts';
+import { avatarEmoji, AVATARS } from '../../lib/avatars.ts';
+import { dollars } from '../../lib/money.ts';
+import { useAuthStore } from '../../store/authStore.ts';
+
+interface ProfileModalProps {
+  userId: string;
+  onClose: () => void;
+}
+
+export function ProfileModal({ userId, onClose }: ProfileModalProps) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [savingAvatar, setSavingAvatar] = useState<string | null>(null);
+
+  const isMe = userId === useAuthStore.getState().user?.id;
+
+  async function load() {
+    try {
+      const { profile: p } = await profileApi.get(userId);
+      setProfile(p);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Profili nuk u ngarkua.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setLoading(true);
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  async function pickAvatar(avatar: string) {
+    if (savingAvatar) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setSavingAvatar(avatar);
+    try {
+      await profileApi.setAvatar(token, avatar);
+      await load();
+      await useAuthStore.getState().refreshMe();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Avatari nuk u ruajt.');
+    } finally {
+      setSavingAvatar(null);
+    }
+  }
+
+  return (
+    <Modal title="Profili" onClose={onClose} maxWidth={460}>
+      {loading ? (
+        <div className="text-center py-10">
+          <div className="text-4xl mb-2 opacity-60 animate-twinkle">🎴</div>
+          <p className="text-sm text-muted">Po ngarkohet…</p>
+        </div>
+      ) : error || !profile ? (
+        <div className="text-center py-10">
+          <div className="text-4xl mb-2 opacity-60">⚠️</div>
+          <p className="text-sm text-red-300">{error ?? 'Profili nuk u gjet.'}</p>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {/* Identity: big avatar + level + XP */}
+          <div className="flex items-center gap-4">
+            <div className="pfp" style={{ width: 72, height: 72, fontSize: 34 }}>
+              {avatarEmoji(profile.avatar)}
+              <span className="lvl">{profile.level}</span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-display font-semibold tracking-wide text-xl leading-none truncate">
+                {profile.username}
+              </div>
+              <div className="text-xs text-muted mt-1">
+                Niveli {profile.level} · {profile.xp} XP
+              </div>
+              <div className="xpbar" style={{ width: '100%' }}>
+                <i style={{ width: `${Math.round(profile.levelInfo.pct * 100)}%` }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Lifetime stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <StatCard label="Lojëra" value={String(profile.gamesPlayed)} />
+            <StatCard label="Fitore" value={String(profile.wins)} />
+            <StatCard label="% fitore" value={`${Math.round(profile.winRate * 100)}%`} />
+            <StatCard label="Seri" value={String(profile.currentStreak)} />
+            <StatCard label="Poti më i madh" value={dollars(profile.biggestPotCents)} wide />
+          </div>
+
+          {/* Avatar picker (only for the signed-in user) */}
+          {isMe && (
+            <div className="space-y-2.5">
+              <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
+                ZGJIDH AVATARIN
+              </h3>
+              <div className="grid grid-cols-6 gap-2.5">
+                {AVATARS.map((a) => {
+                  const active = profile.avatar === a;
+                  return (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => void pickAvatar(a)}
+                      disabled={savingAvatar !== null}
+                      title={a}
+                      className={`aspect-square rounded-xl grid place-items-center text-2xl transition-all border ${
+                        active
+                          ? 'border-gold bg-gold/[.12] shadow-[0_6px_16px_-6px_rgba(230,197,112,0.6)]'
+                          : 'border-white/10 bg-white/[.03] hover:border-gold hover:-translate-y-0.5'
+                      } ${savingAvatar === a ? 'opacity-50' : ''} disabled:cursor-not-allowed`}
+                    >
+                      {avatarEmoji(a)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-300">{error}</p>}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function StatCard({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div
+      className={`rounded-xl px-3 py-2.5 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] ${
+        wide ? 'col-span-2 sm:col-span-1' : ''
+      }`}
+    >
+      <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase">{label}</div>
+      <div className="font-display font-semibold tracking-wide text-gold-hi text-lg leading-tight mt-0.5">
+        {value}
+      </div>
+    </div>
+  );
+}

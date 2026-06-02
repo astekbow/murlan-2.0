@@ -1,0 +1,305 @@
+// REST client for auth. The refresh token is an httpOnly cookie (sent
+// automatically with credentials: 'include'); the access token is held in
+// memory by the auth store and passed as a Bearer header.
+
+import type { MatchType } from '@murlan/shared';
+
+export interface PublicUser {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  balanceCents: number;
+}
+
+export interface AuthResponse {
+  user: PublicUser;
+  accessToken: string;
+}
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly code = 'error', public readonly status = 0) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  token?: string | null;
+}
+
+// ---------- Session bridge (set by the auth store) --------------------------
+// The access token has a short TTL. To keep the app alive past it, a 401 on an
+// authenticated call triggers ONE silent refresh + retry, and the socket layer
+// can request the current/fresh token. The auth store registers the hooks so
+// this module stays free of a circular store import.
+let onTokenRefreshed: ((token: string) => void) | null = null;
+let onSessionLost: (() => void) | null = null;
+export function registerSessionHandlers(h: { onToken: (t: string) => void; onLost: () => void }): void {
+  onTokenRefreshed = h.onToken;
+  onSessionLost = h.onLost;
+}
+
+let refreshInFlight: Promise<string> | null = null;
+/** Single-flight access-token refresh from the httpOnly refresh cookie. */
+export function refreshAccessToken(): Promise<string> {
+  if (!refreshInFlight) {
+    refreshInFlight = rawRequest<AuthResponse>('/auth/refresh', { method: 'POST' })
+      .then((res) => {
+        onTokenRefreshed?.(res.accessToken);
+        return res.accessToken;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+/** A single fetch with no auto-refresh — used by refresh itself and internally. */
+async function rawRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (opts.body !== undefined) headers['content-type'] = 'application/json';
+  if (opts.token) headers['authorization'] = `Bearer ${opts.token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: opts.method ?? 'GET',
+      headers,
+      credentials: 'include',
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    // fetch rejects only on a network/CORS failure — distinguish from a 4xx/5xx.
+    throw new ApiError('Lidhja me serverin dështoi. Kontrollo internetin.', 'network', 0);
+  }
+
+  const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+  if (!res.ok) {
+    const code = data?.error?.code ?? (res.status === 429 ? 'rate_limited' : 'error');
+    const fallback = res.status === 429 ? 'Shumë përpjekje — provo më vonë.' : 'Gabim i panjohur.';
+    throw new ApiError(data?.error?.message ?? fallback, code, res.status);
+  }
+  return data as T;
+}
+
+async function request<T>(path: string, opts: RequestOptions = {}, _retried = false): Promise<T> {
+  try {
+    return await rawRequest<T>(path, opts);
+  } catch (e) {
+    // An authenticated call that 401s while we hold a (now-expired) access token:
+    // refresh once from the cookie and retry with the new token. Never recurse on
+    // the refresh endpoint itself, and only retry once.
+    const is401 = e instanceof ApiError && e.status === 401;
+    if (is401 && opts.token && !_retried && path !== '/auth/refresh') {
+      try {
+        const newToken = await refreshAccessToken();
+        return await request<T>(path, { ...opts, token: newToken }, true);
+      } catch {
+        onSessionLost?.();
+        throw new ApiError('Sesioni skadoi — hyr përsëri.', 'session_expired', 401);
+      }
+    }
+    throw e;
+  }
+}
+
+export interface RegisterInput {
+  username: string;
+  email: string;
+  password: string;
+}
+export interface LoginInput {
+  email: string;
+  password: string;
+}
+
+export const authApi = {
+  register: (body: RegisterInput) => request<AuthResponse>('/auth/register', { method: 'POST', body }),
+  login: (body: LoginInput) => request<AuthResponse>('/auth/login', { method: 'POST', body }),
+  refresh: () => request<AuthResponse>('/auth/refresh', { method: 'POST' }),
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  me: (token: string) => request<{ user: PublicUser }>('/auth/me', { method: 'GET', token }),
+  forgotPassword: (email: string) => request<{ ok: boolean }>('/auth/forgot-password', { method: 'POST', body: { email } }),
+  resetPassword: (token: string, password: string) => request<{ ok: boolean }>('/auth/reset-password', { method: 'POST', body: { token, password } }),
+  confirmEmail: (token: string) => request<{ ok: boolean }>('/auth/verify-email/confirm', { method: 'POST', body: { token } }),
+  requestEmailVerification: (token: string) => request<{ ok: boolean }>('/auth/verify-email/request', { method: 'POST', token }),
+};
+
+// ---------- Social: profiles, leaderboard, friends (Phase 5) ----------------
+
+export interface LevelInfo {
+  level: number;
+  intoLevel: number;
+  levelSpan: number;
+  pct: number;
+}
+export interface Profile {
+  id: string;
+  username: string;
+  avatar: string | null;
+  xp: number;
+  level: number;
+  levelInfo: LevelInfo;
+  gamesPlayed: number;
+  wins: number;
+  winRate: number;
+  biggestPotCents: number;
+  currentStreak: number;
+}
+export interface LeaderboardRow {
+  rank: number;
+  id: string;
+  username: string;
+  avatar: string | null;
+  level: number;
+  xp: number;
+  wins: number;
+  gamesPlayed: number;
+  winRate: number;
+}
+export interface FriendEntry {
+  id: string;
+  status: 'pending' | 'accepted' | 'blocked';
+  direction: 'incoming' | 'outgoing' | 'friends' | 'blocked';
+  online: boolean;
+  user: { id: string; username: string; avatar: string | null; level: number };
+}
+
+export const profileApi = {
+  get: (userId: string) => request<{ profile: Profile }>(`/profile/${userId}`),
+  me: (token: string) => request<{ profile: Profile }>('/me/profile', { token }),
+  setAvatar: (token: string, avatar: string) => request<{ profile: Profile }>('/me/avatar', { method: 'POST', token, body: { avatar } }),
+  leaderboard: () => request<{ rows: LeaderboardRow[] }>('/leaderboard'),
+};
+
+export const friendsApi = {
+  list: (token: string) => request<{ friends: FriendEntry[] }>('/friends', { token }),
+  request: (token: string, username: string) => request<{ ok: boolean }>('/friends/request', { method: 'POST', token, body: { username } }),
+  respond: (token: string, id: string, accept: boolean) => request<{ ok: boolean }>(`/friends/${id}/respond`, { method: 'POST', token, body: { accept } }),
+  remove: (token: string, id: string) => request<{ ok: boolean }>(`/friends/${id}`, { method: 'DELETE', token }),
+  // Block/unblock are keyed by the target USER id (works even for non-friends).
+  block: (token: string, userId: string) => request<{ ok: boolean }>(`/friends/${userId}/block`, { method: 'POST', token }),
+  unblock: (token: string, userId: string) => request<{ ok: boolean }>(`/friends/${userId}/unblock`, { method: 'POST', token }),
+};
+
+// ---------- Rewards / cosmetics (Phase 6, §2.6) — XP/cosmetic only ----------
+
+export type CosmeticType = 'cardBack' | 'tableFelt';
+export interface RewardChallenge {
+  id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number;
+}
+export interface ShopItem {
+  id: string; name: string; type: CosmeticType; cost: number; owned: boolean;
+}
+export interface RewardsStatus {
+  enabled: boolean;
+  xp: number;
+  level: number;
+  daily: { canClaim: boolean; streak: number; rewardXp: number };
+  challenges: RewardChallenge[];
+  shop: ShopItem[];
+  equipped: { cardBack: string | null; tableFelt: string | null };
+}
+
+export const rewardsApi = {
+  status: (token: string) => request<{ status: RewardsStatus }>('/rewards', { token }),
+  claimDaily: (token: string) => request<{ rewardXp: number; streak: number }>('/rewards/daily', { method: 'POST', token }),
+  claimChallenge: (token: string, id: string) => request<{ rewardXp: number }>(`/rewards/challenge/${id}`, { method: 'POST', token }),
+  buy: (token: string, id: string) => request<{ ok: boolean }>('/shop/buy', { method: 'POST', token, body: { id } }),
+  equip: (token: string, id: string) => request<{ ok: boolean }>('/cosmetics/equip', { method: 'POST', token, body: { id } }),
+};
+
+// ---------- Wallet & account ------------------------------------------------
+
+export type TransactionType = 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'rake' | 'admin_adjust';
+
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amountCents: number;
+  currency: string;
+  status: string;
+  providerRef: string | null;
+  matchId: string | null;
+  reason: string | null;
+  createdAt: number;
+}
+
+export interface WithdrawalRecord {
+  id: string;
+  amountCents: number;
+  destination: string;
+  status: 'pending' | 'completed' | 'rejected';
+  createdAt: number;
+}
+
+export interface DepositIntent {
+  providerRef: string;
+  payAddress: string;
+  amountCents: number;
+}
+
+export interface ComplianceProfile {
+  kycStatus: 'none' | 'pending' | 'verified';
+  dateOfBirth: string | null;
+  country: string | null;
+  selfExcludedUntil: number | null;
+}
+
+export const walletApi = {
+  balance: (token: string) => request<{ balanceCents: number }>('/wallet', { token }),
+  transactions: (token: string) => request<{ transactions: Transaction[] }>('/wallet/transactions', { token }),
+  deposit: (token: string, amountCents: number) => request<DepositIntent>('/wallet/deposit', { method: 'POST', token, body: { amountCents } }),
+  withdraw: (token: string, amountCents: number, destination: string) =>
+    request<{ withdrawal: WithdrawalRecord }>('/wallet/withdraw', { method: 'POST', token, body: { amountCents, destination } }),
+  withdrawals: (token: string) => request<{ withdrawals: WithdrawalRecord[] }>('/wallet/withdrawals', { token }),
+};
+
+export const accountApi = {
+  get: (token: string) => request<{ profile: ComplianceProfile }>('/account', { token }),
+  setProfile: (token: string, body: { dateOfBirth?: string; country?: string }) =>
+    request<{ user: PublicUser }>('/account/profile', { method: 'POST', token, body }),
+  selfExclude: (token: string, days: number) =>
+    request<{ ok: boolean; selfExcludedUntil: number }>('/account/self-exclude', { method: 'POST', token, body: { days } }),
+};
+
+// ---------- Admin ------------------------------------------------------------
+
+export interface AdminUser extends PublicUser {
+  kycStatus: 'none' | 'pending' | 'verified';
+}
+export interface AdminWithdrawal {
+  id: string;
+  userId: string;
+  amountCents: number;
+  destination: string;
+  status: string;
+  createdAt: number;
+}
+export interface AdminMatch {
+  roomId: string;
+  matchId: string | null;
+  type: string;
+  stakeCents: number;
+  target: number;
+  players: Array<{ seat: number; username: string | null; connected: boolean }>;
+}
+
+export const adminApi = {
+  users: (token: string) => request<{ users: AdminUser[] }>('/admin/users', { token }),
+  matches: (token: string) => request<{ matches: AdminMatch[] }>('/admin/matches', { token }),
+  withdrawals: (token: string) => request<{ withdrawals: AdminWithdrawal[] }>('/admin/withdrawals', { token }),
+  adjust: (token: string, id: string, deltaCents: number, reason: string) =>
+    request<{ balanceCents: number }>(`/admin/users/${id}/adjust`, { method: 'POST', token, body: { deltaCents, reason } }),
+  setKyc: (token: string, id: string, status: 'none' | 'pending' | 'verified') =>
+    request<{ user: AdminUser }>(`/admin/users/${id}/kyc`, { method: 'POST', token, body: { status } }),
+  approveWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/approve`, { method: 'POST', token }),
+  rejectWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/reject`, { method: 'POST', token }),
+};
+
+// Re-export so the lobby create form can type its stake/room-type field.
+export type { MatchType };

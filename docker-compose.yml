@@ -1,0 +1,63 @@
+# Local/prod-like stack. Postgres is included for the forthcoming Prisma store
+# (the server currently uses in-memory repositories); Redis powers the Socket.IO
+# adapter when REDIS_URL is set. Override secrets via a .env file (see .env.example).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: murlan
+      POSTGRES_PASSWORD: murlan
+      POSTGRES_DB: murlan
+    ports: ['5432:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U murlan']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ['6379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      CLIENT_ORIGIN: http://localhost:8080
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change-me-webhook}
+      REDIS_URL: redis://redis:6379
+      # Postgres is OPT-IN — the server runs in-memory unless DATABASE_URL is set.
+      # To enable Prisma/Postgres: set DATABASE_URL (e.g. postgres://murlan:murlan@postgres:5432/murlan)
+      # and apply the migration first: npm run db:migrate --workspace @murlan/server
+      DATABASE_URL: ${DATABASE_URL:-}
+      RAKE_BPS: ${RAKE_BPS:-1000}
+      # Compliance switches (off by default):
+      KYC_REQUIRED: ${KYC_REQUIRED:-false}
+      MIN_AGE: ${MIN_AGE:-0}
+      GEO_BLOCKED_COUNTRIES: ${GEO_BLOCKED_COUNTRIES:-}
+      RESPONSIBLE_GAMING: ${RESPONSIBLE_GAMING:-false}
+    ports: ['3000:3000']
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    ports: ['8080:80']
+    depends_on: ['server']
+
+volumes:
+  pgdata:

@@ -1,0 +1,281 @@
+// ============================================================================
+// MURLAN — User entity & repository
+// ----------------------------------------------------------------------------
+// The repository is an interface so the server can run on an in-memory store
+// (tests, local dev) or PostgreSQL/Prisma (production) without changing callers.
+// Balances live here as integer USD cents (money is settled in Phase 6).
+// ============================================================================
+
+export type UserRole = 'user' | 'admin';
+export type KycStatus = 'none' | 'pending' | 'verified';
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;        // stored lowercased
+  passwordHash: string;
+  role: UserRole;
+  balanceCents: number; // integer USD cents — never floats
+  createdAt: number;    // epoch ms
+  tokenVersion: number; // bumped to force-invalidate all refresh tokens
+  emailVerified: boolean;
+  // Compliance (spec §13) — gated by ComplianceService switches.
+  kycStatus: KycStatus;
+  dateOfBirth: string | null;     // 'YYYY-MM-DD'
+  country: string | null;         // ISO-2
+  selfExcludedUntil: number | null; // epoch ms
+  // Progression & cosmetics (§2.3) — XP/stats only, never cashable.
+  xp: number;
+  gamesPlayed: number;
+  wins: number;
+  biggestPotCents: number;
+  currentStreak: number;
+  avatar: string | null;          // cosmetic avatar id
+  // Engagement rewards (§2.6) — XP/cosmetic only.
+  lastDailyClaim: number | null;  // epoch ms of last daily claim
+  dailyStreak: number;
+  cosmetics: string[];            // owned cosmetic ids
+  cardBack: string | null;        // equipped
+  tableFelt: string | null;       // equipped
+  claimedChallenges: string[];
+}
+
+/** Patch for reward/cosmetic fields. */
+export interface RewardsPatch {
+  lastDailyClaim?: number | null;
+  dailyStreak?: number;
+  cosmetics?: string[];
+  cardBack?: string | null;
+  tableFelt?: string | null;
+  claimedChallenges?: string[];
+}
+
+/** A finished-match result applied to a player's cosmetic stats/XP. */
+export interface MatchStatUpdate {
+  won: boolean;
+  potCents: number; // the pot this player was part of (for "biggest pot")
+  xpGain: number;
+}
+
+export interface ComplianceUpdate {
+  kycStatus?: KycStatus;
+  dateOfBirth?: string | null;
+  country?: string | null;
+  selfExcludedUntil?: number | null;
+}
+
+export interface NewUser {
+  username: string;
+  email: string;
+  passwordHash: string;
+  role?: UserRole;
+}
+
+/** Thrown by create() when a unique field collides, so callers map to a 409. */
+export class DuplicateUserError extends Error {
+  constructor(public readonly field: 'email' | 'username') {
+    super(`${field} already exists`);
+    this.name = 'DuplicateUserError';
+  }
+}
+
+export interface UserRepository {
+  create(u: NewUser): Promise<User>;
+  findById(id: string): Promise<User | null>;
+  findByEmail(email: string): Promise<User | null>;       // case-insensitive
+  findByUsername(username: string): Promise<User | null>; // case-insensitive
+  /**
+   * Atomically apply a signed delta to a balance and return the new balance.
+   * Rejects (returns null) if the result would be negative — callers must
+   * pre-check funds. Production impl runs this inside a DB transaction.
+   */
+  adjustBalance(id: string, deltaCents: number): Promise<number | null>;
+  /** Patch compliance fields (KYC status, DOB, country, self-exclusion). */
+  updateCompliance(id: string, patch: ComplianceUpdate): Promise<User | null>;
+  /** All users (admin listing). Production impl should paginate. */
+  list(): Promise<User[]>;
+  /** Apply a finished match to a player's cosmetic stats/XP. */
+  applyMatchResult(id: string, r: MatchStatUpdate): Promise<User | null>;
+  /** Set the cosmetic avatar id. */
+  setAvatar(id: string, avatar: string): Promise<User | null>;
+  /** Top users by XP (leaderboard). */
+  topByXp(limit: number): Promise<User[]>;
+  /** Add (or subtract, clamped ≥0) cosmetic XP. */
+  addXp(id: string, deltaXp: number): Promise<User | null>;
+  /** Patch reward/cosmetic fields. */
+  setRewards(id: string, patch: RewardsPatch): Promise<User | null>;
+  /** Increment tokenVersion (force-logout: invalidates all refresh tokens). */
+  bumpTokenVersion(id: string): Promise<number | null>;
+  /**
+   * Atomically buy a cosmetic: succeed ONLY if xp >= cost AND it isn't already
+   * owned, deducting xp and appending the id in one operation. Prevents the
+   * read-check-write race that could double-spend XP or duplicate the grant.
+   */
+  purchaseCosmetic(id: string, cosmeticId: string, cost: number): Promise<{ ok: boolean; code?: string }>;
+  /** Mark a user's email verified/unverified. */
+  setEmailVerified(id: string, verified: boolean): Promise<void>;
+  /** Replace the password hash (password reset). */
+  setPassword(id: string, passwordHash: string): Promise<void>;
+}
+
+/** In-memory repository for tests and single-instance local dev. */
+export class InMemoryUserRepository implements UserRepository {
+  private byId = new Map<string, User>();
+  private byEmail = new Map<string, string>();    // lowercased email -> id
+  private byUsername = new Map<string, string>(); // lowercased username -> id
+  private seq = 0;
+
+  async create(u: NewUser): Promise<User> {
+    const email = u.email.toLowerCase();
+    const unameKey = u.username.toLowerCase();
+    if (this.byEmail.has(email)) throw new DuplicateUserError('email');
+    if (this.byUsername.has(unameKey)) throw new DuplicateUserError('username');
+
+    this.seq += 1;
+    const user: User = {
+      id: `u_${this.seq}`,
+      username: u.username,
+      email,
+      passwordHash: u.passwordHash,
+      role: u.role ?? 'user',
+      balanceCents: 0,
+      createdAt: epochMs(),
+      tokenVersion: 0,
+      emailVerified: false,
+      kycStatus: 'none',
+      dateOfBirth: null,
+      country: null,
+      selfExcludedUntil: null,
+      xp: 0,
+      gamesPlayed: 0,
+      wins: 0,
+      biggestPotCents: 0,
+      currentStreak: 0,
+      avatar: null,
+      lastDailyClaim: null,
+      dailyStreak: 0,
+      cosmetics: [],
+      cardBack: null,
+      tableFelt: null,
+      claimedChallenges: [],
+    };
+    this.byId.set(user.id, user);
+    this.byEmail.set(email, user.id);
+    this.byUsername.set(unameKey, user.id);
+    return { ...user };
+  }
+
+  async findById(id: string): Promise<User | null> {
+    const u = this.byId.get(id);
+    return u ? { ...u } : null;
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    const id = this.byEmail.get(email.toLowerCase());
+    return id ? this.findById(id) : null;
+  }
+
+  async findByUsername(username: string): Promise<User | null> {
+    const id = this.byUsername.get(username.toLowerCase());
+    return id ? this.findById(id) : null;
+  }
+
+  async adjustBalance(id: string, deltaCents: number): Promise<number | null> {
+    const user = this.byId.get(id); // mutate the stored record, not a copy
+    if (!user) return null;
+    const next = user.balanceCents + deltaCents;
+    if (next < 0) return null; // insufficient funds — caller must handle
+    user.balanceCents = next;
+    return next;
+  }
+
+  async updateCompliance(id: string, patch: ComplianceUpdate): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    if (patch.kycStatus !== undefined) user.kycStatus = patch.kycStatus;
+    if (patch.dateOfBirth !== undefined) user.dateOfBirth = patch.dateOfBirth;
+    if (patch.country !== undefined) user.country = patch.country;
+    if (patch.selfExcludedUntil !== undefined) user.selfExcludedUntil = patch.selfExcludedUntil;
+    return { ...user };
+  }
+
+  async list(): Promise<User[]> {
+    return [...this.byId.values()].map((u) => ({ ...u }));
+  }
+
+  async applyMatchResult(id: string, r: MatchStatUpdate): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    user.gamesPlayed += 1;
+    user.wins += r.won ? 1 : 0;
+    user.xp += Math.max(0, Math.floor(r.xpGain));
+    user.currentStreak = r.won ? user.currentStreak + 1 : 0;
+    user.biggestPotCents = Math.max(user.biggestPotCents, r.potCents);
+    return { ...user };
+  }
+
+  async setAvatar(id: string, avatar: string): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    user.avatar = avatar;
+    return { ...user };
+  }
+
+  async topByXp(limit: number): Promise<User[]> {
+    return [...this.byId.values()]
+      .sort((a, b) => b.xp - a.xp || b.wins - a.wins)
+      .slice(0, Math.max(0, limit))
+      .map((u) => ({ ...u }));
+  }
+
+  async addXp(id: string, deltaXp: number): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    user.xp = Math.max(0, user.xp + Math.floor(deltaXp));
+    return { ...user };
+  }
+
+  async setRewards(id: string, patch: RewardsPatch): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    if (patch.lastDailyClaim !== undefined) user.lastDailyClaim = patch.lastDailyClaim;
+    if (patch.dailyStreak !== undefined) user.dailyStreak = patch.dailyStreak;
+    if (patch.cosmetics !== undefined) user.cosmetics = [...patch.cosmetics];
+    if (patch.cardBack !== undefined) user.cardBack = patch.cardBack;
+    if (patch.tableFelt !== undefined) user.tableFelt = patch.tableFelt;
+    if (patch.claimedChallenges !== undefined) user.claimedChallenges = [...patch.claimedChallenges];
+    return { ...user };
+  }
+
+  async bumpTokenVersion(id: string): Promise<number | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    user.tokenVersion += 1;
+    return user.tokenVersion;
+  }
+
+  async purchaseCosmetic(id: string, cosmeticId: string, cost: number): Promise<{ ok: boolean; code?: string }> {
+    const user = this.byId.get(id); // synchronous read-modify-write is atomic in-memory
+    if (!user) return { ok: false, code: 'not_found' };
+    if (user.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
+    if (user.xp < cost) return { ok: false, code: 'insufficient_xp' };
+    user.xp -= cost;
+    user.cosmetics = [...user.cosmetics, cosmeticId];
+    return { ok: true };
+  }
+
+  async setEmailVerified(id: string, verified: boolean): Promise<void> {
+    const user = this.byId.get(id);
+    if (user) user.emailVerified = verified;
+  }
+
+  async setPassword(id: string, passwordHash: string): Promise<void> {
+    const user = this.byId.get(id);
+    if (user) user.passwordHash = passwordHash;
+  }
+}
+
+// Date.now() is wrapped so the rest of the module imports a single clock.
+function epochMs(): number {
+  return Date.now();
+}

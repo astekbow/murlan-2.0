@@ -1,0 +1,23 @@
+# Murlan game server (Fastify + Socket.IO). Runs the TypeScript sources via tsx.
+FROM node:22-alpine AS deps
+WORKDIR /app
+# Install workspace deps using only the manifests first (better layer caching).
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/server/package.json packages/server/package.json
+COPY packages/client/package.json packages/client/package.json
+RUN npm ci
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# Generate the Prisma client (used only when DATABASE_URL is set; harmless otherwise).
+RUN npx prisma generate --schema packages/server/prisma/schema.prisma
+EXPOSE 3000
+# Healthcheck hits the Fastify /health route.
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/health || exit 1
+CMD ["npm", "run", "start", "--workspace", "@murlan/server"]
