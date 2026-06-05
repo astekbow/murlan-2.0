@@ -6,6 +6,9 @@
 import { useEffect } from 'react';
 import { useNotifications } from '../../store/notificationsStore.ts';
 import type { NotifKind } from '../../store/notificationsStore.ts';
+import { useT, translate, useLangStore } from '../../lib/i18n.ts';
+
+const tr = (key: string, vars?: Record<string, string | number>) => translate(key, useLangStore.getState().lang, vars);
 
 const KIND_ICON: Record<NotifKind, string> = {
   win: '🏆',
@@ -19,16 +22,17 @@ const KIND_ICON: Record<NotifKind, string> = {
 function relativeTime(ts: number): string {
   const diff = Math.max(0, Date.now() - ts);
   const sec = Math.floor(diff / 1000);
-  if (sec < 45) return 'tani';
+  if (sec < 45) return tr('notifs.timeNow');
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} min`;
+  if (min < 60) return tr('notifs.timeMin', { n: min });
   const hours = Math.floor(min / 60);
-  if (hours < 24) return `${hours} orë`;
+  if (hours < 24) return tr('notifs.timeHours', { n: hours });
   const days = Math.floor(hours / 24);
-  return `${days} ditë`;
+  return tr('notifs.timeDays', { n: days });
 }
 
 export function NotificationsPanel({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const items = useNotifications((s) => s.items);
 
   // Opening the panel clears the unread badge; Escape closes it.
@@ -46,12 +50,12 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
 
       <div
         role="dialog"
-        aria-label="Njoftimet"
+        aria-label={t('notifs.ariaLabel')}
         className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] z-40 panel-solid animate-pop overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10">
-          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm">NJOFTIMET</h2>
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm">{t('notifs.title')}</h2>
           {items.length > 0 && <span className="text-xs text-muted">{items.length}</span>}
         </div>
 
@@ -59,7 +63,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         {items.length === 0 ? (
           <div className="text-center px-4 py-10">
             <div className="text-3xl mb-2 opacity-60">🔔</div>
-            <p className="text-sm text-muted">S'ka njoftime ende.</p>
+            <p className="text-sm text-muted">{t('notifs.empty')}</p>
           </div>
         ) : (
           <ul className="max-h-[60vh] overflow-y-auto no-scrollbar divide-y divide-white/[.06]">
@@ -85,7 +89,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
               className="btn btn-ghost btn-block"
               onClick={() => useNotifications.getState().clear()}
             >
-              Pastro
+              {t('notifs.clear')}
             </button>
           </div>
         )}

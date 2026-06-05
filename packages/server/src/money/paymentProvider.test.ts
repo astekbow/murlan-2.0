@@ -32,6 +32,16 @@ test('verifyWebhook rejects a bad/missing signature', () => {
   assert.equal(p.verifyWebhook(body, new MockPaymentProvider('other').sign(body)), null);
 });
 
+test('verifyWebhook rejects a replayed (stale-timestamp) signature', () => {
+  let nowMs = 1_700_000_000_000;
+  const p = new MockPaymentProvider('secret', () => nowMs);
+  const body = JSON.stringify({ providerRef: 'mock_1', userId: 'u1', amountCents: 5000, status: 'confirmed' });
+  const sig = p.sign(body); // signed at "now"
+  assert.ok(p.verifyWebhook(body, sig)); // fresh → accepted
+  nowMs += (5 * 60 + 1) * 1000; // advance past the ±5-min tolerance
+  assert.equal(p.verifyWebhook(body, sig), null); // captured + replayed later → rejected
+});
+
 test('verifyWebhook rejects malformed or non-positive amounts', () => {
   const p = new MockPaymentProvider('secret');
   const bad = JSON.stringify({ providerRef: 'x', userId: 'u1', amountCents: -1 });

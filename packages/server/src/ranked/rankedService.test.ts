@@ -93,6 +93,8 @@ test('leaderboard ranks by rating DESC with usernames + tiers', async () => {
   assert.equal(board[0]!.rank, 1);
   assert.equal(board[0]!.userId, a.id);
   assert.equal(board[0]!.username, 'Anila');
+  // Every row's username resolves via the single batch fetch (no '—' placeholders).
+  assert.ok(board.every((row) => row.username !== '—'), 'all usernames batch-resolved');
   assert.ok(board[0]!.rating > board[1]!.rating);
   assert.equal(board[0]!.tier.key, 'bronze');
   assert.equal(typeof board[0]!.tier.emoji, 'string');

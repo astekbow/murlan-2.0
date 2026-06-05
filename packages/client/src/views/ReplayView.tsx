@@ -8,6 +8,7 @@ import type { Card } from '@murlan/engine';
 import { replayApi, ApiError, type ReplayDTO, type ReplayActionDTO } from '../lib/api.ts';
 import { cardLabel, isRed } from '../lib/cards.ts';
 import { reconstructDeal, verifyCommitment } from '../lib/fairVerify.ts';
+import { useT } from '../lib/i18n.ts';
 
 type VerifyState = 'pending' | 'ok' | 'mismatch' | 'unrevealed';
 
@@ -24,15 +25,16 @@ function CardChip({ card }: { card: Card }) {
 }
 
 function ActionRow({ a }: { a: ReplayActionDTO }) {
+  const t = useT();
   return (
     <div className="flex items-start gap-2 py-1.5 border-b border-white/5 last:border-0">
-      <span className="shrink-0 text-xs text-muted font-display w-16">Vendi {a.seat + 1}</span>
+      <span className="shrink-0 text-xs text-muted font-display w-16">{t('replay.seatN', { n: a.seat + 1 })}</span>
       <div className="flex-1 flex flex-wrap items-center gap-1">
         {a.type === 'pass' ? (
-          <span className="text-xs text-muted italic">pas</span>
+          <span className="text-xs text-muted italic">{t('replay.pass')}</span>
         ) : a.type === 'switch' ? (
           <>
-            <span className="text-xs text-amber-300/80">ndërroi</span>
+            <span className="text-xs text-amber-300/80">{t('replay.switched')}</span>
             {a.cards?.map((c, i) => <CardChip key={i} card={c} />)}
           </>
         ) : (
@@ -44,6 +46,7 @@ function ActionRow({ a }: { a: ReplayActionDTO }) {
 }
 
 export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () => void }) {
+  const t = useT();
   const [dto, setDto] = useState<ReplayDTO | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +77,7 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
       })
       .catch((e: unknown) => {
         if (!alive) return;
-        setError(e instanceof ApiError && e.status === 404 ? 'Kjo ndeshje nuk u gjet.' : e instanceof ApiError ? e.message : 'Ndeshja nuk u ngarkua.');
+        setError(e instanceof ApiError && e.status === 404 ? t('replay.errNotFound') : e instanceof ApiError ? e.message : t('replay.errLoad'));
         setStatus('error');
       });
     return () => { alive = false; };
@@ -99,19 +102,19 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
 
   return (
     <div className="relative z-10 mx-auto w-full max-w-[900px] px-4 pt-4 pb-14 space-y-5">
-      <button onClick={onClose} className="btn btn-ghost">← Kthehu</button>
+      <button onClick={onClose} className="btn btn-ghost">{t('replay.back')}</button>
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">PROVABLY FAIR</div>
-          <h1 className="gold-text font-display font-bold text-2xl tracking-wide leading-none">RIPRODHIM & VERIFIKIM</h1>
+          <h1 className="gold-text font-display font-bold text-2xl tracking-wide leading-none">{t('replay.title')}</h1>
           <div className="text-xs text-muted mt-1.5 font-mono truncate">{matchId}</div>
         </div>
         <span className="text-4xl opacity-80">🔁</span>
       </section>
 
       {status === 'loading' ? (
-        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">🔁</div><p className="text-sm text-muted">Po ngarkohet…</p></div>
+        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">🔁</div><p className="text-sm text-muted">{t('replay.loading')}</p></div>
       ) : status === 'error' ? (
         <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300">{error}</p></div>
       ) : dto ? (
@@ -122,24 +125,24 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
               <div className="flex items-start gap-3">
                 <span className="text-2xl">✅</span>
                 <div>
-                  <div className="font-display font-semibold text-emerald-300">E ndershme — e verifikuar</div>
-                  <p className="text-xs text-muted mt-1">Fara e serverit përputhet me angazhimin e bërë para lojës, dhe çdo ndarje letrash u rikrijua nga farat këtu në shfletuesin tënd. Serveri s'mund t'i kishte ndryshuar.</p>
+                  <div className="font-display font-semibold text-emerald-300">{t('replay.verifiedOk')}</div>
+                  <p className="text-xs text-muted mt-1">{t('replay.verifiedOkBody')}</p>
                 </div>
               </div>
             ) : verify === 'mismatch' ? (
               <div className="flex items-start gap-3">
                 <span className="text-2xl">❌</span>
                 <div>
-                  <div className="font-display font-semibold text-red-300">PËRPUTHJE E DËSHTUAR</div>
-                  <p className="text-xs text-muted mt-1">Fara e zbuluar NUK përputhet me angazhimin. Raporto këtë ndeshje.</p>
+                  <div className="font-display font-semibold text-red-300">{t('replay.mismatch')}</div>
+                  <p className="text-xs text-muted mt-1">{t('replay.mismatchBody')}</p>
                 </div>
               </div>
             ) : (
               <div className="flex items-start gap-3">
                 <span className="text-2xl">⏳</span>
                 <div>
-                  <div className="font-display font-semibold text-amber-300">Farat ende të papublikuara</div>
-                  <p className="text-xs text-muted mt-1">Fara e serverit zbulohet kur ndeshja mbaron. Kthehu pas përfundimit për ta verifikuar ndarjen.</p>
+                  <div className="font-display font-semibold text-amber-300">{t('replay.unrevealed')}</div>
+                  <p className="text-xs text-muted mt-1">{t('replay.unrevealedBody')}</p>
                 </div>
               </div>
             )}
@@ -153,18 +156,18 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
           </section>
 
           {gameIndices.length === 0 ? (
-            <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">🃏</div><p className="text-sm text-muted">Asnjë lëvizje e regjistruar për këtë ndeshje.</p></div>
+            <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">🃏</div><p className="text-sm text-muted">{t('replay.noMoves')}</p></div>
           ) : (
             gameIndices.map((gi, n) => (
               <section key={gi} className="panel p-5 animate-rise" style={{ animationDelay: `${0.08 + Math.min(n, 8) * 0.04}s` }}>
-                <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">Loja {gi + 1}</h2>
+                <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('replay.gameN', { n: gi + 1 })}</h2>
 
                 {hands[gi] && (
                   <div className="space-y-2 mb-4">
-                    <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase">Ndarja e rikrijuar</div>
+                    <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase">{t('replay.reconstructedDeal')}</div>
                     {hands[gi]!.map((hand, seat) => (
                       <div key={seat} className="flex items-start gap-2">
-                        <span className="shrink-0 text-xs text-muted font-display w-16 pt-0.5">Vendi {seat + 1}</span>
+                        <span className="shrink-0 text-xs text-muted font-display w-16 pt-0.5">{t('replay.seatN', { n: seat + 1 })}</span>
                         <div className="flex-1 flex flex-wrap gap-1">
                           {hand.map((c, i) => <CardChip key={i} card={c} />)}
                         </div>
@@ -173,7 +176,7 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
                   </div>
                 )}
 
-                <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase mb-1">Lëvizjet</div>
+                <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase mb-1">{t('replay.moves')}</div>
                 {(byGame.get(gi) ?? []).length === 0 ? (
                   <p className="text-xs text-muted/70 italic">—</p>
                 ) : (
@@ -189,10 +192,11 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
 }
 
 function SeedRow({ label, value, muted }: { label: string; value: string | null; muted?: boolean }) {
+  const t = useT();
   return (
     <div className="flex gap-2">
       <span className="shrink-0 text-muted/70 w-28">{label}</span>
-      <span className={muted ? 'text-muted/50 italic' : 'text-muted'}>{value ?? '— (e papublikuar)'}</span>
+      <span className={muted ? 'text-muted/50 italic' : 'text-muted'}>{value ?? t('replay.unpublished')}</span>
     </div>
   );
 }

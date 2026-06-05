@@ -3,8 +3,10 @@ import { useAdminStore } from '../store/adminStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
 import type { AdminUser } from '../lib/api.ts';
+import { useT } from '../lib/i18n.ts';
 
 function UserRow({ user }: { user: AdminUser }) {
+  const t = useT();
   const { adjust, setKyc } = useAdminStore();
   const [delta, setDelta] = useState('10');
   const [reason, setReason] = useState('manual');
@@ -54,22 +56,23 @@ function UserRow({ user }: { user: AdminUser }) {
           />
         </label>
         <label className="block flex-1 min-w-[140px]">
-          <span className="field-label">Arsyeja</span>
+          <span className="field-label">{t('admin.reason')}</span>
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="arsyeja"
+            placeholder={t('admin.reasonPlaceholder')}
             className="field"
           />
         </label>
-        <button onClick={() => onAdjust(1)} className="btn btn-green">+ Kredito</button>
-        <button onClick={() => onAdjust(-1)} className="btn btn-danger">− Debito</button>
+        <button onClick={() => onAdjust(1)} className="btn btn-green">{t('admin.credit')}</button>
+        <button onClick={() => onAdjust(-1)} className="btn btn-danger">{t('admin.debit')}</button>
       </div>
     </li>
   );
 }
 
 export function AdminView() {
+  const t = useT();
   const { users, withdrawals, matches, error, notice, refresh, approve, reject } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
 
@@ -79,9 +82,10 @@ export function AdminView() {
 
   return (
     <div className="space-y-5">
+      <h1 className="sr-only">{t('admin.panelTitle')}</h1>
       <div className="flex items-center justify-between gap-3">
-        <button onClick={() => setView('lobby')} className="btn btn-ghost">← Kthehu te lobi</button>
-        <button onClick={() => void refresh()} className="btn btn-ghost">Rifresko</button>
+        <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
+        <button onClick={() => void refresh()} className="btn btn-ghost">{t('common.refresh')}</button>
       </div>
 
       {(error || notice) && (
@@ -99,9 +103,9 @@ export function AdminView() {
 
       {/* Withdrawals */}
       <section className="panel p-5 animate-rise">
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">TËRHEQJET NË PRITJE</h2>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.pendingWithdrawals')}</h2>
         {withdrawals.length === 0 ? (
-          <p className="text-sm text-muted italic">Asnjë tërheqje në pritje.</p>
+          <p className="text-sm text-muted italic">{t('admin.noPendingWithdrawals')}</p>
         ) : (
           <ul className="space-y-2.5">
             {withdrawals.map((w) => (
@@ -114,8 +118,8 @@ export function AdminView() {
                   <span className="text-muted"> → {w.destination}</span>
                 </span>
                 <span className="flex gap-2">
-                  <button onClick={() => void approve(w.id)} className="btn btn-green">Aprovo</button>
-                  <button onClick={() => void reject(w.id)} className="btn btn-danger">Refuzo</button>
+                  <button onClick={() => void approve(w.id)} className="btn btn-green">{t('admin.approve')}</button>
+                  <button onClick={() => void reject(w.id)} className="btn btn-danger">{t('admin.reject')}</button>
                 </span>
               </li>
             ))}
@@ -125,9 +129,9 @@ export function AdminView() {
 
       {/* Active matches */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">NDESHJET AKTIVE</h2>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.activeMatches')}</h2>
         {matches.length === 0 ? (
-          <p className="text-sm text-muted italic">Asnjë ndeshje aktive.</p>
+          <p className="text-sm text-muted italic">{t('admin.noActiveMatches')}</p>
         ) : (
           <ul className="space-y-2.5">
             {matches.map((m) => (
@@ -136,7 +140,7 @@ export function AdminView() {
                 className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] text-sm"
               >
                 <span className="font-display font-semibold tracking-wide text-txt">{m.type}</span>
-                <span className="text-muted"> · {dollars(m.stakeCents)} · objektivi {m.target} · {m.players.map((p) => p.username ?? `?${p.seat}`).join(', ')}</span>
+                <span className="text-muted"> · {dollars(m.stakeCents)} · {t('admin.target')} {m.target} · {m.players.map((p) => p.username ?? `?${p.seat}`).join(', ')}</span>
               </li>
             ))}
           </ul>
@@ -145,7 +149,7 @@ export function AdminView() {
 
       {/* Users */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.16s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">PËRDORUESIT ({users.length})</h2>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.users', { n: users.length })}</h2>
         <ul className="space-y-2.5">
           {users.map((u) => <UserRow key={u.id} user={u} />)}
         </ul>

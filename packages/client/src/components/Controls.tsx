@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import type { Card, Combo } from '@murlan/engine';
 import { evaluateSelection } from '../lib/selection.ts';
+import { useT } from '../lib/i18n.ts';
 
-const COMBO_LABEL: Record<Combo['type'], string> = {
-  single: 'letër e vetme',
-  pair: 'çift',
-  triple: 'treshe',
-  bomb: 'bombë',
-  kolor: 'kolor',
-  flush: 'ngjyrë',
+const COMBO_LABEL_KEY: Record<Combo['type'], string> = {
+  single: 'controls.comboSingle',
+  pair: 'controls.comboPair',
+  triple: 'controls.comboTriple',
+  bomb: 'controls.comboBomb',
+  kolor: 'controls.comboKolor',
+  flush: 'controls.comboFlush',
 };
 
 interface ControlsProps {
@@ -26,6 +27,7 @@ const isThreeSpades = (c: Card) => c.kind === 'standard' && c.rank === '3' && c.
 
 /** Play / Pass with instant client-side validation feedback (engine-backed). */
 export function Controls({ selectedCards, pile, isMyTurn, canPass, requireThreeSpades, onPlay, onPass, onClear }: ControlsProps) {
+  const t = useT();
   const evalResult = evaluateSelection(selectedCards, pile);
   const openingOk = !requireThreeSpades || selectedCards.some(isThreeSpades);
   // Brief in-flight guard so a double-tap can't fire two actions (the second
@@ -41,10 +43,10 @@ export function Controls({ selectedCards, pile, isMyTurn, canPass, requireThreeS
   const playable = isMyTurn && evalResult.ok && openingOk && !submitting;
 
   let hint = '';
-  if (!isMyTurn) hint = 'Prit radhën tënde…';
-  else if (selectedCards.length === 0) hint = 'Zgjidh letra për të luajtur.';
-  else if (requireThreeSpades && !openingOk) hint = 'Hapja e parë duhet të përmbajë 3♠.';
-  else if (evalResult.ok && evalResult.combo) hint = `Gati: ${COMBO_LABEL[evalResult.combo.type]}.`;
+  if (!isMyTurn) hint = t('controls.waitTurn');
+  else if (selectedCards.length === 0) hint = t('controls.pickCards');
+  else if (requireThreeSpades && !openingOk) hint = t('controls.openingThreeSpades');
+  else if (evalResult.ok && evalResult.combo) hint = t('controls.ready', { combo: t(COMBO_LABEL_KEY[evalResult.combo.type]) });
   else if (evalResult.reason) hint = evalResult.reason;
 
   return (
@@ -52,13 +54,13 @@ export function Controls({ selectedCards, pile, isMyTurn, canPass, requireThreeS
       <div className={`text-xs h-4 ${playable ? 'text-gold-hi' : 'text-muted'}`}>{hint}</div>
       <div className="flex gap-3 w-full max-w-sm">
         <button type="button" onClick={onClear} disabled={selectedCards.length === 0} className="btn btn-ghost">
-          Pastro
+          {t('controls.clear')}
         </button>
         <button type="button" onClick={() => guard(onPass)} disabled={!isMyTurn || !canPass || submitting} className="btn btn-ghost flex-1">
-          Pas
+          {t('controls.pass')}
         </button>
         <button type="button" onClick={() => guard(onPlay)} disabled={!playable} className="btn btn-gold flex-1 btn-lg">
-          Luaj
+          {t('controls.play')}
         </button>
       </div>
     </div>

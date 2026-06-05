@@ -70,6 +70,15 @@ jobs:
       - name: Dependency audit (fail on high+)
         run: npm audit --audit-level=high
 
+      - name: Generate SBOM (CycloneDX)
+        run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+
       - name: Client production build
         run: npm run build --workspace @murlan/client
 

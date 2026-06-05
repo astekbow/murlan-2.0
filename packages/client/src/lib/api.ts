@@ -7,6 +7,7 @@ import type {
   ReplayDTO, ReplayActionDTO, ReplayGameDTO, VipStatusDTO, VipTierInfo,
   ClubSummaryDTO, ClubDetailDTO, ChatMessageDTO,
 } from '@murlan/shared';
+import { errText } from './errors.ts';
 
 export interface PublicUser {
   id: string;
@@ -78,14 +79,17 @@ async function rawRequest<T>(path: string, opts: RequestOptions = {}): Promise<T
     });
   } catch {
     // fetch rejects only on a network/CORS failure — distinguish from a 4xx/5xx.
-    throw new ApiError('Lidhja me serverin dështoi. Kontrollo internetin.', 'network', 0);
+    throw new ApiError(errText('network', 'Lidhja me serverin dështoi. Kontrollo internetin.'), 'network', 0);
   }
 
   const data = (await res.json().catch(() => ({}))) as Record<string, any>;
   if (!res.ok) {
-    const code = data?.error?.code ?? (res.status === 429 ? 'rate_limited' : 'error');
-    const fallback = res.status === 429 ? 'Shumë përpjekje — provo më vonë.' : 'Gabim i panjohur.';
-    throw new ApiError(data?.error?.message ?? fallback, code, res.status);
+    // Localize by code (server stays source of truth for the code); fall back to the
+    // server's own message (it may carry specifics like an amount), then a generic.
+    // No client-invented 'error' code here — that collides with the real 'error' code
+    // (club-chat send failure). An uncoded response → errText's err.generic.
+    const code = data?.error?.code ?? (res.status === 429 ? 'rate_limited' : undefined);
+    throw new ApiError(errText(code, data?.error?.message), code ?? 'error', res.status);
   }
   return data as T;
 }
@@ -104,7 +108,7 @@ async function request<T>(path: string, opts: RequestOptions = {}, _retried = fa
         return await request<T>(path, { ...opts, token: newToken }, true);
       } catch {
         onSessionLost?.();
-        throw new ApiError('Sesioni skadoi — hyr përsëri.', 'session_expired', 401);
+        throw new ApiError(errText('session_expired', 'Sesioni skadoi — hyr përsëri.'), 'session_expired', 401);
       }
     }
     throw e;

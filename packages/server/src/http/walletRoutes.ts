@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAuth } from './authRoutes.ts';
 import { type WalletService, DepositCapExceededError } from '../money/walletService.ts';
+import { depositWebhooks } from '../metrics.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
 import type { PaymentProvider } from '../money/paymentProvider.ts';
@@ -27,6 +28,7 @@ export interface WalletRoutesDeps {
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService; // responsible-gaming daily deposit cap
   webhookSignatureHeader?: string; // default 'x-signature'
+  webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
 
 // Deposit/withdraw bounds (cents). Min stops dust intents that cost more to
@@ -117,8 +119,16 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     return reply.send({ withdrawals: await withdrawals.listByUser(caller.userId) });
   });
 
-  // Provider webhook: verify the signature over the RAW body, then credit.
+  // Provider webhook: verify source IP (if an allowlist is set) + the signature
+  // over the RAW body, then credit.
+  const webhookIps = deps.webhookIps ?? [];
   app.post('/api/payments/webhook/:provider', async (req: FastifyRequest, reply: FastifyReply) => {
+    // Source-IP allowlist (defense-in-depth on top of the HMAC). Requires Fastify
+    // trustProxy so req.ip is the real client behind the reverse proxy.
+    if (webhookIps.length > 0 && !webhookIps.includes(req.ip)) {
+      depositWebhooks.inc({ outcome: 'rejected' });
+      return reply.code(403).send({ error: { code: 'ip_not_allowed', message: 'Burim i palejuar.' } });
+    }
     const rawBody = (req as unknown as { rawBody?: string }).rawBody ?? '';
     const signature = req.headers[sigHeader];
     const sig = Array.isArray(signature) ? signature[0] : signature;
@@ -133,32 +143,30 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     // the signing secret leaked). (A real crypto provider reporting an
     // over/under-payment would be reconciled here against the intent.)
     const intent = await intents.find(deposit.providerRef);
-    if (!intent) return reply.code(400).send({ error: { code: 'unknown_payment', message: 'Pagesë e panjohur.' } });
+    if (!intent) { depositWebhooks.inc({ outcome: 'rejected' }); return reply.code(400).send({ error: { code: 'unknown_payment', message: 'Pagesë e panjohur.' } }); }
     if (deposit.amountCents !== intent.amountCents) {
+      depositWebhooks.inc({ outcome: 'rejected' });
       return reply.code(400).send({ error: { code: 'amount_mismatch', message: 'Shuma e pagesës nuk përputhet.' } });
     }
     // Reject a stale/replayed intent: a confirmation arriving days after the
     // intent was created is suspect. (credit() remains idempotent on providerRef,
     // so a legitimate retry within the window still credits at most once.)
     if (Date.now() - intent.createdAt > INTENT_TTL_MS) {
+      depositWebhooks.inc({ outcome: 'rejected' });
       return reply.code(400).send({ error: { code: 'intent_expired', message: 'Kërkesa e depozitës ka skaduar.' } });
     }
 
-    // Responsible-gaming cap RE-CHECKED at credit time — when the money actually
-    // lands. The intent-time pre-check counts only CREDITED deposits, so a flurry
-    // of intents could each pass it; this binds the cap on the real balance.
-    // (Sequential webhooks are exact; truly-concurrent credits for one user would
-    // need the check inside credit()'s transaction — a follow-up tied to a real
-    // payment provider + multi-instance, like the documented money-atomicity TODO.)
+    // Responsible-gaming deposit cap. The pre-check below is an early, cheaper
+    // rejection; the AUTHORITATIVE cap is enforced atomically inside credit()
+    // (depositCapCents), where it is serialized per user so concurrent webhooks
+    // can't both slip past — see walletService.credit().
     let depositCapCents: number | null = null;
     if (deps.rg) {
       const verdict = await deps.rg.checkDeposit(intent.userId, intent.amountCents);
       if (!verdict.allowed) {
+        depositWebhooks.inc({ outcome: 'rejected' });
         return reply.code(422).send({ error: { code: verdict.code ?? 'deposit_limit', message: verdict.message ?? 'Kufiri ditor i depozitës u arrit.' } });
       }
-      // The authoritative cap is enforced ATOMICALLY inside credit() (the pre-check
-      // above is just an early, cheaper rejection); pass it through so concurrent
-      // credits can't both slip past the cap.
       depositCapCents = (await deps.rg.getLimits(intent.userId)).dailyDepositLimitCents;
     }
 
@@ -170,9 +178,11 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         reason: `deposit via ${provider.name}`,
         depositCapCents,
       });
+      depositWebhooks.inc({ outcome: res.idempotent ? 'idempotent' : 'credited' });
       return reply.send({ ok: true, idempotent: res.idempotent, balanceCents: res.balanceCents });
     } catch (e) {
       if (e instanceof DepositCapExceededError) {
+        depositWebhooks.inc({ outcome: 'rejected' });
         return reply.code(422).send({ error: { code: 'deposit_limit', message: 'Kufiri ditor i depozitës u arrit.' } });
       }
       throw e;

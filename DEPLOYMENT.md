@@ -107,15 +107,43 @@ front of nginx and enable HSTS there (the nginx config already sets CSP/XFO/XCTO
 
 ## 7. Scaling & the single-instance constraint ⚠️
 
-The Socket.IO Redis adapter (`REDIS_URL`) lets multiple instances share socket broadcasts, **but the
+**DEFAULT: run exactly ONE server replica.** The authoritative game state lives in process memory, so
+a second replica without the controls below will run divergent copies of the same match. A single
+instance handles a large number of concurrent matches comfortably; vertical-scale first.
+
+The Socket.IO Redis adapter (`REDIS_URL`) lets multiple instances share socket *broadcasts*, **but the
 following state is PER-INSTANCE and is NOT shared:**
 - turn/countdown/abandon **timers** (`TimerOrchestrator`), `idleStrikes`, `finalizedMatches`,
-  `fairByRoom`/`pendingServerSeeds`, the **rate limiter** bucket, and `Presence`.
+  `fairByRoom`/`pendingServerSeeds`, the **rate limiter** bucket, `Presence`, the **matchmaking** pool,
+  the anti-collusion recent-match window, and **practice-bot** timers.
 
-→ A given **room/match must be served by a single instance** (use sticky sessions / consistent-hash
-routing by room id), or these break. The money layer is safe across instances (DB transactions +
-idempotent `providerRef` + the boot/periodic recovery sweep), but gameplay timers are not. Moving
-timers/rate-limit/presence to shared (Redis) storage is required before true horizontal scaling.
+→ A given **room/match must be served by a single instance.** The money layer is safe across instances
+(DB transactions + idempotent `providerRef` + the boot/periodic recovery sweep), but gameplay timers
+are not.
+
+### Running more than one replica (what it takes)
+Before scaling past one server, ALL of the following are required:
+1. **Sticky-by-room routing at the LB** so every socket for a match lands on the owning instance. With
+   nginx, the simplest correct form is client-IP affinity on the WebSocket upstream:
+   ```nginx
+   upstream murlan_ws {
+     ip_hash;                 # pin a client to one backend (use a room cookie hash for finer control)
+     server murlan-a:3100;
+     server murlan-b:3100;
+   }
+   # proxy /socket.io/ → murlan_ws with Upgrade/Connection headers (see deploy/nginx.conf)
+   ```
+2. **Redis-distributed** timers / rate-limit / presence / matchmaking (move the per-instance state above
+   into shared storage) **+ a room-ownership registry** (claim roomId→instanceId in Redis on create;
+   reject a join that lands on a non-owning instance with a reconnect hint). This is the remaining
+   engineering work; until it exists, treat the single-replica rule as hard.
+
+### Deploys are zero-loss (graceful drain)
+On `SIGTERM`/`SIGINT` the server now **drains** instead of dropping matches: `/ready` flips to `503`
+(the LB stops routing), new match/queue/practice requests are rejected, in-flight matches get a grace
+window (`ABANDON_MS`) to finish + settle, and any still-escrowed pot is refunded before exit. Configure
+your orchestrator to send `SIGTERM` and wait at least `ABANDON_MS` before `SIGKILL`. Watch the
+`murlan_active_matches` gauge drop to 0 during a drain.
 
 ---
 

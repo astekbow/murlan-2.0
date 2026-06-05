@@ -9,9 +9,22 @@ async function main(): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`Murlan server listening on http://${config.host}:${config.port} (${config.nodeEnv})`);
 
+  // Graceful drain on deploy/stop: stop accepting NEW matches (/ready → 503 so the
+  // LB drains us), let in-flight matches finish within the grace, then refund any
+  // still-escrowed pot and close — no stranded stakes, no mid-hand kills. Guard
+  // against a second signal forcing an abrupt exit during the drain.
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
-    console.log(`\n${signal} received — shutting down.`);
-    await server.close();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n${signal} received — draining (grace ${config.abandonMs}ms), then shutting down.`);
+    try {
+      const refunded = await server.drain(config.abandonMs);
+      if (refunded) console.log(`drain: refunded ${refunded} in-flight match(es).`);
+    } catch (err) {
+      console.error('drain failed, closing anyway:', err);
+      await server.close().catch(() => {});
+    }
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

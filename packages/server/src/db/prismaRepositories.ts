@@ -101,6 +101,11 @@ export class PrismaUserRepository implements UserRepository {
     const row = await this.db.user.findUnique({ where: { id } });
     return row ? toUser(row) : null;
   }
+  async findManyByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.user.findMany({ where: { id: { in: ids } } });
+    return rows.map(toUser);
+  }
   async findByEmail(email: string): Promise<User | null> {
     const row = await this.db.user.findUnique({ where: { email: email.toLowerCase() } });
     return row ? toUser(row) : null;

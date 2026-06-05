@@ -6,6 +6,7 @@ import { vipApi, ApiError, type VipStatusDTO, type VipTierInfo } from '../lib/ap
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
+import { useT } from '../lib/i18n.ts';
 
 const rakeback = (bps: number): string => (bps === 0 ? '—' : `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%`);
 
@@ -20,6 +21,7 @@ function Badge({ tier, size = 'md' }: { tier: VipTierInfo; size?: 'sm' | 'md' })
 }
 
 export function VipView() {
+  const t = useT();
   const setView = useUiStore((s) => s.setView);
   const [vip, setVip] = useState<VipStatusDTO | null>(null);
   const [tiers, setTiers] = useState<VipTierInfo[]>([]);
@@ -36,7 +38,7 @@ export function VipView() {
         setTiers(t.tiers);
         setStatus('ready');
       })
-      .catch((e: unknown) => { if (alive) { setError(e instanceof ApiError ? e.message : 'VIP nuk u ngarkua.'); setStatus('error'); } });
+      .catch((e: unknown) => { if (alive) { setError(e instanceof ApiError ? e.message : t('vip.loadFailed')); setStatus('error'); } });
     return () => { alive = false; };
   }, []);
 
@@ -44,18 +46,18 @@ export function VipView() {
 
   return (
     <div className="space-y-5">
-      <button onClick={() => setView('lobby')} className="btn btn-ghost">← Kthehu te lobi</button>
+      <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
         <div>
-          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">BESNIKËRIA</div>
+          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('vip.loyalty')}</div>
           <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">VIP</h1>
         </div>
         <span className="text-4xl opacity-80">♛</span>
       </section>
 
       {status === 'loading' ? (
-        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">♛</div><p className="text-sm text-muted">Po ngarkohet…</p></div>
+        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">♛</div><p className="text-sm text-muted">{t('vip.loading')}</p></div>
       ) : status === 'error' ? (
         <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300">{error}</p></div>
       ) : (
@@ -64,38 +66,38 @@ export function VipView() {
             <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.05s' }}>
               <div className="flex items-center justify-between gap-3">
                 <Badge tier={vip.tier} />
-                <span className="text-xs text-muted">Volumi: <b className="text-txt">{dollars(vip.stakedCents)}</b></span>
+                <span className="text-xs text-muted">{t('vip.volume')} <b className="text-txt">{dollars(vip.stakedCents)}</b></span>
               </div>
               {vip.next ? (
                 <>
                   <div className="xpbar" style={{ width: '100%' }}><i style={{ width: `${pct}%` }} /></div>
-                  <p className="text-xs text-muted">Edhe <b className="text-gold-hi">{dollars(vip.toNextCents)}</b> volum bastesh për <b style={{ color: vip.next.color }}>{vip.next.name}</b>.</p>
+                  <p className="text-xs text-muted">{t('vip.more')} <b className="text-gold-hi">{dollars(vip.toNextCents)}</b> {t('vip.stakeFor')} <b style={{ color: vip.next.color }}>{vip.next.name}</b>.</p>
                 </>
               ) : (
-                <p className="text-xs text-emerald-300">Niveli maksimal VIP — faleminderit! 👑</p>
+                <p className="text-xs text-emerald-300">{t('vip.maxTier')}</p>
               )}
             </section>
           )}
 
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.1s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">NIVELET VIP</h2>
-              <span className="text-xs text-muted">Rake-back · cashout së shpejti</span>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('vip.tiersTitle')}</h2>
+              <span className="text-xs text-muted">{t('vip.rakebackSoon')}</span>
             </div>
             <ul className="space-y-2.5">
-              {tiers.map((t) => {
-                const isMine = vip?.tier.key === t.key;
+              {tiers.map((t2) => {
+                const isMine = vip?.tier.key === t2.key;
                 return (
-                  <li key={t.key} className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${isMine ? 'border-gold bg-gradient-to-b from-gold/[.14] to-gold/[.04]' : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'}`}>
-                    <Badge tier={t} size="sm" />
-                    {isMine && <span className="tag tag-open">Ti</span>}
-                    <span className="text-xs text-muted ml-auto">nga {dollars(t.minStakedCents)}</span>
-                    <span className="font-display font-semibold tracking-wide text-gold-hi w-16 text-right">{rakeback(t.rakebackBps)}</span>
+                  <li key={t2.key} className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${isMine ? 'border-gold bg-gradient-to-b from-gold/[.14] to-gold/[.04]' : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'}`}>
+                    <Badge tier={t2} size="sm" />
+                    {isMine && <span className="tag tag-open">{t('vip.you')}</span>}
+                    <span className="text-xs text-muted ml-auto">{t('vip.from')} {dollars(t2.minStakedCents)}</span>
+                    <span className="font-display font-semibold tracking-wide text-gold-hi w-16 text-right">{rakeback(t2.rakebackBps)}</span>
                   </li>
                 );
               })}
             </ul>
-            <p className="text-[11px] text-muted/70 mt-3">Rake-back-i si para kërkon një ofrues pagese (së shpejti). VIP-i tani jep status + përparësi.</p>
+            <p className="text-[11px] text-muted/70 mt-3">{t('vip.rakebackNote')}</p>
           </section>
         </>
       )}

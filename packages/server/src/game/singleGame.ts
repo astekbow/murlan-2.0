@@ -47,6 +47,7 @@ export type GameEvent =
 export interface ActionResult {
   ok: boolean;
   reason?: string;        // Albanian, player-facing, on failure
+  code?: string;          // stable, language-neutral rejection code (client localizes it)
   events: GameEvent[];
 }
 
@@ -169,25 +170,25 @@ export class SingleGame {
 
   play(seat: Seat, cards: Card[]): ActionResult {
     const events: GameEvent[] = [];
-    if (this.status === 'finished') return fail('Loja ka mbaruar.');
-    if (seat !== this.turn) return fail('Nuk është radha jote.');
-    if (cards.length === 0) return fail('Duhet të luash të paktën një letër.');
+    if (this.status === 'finished') return fail('Loja ka mbaruar.', 'game_over');
+    if (seat !== this.turn) return fail('Nuk është radha jote.', 'not_your_turn');
+    if (cards.length === 0) return fail('Duhet të luash të paktën një letër.', 'no_cards_selected');
 
     // Ownership: every played card must be in the player's hand, with no repeats.
-    if (!this.handHasAll(seat, cards)) return fail('Nuk i ke këto letra në dorë.');
+    if (!this.handHasAll(seat, cards)) return fail('Nuk i ke këto letra në dorë.', 'not_your_cards');
 
     // Opening rule: the very first play of the game must include the opening
     // card when one is configured (the first game of a match: 3♠).
     if (this.openingCard && !this.opened) {
       const openId = cardId(this.openingCard);
       if (!cards.some((x) => cardId(x) === openId)) {
-        return fail(`Hapja e parë duhet të përfshijë letrën ${describeCard(this.openingCard)}.`);
+        return fail(`Hapja e parë duhet të përfshijë letrën ${describeCard(this.openingCard)}.`, 'must_open');
       }
     }
 
     // Legality: delegate entirely to the rules engine (leading => current is null).
     const check = validatePlay(cards, this.pile);
-    if (!check.ok || !check.combo) return fail(check.reason ?? 'Lëvizje e palejuar.');
+    if (!check.ok || !check.combo) return fail(check.reason ?? 'Lëvizje e palejuar.', check.code ?? 'illegal');
 
     // Commit the play.
     this.removeCards(seat, cards);
@@ -212,8 +213,8 @@ export class SingleGame {
     this.afterAction(seat, events);
     return ok(events);
 
-    function fail(reason: string): ActionResult {
-      return { ok: false, reason, events: [] };
+    function fail(reason: string, code?: string): ActionResult {
+      return { ok: false, reason, code, events: [] };
     }
     function ok(evts: GameEvent[]): ActionResult {
       return { ok: true, events: evts };
@@ -222,11 +223,11 @@ export class SingleGame {
 
   pass(seat: Seat): ActionResult {
     const events: GameEvent[] = [];
-    if (this.status === 'finished') return { ok: false, reason: 'Loja ka mbaruar.', events: [] };
-    if (seat !== this.turn) return { ok: false, reason: 'Nuk është radha jote.', events: [] };
+    if (this.status === 'finished') return { ok: false, reason: 'Loja ka mbaruar.', code: 'game_over', events: [] };
+    if (seat !== this.turn) return { ok: false, reason: 'Nuk është radha jote.', code: 'not_your_turn', events: [] };
     // You may only pass when there is something to beat; the leader must play.
     if (this.pile === null) {
-      return { ok: false, reason: 'Nuk mund të pasosh kur je i pari në dorë.', events: [] };
+      return { ok: false, reason: 'Nuk mund të pasosh kur je i pari në dorë.', code: 'cannot_pass_leading', events: [] };
     }
 
     this.passed.add(seat);

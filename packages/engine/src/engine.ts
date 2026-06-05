@@ -173,13 +173,16 @@ export function beats(candidate: Combo, current: Combo): boolean {
 }
 
 // Validate a proposed play. `current` is null when the player is leading a trick.
-export interface PlayCheck { ok: boolean; combo?: Combo; reason?: string }
+// `code` is a stable, language-neutral rejection identifier (the client localizes it);
+// `reason` remains the human (Albanian) sentence used as a fallback. Additive — the
+// rules themselves are unchanged.
+export interface PlayCheck { ok: boolean; combo?: Combo; reason?: string; code?: string }
 
 export function validatePlay(cards: Card[], current: Combo | null): PlayCheck {
   const combo = identifyCombo(cards);
-  if (!combo) return { ok: false, reason: 'Kjo nuk është një kombinim i vlefshëm.' };
+  if (!combo) return { ok: false, reason: 'Kjo nuk është një kombinim i vlefshëm.', code: 'invalid_combo' };
   if (!current) return { ok: true, combo }; // any valid combo may lead
-  if (!beats(combo, current)) return { ok: false, combo, reason: 'Nuk e mund kombinimin aktual.' };
+  if (!beats(combo, current)) return { ok: false, combo, reason: 'Nuk e mund kombinimin aktual.', code: 'does_not_beat' };
   return { ok: true, combo };
 }
 

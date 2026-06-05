@@ -6,15 +6,20 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
 import { sound } from '../lib/sound.ts';
+import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
+
+// Maps the room type to a catalog key, resolved with t() at render time.
 const CONTEXT: Record<RoomStateDTO['type'], string> = {
-  '1v1': 'SOLO · 1V1',
-  '1v1v1': '1V1V1',
-  '2v2': '2 KUNDËR 2',
+  '1v1': 'room.ctxSolo',
+  '1v1v1': 'room.ctx1v1v1',
+  '2v2': 'room.ctx2v2',
 };
 
 export function RoomView({ room }: { room: RoomStateDTO }) {
   const { mySeat, setReady, leaveRoom } = useGameStore();
+  const t = useT();
   const meReady = mySeat !== null ? room.seats[mySeat]?.ready ?? false : false;
   const filled = room.seats.filter((s) => s.userId !== null).length;
   const allFilled = filled === room.seats.length;
@@ -49,7 +54,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
       const { friends } = await friendsApi.list(token);
       setFriends(friends.filter((f) => f.direction === 'friends'));
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Ngarkimi i miqve dështoi.' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : tr('room.errLoadFriends') });
     } finally {
       setFriendsLoading(false);
     }
@@ -64,27 +69,27 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
 
   return (
     <div className="space-y-5">
-      <h1 className="sr-only">Dhoma e ndeshjes</h1>
-      <button onClick={() => void leaveRoom()} className="btn btn-ghost">← Kthehu te lobi</button>
+      <h1 className="sr-only">{t('room.title')}</h1>
+      <button onClick={() => void leaveRoom()} className="btn btn-ghost">{t('common.backToLobby')}</button>
 
       {/* Crest / matchmaking header */}
       <section className="panel-solid p-6 text-center animate-rise">
         <div className="crest gold-text text-3xl sm:text-4xl mb-2">MURLAN</div>
         <div className="inline-flex items-center gap-2">
-          <span className="tag tag-open">{CONTEXT[room.type]}</span>
+          <span className="tag tag-open">{t(CONTEXT[room.type])}</span>
           <span className="chip" style={{ padding: '5px 12px 5px 7px', fontSize: 13 }}>
             <span className="coin" style={{ width: 16, height: 16 }} />
             {dollars(room.stakeCents)}
           </span>
-          <span className="text-xs text-muted">deri në <b className="text-gold-hi">{room.target}</b></span>
+          <span className="text-xs text-muted">{t('room.upTo')} <b className="text-gold-hi">{room.target}</b></span>
         </div>
       </section>
 
       {/* Seats filling in */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">LOJTARËT</h2>
-          <span className="text-xs text-muted">{filled}/{room.seats.length} ulëse</span>
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('room.players')}</h2>
+          <span className="text-xs text-muted">{t('room.seatsCount', { filled, total: room.seats.length })}</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {room.seats.map((s, i) => {
@@ -105,15 +110,15 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                 {s.username ? (
                   <div className="text-center">
                     <div className="font-display font-semibold tracking-wide text-sm truncate max-w-[110px]">
-                      {s.username}{mine && <span className="text-gold"> (ti)</span>}
+                      {s.username}{mine && <span className="text-gold"> {t('room.youParen')}</span>}
                     </div>
-                    {room.type === '2v2' && <div className="text-[11px] text-muted">Ekipi {(s.team ?? 0) + 1}</div>}
+                    {room.type === '2v2' && <div className="text-[11px] text-muted">{t('room.team', { n: (s.team ?? 0) + 1 })}</div>}
                   </div>
                 ) : (
-                  <div className="text-xs italic text-muted/70">Duke pritur…</div>
+                  <div className="text-xs italic text-muted/70">{t('room.waiting')}</div>
                 )}
                 {s.userId &&
-                  (s.ready ? <span className="tag tag-open">Gati</span> : <span className="tag tag-live"><span className="pls" />Pa gati</span>)}
+                  (s.ready ? <span className="tag tag-open">{t('room.ready')}</span> : <span className="tag tag-live"><span className="pls" />{t('room.notReady')}</span>)}
               </div>
             );
           })}
@@ -122,16 +127,16 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
 
       {/* Invite friends */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">FTO MIQ</h2>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('room.inviteFriends')}</h2>
         {friendsLoading ? (
           <div className="text-center py-6">
             <div className="text-3xl mb-2 opacity-60 animate-pulse">👥</div>
-            <p className="text-sm text-muted">Po ngarkohen miqtë…</p>
+            <p className="text-sm text-muted">{t('room.loadingFriends')}</p>
           </div>
         ) : friends.length === 0 ? (
           <div className="text-center py-6">
             <div className="text-3xl mb-2 opacity-60">🫂</div>
-            <p className="text-sm text-muted">S'ke miq ende — shtoji te 👥 Miqtë.</p>
+            <p className="text-sm text-muted">{t('room.noFriends')}</p>
           </div>
         ) : (
           <ul className="space-y-2.5">
@@ -145,16 +150,16 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                   <div className="flex items-center gap-2">
                     <span
                       className={`inline-block w-2.5 h-2.5 rounded-full ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`}
-                      title={f.online ? 'Online' : 'Offline'}
-                      aria-label={f.online ? 'Online' : 'Offline'}
+                      title={f.online ? t('room.online') : t('room.offline')}
+                      aria-label={f.online ? t('room.online') : t('room.offline')}
                     />
                     <span className="font-display font-semibold tracking-wide text-txt truncate">{f.user.username}</span>
                   </div>
-                  <div className="text-xs text-muted">Niveli {f.user.level}</div>
+                  <div className="text-xs text-muted">{t('room.level', { n: f.user.level })}</div>
                 </div>
                 <div className="ml-auto flex items-center gap-2">
                   <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} className="btn btn-gold">
-                    Fto
+                    {t('room.invite')}
                   </button>
                 </div>
               </li>
@@ -168,17 +173,17 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
         {counting ? (
           <div>
             <div className="gold-text font-display font-bold text-6xl leading-none animate-pop" key={secs}>{secs}</div>
-            <div className="text-sm text-muted mt-1">Loja fillon…</div>
+            <div className="text-sm text-muted mt-1">{t('room.gameStarting')}</div>
           </div>
         ) : (
           <div className="text-sm text-muted min-h-5">
-            {allReady ? 'Të gjithë gati — ndeshja po fillon…' : allFilled ? 'Duke pritur që të gjithë të jenë gati…' : 'Duke pritur lojtarë…'}
+            {allReady ? t('room.allReady') : allFilled ? t('room.waitingReady') : t('room.waitingPlayers')}
           </div>
         )}
 
         {!canAfford && !meReady && (
           <div className="text-sm text-suit">
-            Bilanc i pamjaftueshëm për bastin ({dollars(room.stakeCents)}). Depozito te kuleta për të luajtur.
+            {t('room.insufficient', { amount: dollars(room.stakeCents) })}
           </div>
         )}
         <button
@@ -186,7 +191,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           disabled={!canAfford && !meReady}
           className={`btn btn-lg btn-block ${meReady ? 'btn-ghost' : 'btn-green'}`}
         >
-          {meReady ? 'Anulo gatishmërinë' : !canAfford ? 'Pa fonde' : 'Jam gati'}
+          {meReady ? t('room.cancelReady') : !canAfford ? t('room.noFunds') : t('room.imReady')}
         </button>
       </section>
     </div>

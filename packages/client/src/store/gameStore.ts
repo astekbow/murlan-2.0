@@ -8,8 +8,13 @@ import type {
 import { PLAYERS_PER_TYPE } from '@murlan/shared';
 import { connectSocket, request, type MurlanSocket } from '../lib/socket.ts';
 import { refreshAccessToken } from '../lib/api.ts';
+import { ackText } from '../lib/errors.ts';
+import { translate, useLangStore, type TVars } from '../lib/i18n.ts';
 import { toggleCard, selectedCards } from '../lib/selection.ts';
 import { useNotifications } from './notificationsStore.ts';
+
+// Localized toast text for store actions (outside React render → read live lang).
+const tg = (key: string, vars?: TVars) => translate(key, useLangStore.getState().lang, vars);
 
 export interface LogEntry {
   id: number;
@@ -182,7 +187,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
 
     socket.on('match:start', (room) => {
-      set((s) => ({ room, queue: null, log: appendLog(s.log, 'Ndeshja filloi!') }));
+      set((s) => ({ room, queue: null, log: appendLog(s.log, tg('log.matchStarted')) }));
     });
 
     // Ranked matchmaking status while waiting (cleared once we're seated/matched).
@@ -199,7 +204,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         selected: [],
         switchPrompt: null,
         switchPending: false,
-        log: appendLog(s.log, `Loja ${dto.gameIndex + 1} filloi.`),
+        log: appendLog(s.log, tg('log.gameStarted', { n: dto.gameIndex + 1 })),
       }));
     });
 
@@ -209,15 +214,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     socket.on('game:yourTurn', (state) => set({ game: state }));
 
     socket.on('game:trickWon', (dto) =>
-      set((s) => ({ log: appendLog(s.log, `Rrahjen e fitoi vendi ${dto.winner + 1}.`) })),
+      set((s) => ({ log: appendLog(s.log, tg('log.trickWon', { seat: dto.winner + 1 })) })),
     );
     socket.on('game:playerFinished', (dto) =>
-      set((s) => ({ log: appendLog(s.log, `Vendi ${dto.seat + 1} mbaroi letrat (pozicioni ${dto.place}).`) })),
+      set((s) => ({ log: appendLog(s.log, tg('log.playerFinished', { seat: dto.seat + 1, place: dto.place })) })),
     );
     socket.on('game:end', (dto) =>
       // Clear the public game so the felt resets and the shuffle splash shows
       // again before the next game's deal.
-      set((s) => ({ game: null, scoreboard: dto.scoreboard, log: appendLog(s.log, 'Loja përfundoi.') })),
+      set((s) => ({ game: null, scoreboard: dto.scoreboard, log: appendLog(s.log, tg('log.gameEnded')) })),
     );
 
     socket.on('card:switch', (dto) => {
@@ -229,8 +234,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       set((s) => {
         const next = { ...s };
-        if (dto.given) next.log = appendLog(s.log, `Vendi ${dto.loser + 1} i dha letrën më të fortë vendit ${dto.winner + 1}.`);
-        if (dto.returned) next.log = appendLog(next.log, `Vendi ${dto.winner + 1} ktheu një letër te vendi ${dto.loser + 1}.`);
+        if (dto.given) next.log = appendLog(s.log, tg('log.switchGiven', { loser: dto.loser + 1, winner: dto.winner + 1 }));
+        if (dto.returned) next.log = appendLog(next.log, tg('log.switchReturned', { winner: dto.winner + 1, loser: dto.loser + 1 }));
         // awaitingReturn = the switch is still in progress (any client); when the
         // return lands (awaitingReturn=false) it is done — clear the pending flag.
         next.switchPending = dto.awaitingReturn;
@@ -243,28 +248,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // Contribute fresh entropy AFTER the commitment — this is what makes the
       // deal un-grindable (the server fixed serverSeed before seeing this seed).
       socket.emit('fair:clientSeed', randomSeed());
-      set((s) => ({ fairCommit: dto, fairReveal: null, log: appendLog(s.log, 'Përzierja u angazhua (provably fair).') }));
+      set((s) => ({ fairCommit: dto, fairReveal: null, log: appendLog(s.log, tg('log.fairCommit')) }));
     });
     socket.on('fair:reveal', (dto) =>
-      set((s) => ({ fairReveal: dto, log: appendLog(s.log, 'U zbulua fara — përzierja është e verifikueshme.') })),
+      set((s) => ({ fairReveal: dto, log: appendLog(s.log, tg('log.fairReveal')) })),
     );
 
     socket.on('match:scoreboard', (sb) => set({ scoreboard: sb }));
 
     socket.on('match:end', (dto) => {
       const won = dto.winnerSeats.includes(get().mySeat ?? -1);
-      useNotifications.getState().push(won ? '🏆 Fitove ndeshjen!' : 'Ndeshja përfundoi.', won ? 'win' : 'info');
+      useNotifications.getState().push(won ? tg('msg.matchWon') : tg('msg.matchEnded'), won ? 'win' : 'info');
       set((s) => ({
         matchResult: dto,
         scoreboard: dto.scoreboard,
         game: null, // stop the turn timer & clear the board behind the result overlay
         switchPrompt: null,
         switchPending: false,
-        log: appendLog(s.log, 'Ndeshja përfundoi!'),
+        log: appendLog(s.log, tg('log.matchEnded')),
       }));
     });
 
-    socket.on('error', (err) => set({ toast: err.message, toastKind: 'error' }));
+    socket.on('error', (err) => set({ toast: ackText(err, 'err.generic'), toastKind: 'error' }));
 
     // Social (§2.5): incoming emotes / quick-chat → transient bubbles; invites.
     socket.on('emote', ({ seat, emote }) => {
@@ -278,8 +283,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       setTimeout(() => set((s) => ({ bubbles: s.bubbles.filter((b) => b.id !== id) })), 4500);
     });
     socket.on('invited', (dto) => {
-      useNotifications.getState().push(`📨 ${dto.fromUsername} të ftoi në një lojë`, 'invite');
-      set({ invite: dto, toast: `${dto.fromUsername} të ftoi në një lojë!`, toastKind: 'info' });
+      useNotifications.getState().push(`📨 ${tg('msg.invitedToGame', { name: dto.fromUsername })}`, 'invite');
+      set({ invite: dto, toast: tg('msg.invitedToGame', { name: dto.fromUsername }), toastKind: 'info' });
     });
     socket.on('club:chat', (dto) => {
       // Append live; dedup by id (the sender also receives their own message).
@@ -303,7 +308,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!socket) return null;
     const res = await request<Ack>(socket, 'room:create', { type, stakeCents, team });
     if (!res.ok) {
-      set({ toast: res.error?.message ?? 'Krijimi i dhomës dështoi.', toastKind: 'error' });
+      set({ toast: ackText(res.error, 'err.createRoomFailed'), toastKind: 'error' });
       return null;
     }
     return res.roomId ?? null;
@@ -313,7 +318,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = get().socket;
     if (!socket) return false;
     const res = await request<Ack>(socket, 'room:join', { roomId, team });
-    if (!res.ok) set({ toast: res.error?.message ?? 'Bashkimi në dhomë dështoi.', toastKind: 'error' });
+    if (!res.ok) set({ toast: ackText(res.error, 'err.joinRoomFailed'), toastKind: 'error' });
     return res.ok;
   },
 
@@ -336,7 +341,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = get().socket;
     if (!socket) return false;
     const res = await request<Ack>(socket, 'practice:start', { type, tier });
-    if (!res.ok) set({ toast: res.error?.message ?? 'Praktika nuk filloi dot.', toastKind: 'error' });
+    if (!res.ok) set({ toast: ackText(res.error, 'err.practiceStartFailed'), toastKind: 'error' });
     return res.ok;
   },
 
@@ -345,7 +350,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!socket) return false;
     const res = await request<Ack>(socket, 'ranked:queue:join', { matchType });
     if (!res.ok) {
-      set({ toast: res.error?.message ?? 'Hyrja në radhë dështoi.', toastKind: 'error' });
+      set({ toast: ackText(res.error, 'err.queueJoinFailed'), toastKind: 'error' });
       return false;
     }
     // Optimistic searching state (the server confirms/updates via ranked:queue:update).
@@ -364,7 +369,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!socket) return false;
     const res = await request<Ack>(socket, 'room:spectate', { roomId });
     if (!res.ok) {
-      set({ toast: res.error?.message ?? 'Shikimi i ndeshjes dështoi.', toastKind: 'error' });
+      set({ toast: ackText(res.error, 'err.spectateFailed'), toastKind: 'error' });
       return false;
     }
     // The server pushes room:state + game:state + scoreboard, which populate the
@@ -392,7 +397,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = get().socket;
     if (!socket) return;
     const res = await request<Ack>(socket, 'room:ready', ready);
-    if (!res.ok) set({ toast: res.error?.message ?? 'Veprimi dështoi.', toastKind: 'error' });
+    if (!res.ok) set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' });
   },
 
   toggleCardSel(id) {
@@ -413,7 +418,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const chosen = new Set(selected);
       set((s) => ({ myHand: s.myHand.filter((c) => !chosen.has(cardId(c))), selected: [] }));
     } else {
-      set({ toast: res.error?.message ?? 'Lëvizje e palejuar.', toastKind: 'error' });
+      set({ toast: ackText(res.error, 'err.illegalMove'), toastKind: 'error' });
     }
   },
 
@@ -421,7 +426,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = get().socket;
     if (!socket) return;
     const res = await request<Ack>(socket, 'game:pass');
-    if (!res.ok) set({ toast: res.error?.message ?? 'Nuk mund të pasosh tani.', toastKind: 'error' });
+    if (!res.ok) set({ toast: ackText(res.error, 'err.cannotPassNow'), toastKind: 'error' });
   },
 
   async giveSwitch(card) {
@@ -431,7 +436,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (res.ok) {
       set((s) => ({ switchPrompt: null, switchPending: false, myHand: s.myHand.filter((c) => cardId(c) !== cardId(card)) }));
     } else {
-      set({ toast: res.error?.message ?? 'Zgjedhja e letrës dështoi.', toastKind: 'error' });
+      set({ toast: ackText(res.error, 'err.cardSwitchFailed'), toastKind: 'error' });
     }
   },
 
@@ -458,15 +463,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const t = text.trim();
     if (!socket || !t) return false;
     const res = await request<Ack>(socket, 'club:message', { text: t });
-    if (!res.ok) set({ toast: res.error?.message ?? 'Mesazhi dështoi.', toastKind: 'error' });
+    if (!res.ok) set({ toast: ackText(res.error, 'err.messageFailed'), toastKind: 'error' });
     return res.ok;
   },
   async inviteFriend(friendUserId) {
     const socket = get().socket;
     if (!socket) return false;
     const res = await request<Ack>(socket, 'room:invite', { friendUserId });
-    if (res.ok) set({ toast: 'Ftesa u dërgua.', toastKind: 'success' });
-    else set({ toast: res.error?.message ?? 'Ftesa dështoi.', toastKind: 'error' });
+    if (res.ok) set({ toast: tg('msg.inviteSent'), toastKind: 'success' });
+    else set({ toast: ackText(res.error, 'err.inviteFailed'), toastKind: 'error' });
     return res.ok;
   },
   async acceptInvite() {

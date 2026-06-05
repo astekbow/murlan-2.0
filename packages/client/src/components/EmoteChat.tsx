@@ -2,12 +2,14 @@ import { useEffect } from 'react';
 import { useGameStore } from '../store/gameStore.ts';
 import { sound } from '../lib/sound.ts';
 import { useFocusTrap } from './ui/useFocusTrap.ts';
+import { useT } from '../lib/i18n.ts';
 
 const EMOTES = ['👍', '😂', '😮', '😎', '🔥', '😢', '🤝', '👏', '🤔', '🍀', '🙈', '🎉'];
 const PHRASES = ['Mirë luajtur!', 'Faleminderit', 'Hajde!', 'Shpejto pak 🙂', 'Fat të mirë 🍀', 'Oof…', 'Mbarsi!', 'Pa fjalë 😄'];
 
 /** A small popover for in-game emotes / preset quick-chat (corner buttons). */
 export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: () => void }) {
+  const t = useT();
   const sendEmote = useGameStore((s) => s.sendEmote);
   const sendChat = useGameStore((s) => s.sendChat);
   const trapRef = useFocusTrap<HTMLDivElement>();
@@ -27,15 +29,15 @@ export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: 
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={kind === 'emote' ? 'Emote' : 'Bisedë e shpejtë'}
+        aria-label={kind === 'emote' ? 'Emote' : t('emote.quickChat')}
         className="panel-solid w-full max-w-sm p-4 animate-pop outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
-            {kind === 'emote' ? 'EMOTE' : 'BISEDË E SHPEJTË'}
+            {kind === 'emote' ? 'EMOTE' : t('emote.quickChatTitle')}
           </h3>
-          <button className="iconbtn" onClick={onClose} aria-label="Mbyll">✕</button>
+          <button className="iconbtn" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
 
         {kind === 'emote' ? (

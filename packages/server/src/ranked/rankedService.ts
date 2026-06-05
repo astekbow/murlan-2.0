@@ -187,23 +187,23 @@ export class RankedService {
     const season = await this.seasons.getActiveSeason();
     if (!season) return [];
     const top = await this.seasons.topByRating(season.id, limit);
-    const rows = await Promise.all(
-      top.map(async (r, i) => {
-        const u = await this.users.findById(r.userId).catch(() => null);
-        return {
-          rank: i + 1,
-          userId: r.userId,
-          username: u?.username ?? '—',
-          avatar: u?.avatar ?? null,
-          rating: r.rating,
-          peakRating: r.peakRating,
-          tier: tierInfo(tierFromRating(r.rating)),
-          games: r.games,
-          wins: r.wins,
-          winRate: r.games > 0 ? r.wins / r.games : 0,
-        } satisfies RankedLeaderboardRow;
-      }),
-    );
-    return rows;
+    // Batch-fetch every leaderboard user in ONE query (was N+1: a findById per row).
+    const users = await this.users.findManyByIds(top.map((r) => r.userId)).catch(() => []);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return top.map((r, i) => {
+      const u = byId.get(r.userId);
+      return {
+        rank: i + 1,
+        userId: r.userId,
+        username: u?.username ?? '—',
+        avatar: u?.avatar ?? null,
+        rating: r.rating,
+        peakRating: r.peakRating,
+        tier: tierInfo(tierFromRating(r.rating)),
+        games: r.games,
+        wins: r.wins,
+        winRate: r.games > 0 ? r.wins / r.games : 0,
+      } satisfies RankedLeaderboardRow;
+    });
   }
 }

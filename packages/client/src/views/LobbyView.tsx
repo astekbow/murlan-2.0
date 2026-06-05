@@ -9,10 +9,11 @@ import { Modal } from '../components/ui/Modal.tsx';
 import { InstallBanner } from '../components/ui/InstallBanner.tsx';
 import { useT } from '../lib/i18n.ts';
 
+// Maps match type → catalog key, resolved with t() at each use site.
 const TYPE_LABEL: Record<MatchType, string> = {
-  '1v1': '1 kundër 1',
-  '1v1v1': '1v1v1',
-  '2v2': '2 kundër 2',
+  '1v1': 'lobby.type1v1',
+  '1v1v1': 'lobby.type1v1v1',
+  '2v2': 'lobby.type2v2',
 };
 const TYPES: MatchType[] = ['1v1', '1v1v1', '2v2'];
 
@@ -48,7 +49,7 @@ export function LobbyView() {
 
   return (
     <div className="space-y-6">
-      <h1 className="sr-only">Murlan — Lobi</h1>
+      <h1 className="sr-only">{t('lobby.srTitle')}</h1>
       <InstallBanner />
       {/* Menu: side rail + hero */}
       <div className="grid gap-5 md:grid-cols-[76px_1fr] items-start">
@@ -127,8 +128,8 @@ export function LobbyView() {
         {lobby.length === 0 ? (
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60">🃏</div>
-            <p className="text-sm text-muted">Nuk ka dhoma të hapura ende.</p>
-            <p className="text-xs text-muted/70 mt-1">Provo "Lojë e Shpejtë" ose krijo një dhomë!</p>
+            <p className="text-sm text-muted">{t('lobby.noRooms')}</p>
+            <p className="text-xs text-muted/70 mt-1">{t('lobby.noRoomsHint')}</p>
           </div>
         ) : (
           <ul className="space-y-2.5">
@@ -143,19 +144,19 @@ export function LobbyView() {
                   className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold hover:translate-x-0.5 transition-all animate-rise"
                   style={{ animationDelay: `${i * 0.06}s` }}
                 >
-                  <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{TYPE_LABEL[r.type]}</div>
+                  <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{t(TYPE_LABEL[r.type])}</div>
                   <div className="flex flex-wrap gap-4 text-sm text-muted flex-1">
-                    <span>Basti <b className="text-txt">{dollars(r.stakeCents)}</b></span>
-                    <span><b className="text-txt">{r.seatsFilled}/{r.seatsTotal}</b> lojtarë</span>
+                    <span>{t('lobby.stake')} <b className="text-txt">{dollars(r.stakeCents)}</b></span>
+                    <span><b className="text-txt">{r.seatsFilled}/{r.seatsTotal}</b> {t('lobby.playersSuffix')}</span>
                   </div>
-                  {open ? <span className="tag tag-open">Hapur</span> : <span className="tag tag-live"><span className="pls" />Po luhet</span>}
+                  {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
                   <button
                     onClick={() => void joinRoom(r.id)}
                     disabled={!joinable}
-                    title={open && !full && !canAfford ? 'Bilanc i pamjaftueshëm për këtë bast' : undefined}
+                    title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
                     className={`btn w-full sm:w-auto ${joinable ? 'btn-gold' : 'btn-ghost'}`}
                   >
-                    {!open ? 'Po luhet' : full ? 'Plot' : canAfford ? 'Hyr' : 'Pa fonde'}
+                    {!open ? t('lobby.playing') : full ? t('lobby.full') : canAfford ? t('lobby.enter') : t('lobby.noFunds')}
                   </button>
                 </li>
               );
@@ -169,7 +170,7 @@ export function LobbyView() {
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.22s' }}>
           <div className="flex items-center justify-between mb-3 gap-2">
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('lobby.liveMatches')}</h2>
-            <span className="text-xs text-muted">Shiko ndeshjet që po luhen</span>
+            <span className="text-xs text-muted">{t('lobby.watchLive')}</span>
           </div>
           <ul className="space-y-2.5">
             {live.map((m, i) => (
@@ -178,12 +179,12 @@ export function LobbyView() {
                 className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold transition-all animate-rise"
                 style={{ animationDelay: `${i * 0.05}s` }}
               >
-                <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{TYPE_LABEL[m.type]}</div>
+                <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{t(TYPE_LABEL[m.type])}</div>
                 <div className="flex-1 min-w-0 text-sm text-muted truncate">
-                  {m.players.map((p) => p.username).filter(Boolean).join(' · ') || 'Lojtarë'}
+                  {m.players.map((p) => p.username).filter(Boolean).join(' · ') || t('lobby.players')}
                 </div>
                 <span className="tag tag-live shrink-0"><span className="pls" />Live</span>
-                <button onClick={() => { sound.play('button'); void spectate(m.roomId); }} className="btn btn-ghost w-full sm:w-auto">👁 Shiko</button>
+                <button onClick={() => { sound.play('button'); void spectate(m.roomId); }} className="btn btn-ghost w-full sm:w-auto">👁 {t('lobby.watch')}</button>
               </li>
             ))}
           </ul>
@@ -215,6 +216,7 @@ interface RankedProps {
   onFind: (type: MatchType) => Promise<boolean>;
 }
 function RankedModal({ onClose, onFind }: RankedProps) {
+  const t = useT();
   const [type, setType] = useState<MatchType>('1v1');
   const [busy, setBusy] = useState(false);
 
@@ -227,15 +229,15 @@ function RankedModal({ onClose, onFind }: RankedProps) {
   }
 
   return (
-    <Modal title="Ndeshje Ranked" onClose={onClose}>
+    <Modal title={t('lobby.rankedModalTitle')} onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <span className="field-label">Lloji i lojës</span>
+          <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
-        <p className="text-xs text-muted">Do të të çiftëzojmë me lojtarë afër nivelit tënd (MMR). Pa bast — vetëm renditje sezonale dhe tier-i yt.</p>
+        <p className="text-xs text-muted">{t('lobby.rankedBlurb')}</p>
         <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void find()}>
-          {busy ? 'Po hyjmë…' : 'GJEJ NDESHJE'}
+          {busy ? t('lobby.entering') : t('lobby.findMatch')}
         </button>
       </div>
     </Modal>
@@ -244,11 +246,12 @@ function RankedModal({ onClose, onFind }: RankedProps) {
 
 /** Type picker shared by both modals. */
 function TypePicker({ value, onChange }: { value: MatchType; onChange: (t: MatchType) => void }) {
+  const t = useT();
   return (
     <div className="seg w-full grid grid-cols-3">
-      {TYPES.map((t) => (
-        <button key={t} className={`seg-tab text-center ${value === t ? 'active' : ''}`} onClick={() => onChange(t)}>
-          {TYPE_LABEL[t]}
+      {TYPES.map((mt) => (
+        <button key={mt} className={`seg-tab text-center ${value === mt ? 'active' : ''}`} onClick={() => onChange(mt)}>
+          {t(TYPE_LABEL[mt])}
         </button>
       ))}
     </div>
@@ -256,9 +259,10 @@ function TypePicker({ value, onChange }: { value: MatchType; onChange: (t: Match
 }
 
 function StakeField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useT();
   return (
     <label className="block">
-      <span className="field-label">Basti (USD)</span>
+      <span className="field-label">{t('lobby.stakeUsd')}</span>
       <input type="number" min="0" step="0.5" value={value} onChange={(e) => onChange(e.target.value)} className="field" />
     </label>
   );
@@ -276,6 +280,7 @@ interface QuickProps {
   onRefresh: () => Promise<ReturnType<typeof useGameStore.getState>['lobby']>;
 }
 function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
+  const t = useT();
   const [type, setType] = useState<MatchType>('1v1');
   const [stake, setStake] = useState('5');
   const [busy, setBusy] = useState(false);
@@ -309,19 +314,19 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
   }
 
   return (
-    <Modal title="Lojë e Shpejtë" onClose={onClose}>
+    <Modal title={t('lobby.quickName')} onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <span className="field-label">Lloji i lojës</span>
+          <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
         <StakeField value={stake} onChange={setStake} />
-        <p className="text-xs text-muted">Do të të çojmë te një tavolinë e hapur që përputhet, ose do hapim një të re dhe presim kundërshtar.</p>
+        <p className="text-xs text-muted">{t('lobby.quickBlurb')}</p>
         <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
-          {busy ? 'Po kërkojmë…' : 'LUAJ TANI'}
+          {busy ? t('lobby.searching') : t('lobby.quickCta')}
         </button>
         <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => void practice()}>
-          🤖 Praktikë me robotë
+          {t('lobby.practice')}
         </button>
       </div>
     </Modal>
@@ -333,6 +338,7 @@ interface CreateProps {
   onCreate: (type: MatchType, cents: number, team?: 0 | 1) => Promise<string | null>;
 }
 function CreateRoomModal({ onClose, onCreate }: CreateProps) {
+  const t = useT();
   const [type, setType] = useState<MatchType>('1v1');
   const [stake, setStake] = useState('5');
   const [team, setTeam] = useState<0 | 1>(0);
@@ -346,24 +352,24 @@ function CreateRoomModal({ onClose, onCreate }: CreateProps) {
   }
 
   return (
-    <Modal title="Krijo dhomë" onClose={onClose}>
+    <Modal title={t('lobby.createModalTitle')} onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <span className="field-label">Lloji i lojës</span>
+          <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
         <StakeField value={stake} onChange={setStake} />
         {type === '2v2' && (
           <label className="block">
-            <span className="field-label">Ekipi</span>
+            <span className="field-label">{t('lobby.team')}</span>
             <select value={team} onChange={(e) => setTeam(Number(e.target.value) as 0 | 1)} className="field">
-              <option value={0}>Ekipi 1</option>
-              <option value={1}>Ekipi 2</option>
+              <option value={0}>{t('lobby.team1')}</option>
+              <option value={1}>{t('lobby.team2')}</option>
             </select>
           </label>
         )}
         <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void create()}>
-          {busy ? 'Po krijohet…' : 'KRIJO DHOMË'}
+          {busy ? t('lobby.creating') : t('lobby.createCta')}
         </button>
       </div>
     </Modal>

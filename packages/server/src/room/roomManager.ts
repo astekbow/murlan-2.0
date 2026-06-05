@@ -259,10 +259,10 @@ export class RoomManager {
   ): MatchActionResult & { roomId?: string } {
     const room = this.roomOf(userId);
     if (!room || !room.match || room.status !== 'inMatch') {
-      return { ok: false, reason: 'Nuk je në një ndeshje aktive.', gameEvents: [], matchEvents: [] };
+      return { ok: false, reason: 'Nuk je në një ndeshje aktive.', code: 'not_in_match', gameEvents: [], matchEvents: [] };
     }
     const seatIdx = room.seats.findIndex((s) => s.userId === userId);
-    if (seatIdx < 0) return { ok: false, reason: 'Nuk ke vend në dhomë.', gameEvents: [], matchEvents: [] };
+    if (seatIdx < 0) return { ok: false, reason: 'Nuk ke vend në dhomë.', code: 'no_seat', gameEvents: [], matchEvents: [] };
     const res = action(room, seatIdx);
     // Reflect a finished match back into the room status.
     if (room.match.currentState === 'matchOver') {

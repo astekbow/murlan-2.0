@@ -1,4 +1,11 @@
 # Murlan game server (Fastify + Socket.IO). Runs the TypeScript sources via tsx.
+#
+# SUPPLY CHAIN: pin the base image to a content digest for reproducible, tamper-
+# evident builds before production. Resolve the current digest in an env with
+# Docker, then replace the tag below with it:
+#   docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
+#   → FROM node:22-alpine@sha256:<digest> AS deps   (and the runtime stage)
+# (Left as a floating tag here because this build env has no Docker to resolve it.)
 FROM node:22-alpine AS deps
 WORKDIR /app
 # Install workspace deps using only the manifests first (better layer caching).
@@ -11,7 +18,9 @@ RUN npm ci
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
-ENV NODE_ENV=production
+# PORT must match EXPOSE + the HEALTHCHECK below (config.ts defaults to 3100). A
+# mismatch would make Docker probe the wrong port and falsely evict the container.
+ENV NODE_ENV=production PORT=3100
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Generate the Prisma client (used only when DATABASE_URL is set; harmless otherwise).
@@ -19,8 +28,9 @@ RUN npx prisma generate --schema packages/server/prisma/schema.prisma
 # Drop privileges: run as the built-in unprivileged `node` user, not root.
 # (The app writes nothing to disk; node only needs read access to /app.)
 USER node
-EXPOSE 3000
-# Healthcheck hits the Fastify /health route.
+EXPOSE 3100
+# Healthcheck hits the Fastify /health route on the SAME port the app binds
+# ($PORT, default 3100) — shell form so the env var expands.
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3000/health || exit 1
+  CMD wget -qO- "http://127.0.0.1:${PORT:-3100}/health" || exit 1
 CMD ["npm", "run", "start", "--workspace", "@murlan/server"]

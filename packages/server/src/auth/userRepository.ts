@@ -110,6 +110,9 @@ export class DuplicateUserError extends Error {
 export interface UserRepository {
   create(u: NewUser): Promise<User>;
   findById(id: string): Promise<User | null>;
+  /** Batch fetch by id (one query) — avoids N+1 round-trips on listings (e.g. the
+   *  ranked leaderboard). Order is NOT guaranteed; callers index by id. */
+  findManyByIds(ids: string[]): Promise<User[]>;
   findByEmail(email: string): Promise<User | null>;       // case-insensitive
   findByUsername(username: string): Promise<User | null>; // case-insensitive
   /**
@@ -205,6 +208,15 @@ export class InMemoryUserRepository implements UserRepository {
   async findById(id: string): Promise<User | null> {
     const u = this.byId.get(id);
     return u ? { ...u } : null;
+  }
+
+  async findManyByIds(ids: string[]): Promise<User[]> {
+    const out: User[] = [];
+    for (const id of ids) {
+      const u = this.byId.get(id);
+      if (u) out.push({ ...u });
+    }
+    return out;
   }
 
   async findByEmail(email: string): Promise<User | null> {

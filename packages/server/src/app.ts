@@ -28,7 +28,7 @@ import { InMemoryGames, type GamesRepository } from './fair/gamesRepository.ts';
 import { InMemoryMatchActions, type MatchActionsRepository } from './realtime/matchActions.ts';
 import { InMemoryVerificationTokens, type VerificationTokenRepository } from './auth/verificationTokens.ts';
 import { fairRoutes } from './http/fairRoutes.ts';
-import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded } from './metrics.ts';
+import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded, activeMatches, pendingWithdrawals } from './metrics.ts';
 import { authRoutes, requireAdmin } from './http/authRoutes.ts';
 import { walletRoutes } from './http/walletRoutes.ts';
 import { adminRoutes } from './http/adminRoutes.ts';
@@ -38,6 +38,7 @@ import { ResponsibleGamingService } from './compliance/responsibleGaming.ts';
 import { RoomManager } from './room/roomManager.ts';
 import { GameGateway } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
+import { InMemoryRoomOwnership } from './realtime/roomOwnership.ts';
 import { InMemoryLedger, type LedgerRepository } from './money/ledger.ts';
 import { WalletService } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
@@ -98,6 +99,7 @@ export interface HttpDeps {
   antiCheat?: AntiCheatService;
   push?: PushService;
   dbPing?: () => Promise<boolean>; // readiness probe for the DB (Prisma only)
+  isDraining?: () => boolean; // true during graceful shutdown → /ready returns 503
 }
 
 export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
@@ -108,6 +110,11 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       level: deps.config.isProd ? 'info' : 'warn',
       redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
     },
+    // Behind a reverse proxy (see deploy/nginx.conf): honor X-Forwarded-For so
+    // req.ip is the real client — used by IP-keyed rate-limiting and the optional
+    // payment-webhook IP allowlist. The proxy MUST set XFF authoritatively (e.g.
+    // `proxy_set_header X-Forwarded-For $remote_addr;`) so it can't be spoofed.
+    trustProxy: true,
   });
 
   // Capture the RAW JSON body (needed for webhook signature verification) while
@@ -149,9 +156,10 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   // Liveness: cheap, no dependencies — used by the Docker HEALTHCHECK.
   app.get('/health', async () => ({ ok: true, service: 'murlan-server' }));
 
-  // Readiness: verifies the DB is reachable (when Prisma is configured). Returns
-  // 503 if the dependency is down so a load balancer can drain the instance.
+  // Readiness: 503 if the DB is down OR the instance is DRAINING (graceful
+  // shutdown) — either way the load balancer stops routing new traffic here.
   app.get('/ready', async (_req, reply) => {
+    if (deps.isDraining?.()) return reply.code(503).send({ ok: false, draining: true });
     const db = deps.dbPing ? await deps.dbPing() : null; // null = in-memory (no DB)
     const ready = db !== false;
     return reply.code(ready ? 200 : 503).send({ ok: ready, db });
@@ -204,6 +212,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await walletRoutes(app, {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
+      webhookIps: deps.config.paymentWebhookIps,
     });
     await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, audit: deps.adminAudit, chat: deps.chat });
   }
@@ -218,6 +227,10 @@ export interface GameServer {
   auth: AuthService;
   config: AppConfig;
   listen: () => Promise<void>;
+  /** Flip the drain flag manually (mostly for tests; SIGTERM uses drain()). */
+  setDraining: (active: boolean) => void;
+  /** Graceful shutdown: drain new traffic, settle/refund in-flight, then close. */
+  drain: (graceMs?: number) => Promise<number>;
   close: () => Promise<void>;
 }
 
@@ -350,7 +363,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Foundation ships ON; review moderation POLICY before broad public promotion.
   const chat = new ChatService(chatRepo, clubs);
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, chat, rooms, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing });
+  // Drain flag for graceful shutdown: when active, /ready returns 503 (the LB
+  // stops routing) and the gateway rejects new matches/queue joins so in-flight
+  // matches can finish before the process exits.
+  const drainState = { active: false };
+  const isDraining = () => drainState.active;
+
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, chat, rooms, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -360,11 +379,26 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       // Bound message size so a hostile client can't send a giant payload that
       // ties up the event loop before our per-handler validation even runs.
       maxHttpBufferSize: 16 * 1024,
+      // Liveness + slow-client defenses: a heartbeat detects dead/idle sockets and
+      // reclaims them (no zombie connection holds a seat), and connectTimeout caps a
+      // slowloris-style handshake that never completes the Engine.IO upgrade.
+      pingInterval: 25_000, // server → client ping cadence
+      pingTimeout: 20_000,  // drop the socket if no pong within this window
+      connectTimeout: 10_000, // abort a handshake that stalls before connecting
     },
   );
 
   let detachRedis: (() => Promise<void>) | null = null;
-  if (config.redisUrl) detachRedis = await attachRedisAdapter(io, config.redisUrl);
+  if (config.redisUrl) {
+    detachRedis = await attachRedisAdapter(io, config.redisUrl);
+    // REDIS_URL implies multi-instance intent. The adapter shares broadcasts, but
+    // timers/rate-limit/presence/matchmaking are still per-instance — so loudly
+    // remind the operator that >1 replica REQUIRES sticky-by-room routing (else
+    // live matches corrupt). See DEPLOYMENT.md §7.
+    app.log.warn(
+      'REDIS_URL set: Socket.IO broadcasts are shared, but timers/rate-limit/presence/matchmaking remain PER-INSTANCE. Run a SINGLE replica, or enforce sticky-by-room routing at the load balancer (DEPLOYMENT.md §7) — multiple replicas without it WILL corrupt live matches.',
+    );
+  }
 
   // The gateway registers all socket handlers on construction.
   new GameGateway(io, rooms, auth, {
@@ -385,6 +419,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     matchLog: matchLogRepo,
     push,
     chat,
+    isDraining,
+    // Room-ownership registry. In-memory = single-instance no-op; swap for a
+    // Redis-backed impl (DEPLOYMENT.md §7) to make horizontal scaling safe.
+    ownership: new InMemoryRoomOwnership(),
   });
 
   // Crash recovery: refund any match a previous (crashed) process left 'active'
@@ -427,6 +465,27 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   }, RECONCILE_MS);
   sweepTimer.unref?.(); // never keep the process alive just for the sweep
 
+  // Live state gauges, refreshed often (cheap: a Set size + a pending-withdrawals
+  // count) so dashboards/alerts see concurrency + the money-ops queue in near-real-time.
+  const GAUGE_MS = 15 * 1000;
+  const gaugeTimer = setInterval(() => {
+    void (async () => {
+      try {
+        activeMatches.set(rooms.activeMatchIds().size);
+        pendingWithdrawals.set((await withdrawals.listPending()).length);
+      } catch { /* metrics must never break the app */ }
+    })();
+  }, GAUGE_MS);
+  gaugeTimer.unref?.();
+
+  const closeAll = async () => {
+    clearInterval(sweepTimer);
+    clearInterval(gaugeTimer);
+    io.close();
+    if (detachRedis) await detachRedis();
+    await app.close();
+  };
+
   return {
     app,
     io,
@@ -436,11 +495,27 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     async listen() {
       await app.listen({ port: config.port, host: config.host });
     },
-    async close() {
-      clearInterval(sweepTimer);
-      io.close();
-      if (detachRedis) await detachRedis();
-      await app.close();
+    setDraining(active: boolean) {
+      drainState.active = active;
     },
+    /**
+     * Graceful shutdown: flip /ready to 503 + reject new matches, wait a grace
+     * window for in-flight matches to finish + settle, then refund any match still
+     * escrowed (so a restart never strands a pot) and close. Returns the count
+     * refunded. Call this from SIGTERM/SIGINT instead of close() for zero-loss deploys.
+     */
+    async drain(graceMs = 10_000) {
+      drainState.active = true;
+      app.log.warn('draining: /ready now 503, rejecting new matches');
+      await new Promise((r) => setTimeout(r, graceMs));
+      const refunded = await money.recoverOrphanedMatches(new Set()).catch(() => [] as string[]);
+      if (refunded.length) {
+        app.log.warn({ matchIds: refunded }, 'refunded in-flight matches on drain');
+        orphanedMatchesRefunded.inc(refunded.length);
+      }
+      await closeAll();
+      return refunded.length;
+    },
+    close: closeAll,
   };
 }

@@ -27,6 +27,7 @@ const schema = z.object({
   COUNTDOWN_MS: z.coerce.number().int().nonnegative().default(3_000),
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
+  PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
   MIN_AGE: z.coerce.number().int().min(0).default(0),
@@ -54,6 +55,7 @@ export interface AppConfig {
   countdownMs: number;
   abandonMs: number;
   paymentWebhookSecret: string;
+  paymentWebhookIps: string[];
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -118,6 +120,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     countdownMs: parsed.COUNTDOWN_MS,
     abandonMs: parsed.ABANDON_MS,
     paymentWebhookSecret: parsed.PAYMENT_WEBHOOK_SECRET ?? 'dev-webhook-secret-change-me',
+    paymentWebhookIps: (parsed.PAYMENT_WEBHOOK_IPS ?? '')
+      .split(',')
+      .map((ip) => ip.trim())
+      .filter((ip) => ip.length > 0),
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,

@@ -10,6 +10,7 @@ import { dollars } from '../../lib/money.ts';
 import { useAuthStore } from '../../store/authStore.ts';
 import { TierBadge } from './TierBadge.tsx';
 import { earnedBadges } from '../../lib/badges.ts';
+import { useT } from '../../lib/i18n.ts';
 
 interface ProfileModalProps {
   userId: string;
@@ -17,6 +18,7 @@ interface ProfileModalProps {
 }
 
 export function ProfileModal({ userId, onClose }: ProfileModalProps) {
+  const t = useT();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ranked, setRanked] = useState<RankedProfileDTO | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
         rankedApi.me(token).then(({ ranked }) => setRanked(ranked)).catch(() => setRanked(null));
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Profili nuk u ngarkua.');
+      setError(e instanceof ApiError ? e.message : t('profile.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -58,23 +60,23 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
       await load();
       await useAuthStore.getState().refreshMe();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Avatari nuk u ruajt.');
+      setError(e instanceof ApiError ? e.message : t('profile.avatarSaveFailed'));
     } finally {
       setSavingAvatar(null);
     }
   }
 
   return (
-    <Modal title="Profili" onClose={onClose} maxWidth={460}>
+    <Modal title={t('profile.title')} onClose={onClose} maxWidth={460}>
       {loading ? (
         <div className="text-center py-10">
           <div className="text-4xl mb-2 opacity-60 animate-twinkle">🎴</div>
-          <p className="text-sm text-muted">Po ngarkohet…</p>
+          <p className="text-sm text-muted">{t('profile.loading')}</p>
         </div>
       ) : error || !profile ? (
         <div className="text-center py-10">
           <div className="text-4xl mb-2 opacity-60">⚠️</div>
-          <p className="text-sm text-red-300">{error ?? 'Profili nuk u gjet.'}</p>
+          <p className="text-sm text-red-300">{error ?? t('profile.notFound')}</p>
         </div>
       ) : (
         <div className="space-y-5">
@@ -89,7 +91,7 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
                 {profile.username}
               </div>
               <div className="text-xs text-muted mt-1">
-                Niveli {profile.level} · {profile.xp} XP
+                {t('profile.levelXp', { level: profile.level, xp: profile.xp })}
               </div>
               <div className="xpbar" style={{ width: '100%' }}>
                 <i style={{ width: `${Math.round(profile.levelInfo.pct * 100)}%` }} />
@@ -117,20 +119,20 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
             <div className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.05] to-white/[.01]">
               <div className="flex items-center justify-between gap-3 mb-2">
                 <span className="font-serif text-[10px] tracking-[0.25em] text-muted uppercase">
-                  Ranked · Sezoni {ranked.season.number}
+                  {t('profile.rankedSeason', { n: ranked.season.number })}
                 </span>
                 <TierBadge tier={ranked.tier} size="sm" />
               </div>
               <div className="flex items-end justify-between gap-3">
                 <div>
                   <div className="font-display font-bold text-2xl text-gold-hi leading-none">{ranked.rating}</div>
-                  <div className="text-[10px] text-muted mt-1">MMR · maja {ranked.peakRating}</div>
+                  <div className="text-[10px] text-muted mt-1">{t('profile.mmrPeak', { n: ranked.peakRating })}</div>
                 </div>
                 <div className="text-right text-xs text-muted">
-                  {ranked.wins}/{ranked.games} fitore · {Math.round(ranked.winRate * 100)}%
+                  {t('profile.winsGames', { wins: ranked.wins, games: ranked.games, pct: Math.round(ranked.winRate * 100) })}
                   {ranked.tier.next && (
                     <div className="text-[10px] text-muted/70 mt-0.5">
-                      {Math.max(0, ranked.tier.next.min - ranked.rating)} MMR → {ranked.tier.next.name}
+                      {t('profile.mmrToTier', { n: Math.max(0, ranked.tier.next.min - ranked.rating), tier: ranked.tier.next.name })}
                     </div>
                   )}
                 </div>
@@ -140,18 +142,18 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
 
           {/* Lifetime stats */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Lojëra" value={String(profile.gamesPlayed)} />
-            <StatCard label="Fitore" value={String(profile.wins)} />
-            <StatCard label="% fitore" value={`${Math.round(profile.winRate * 100)}%`} />
-            <StatCard label="Seri" value={String(profile.currentStreak)} />
-            <StatCard label="Poti më i madh" value={dollars(profile.biggestPotCents)} wide />
+            <StatCard label={t('profile.statGames')} value={String(profile.gamesPlayed)} />
+            <StatCard label={t('profile.statWins')} value={String(profile.wins)} />
+            <StatCard label={t('profile.statWinPct')} value={`${Math.round(profile.winRate * 100)}%`} />
+            <StatCard label={t('profile.statStreak')} value={String(profile.currentStreak)} />
+            <StatCard label={t('profile.statBiggestPot')} value={dollars(profile.biggestPotCents)} wide />
           </div>
 
           {/* Avatar picker (only for the signed-in user) */}
           {isMe && (
             <div className="space-y-2.5">
               <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
-                ZGJIDH AVATARIN
+                {t('profile.chooseAvatar')}
               </h3>
               <div className="grid grid-cols-6 gap-2.5">
                 {AVATARS.map((a) => {

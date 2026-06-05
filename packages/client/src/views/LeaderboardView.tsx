@@ -5,6 +5,9 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { avatarEmoji } from '../lib/avatars.ts';
 import { TierBadge } from '../components/ui/TierBadge.tsx';
+import { useT, translate, useLangStore } from '../lib/i18n.ts';
+
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 function rankClass(rank: number): string {
   if (rank === 1) return 'text-gold-hi';
@@ -25,6 +28,7 @@ type Tab = 'global' | 'ranked';
 export function LeaderboardView() {
   const setView = useUiStore((s) => s.setView);
   const myId = useAuthStore((s) => s.user?.id) ?? null;
+  const t = useT();
 
   const [tab, setTab] = useState<Tab>('global');
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
@@ -49,7 +53,7 @@ export function LeaderboardView() {
       .then(() => { if (alive) setStatus('ready'); })
       .catch((e: unknown) => {
         if (!alive) return;
-        setError(e instanceof ApiError ? e.message : 'Klasifikimi nuk u ngarkua.');
+        setError(e instanceof ApiError ? e.message : tr('lb.errLoad'));
         setStatus('error');
       });
     return () => { alive = false; };
@@ -58,13 +62,13 @@ export function LeaderboardView() {
   return (
     <div className="space-y-5">
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
-        ← Kthehu te lobi
+        {t('common.backToLobby')}
       </button>
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
         <div>
-          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">RENDITJA</div>
-          <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">KLASIFIKIMI</h1>
+          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('lb.section')}</div>
+          <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('lb.title')}</h1>
         </div>
         <span className="text-4xl opacity-80">🏆</span>
       </section>
@@ -75,34 +79,34 @@ export function LeaderboardView() {
           onClick={() => setTab('global')}
           className={`btn flex-1 ${tab === 'global' ? 'btn-gold' : 'btn-ghost'}`}
         >
-          🏆 Globale (XP)
+          🏆 {t('lb.globalTab')}
         </button>
         <button
           onClick={() => setTab('ranked')}
           className={`btn flex-1 ${tab === 'ranked' ? 'btn-gold' : 'btn-ghost'}`}
         >
-          👑 Ranked
+          👑 {t('lb.rankedTab')}
         </button>
       </div>
 
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">
-            {tab === 'global' ? 'TABELA GLOBALE' : 'LADDER-I RANKED'}
+            {tab === 'global' ? t('lb.globalTable') : t('lb.rankedLadder')}
           </h2>
           <span className="text-xs text-muted">
             {tab === 'global'
-              ? 'Renditja globale sipas XP-së'
+              ? t('lb.globalSub')
               : season
-                ? `Sezoni ${season.number} · ${season.name}`
-                : 'Sezoni i ranked'}
+                ? t('lb.seasonSub', { n: season.number, name: season.name })
+                : t('lb.rankedSeasonSub')}
           </span>
         </div>
 
         {status === 'loading' ? (
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60 animate-pulse">{tab === 'ranked' ? '👑' : '🏆'}</div>
-            <p className="text-sm text-muted">Po ngarkohet klasifikimi…</p>
+            <p className="text-sm text-muted">{t('lb.loading')}</p>
           </div>
         ) : status === 'error' ? (
           <div className="text-center py-10">
@@ -112,8 +116,8 @@ export function LeaderboardView() {
         ) : tab === 'ranked' && !season ? (
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60">👑</div>
-            <p className="text-sm text-muted">Ende nuk ka sezon ranked aktiv.</p>
-            <p className="text-xs text-muted/70 mt-1">Sezoni i ardhshëm fillon së shpejti — bëhu gati të ngjitesh!</p>
+            <p className="text-sm text-muted">{t('lb.noSeason')}</p>
+            <p className="text-xs text-muted/70 mt-1">{t('lb.noSeasonHint')}</p>
           </div>
         ) : tab === 'global' ? (
           <GlobalBoard rows={rows} myId={myId} />
@@ -126,12 +130,13 @@ export function LeaderboardView() {
 }
 
 function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | null }) {
+  const t = useT();
   if (rows.length === 0) {
     return (
       <div className="text-center py-10">
         <div className="text-4xl mb-2 opacity-60">🃏</div>
-        <p className="text-sm text-muted">Ende nuk ka lojtarë në klasifikim.</p>
-        <p className="text-xs text-muted/70 mt-1">Luaj ndeshje për të fituar XP dhe për t'u renditur!</p>
+        <p className="text-sm text-muted">{t('lb.emptyGlobal')}</p>
+        <p className="text-xs text-muted/70 mt-1">{t('lb.emptyGlobalHint')}</p>
       </div>
     );
   }
@@ -140,10 +145,10 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
       <div className="hidden sm:flex items-center gap-3 px-4 pb-2 text-[11px] uppercase tracking-wider text-muted/70">
         <span className="w-9 text-center">#</span>
         <span className="w-[54px]" />
-        <span className="flex-1">Lojtari</span>
-        <span className="w-20 text-right">XP</span>
-        <span className="w-16 text-right">Fitore</span>
-        <span className="w-20 text-right">% fitore</span>
+        <span className="flex-1">{t('lb.player')}</span>
+        <span className="w-20 text-right">{t('lb.xp')}</span>
+        <span className="w-16 text-right">{t('lb.wins')}</span>
+        <span className="w-20 text-right">{t('lb.winPct')}</span>
       </div>
       <ul className="space-y-2.5">
         {rows.map((r, i) => {
@@ -163,15 +168,15 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
               </div>
               <div className="pfp shrink-0" style={{ width: 54, height: 54 }}>
                 <span className="text-2xl leading-none">{avatarEmoji(r.avatar)}</span>
-                <span className="lvl">Niv {r.level}</span>
+                <span className="lvl">{t('lb.level', { n: r.level })}</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-display font-semibold tracking-wide text-txt truncate">
                   {r.username}
-                  {isMe && <span className="ml-2 tag tag-open">Ti</span>}
+                  {isMe && <span className="ml-2 tag tag-open">{t('lb.you')}</span>}
                 </div>
                 <div className="text-xs text-muted sm:hidden mt-0.5">
-                  {r.xp} XP · {r.wins} fitore · {Math.round(r.winRate * 100)}%
+                  {t('lb.globalRowMobile', { xp: r.xp, wins: r.wins, pct: Math.round(r.winRate * 100) })}
                 </div>
               </div>
               <div className="hidden sm:block w-20 text-right font-display font-semibold tracking-wide text-gold-hi">{r.xp}</div>
@@ -186,12 +191,13 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
 }
 
 function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: string | null }) {
+  const t = useT();
   if (rows.length === 0) {
     return (
       <div className="text-center py-10">
         <div className="text-4xl mb-2 opacity-60">🃏</div>
-        <p className="text-sm text-muted">Ende askush nuk është renditur këtë sezon.</p>
-        <p className="text-xs text-muted/70 mt-1">Luaj ndeshje për të fituar MMR dhe për të ngjitur tier-in!</p>
+        <p className="text-sm text-muted">{t('lb.emptyRanked')}</p>
+        <p className="text-xs text-muted/70 mt-1">{t('lb.emptyRankedHint')}</p>
       </div>
     );
   }
@@ -200,10 +206,10 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
       <div className="hidden sm:flex items-center gap-3 px-4 pb-2 text-[11px] uppercase tracking-wider text-muted/70">
         <span className="w-9 text-center">#</span>
         <span className="w-[54px]" />
-        <span className="flex-1">Lojtari</span>
-        <span className="w-28 text-right">MMR</span>
-        <span className="w-16 text-right">Lojëra</span>
-        <span className="w-20 text-right">% fitore</span>
+        <span className="flex-1">{t('lb.player')}</span>
+        <span className="w-28 text-right">{t('lb.mmr')}</span>
+        <span className="w-16 text-right">{t('lb.games')}</span>
+        <span className="w-20 text-right">{t('lb.winPct')}</span>
       </div>
       <ul className="space-y-2.5">
         {rows.map((r, i) => {
@@ -227,16 +233,16 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
               <div className="flex-1 min-w-0">
                 <div className="font-display font-semibold tracking-wide text-txt truncate flex items-center gap-2">
                   <span className="truncate">{r.username}</span>
-                  {isMe && <span className="tag tag-open shrink-0">Ti</span>}
+                  {isMe && <span className="tag tag-open shrink-0">{t('lb.you')}</span>}
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   <TierBadge tier={r.tier} size="sm" />
-                  <span className="text-xs text-muted sm:hidden">{r.rating} MMR · {r.games} lojëra</span>
+                  <span className="text-xs text-muted sm:hidden">{t('lb.rankedRowMobile', { rating: r.rating, games: r.games })}</span>
                 </div>
               </div>
               <div className="hidden sm:block w-28 text-right">
                 <span className="font-display font-bold tracking-wide text-gold-hi">{r.rating}</span>
-                <span className="block text-[10px] text-muted/70">maja {r.peakRating}</span>
+                <span className="block text-[10px] text-muted/70">{t('lb.peak', { n: r.peakRating })}</span>
               </div>
               <div className="hidden sm:block w-16 text-right font-display font-semibold tracking-wide text-txt">{r.games}</div>
               <div className="hidden sm:block w-20 text-right font-display font-semibold tracking-wide text-emerald-300">{Math.round(r.winRate * 100)}%</div>

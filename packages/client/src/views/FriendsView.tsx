@@ -4,8 +4,10 @@ import { avatarEmoji } from '../lib/avatars.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
+import { useT } from '../lib/i18n.ts';
 
 export function FriendsView() {
+  const t = useT();
   const setView = useUiStore((s) => s.setView);
 
   const [friends, setFriends] = useState<FriendEntry[]>([]);
@@ -24,7 +26,7 @@ export function FriendsView() {
       const { friends } = await friendsApi.list(token);
       setFriends(friends);
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Ngarkimi i miqve dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errLoad'), toastKind: 'error' });
     } finally {
       setLoading(false);
     }
@@ -47,10 +49,10 @@ export function FriendsView() {
     try {
       await friendsApi.request(token, name);
       setUsername('');
-      useGameStore.setState({ toast: 'Kërkesa u dërgua.', toastKind: 'success' });
+      useGameStore.setState({ toast: t('friends.requestSent'), toastKind: 'success' });
       await load();
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Dërgimi i kërkesës dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errRequest'), toastKind: 'error' });
     } finally {
       setBusy(false);
     }
@@ -63,7 +65,7 @@ export function FriendsView() {
       await friendsApi.respond(token, id, accept);
       await load();
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Veprimi dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errAction'), toastKind: 'error' });
     }
   };
 
@@ -74,7 +76,7 @@ export function FriendsView() {
       await friendsApi.remove(token, id);
       await load();
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Heqja dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errRemove'), toastKind: 'error' });
     }
   };
 
@@ -83,10 +85,10 @@ export function FriendsView() {
     if (!token) return;
     try {
       await friendsApi.block(token, userId);
-      useGameStore.setState({ toast: 'Përdoruesi u bllokua.', toastKind: 'success' });
+      useGameStore.setState({ toast: t('friends.userBlocked'), toastKind: 'success' });
       await load();
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Bllokimi dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errBlock'), toastKind: 'error' });
     }
   };
 
@@ -97,7 +99,7 @@ export function FriendsView() {
       await friendsApi.unblock(token, userId);
       await load();
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Zhbllokimi dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errUnblock'), toastKind: 'error' });
     }
   };
 
@@ -112,31 +114,31 @@ export function FriendsView() {
     <div className="space-y-5">
       {/* Back to lobby */}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
-        ← Kthehu te lobi
+        {t('common.backToLobby')}
       </button>
 
       {/* Header */}
       <section className="panel p-5 animate-rise">
-        <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">SOCIALE</div>
-        <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">MIQTË</h1>
+        <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('friends.social')}</div>
+        <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('friends.title')}</h1>
       </section>
 
       {/* Add friend */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.08s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">SHTO MIK</h2>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('friends.addFriend')}</h2>
         <div className="flex gap-3 items-end">
           <label className="flex-1">
-            <span className="field-label">Përdoruesi</span>
+            <span className="field-label">{t('friends.username')}</span>
             <input
               className="field"
-              placeholder="Përdoruesi"
+              placeholder={t('friends.username')}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void addFriend(); }}
             />
           </label>
           <button onClick={() => void addFriend()} disabled={busy || !username.trim()} className="btn btn-gold">
-            {busy ? 'Po dërgohet…' : 'Shto'}
+            {busy ? t('friends.sending') : t('friends.add')}
           </button>
         </div>
       </section>
@@ -145,7 +147,7 @@ export function FriendsView() {
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
           <div className="text-center py-8">
             <div className="text-4xl mb-2 opacity-60 animate-pulse">👥</div>
-            <p className="text-sm text-muted">Po ngarkohen miqtë…</p>
+            <p className="text-sm text-muted">{t('friends.loading')}</p>
           </div>
         </section>
       ) : (
@@ -153,13 +155,13 @@ export function FriendsView() {
           {/* Incoming requests */}
           {incoming.length > 0 && (
             <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">KËRKESA</h2>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.requests')}</h2>
               <ul className="space-y-2.5">
                 {incoming.map((f) => (
                   <FriendRow key={f.id} entry={f}>
-                    <button onClick={() => void respond(f.id, true)} className="btn btn-green">Prano</button>
-                    <button onClick={() => void respond(f.id, false)} className="btn btn-ghost">Refuzo</button>
-                    <button onClick={() => void block(f.user.id)} className="btn btn-ghost" title="Blloko">Blloko</button>
+                    <button onClick={() => void respond(f.id, true)} className="btn btn-green">{t('friends.accept')}</button>
+                    <button onClick={() => void respond(f.id, false)} className="btn btn-ghost">{t('friends.decline')}</button>
+                    <button onClick={() => void block(f.user.id)} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
                   </FriendRow>
                 ))}
               </ul>
@@ -169,11 +171,11 @@ export function FriendsView() {
           {/* Outgoing / pending */}
           {outgoing.length > 0 && (
             <section className="panel p-5 animate-rise" style={{ animationDelay: '.16s' }}>
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">NË PRITJE</h2>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.pending')}</h2>
               <ul className="space-y-2.5">
                 {outgoing.map((f) => (
                   <FriendRow key={f.id} entry={f}>
-                    <span className="tag tag-open">Dërguar</span>
+                    <span className="tag tag-open">{t('friends.sent')}</span>
                   </FriendRow>
                 ))}
               </ul>
@@ -182,12 +184,12 @@ export function FriendsView() {
 
           {/* Friends */}
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
-            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">MIQTË</h2>
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.friendsSection')}</h2>
             {accepted.length === 0 ? (
               <div className="text-center py-8">
                 <div className="text-4xl mb-2 opacity-60">🫂</div>
-                <p className="text-sm text-muted">Ende pa miq.</p>
-                <p className="text-xs text-muted/70 mt-1">Shto dikë me emrin e tyre të përdoruesit lart!</p>
+                <p className="text-sm text-muted">{t('friends.empty')}</p>
+                <p className="text-xs text-muted/70 mt-1">{t('friends.emptyHint')}</p>
               </div>
             ) : (
               <ul className="space-y-2.5">
@@ -195,11 +197,11 @@ export function FriendsView() {
                   <FriendRow key={f.id} entry={f} showOnline>
                     {inRoom && (
                       <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} className="btn btn-gold">
-                        Fto
+                        {t('friends.invite')}
                       </button>
                     )}
-                    <button onClick={() => void remove(f.id)} className="btn btn-ghost">Hiq</button>
-                    <button onClick={() => void block(f.user.id)} className="btn btn-ghost" title="Blloko">Blloko</button>
+                    <button onClick={() => void remove(f.id)} className="btn btn-ghost">{t('common.remove')}</button>
+                    <button onClick={() => void block(f.user.id)} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
                   </FriendRow>
                 ))}
               </ul>
@@ -209,11 +211,11 @@ export function FriendsView() {
           {/* Blocked */}
           {blocked.length > 0 && (
             <section className="panel p-5 animate-rise" style={{ animationDelay: '.24s' }}>
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">BLLOKUAR</h2>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.blocked')}</h2>
               <ul className="space-y-2.5">
                 {blocked.map((f) => (
                   <FriendRow key={f.id} entry={f}>
-                    <button onClick={() => void unblock(f.user.id)} className="btn btn-ghost">Zhblloko</button>
+                    <button onClick={() => void unblock(f.user.id)} className="btn btn-ghost">{t('friends.unblock')}</button>
                   </FriendRow>
                 ))}
               </ul>
@@ -232,6 +234,7 @@ interface FriendRowProps {
 }
 
 function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
+  const t = useT();
   const { user, online } = entry;
   return (
     <li className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
@@ -247,7 +250,7 @@ function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
           )}
           <span className="font-display font-semibold tracking-wide text-txt truncate">{user.username}</span>
         </div>
-        <div className="text-xs text-muted">Niveli {user.level}</div>
+        <div className="text-xs text-muted">{t('friends.level', { n: user.level })}</div>
       </div>
       <div className="ml-auto flex items-center gap-2">{children}</div>
     </li>

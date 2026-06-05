@@ -24,6 +24,7 @@ import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
 import { ProfileModal } from '../components/ui/ProfileModal.tsx';
 import { useCosmeticsStore } from '../store/cosmeticsStore.ts';
+import { useT } from '../lib/i18n.ts';
 
 /** Where each opponent seat sits around the oval rail (local player is bottom). */
 const SEAT_POS: Record<SeatPosition, string> = {
@@ -68,12 +69,13 @@ function SpeechBubble({ b }: { b: Bubble }) {
  *  whole table (which uses a log-free selector). */
 function LogPanel({ onClose }: { onClose: () => void }) {
   const log = useGameStore((s) => s.log);
+  const t = useT();
   return (
-    <div className="modal-backdrop !z-[58]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Historiku i lojës">
+    <div className="modal-backdrop !z-[58]" onClick={onClose} role="dialog" aria-modal="true" aria-label={t('table.gameHistory')}>
       <div className="panel-solid w-full max-w-sm p-5 animate-pop" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">HISTORIKU</h3>
-          <button className="iconbtn" onClick={onClose} aria-label="Mbyll">✕</button>
+          <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">{t('table.history')}</h3>
+          <button className="iconbtn" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
           <PlayLog entries={log} />
@@ -100,6 +102,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     })),
   );
 
+  const t = useT();
   const [chatKind, setChatKind] = useState<'emote' | 'chat' | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
@@ -124,7 +127,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const cbClass = cardBack && cardBack !== 'cb_classic' ? cardBack : '';
 
   const numPlayers = PLAYERS_PER_TYPE[room.type];
-  const nameOf = (seat: number) => room.seats[seat]?.username ?? `Vendi ${seat + 1}`;
+  const nameOf = (seat: number) => room.seats[seat]?.username ?? t('table.seatN', { n: seat + 1 });
 
   const isMyTurn = game !== null && mySeat !== null && game.turn === mySeat;
   const canPass = game?.pile != null; // leading (no pile) forbids passing
@@ -147,7 +150,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     if (switching) {
       const card = myHand.find((c) => cardKey(c) === id);
       if (card && isReturnEligible(card)) { sound.play('card'); void giveSwitch(card); }
-      else useGameStore.setState({ toast: "Zgjidh një letër 3–10 për t'ia dhënë humbësit.", toastKind: 'info' });
+      else useGameStore.setState({ toast: t('table.switchHint'), toastKind: 'info' });
       return;
     }
     sound.play('select');
@@ -240,14 +243,14 @@ export function TableView({ room }: { room: RoomStateDTO }) {
 
   return (
     <div className={`relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px] px-3 pb-4${shake ? ' shake-fx' : ''}`}>
-      <h1 className="sr-only">Tavolina e lojës Murlan</h1>
+      <h1 className="sr-only">{t('table.title')}</h1>
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="flex items-center justify-between gap-2 pt-3 pb-1">
         <button
           onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
           className="btn btn-ghost"
         >
-          ← Largohu
+          {t('table.leaveArrow')}
         </button>
         <div className="flex items-center gap-1.5 sm:gap-2">
           {fairCommit && (
@@ -259,9 +262,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             </span>
           )}
           <TurnTimer deadline={game?.turnDeadline ?? null} />
-          <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title="Historiku" aria-label="Historiku i lojës">☰</button>
-          <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title="Bisedë" aria-label="Bisedë">💬</button>
-          <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('emote'); }} title="Emote" aria-label="Emote">😊</button>
+          <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title={t('table.historyTitle')} aria-label={t('table.gameHistory')}>☰</button>
+          <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title={t('table.chat')} aria-label={t('table.chat')}>💬</button>
+          <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('emote'); }} title={t('table.emote')} aria-label={t('table.emote')}>😊</button>
         </div>
       </div>
 
@@ -288,7 +291,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 return (
                   <div key={s.seat} className={`absolute z-[5] ${SEAT_POS[pos]}`}>
                     {bubbleFor(s.seat) && <SpeechBubble b={bubbleFor(s.seat)!} />}
-                    <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title="Shiko profilin">
+                    <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title={t('table.viewProfile')}>
                       <SeatBadge
                         name={nameOf(s.seat)}
                         count={game?.handCounts[s.seat] ?? 0}
@@ -319,7 +322,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         {switching ? (
           <div className="text-center pb-1.5">
             <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-1.5 gold-text font-display font-semibold tracking-wide text-sm">
-              🔄 Je fituesi — kliko një letër 3–10 për t&apos;ia dhënë humbësit
+              {t('table.youWinSwitch')}
             </span>
           </div>
         ) : (
@@ -335,7 +338,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             )}
             {isMyTurn && (
               <div className="text-center pb-1">
-                <span className="inline-block animate-pop gold-text font-display font-semibold tracking-wide text-sm">● Radha jote!</span>
+                <span className="inline-block animate-pop gold-text font-display font-semibold tracking-wide text-sm">{t('table.yourTurn')}</span>
               </div>
             )}
           </>
@@ -366,7 +369,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               <div key={i} className="w-9 h-14 rounded-lg animate-shuffle" style={{ animationDelay: `${i * 90}ms`, background: 'var(--cb, repeating-linear-gradient(45deg,#8f2620 0 4px,#a23029 4px 8px))', boxShadow: 'inset 0 0 0 1.5px #f1deae' }} />
             ))}
           </div>
-          <div className="gold-text font-display font-semibold tracking-wide">Duke përzier letrat…</div>
+          <div className="gold-text font-display font-semibold tracking-wide">{t('table.shuffling')}</div>
         </div>
       )}
 
@@ -375,7 +378,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {switchPending && !switching && !matchResult && (
         <div className="fixed left-1/2 -translate-x-1/2 bottom-28 z-40 pointer-events-none" role="status" aria-live="polite">
           <span className="inline-block panel-solid rounded-xl px-4 py-2 gold-text font-display font-semibold tracking-wide text-sm animate-pop">
-            Kundërshtari po zgjedh një letër 3–10…
+            {t('table.oppSwitching')}
           </span>
         </div>
       )}
@@ -385,18 +388,18 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {/* Match-end celebration */}
       {matchResult && iWon && <Confetti />}
       {matchResult && (
-        <div className="modal-backdrop !z-[60]" role="dialog" aria-modal="true" aria-label="Ndeshja mbaroi">
+        <div className="modal-backdrop !z-[60]" role="dialog" aria-modal="true" aria-label={t('table.matchOver')}>
           <div className="panel-solid w-full max-w-sm p-7 text-center animate-pop">
             <div className="text-5xl mb-2">{iWon ? '🏆' : '🃏'}</div>
-            <h2 className="gold-text font-display font-bold tracking-wide text-3xl mb-1">Ndeshja mbaroi!</h2>
+            <h2 className="gold-text font-display font-bold tracking-wide text-3xl mb-1">{t('table.matchOverBang')}</h2>
             <p className="text-sm text-muted mb-4">
-              {iWon ? 'Urime — fitove! 🎉' : `Fitoi ${matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ')}.`}
+              {iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })}
             </p>
 
             {/* Winnings reveal — counts up from 0 (staked matches only). */}
             {iWon && matchResult.payoutCents != null && matchResult.payoutCents > 0 && (
               <div className="mb-4 pot-slide">
-                <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">Fitime</div>
+                <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">{t('table.winnings')}</div>
                 <CountUp valueCents={shownPayout} className="gold-text font-display font-bold text-4xl tracking-wide" />
               </div>
             )}
@@ -409,14 +412,14 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               const pct = Math.round(myDelta.expectedWinRate * 100);
               return (
                 <div className="mb-4">
-                  <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">Vlerësimi · MMR</div>
+                  <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">{t('table.ratingMmr')}</div>
                   <div className="flex items-center justify-center gap-2">
                     <span className="font-display font-bold text-2xl tracking-wide text-txt tabular-nums">{myDelta.newRating}</span>
                     <span className={`font-display font-semibold text-lg tabular-nums ${change >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
                       {change >= 0 ? `+${change}` : change}
                     </span>
                   </div>
-                  <div className="text-[11px] text-muted/80 mt-0.5">{pct}% probabilitet fitimi para ndeshjes</div>
+                  <div className="text-[11px] text-muted/80 mt-0.5">{t('table.winProbability', { pct })}</div>
                 </div>
               );
             })()}
@@ -424,12 +427,12 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             {/* Final standings */}
             <div className="text-left bg-black/30 rounded-xl p-3 mb-5 space-y-1.5">
               {matchResult.scoreboard.type === '2v2' && matchResult.scoreboard.teamTotals
-                ? ([0, 1] as const).map((t) => {
+                ? ([0, 1] as const).map((ti) => {
                     const winTeam = matchResult.winnerSeats.length ? room.seats[matchResult.winnerSeats[0]]?.team ?? null : null;
                     return (
-                      <div key={t} className={`flex justify-between text-sm ${winTeam === t ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
-                        <span>Skuadra {t + 1} {winTeam === t && '🏆'}</span>
-                        <b>{matchResult.scoreboard.teamTotals![t]}</b>
+                      <div key={ti} className={`flex justify-between text-sm ${winTeam === ti ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
+                        <span>{t('table.squad', { n: ti + 1 })} {winTeam === ti && '🏆'}</span>
+                        <b>{matchResult.scoreboard.teamTotals![ti]}</b>
                       </div>
                     );
                   })
@@ -442,10 +445,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             </div>
 
             <button autoFocus onClick={() => { sound.play('button'); void rematch(); }} className="btn btn-gold btn-lg btn-block">
-              ⚔️ Luaj sërish
+              {t('table.playAgain')}
             </button>
             <button onClick={() => { dismissResult(); void leaveRoom(); }} className="btn btn-ghost btn-block mt-2">
-              Kthehu në lobi
+              {t('table.returnLobby')}
             </button>
 
             {/* Provably-fair: open the in-app replay + verifier — recomputes every
@@ -457,7 +460,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 className="block mt-3 text-xs text-gold-hi/80 hover:text-gold-hi border-b border-dashed border-gold/40 mx-auto"
                 style={{ width: 'fit-content' }}
               >
-                🔁 Riprodho & verifiko (provably fair)
+                {t('table.replayVerify')}
               </button>
             )}
           </div>
@@ -471,18 +474,18 @@ export function TableView({ room }: { room: RoomStateDTO }) {
 
       {/* Confirm before forfeiting a live match (real money is at stake) */}
       {confirmLeave && (
-        <div className="modal-backdrop !z-[62]" role="dialog" aria-modal="true" aria-label="Largohu nga ndeshja">
+        <div className="modal-backdrop !z-[62]" role="dialog" aria-modal="true" aria-label={t('table.leaveMatch')}>
           <div className="panel-solid w-full max-w-sm p-6 text-center animate-pop">
             <div className="text-4xl mb-2">⚠️</div>
-            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-xl mb-1">Të largohesh nga ndeshja?</h2>
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-xl mb-1">{t('table.leaveConfirm')}</h2>
             <p className="text-sm text-muted mb-5">
               {room.stakeCents > 0
-                ? `Nëse largohesh tani, humb bastin prej ${dollars(room.stakeCents)} dhe i shkon kundërshtarit.`
-                : 'Nëse largohesh tani, e humb ndeshjen.'}
+                ? t('table.leaveStakeWarn', { amount: dollars(room.stakeCents) })
+                : t('table.leaveWarn')}
             </p>
             <div className="flex gap-3">
-              <button autoFocus className="btn btn-ghost flex-1" onClick={() => setConfirmLeave(false)}>Qëndro</button>
-              <button className="btn btn-danger flex-1" onClick={() => { setConfirmLeave(false); void leaveRoom(); }}>Largohu</button>
+              <button autoFocus className="btn btn-ghost flex-1" onClick={() => setConfirmLeave(false)}>{t('table.stay')}</button>
+              <button className="btn btn-danger flex-1" onClick={() => { setConfirmLeave(false); void leaveRoom(); }}>{t('table.leave')}</button>
             </div>
           </div>
         </div>

@@ -9,6 +9,11 @@ import {
   type LoginInput,
 } from '../lib/api.ts';
 import { useUiStore } from './uiStore.ts';
+import { translate, useLangStore } from '../lib/i18n.ts';
+
+// Localized text for store actions (outside React render). ApiError.message is
+// already localized by api.ts; this covers the non-ApiError fallbacks.
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 interface AuthStore {
   user: PublicUser | null;
@@ -61,7 +66,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       startProactiveRefresh();
       return true;
     } catch (e) {
-      set({ status: 'error', error: e instanceof ApiError ? e.message : 'Regjistrimi dështoi.' });
+      set({ status: 'error', error: e instanceof ApiError ? e.message : tr('err.registerFailed') });
       return false;
     }
   },
@@ -74,7 +79,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       startProactiveRefresh();
       return true;
     } catch (e) {
-      set({ status: 'error', error: e instanceof ApiError ? e.message : 'Hyrja dështoi.' });
+      set({ status: 'error', error: e instanceof ApiError ? e.message : tr('err.loginFailed') });
       return false;
     }
   },
@@ -138,7 +143,7 @@ registerSessionHandlers({
       user: null,
       accessToken: null,
       status: 'idle',
-      error: 'Sesioni skadoi — hyr përsëri.',
+      error: tr('err.session_expired'),
     });
   },
 });

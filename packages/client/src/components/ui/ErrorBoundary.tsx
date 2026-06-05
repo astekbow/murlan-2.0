@@ -1,4 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { translate, useLangStore } from '../../lib/i18n.ts';
+
+const tr = (key: string): string => translate(key, useLangStore.getState().lang);
 
 interface Props {
   children: ReactNode;
@@ -41,14 +44,14 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="min-h-full flex flex-col items-center justify-center gap-4 px-6 text-center">
         <div className="text-5xl">🃏</div>
-        <h1 className="font-display text-xl tracking-wide text-gold-hi">Diçka shkoi keq</h1>
+        <h1 className="font-display text-xl tracking-wide text-gold-hi">{tr('errboundary.title')}</h1>
         <p className="text-sm text-muted max-w-xs">
           {isChunkError
-            ? 'Aplikacioni u përditësua. Ringarkoje për të vazhduar.'
-            : 'Ndodhi një gabim i papritur. Ringarko faqen për të vazhduar.'}
+            ? tr('errboundary.chunkBody')
+            : tr('errboundary.genericBody')}
         </p>
         <button className="btn btn-gold" onClick={this.reload}>
-          Ringarko
+          {tr('errboundary.reload')}
         </button>
       </div>
     );

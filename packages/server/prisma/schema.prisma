@@ -128,6 +128,7 @@ model User {
   verificationTokens VerificationToken[]
   userSeasons    UserSeason[]
   supportTickets SupportTicket[]
+  foundedClubs   Club[] @relation("ClubFounder")
 
   @@map("users")
 }
@@ -200,6 +201,7 @@ model AdminAction {
 
   @@index([adminId])
   @@index([targetUserId])
+  @@index([createdAt])
   @@map("admin_actions")
 }
 
@@ -235,6 +237,7 @@ model Transaction {
 
   @@index([userId])
   @@index([matchId])
+  @@index([createdAt]) // date-range admin/reporting queries
   @@map("transactions")
 }
 
@@ -330,6 +333,7 @@ model SupportTicket {
 
   @@index([userId])
   @@index([status])
+  @@index([createdAt])
   @@map("support_tickets")
 }
 
@@ -413,7 +417,11 @@ model Club {
   createdAt DateTime @default(now())
 
   members ClubMember[]
+  // FK so a club always points at a real founder. Restrict: a user who founded a
+  // club can't be hard-deleted out from under it (account-state ban is used instead).
+  founder User @relation("ClubFounder", fields: [founderId], references: [id], onDelete: Restrict)
 
+  @@index([founderId])
   @@map("clubs")
 }
 
@@ -443,6 +451,7 @@ model Withdrawal {
   @@index([userId])
   // Admin withdrawal triage lists pending rows; index status to avoid a scan.
   @@index([status])
+  @@index([createdAt])
   @@map("withdrawals")
 }
 

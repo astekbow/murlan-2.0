@@ -75,6 +75,43 @@ test('observability: /health, /ready (no DB → db:null) and /metrics are served
     const body = await metrics.text();
     assert.match(body, /murlan_http_request_duration_seconds/); // our histogram is registered
     assert.match(body, /process_cpu_seconds_total/); // default process metrics present
+    // The live-state gauges + money-safety counters are registered (present at 0).
+    assert.match(body, /murlan_active_matches/);
+    assert.match(body, /murlan_socket_connections/);
+    assert.match(body, /murlan_pending_withdrawals/);
+    assert.match(body, /murlan_settlement_failures_total/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('graceful drain: /ready → 503 and new matches are rejected while draining', async () => {
+  const config = loadConfig({ NODE_ENV: 'test', PORT: '0', COUNTDOWN_MS: '20' } as NodeJS.ProcessEnv);
+  const server = await createGameServer({ config });
+  await server.listen();
+  const port = (server.app.server.address() as AddressInfo).port;
+  try {
+    const reg = await fetch(`http://localhost:${port}/api/auth/register`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'drainuser', email: 'drain@example.com', password: 'password123' }),
+    });
+    const { accessToken } = (await reg.json()) as { accessToken: string };
+    const sock: any = ioClient(`http://localhost:${port}`, { auth: { token: accessToken }, transports: ['websocket'], forceNew: true });
+    await new Promise<void>((res, rej) => { const t = setTimeout(() => rej(new Error('connect timeout')), 2000); sock.once('connect', () => { clearTimeout(t); res(); }); });
+
+    assert.equal((await fetch(`http://localhost:${port}/ready`)).status, 200); // healthy before draining
+
+    server.setDraining(true);
+    const ready = await fetch(`http://localhost:${port}/ready`);
+    assert.equal(ready.status, 503);
+    assert.equal(((await ready.json()) as { draining?: boolean }).draining, true);
+
+    // A new match is refused while draining (existing matches would be allowed to finish).
+    const created = await new Promise<any>((resolve) => sock.emit('room:create', { type: '1v1', stakeCents: 0 }, resolve));
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, 'draining');
+
+    sock.close();
   } finally {
     await server.close();
   }

@@ -5,8 +5,14 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useNotifications } from '../store/notificationsStore.ts';
+import { useT, translate, useLangStore } from '../lib/i18n.ts';
+
+// For use OUTSIDE render (callbacks/effects) — reads the live lang without making
+// the translator a reactive dependency (a reactive t would recreate callbacks).
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 export function RewardsView() {
+  const t = useT();
   const setView = useUiStore((s) => s.setView);
 
   const [status, setStatus] = useState<RewardsStatus | null>(null);
@@ -26,7 +32,7 @@ export function RewardsView() {
       setStatus(status);
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Ngarkimi i shpërblimeve dështoi.');
+      setError(e instanceof ApiError ? e.message : tr('rewards.errLoad'));
     } finally {
       setLoading(false);
     }
@@ -45,9 +51,9 @@ export function RewardsView() {
       const { rewardXp } = await rewardsApi.claimDaily(token);
       await load();
       await useAuthStore.getState().refreshMe();
-      useNotifications.getState().push(`+${rewardXp} XP — shpërblim ditor!`, 'info');
+      useNotifications.getState().push(t('rewards.dailyClaimed', { xp: rewardXp }), 'info');
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Marrja e shpërblimit dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('rewards.errClaim'), toastKind: 'error' });
     } finally {
       setBusy(null);
     }
@@ -62,9 +68,9 @@ export function RewardsView() {
       const { rewardXp } = await rewardsApi.claimChallenge(token, id);
       await load();
       await useAuthStore.getState().refreshMe();
-      useNotifications.getState().push(`+${rewardXp} XP — sfidë e përfunduar!`, 'info');
+      useNotifications.getState().push(t('rewards.challengeClaimed', { xp: rewardXp }), 'info');
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : 'Marrja e shpërblimit dështoi.', toastKind: 'error' });
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('rewards.errClaim'), toastKind: 'error' });
     } finally {
       setBusy(null);
     }
@@ -74,14 +80,14 @@ export function RewardsView() {
     <div className="space-y-5">
       {/* Back to lobby */}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
-        ← Kthehu te lobi
+        {t('common.backToLobby')}
       </button>
 
       {/* Title */}
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
         <div>
-          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">PËRPARIMI</div>
-          <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">SFIDAT & SHPËRBLIME</h1>
+          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('rewards.progress')}</div>
+          <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('rewards.title')}</h1>
         </div>
         <span className="text-4xl opacity-80">🎁</span>
       </section>
@@ -90,7 +96,7 @@ export function RewardsView() {
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60 animate-pulse">🎁</div>
-            <p className="text-sm text-muted">Po ngarkohen shpërblimet…</p>
+            <p className="text-sm text-muted">{t('rewards.loading')}</p>
           </div>
         </section>
       ) : error ? (
@@ -104,7 +110,7 @@ export function RewardsView() {
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60">🚫</div>
-            <p className="text-sm text-muted">Shpërblimet janë çaktivizuar.</p>
+            <p className="text-sm text-muted">{t('rewards.disabled')}</p>
           </div>
         </section>
       ) : (
@@ -112,8 +118,8 @@ export function RewardsView() {
           {/* Daily reward */}
           <section className="panel-solid p-6 animate-rise" style={{ animationDelay: '.08s' }}>
             <div className="flex items-center justify-between gap-4 mb-4">
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">SHPËRBLIMI DITOR</h2>
-              <span className="tag tag-open">🔥 {status.daily.streak} ditë rresht</span>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.dailyTitle')}</h2>
+              <span className="tag tag-open">🔥 {t('rewards.streakDays', { n: status.daily.streak })}</span>
             </div>
 
             <div className="flex items-center gap-3 mb-5">
@@ -123,7 +129,7 @@ export function RewardsView() {
                   +{status.daily.rewardXp} XP
                 </div>
                 <div className="text-xs text-muted mt-1">
-                  Streak aktual: {status.daily.streak} {status.daily.streak === 1 ? 'ditë' : 'ditë'}
+                  {t('rewards.currentStreak', { n: status.daily.streak })} {status.daily.streak === 1 ? t('rewards.days') : t('rewards.days')}
                 </div>
               </div>
             </div>
@@ -134,11 +140,11 @@ export function RewardsView() {
                 disabled={busy === 'daily'}
                 className="btn btn-green btn-lg btn-block"
               >
-                {busy === 'daily' ? 'Po merret…' : `Merr shpërblimin ditor (+${status.daily.rewardXp} XP)`}
+                {busy === 'daily' ? t('rewards.claiming') : t('rewards.claimDaily', { xp: status.daily.rewardXp })}
               </button>
             ) : (
               <button disabled className="btn btn-ghost btn-lg btn-block">
-                E more sot ✓
+                {t('rewards.claimedToday')}
               </button>
             )}
           </section>
@@ -146,15 +152,15 @@ export function RewardsView() {
           {/* Challenges */}
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">SFIDAT</h2>
-              <span className="text-xs text-muted">Përfundoji për të fituar XP</span>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.challenges')}</h2>
+              <span className="text-xs text-muted">{t('rewards.challengesHint')}</span>
             </div>
 
             {status.challenges.length === 0 ? (
               <div className="text-center py-8">
                 <div className="text-4xl mb-2 opacity-60">🎯</div>
-                <p className="text-sm text-muted">Asnjë sfidë e disponueshme tani.</p>
-                <p className="text-xs text-muted/70 mt-1">Kontrollo më vonë për sfida të reja!</p>
+                <p className="text-sm text-muted">{t('rewards.noChallenges')}</p>
+                <p className="text-xs text-muted/70 mt-1">{t('rewards.noChallengesHint')}</p>
               </div>
             ) : (
               <ul className="space-y-2.5">
@@ -184,6 +190,7 @@ interface ChallengeRowProps {
 }
 
 function ChallengeRow({ challenge, busy, index, onClaim }: ChallengeRowProps) {
+  const t = useT();
   const { title, goal, progress, done, claimed, rewardXp } = challenge;
   const pct = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : 0;
 
@@ -199,10 +206,10 @@ function ChallengeRow({ challenge, busy, index, onClaim }: ChallengeRowProps) {
         </div>
         <div className="ml-auto flex items-center gap-2 shrink-0">
           {claimed ? (
-            <span className="tag tag-open">Marrë ✓</span>
+            <span className="tag tag-open">{t('rewards.claimedTag')}</span>
           ) : done ? (
             <button onClick={onClaim} disabled={busy} className="btn btn-gold">
-              {busy ? 'Po merret…' : 'Merr'}
+              {busy ? t('rewards.claiming') : t('rewards.claim')}
             </button>
           ) : null}
         </div>

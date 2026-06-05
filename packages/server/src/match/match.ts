@@ -49,6 +49,7 @@ export type MatchEvent =
 export interface MatchActionResult {
   ok: boolean;
   reason?: string;
+  code?: string;          // stable, language-neutral rejection code (client localizes it)
   gameEvents: GameEvent[];
   matchEvents: MatchEvent[];
 }
@@ -69,8 +70,8 @@ export interface MatchSnapshot {
 
 const ok = (gameEvents: GameEvent[], matchEvents: MatchEvent[]): MatchActionResult =>
   ({ ok: true, gameEvents, matchEvents });
-const fail = (reason: string): MatchActionResult =>
-  ({ ok: false, reason, gameEvents: [], matchEvents: [] });
+const fail = (reason: string, code?: string): MatchActionResult =>
+  ({ ok: false, reason, code, gameEvents: [], matchEvents: [] });
 
 export class Match {
   readonly type: MatchType;
@@ -168,32 +169,32 @@ export class Match {
   // ---------- Public actions --------------------------------------------------
 
   play(seat: Seat, cards: Card[]): MatchActionResult {
-    if (this.state !== 'playing' || !this.game) return fail('Nuk je në një lojë aktive.');
+    if (this.state !== 'playing' || !this.game) return fail('Nuk je në një lojë aktive.', 'not_in_match');
     const r = this.game.play(seat, cards);
-    if (!r.ok) return { ok: false, reason: r.reason, gameEvents: [], matchEvents: [] };
+    if (!r.ok) return { ok: false, reason: r.reason, code: r.code, gameEvents: [], matchEvents: [] };
     return ok(r.events, this.game.isOver ? this.onGameEnd() : []);
   }
 
   pass(seat: Seat): MatchActionResult {
-    if (this.state !== 'playing' || !this.game) return fail('Nuk je në një lojë aktive.');
+    if (this.state !== 'playing' || !this.game) return fail('Nuk je në një lojë aktive.', 'not_in_match');
     const r = this.game.pass(seat);
-    if (!r.ok) return { ok: false, reason: r.reason, gameEvents: [], matchEvents: [] };
+    if (!r.ok) return { ok: false, reason: r.reason, code: r.code, gameEvents: [], matchEvents: [] };
     return ok(r.events, this.game.isOver ? this.onGameEnd() : []);
   }
 
   /** The winner returns one rank-3–10 card to the loser, completing the switch. */
   switchGive(seat: Seat, card: Card): MatchActionResult {
     if (this.state !== 'awaitingSwitch' || !this.pendingHands || this.pendingWinner === null || this.pendingLoser === null) {
-      return fail('Nuk ka shkëmbim letre në pritje.');
+      return fail('Nuk ka shkëmbim letre në pritje.', 'no_pending_switch');
     }
-    if (seat !== this.pendingWinner) return fail('Vetëm fituesi zgjedh letrën që kthen.');
-    if (!isReturnEligible(card)) return fail('Letra e kthyer duhet të jetë e rangut 3–10.');
-    if (cardId(card) === this.pendingReceivedId) return fail('Nuk mund të kthesh të njëjtën letër që sapo more.');
+    if (seat !== this.pendingWinner) return fail('Vetëm fituesi zgjedh letrën që kthen.', 'not_switch_winner');
+    if (!isReturnEligible(card)) return fail('Letra e kthyer duhet të jetë e rangut 3–10.', 'switch_rank');
+    if (cardId(card) === this.pendingReceivedId) return fail('Nuk mund të kthesh të njëjtën letër që sapo more.', 'switch_same_card');
     // pendingHands is fully dealt (one entry per seat) and pendingWinner/Loser are
     // valid, non-null seats (checked above) → these index accesses are defined.
     const winnerHand = this.pendingHands[this.pendingWinner]!;
     const idx = winnerHand.findIndex((x) => cardId(x) === cardId(card));
-    if (idx < 0) return fail('Nuk e ke këtë letër në dorë.');
+    if (idx < 0) return fail('Nuk e ke këtë letër në dorë.', 'not_your_cards');
 
     const returned = winnerHand.splice(idx, 1)[0]!; // idx >= 0 ⇒ one element removed
     this.pendingHands[this.pendingLoser]!.push(returned);

@@ -4,6 +4,10 @@ import {
   type Transaction, type WithdrawalRecord, type DepositIntent, type ComplianceProfile,
 } from '../lib/api.ts';
 import { useAuthStore } from './authStore.ts';
+import { translate, useLangStore } from '../lib/i18n.ts';
+
+// Localized text for store actions (ApiError.message is already localized by api.ts).
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 function token(): string | null {
   return useAuthStore.getState().accessToken;
@@ -56,7 +60,7 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
         loading: false,
       });
     } catch (e) {
-      set({ loading: false, error: e instanceof ApiError ? e.message : 'Ngarkimi i kuletës dështoi.' });
+      set({ loading: false, error: e instanceof ApiError ? e.message : tr('err.walletLoadFailed') });
     }
   },
 
@@ -66,9 +70,9 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     set({ error: null, notice: null });
     try {
       const intent = await walletApi.deposit(t, amountCents);
-      set({ lastIntent: intent, notice: 'Adresa e pagesës u krijua. Pagesa kreditohet automatikisht pas konfirmimit.' });
+      set({ lastIntent: intent, notice: tr('msg.depositAddressCreated') });
     } catch (e) {
-      set({ error: e instanceof ApiError ? e.message : 'Depozita dështoi.' });
+      set({ error: e instanceof ApiError ? e.message : tr('err.depositFailed') });
     }
   },
 
@@ -78,11 +82,11 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     set({ error: null, notice: null });
     try {
       await walletApi.withdraw(t, amountCents, destination);
-      set({ notice: 'Kërkesa për tërheqje u dërgua dhe pret aprovim.' });
+      set({ notice: tr('msg.withdrawRequested') });
       await get().refresh();
       return true;
     } catch (e) {
-      set({ error: e instanceof ApiError ? e.message : 'Tërheqja dështoi.' });
+      set({ error: e instanceof ApiError ? e.message : tr('err.withdrawFailed') });
       return false;
     }
   },
@@ -93,10 +97,10 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     set({ error: null, notice: null });
     try {
       await accountApi.setProfile(t, { dateOfBirth: dateOfBirth || undefined, country: country || undefined });
-      set({ notice: 'Profili u ruajt.' });
+      set({ notice: tr('msg.profileSaved') });
       await get().refresh();
     } catch (e) {
-      set({ error: e instanceof ApiError ? e.message : 'Ruajtja e profilit dështoi.' });
+      set({ error: e instanceof ApiError ? e.message : tr('err.profileSaveFailed') });
     }
   },
 
@@ -106,10 +110,10 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     set({ error: null, notice: null });
     try {
       await accountApi.selfExclude(t, days);
-      set({ notice: 'Vetëpërjashtimi u aktivizua.' });
+      set({ notice: tr('msg.selfExcludeActivated') });
       await get().refresh();
     } catch (e) {
-      set({ error: e instanceof ApiError ? e.message : 'Veprimi dështoi.' });
+      set({ error: e instanceof ApiError ? e.message : tr('err.actionFailed') });
     }
   },
 

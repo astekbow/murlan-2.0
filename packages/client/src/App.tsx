@@ -63,7 +63,7 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="relative z-10 mx-auto w-full max-w-[1180px] px-4 pt-4 pb-14">
       <TopBar />
-      {children}
+      <main>{children}</main>
     </div>
   );
 }

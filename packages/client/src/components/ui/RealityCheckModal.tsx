@@ -8,8 +8,10 @@ import { useAuthStore } from '../../store/authStore.ts';
 import { useGameStore } from '../../store/gameStore.ts';
 import { dollars } from '../../lib/money.ts';
 import { formatDuration } from '../../lib/realityCheck.ts';
+import { useT } from '../../lib/i18n.ts';
 
 export function RealityCheckModal() {
+  const t = useT();
   const intervalMin = useSettingsStore((s) => s.realityCheckMinutes);
   const authed = useAuthStore((s) => s.status === 'authed');
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
@@ -47,21 +49,21 @@ export function RealityCheckModal() {
   const pause = () => { setDue(false); void useAuthStore.getState().logout(); };
 
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Kontroll realiteti">
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t('reality.title')}>
       <div className="panel-solid w-full max-w-sm p-7 text-center animate-pop mx-4">
         <div className="text-4xl mb-2">⏰</div>
-        <h2 className="font-display font-bold tracking-wide text-xl text-gold-hi mb-1">Kontroll realiteti</h2>
-        <p className="text-sm text-muted mb-4">Ke luajtur <b className="text-txt">{formatDuration(elapsed)}</b> këtë sesion.</p>
+        <h2 className="font-display font-bold tracking-wide text-xl text-gold-hi mb-1">{t('reality.title')}</h2>
+        <p className="text-sm text-muted mb-4">{t('reality.playedFor')} <b className="text-txt">{formatDuration(elapsed)}</b> {t('reality.thisSession')}</p>
         <div className="rounded-xl bg-black/30 p-3 mb-4">
-          <div className="font-serif text-[10px] tracking-[0.25em] text-muted uppercase">Rezultati i sesionit</div>
+          <div className="font-serif text-[10px] tracking-[0.25em] text-muted uppercase">{t('reality.sessionResult')}</div>
           <div className={`font-display font-bold text-2xl ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
             {net >= 0 ? '+' : '−'}{dollars(Math.abs(net))}
           </div>
         </div>
-        <p className="text-[11px] text-muted/80 mb-4">Luaj me përgjegjësi. Nëse të duhet, bëj një pauzë.</p>
+        <p className="text-[11px] text-muted/80 mb-4">{t('reality.responsibly')}</p>
         <div className="flex gap-2">
-          <button onClick={pause} className="btn btn-ghost flex-1">Bëj pauzë</button>
-          <button autoFocus onClick={cont} className="btn btn-gold flex-1">Vazhdo</button>
+          <button onClick={pause} className="btn btn-ghost flex-1">{t('reality.takeBreak')}</button>
+          <button autoFocus onClick={cont} className="btn btn-gold flex-1">{t('reality.continue')}</button>
         </div>
       </div>
     </div>

@@ -12,7 +12,7 @@ import { MockPaymentProvider } from '../money/paymentProvider.ts';
 import { InMemoryDepositIntents } from '../money/depositIntents.ts';
 import { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 
-async function build() {
+async function build(opts: { webhookIps?: string[] } = {}) {
   const repo = new InMemoryUserRepository();
   const ledger = new InMemoryLedger();
   const wallet = new WalletService(repo, ledger);
@@ -22,8 +22,8 @@ async function build() {
   const tokens = new TokenService({ accessSecret: 'a', refreshSecret: 'r' });
   const auth = new AuthService(repo, tokens);
   const rg = new ResponsibleGamingService(repo, wallet); // limits default null ⇒ no-op unless set
-  const config = loadConfig({ NODE_ENV: 'test' } as NodeJS.ProcessEnv);
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, rg });
+  const config = loadConfig({ NODE_ENV: 'test', ...(opts.webhookIps ? { PAYMENT_WEBHOOK_IPS: opts.webhookIps.join(',') } : {}) } as NodeJS.ProcessEnv);
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, rg }); // webhookIps derived from config inside buildHttpApp
 
   const reg = await auth.register({ username: 'lojtar', email: 'l@x.com', password: 'password123' });
   const admin = await repo.create({ username: 'admin', email: 'a@x.com', passwordHash: 'h', role: 'admin' });
@@ -91,6 +91,20 @@ test('signed webhook credits the depositor; a retry is idempotent', async () => 
   // Credited the DEPOSITOR (from the intent), not the body-supplied userId.
   const bal = await app.inject({ method: 'GET', url: '/api/wallet', headers: authH(userToken) });
   assert.equal(bal.json().balanceCents, 5000);
+  await app.close();
+});
+
+test('webhook IP allowlist: a request from a non-allowed source IP is rejected (403)', async () => {
+  const { app, provider } = await build({ webhookIps: ['10.0.0.5'] });
+  const w = webhook(provider, { providerRef: 'mock_1', userId: 'u', amountCents: 5000, status: 'confirmed' });
+  // The IP gate runs FIRST (before signature/intent). Disallowed XFF (honored via
+  // trustProxy) → 403 ip_not_allowed.
+  const blocked = await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': w.sig, 'x-forwarded-for': '9.9.9.9' }, payload: w.body });
+  assert.equal(blocked.statusCode, 403);
+  assert.equal(blocked.json().error.code, 'ip_not_allowed');
+  // Allowed source IP passes the IP gate (then fails later on the unknown intent — NOT on IP).
+  const allowed = await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': w.sig, 'x-forwarded-for': '10.0.0.5' }, payload: w.body });
+  assert.notEqual(allowed.statusCode, 403);
   await app.close();
 });
 

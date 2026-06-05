@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { adminApi, ApiError, type AdminUser, type AdminWithdrawal, type AdminMatch } from '../lib/api.ts';
 import { useAuthStore } from './authStore.ts';
+import { translate, useLangStore } from '../lib/i18n.ts';
+
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 function token(): string | null {
   return useAuthStore.getState().accessToken;
@@ -21,8 +24,9 @@ interface AdminStore {
   reject: (id: string) => Promise<void>;
 }
 
-function err(e: unknown, fallback: string): string {
-  return e instanceof ApiError ? e.message : fallback;
+// ApiError.message is already localized by api.ts; localize the non-ApiError fallback key.
+function err(e: unknown, fallbackKey: string): string {
+  return e instanceof ApiError ? e.message : tr(fallbackKey);
 }
 
 export const useAdminStore = create<AdminStore>((set, get) => ({
@@ -41,7 +45,7 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       const [u, w, m] = await Promise.all([adminApi.users(t), adminApi.withdrawals(t), adminApi.matches(t)]);
       set({ users: u.users, withdrawals: w.withdrawals, matches: m.matches, loading: false });
     } catch (e) {
-      set({ loading: false, error: err(e, 'Ngarkimi i panelit dështoi.') });
+      set({ loading: false, error: err(e, 'err.adminPanelLoadFailed') });
     }
   },
 
@@ -50,10 +54,10 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     if (!t) return;
     try {
       await adminApi.adjust(t, id, deltaCents, reason);
-      set({ notice: 'Bilanci u rregullua.' });
+      set({ notice: tr('msg.balanceAdjusted') });
       await get().refresh();
     } catch (e) {
-      set({ error: err(e, 'Rregullimi dështoi.') });
+      set({ error: err(e, 'err.adjustFailed') });
     }
   },
 
@@ -62,10 +66,10 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     if (!t) return;
     try {
       await adminApi.setKyc(t, id, status);
-      set({ notice: 'KYC u përditësua.' });
+      set({ notice: tr('msg.kycUpdated') });
       await get().refresh();
     } catch (e) {
-      set({ error: err(e, 'Përditësimi i KYC dështoi.') });
+      set({ error: err(e, 'err.kycUpdateFailed') });
     }
   },
 
@@ -74,10 +78,10 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     if (!t) return;
     try {
       await adminApi.approveWithdrawal(t, id);
-      set({ notice: 'Tërheqja u aprovua.' });
+      set({ notice: tr('msg.withdrawApproved') });
       await get().refresh();
     } catch (e) {
-      set({ error: err(e, 'Aprovimi dështoi.') });
+      set({ error: err(e, 'err.approveFailed') });
     }
   },
 
@@ -86,10 +90,10 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     if (!t) return;
     try {
       await adminApi.rejectWithdrawal(t, id);
-      set({ notice: 'Tërheqja u refuzua (fondet u kthyen).' });
+      set({ notice: tr('msg.withdrawRejected') });
       await get().refresh();
     } catch (e) {
-      set({ error: err(e, 'Refuzimi dështoi.') });
+      set({ error: err(e, 'err.rejectFailed') });
     }
   },
 }));

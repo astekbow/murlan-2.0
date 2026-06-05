@@ -1,4 +1,5 @@
 import type { ScoreboardDTO } from '@murlan/shared';
+import { useT } from '../lib/i18n.ts';
 
 interface ScoreboardProps {
   scoreboard: ScoreboardDTO;
@@ -8,6 +9,7 @@ interface ScoreboardProps {
 /** Cumulative scores + target, styled as a centred scorebar. 2v2 shows team
  *  totals; other modes show per-seat scores. */
 export function Scoreboard({ scoreboard, names }: ScoreboardProps) {
+  const t = useT();
   const { type, target, cumulative, teamTotals } = scoreboard;
 
   if (type === '2v2' && teamTotals) {
@@ -17,15 +19,15 @@ export function Scoreboard({ scoreboard, names }: ScoreboardProps) {
           <span className="team-pip" style={{ background: 'var(--gold)' }} />
           <div>
             <div className="team-sc text-gold-hi">{teamTotals[0]}</div>
-            <small className="text-muted text-xs">Skuadra 1</small>
+            <small className="text-muted text-xs">{t('scoreboard.team1')}</small>
           </div>
         </div>
-        <div className="text-muted text-xs tracking-wide">— deri në <b className="text-gold-hi">{target}</b> —</div>
+        <div className="text-muted text-xs tracking-wide">— {t('scoreboard.upTo')} <b className="text-gold-hi">{target}</b> —</div>
         <div className="team-box">
           <span className="team-pip" style={{ background: '#5fb0e8' }} />
           <div>
             <div className="team-sc" style={{ color: '#9bd0f5' }}>{teamTotals[1]}</div>
-            <small className="text-muted text-xs">Skuadra 2</small>
+            <small className="text-muted text-xs">{t('scoreboard.team2')}</small>
           </div>
         </div>
       </div>
@@ -34,13 +36,13 @@ export function Scoreboard({ scoreboard, names }: ScoreboardProps) {
 
   return (
     <div className="panel px-4 py-2.5 flex items-center gap-4 flex-wrap justify-center">
-      <span className="font-display text-xs tracking-wide text-gold-hi">REZULTATI</span>
+      <span className="font-display text-xs tracking-wide text-gold-hi">{t('scoreboard.result')}</span>
       {cumulative.map((pts, seat) => (
         <span key={seat} className="text-sm text-txt">
           <span className="text-muted">{names(seat)}:</span> <b className="text-gold-hi">{pts}</b>
         </span>
       ))}
-      <span className="text-muted text-xs">deri në <b className="text-gold-hi">{target}</b></span>
+      <span className="text-muted text-xs">{t('scoreboard.upTo')} <b className="text-gold-hi">{target}</b></span>
     </div>
   );
 }

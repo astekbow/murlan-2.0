@@ -44,3 +44,41 @@ export const settlementFailures = new client.Counter({
   help: 'Match settlements that threw after finalize (need manual remediation)',
   registers: [registry],
 });
+
+// ---- Live state gauges (set periodically by the app loop / inc-dec by the gateway).
+/** Currently-connected Socket.IO clients (incremented/decremented per socket). */
+export const socketConnections = new client.Gauge({
+  name: 'murlan_socket_connections',
+  help: 'Currently connected realtime (Socket.IO) clients',
+  registers: [registry],
+});
+
+/** Matches in progress right now (escrowed, not yet settled/refunded). */
+export const activeMatches = new client.Gauge({
+  name: 'murlan_active_matches',
+  help: 'Matches currently in progress (escrowed, unsettled)',
+  registers: [registry],
+});
+
+/** Withdrawals awaiting admin approval — a money-ops queue to watch. */
+export const pendingWithdrawals = new client.Gauge({
+  name: 'murlan_pending_withdrawals',
+  help: 'Withdrawals awaiting admin approval',
+  registers: [registry],
+});
+
+/** Wall-clock duration of money.settle() — watch for DB slowness on the money path. */
+export const settlementDuration = new client.Histogram({
+  name: 'murlan_settlement_duration_seconds',
+  help: 'Duration of match settlement (money.settle) in seconds',
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
+  registers: [registry],
+});
+
+/** Deposit webhooks by outcome (credited / idempotent replay / rejected). */
+export const depositWebhooks = new client.Counter({
+  name: 'murlan_deposit_webhooks_total',
+  help: 'Deposit webhooks processed, by outcome',
+  labelNames: ['outcome'] as const,
+  registers: [registry],
+});
