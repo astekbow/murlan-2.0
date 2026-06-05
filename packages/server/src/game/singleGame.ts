@@ -122,7 +122,7 @@ export class SingleGame {
 
   /** The private hand for a seat (server-only; never broadcast wholesale). */
   handOf(seat: Seat): readonly Card[] {
-    return this.hands[seat];
+    return this.hands[seat] ?? [];
   }
 
   /** The combo currently on the table, or null when leading a fresh trick. */
@@ -197,7 +197,7 @@ export class SingleGame {
     events.push({ kind: 'played', seat, combo: check.combo });
 
     // Did this empty the player's hand?
-    if (this.hands[seat].length === 0) {
+    if (this.hands[seat]!.length === 0) { // seat is the acting player ⇒ in-bounds
       this.active[seat] = false;
       this.finishingOrder.push(seat);
       events.push({ kind: 'playerFinished', seat, place: this.finishingOrder.length });
@@ -331,7 +331,7 @@ export class SingleGame {
   }
 
   private handHasAll(seat: Seat, cards: Card[]): boolean {
-    const handIds = new Set(this.hands[seat].map(cardId));
+    const handIds = new Set(this.hands[seat]!.map(cardId)); // hands has one entry per seat
     const seen = new Set<string>();
     for (const card of cards) {
       const id = cardId(card);
@@ -344,7 +344,7 @@ export class SingleGame {
 
   private removeCards(seat: Seat, cards: Card[]): void {
     const remove = new Set(cards.map(cardId));
-    this.hands[seat] = this.hands[seat].filter((c) => !remove.has(cardId(c)));
+    this.hands[seat] = this.hands[seat]!.filter((c) => !remove.has(cardId(c)));
   }
 }
 

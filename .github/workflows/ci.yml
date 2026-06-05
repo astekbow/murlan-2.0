@@ -1,0 +1,86 @@
+name: CI
+
+# Quality gate for a real-money codebase: nothing merges without typecheck,
+# tests, a dependency-vuln scan, and a clean client build. (Activates once the
+# repo is pushed to GitHub — there is no git remote yet.)
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # Throwaway Postgres so the opt-in Prisma concurrency/atomicity integration
+    # tests actually run in CI (they self-skip locally without DATABASE_TEST_URL).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: murlan
+          POSTGRES_PASSWORD: murlan
+          POSTGRES_DB: murlan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U murlan"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_TEST_URL: postgres://murlan:murlan@localhost:5432/murlan
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema packages/server/prisma/schema.prisma
+
+      - name: Apply migrations to the CI database
+        run: npm run db:migrate --workspace @murlan/server
+        env:
+          DATABASE_URL: postgres://murlan:murlan@localhost:5432/murlan
+          DIRECT_URL: postgres://murlan:murlan@localhost:5432/murlan
+
+      - name: Typecheck (all workspaces)
+        run: npm run typecheck
+
+      # Go/no-go gate: a real-money production build must require explicit
+      # compliance flags (KYC/age/geo/responsible-gaming) — never silent defaults.
+      - name: Production compliance-config gate
+        run: npx tsx packages/server/scripts/checkProdConfig.ts
+
+      - name: Test (engine + server + client; incl. Postgres integration)
+        run: npm test
+
+      - name: Dependency audit (fail on high+)
+        run: npm audit --audit-level=high
+
+      - name: Client production build
+        run: npm run build --workspace @murlan/client
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      # Build both images to catch Dockerfile drift (no push — wire registry creds
+      # + a deploy step when a target environment exists).
+      - name: Build server image
+        run: docker build -f Dockerfile.server -t murlan-server:ci .
+      - name: Build client image
+        run: docker build -f Dockerfile.client -t murlan-client:ci .

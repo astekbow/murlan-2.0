@@ -7,7 +7,7 @@
 // store. Purely presentational — touches no game/money state.
 // ============================================================================
 
-export type Sfx = 'deal' | 'card' | 'pass' | 'turn' | 'win' | 'lose' | 'button' | 'select';
+export type Sfx = 'deal' | 'card' | 'pass' | 'turn' | 'win' | 'lose' | 'button' | 'select' | 'bomb';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -100,6 +100,8 @@ export const sound = {
       case 'deal': for (let i = 0; i < 5; i++) noise(t + i * 0.045, 0.05, 0.18, 2600); break;
       case 'win': [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, t + i * 0.1, 0.28, 'triangle', 0.26)); break;
       case 'lose': tone(440, t, 0.22, 'sine', 0.2); tone(330, t + 0.12, 0.3, 'sine', 0.2); break;
+      // A bomb (four-of-a-kind) landing: a sub-bass thump + a low rumble + a crack.
+      case 'bomb': tone(70, t, 0.45, 'sine', 0.5); noise(t, 0.4, 0.45, 700); tone(160, t, 0.18, 'sawtooth', 0.22); break;
     }
   },
   startMusic(): void {

@@ -10,12 +10,14 @@ export interface OutboundEmail {
 }
 
 export interface EmailProvider {
+  readonly name: string; // 'console' = stub; a real provider reports e.g. 'smtp'/'ses'
   send(email: OutboundEmail): Promise<void>;
 }
 
 /** Dev/default provider: logs the email instead of sending it. Swap for a real
  *  provider by injecting one into AuthService once credentials exist. */
 export class ConsoleEmailProvider implements EmailProvider {
+  readonly name = 'console';
   async send(email: OutboundEmail): Promise<void> {
     console.log(`[email] → ${email.to} | ${email.subject}\n${email.text}\n`);
   }

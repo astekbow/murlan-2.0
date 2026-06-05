@@ -9,7 +9,11 @@ interface Persisted {
   muted: boolean;
   volume: number; // 0..1
   musicOn: boolean;
+  realityCheckMinutes: number; // responsible-gaming session reminder; 0 = off
 }
+
+const RC_ALLOWED = [0, 15, 30, 60];
+const normRc = (v: unknown): number => (typeof v === 'number' && RC_ALLOWED.includes(v) ? v : 30);
 
 function load(): Persisted {
   try {
@@ -20,10 +24,11 @@ function load(): Persisted {
         muted: !!p.muted,
         volume: typeof p.volume === 'number' ? Math.max(0, Math.min(1, p.volume)) : 0.6,
         musicOn: !!p.musicOn,
+        realityCheckMinutes: normRc(p.realityCheckMinutes),
       };
     }
   } catch { /* ignore */ }
-  return { muted: false, volume: 0.6, musicOn: false };
+  return { muted: false, volume: 0.6, musicOn: false, realityCheckMinutes: 30 };
 }
 
 const initial = load();
@@ -37,10 +42,13 @@ interface SettingsStore extends Persisted {
   setMuted: (m: boolean) => void;
   setVolume: (v: number) => void;
   setMusicOn: (on: boolean) => void;
+  setRealityCheckMinutes: (m: number) => void;
 }
 
 function persist(s: Persisted): void {
-  try { localStorage.setItem(KEY, JSON.stringify({ muted: s.muted, volume: s.volume, musicOn: s.musicOn })); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ muted: s.muted, volume: s.volume, musicOn: s.musicOn, realityCheckMinutes: s.realityCheckMinutes }));
+  } catch { /* ignore */ }
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -64,5 +72,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     else sound.stopMusic();
     set({ musicOn });
     persist({ ...get(), musicOn });
+  },
+  setRealityCheckMinutes(realityCheckMinutes) {
+    const m = normRc(realityCheckMinutes);
+    set({ realityCheckMinutes: m });
+    persist({ ...get(), realityCheckMinutes: m });
   },
 }));

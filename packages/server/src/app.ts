@@ -25,13 +25,16 @@ import { AuthService } from './auth/authService.ts';
 import { InMemoryRefreshTokens, type RefreshTokenRepository } from './auth/refreshTokens.ts';
 import { InMemoryAdminAudit, type AdminAuditRepository } from './auth/adminAudit.ts';
 import { InMemoryGames, type GamesRepository } from './fair/gamesRepository.ts';
+import { InMemoryMatchActions, type MatchActionsRepository } from './realtime/matchActions.ts';
 import { InMemoryVerificationTokens, type VerificationTokenRepository } from './auth/verificationTokens.ts';
 import { fairRoutes } from './http/fairRoutes.ts';
-import { authRoutes } from './http/authRoutes.ts';
+import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded } from './metrics.ts';
+import { authRoutes, requireAdmin } from './http/authRoutes.ts';
 import { walletRoutes } from './http/walletRoutes.ts';
 import { adminRoutes } from './http/adminRoutes.ts';
 import { accountRoutes } from './http/accountRoutes.ts';
 import { ComplianceService } from './compliance/complianceService.ts';
+import { ResponsibleGamingService } from './compliance/responsibleGaming.ts';
 import { RoomManager } from './room/roomManager.ts';
 import { GameGateway } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
@@ -40,6 +43,7 @@ import { WalletService } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
+import { ConsoleEmailProvider } from './email/emailProvider.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -50,6 +54,25 @@ import { Presence } from './realtime/presence.ts';
 import { socialRoutes } from './http/socialRoutes.ts';
 import { RewardsService } from './rewards/rewardsService.ts';
 import { rewardsRoutes } from './http/rewardsRoutes.ts';
+import { InMemorySeasonRepository, type SeasonRepository } from './ranked/seasonRepository.ts';
+import { RankedService } from './ranked/rankedService.ts';
+import { rankedRoutes } from './http/rankedRoutes.ts';
+import { MatchmakingService } from './realtime/matchmaking.ts';
+import { InMemorySupportRepository, type SupportRepository } from './support/supportRepository.ts';
+import { supportRoutes } from './http/supportRoutes.ts';
+import { replayRoutes } from './http/replayRoutes.ts';
+import { InMemorySuspicion, type SuspicionRepository } from './antiCheat/suspicionRepository.ts';
+import { AntiCheatService } from './antiCheat/antiCheatService.ts';
+import { InMemoryPushSubscriptions, type PushSubscriptionRepository } from './push/pushRepository.ts';
+import { PushService } from './push/pushService.ts';
+import { ConsolePushProvider } from './push/pushProvider.ts';
+import { VipService } from './vip/vipService.ts';
+import { vipRoutes } from './http/vipRoutes.ts';
+import { InMemoryClubRepository, type ClubRepository } from './social/clubRepository.ts';
+import { ClubService } from './social/clubService.ts';
+import { InMemoryChatRepository, type ChatRepository } from './chat/chatRepository.ts';
+import { ChatService } from './chat/chatService.ts';
+import { clubRoutes } from './http/clubRoutes.ts';
 
 export interface HttpDeps {
   auth: AuthService;
@@ -59,16 +82,33 @@ export interface HttpDeps {
   provider?: PaymentProvider;
   intents?: DepositIntentRepository;
   compliance?: ComplianceService;
+  rg?: ResponsibleGamingService;
+  vip?: VipService;
+  clubs?: ClubService;
+  chat?: ChatService;
   rooms?: RoomManager;
   profiles?: ProfileService;
+  ranked?: RankedService;
   friends?: FriendsService;
   rewards?: RewardsService;
   adminAudit?: AdminAuditRepository;
   games?: GamesRepository;
+  matchLog?: MatchActionsRepository;
+  support?: SupportRepository;
+  antiCheat?: AntiCheatService;
+  push?: PushService;
+  dbPing?: () => Promise<boolean>; // readiness probe for the DB (Prisma only)
 }
 
 export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.config.isProd });
+  // Structured (pino) logging always on — info in prod, warn in dev to stay quiet.
+  // Redact credentials so tokens/cookies never land in logs.
+  const app = Fastify({
+    logger: {
+      level: deps.config.isProd ? 'info' : 'warn',
+      redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+    },
+  });
 
   // Capture the RAW JSON body (needed for webhook signature verification) while
   // still parsing JSON normally for every route.
@@ -94,14 +134,35 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   await app.register(cors, { origin: deps.config.clientOrigin, credentials: true });
   await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
+  // Observability: time every request into a Prometheus histogram (keyed by the
+  // ROUTE PATTERN, not the raw path, to avoid label cardinality blow-up).
+  app.addHook('onResponse', (req, reply, done) => {
+    const route = (req as { routeOptions?: { url?: string } }).routeOptions?.url ?? req.url;
+    httpRequestDuration.observe({ method: req.method, route, status: reply.statusCode }, reply.elapsedTime / 1000);
+    done();
+  });
+  app.get('/metrics', async (_req, reply) => {
+    reply.header('Content-Type', registry.contentType);
+    return registry.metrics();
+  });
+
+  // Liveness: cheap, no dependencies — used by the Docker HEALTHCHECK.
   app.get('/health', async () => ({ ok: true, service: 'murlan-server' }));
+
+  // Readiness: verifies the DB is reachable (when Prisma is configured). Returns
+  // 503 if the dependency is down so a load balancer can drain the instance.
+  app.get('/ready', async (_req, reply) => {
+    const db = deps.dbPing ? await deps.dbPing() : null; // null = in-memory (no DB)
+    const ready = db !== false;
+    return reply.code(ready ? 200 : 503).send({ ok: ready, db });
+  });
 
   await authRoutes(app, {
     auth: deps.auth,
     isProd: deps.config.isProd,
     authRateLimit: { max: 20, timeWindow: '1 minute' },
   });
-  await accountRoutes(app, { auth: deps.auth });
+  await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push });
 
   if (deps.profiles && deps.friends) {
     await socialRoutes(app, { auth: deps.auth, profiles: deps.profiles, friends: deps.friends });
@@ -109,16 +170,42 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   if (deps.rewards) {
     await rewardsRoutes(app, { auth: deps.auth, rewards: deps.rewards });
   }
+  if (deps.ranked) {
+    await rankedRoutes(app, { auth: deps.auth, ranked: deps.ranked });
+  }
+  if (deps.support) {
+    await supportRoutes(app, { auth: deps.auth, support: deps.support, audit: deps.adminAudit });
+  }
+  if (deps.vip) {
+    await vipRoutes(app, { auth: deps.auth, vip: deps.vip });
+  }
+  if (deps.clubs) {
+    await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
+  }
+  if (deps.antiCheat) {
+    // Admin-only review list of anti-collusion/anti-bot heuristic flags (never auto-action).
+    const adminGuard = requireAdmin(deps.auth);
+    const antiCheat = deps.antiCheat;
+    app.get('/api/admin/suspicions', async (req, reply) => {
+      if (!(await adminGuard(req, reply))) return;
+      const raw = Number((req.query as { minSeverity?: string })?.minSeverity);
+      const minSeverity = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
+      return reply.send({ flags: await antiCheat.listFlags({ minSeverity, limit: 200 }) });
+    });
+  }
   if (deps.games) {
     await fairRoutes(app, { games: deps.games });
+  }
+  if (deps.games && deps.matchLog) {
+    await replayRoutes(app, { games: deps.games, matchLog: deps.matchLog });
   }
 
   if (deps.wallet && deps.withdrawals && deps.provider && deps.intents) {
     await walletRoutes(app, {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
-      provider: deps.provider, intents: deps.intents, compliance: deps.compliance,
+      provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, audit: deps.adminAudit });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, audit: deps.adminAudit, chat: deps.chat });
   }
 
   return app;
@@ -160,13 +247,30 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   let refreshTokensRepo: RefreshTokenRepository;
   let adminAuditRepo: AdminAuditRepository;
   let gamesRepo: GamesRepository;
+  let matchLogRepo: MatchActionsRepository;
+  let supportRepo: SupportRepository;
+  let suspicionRepo: SuspicionRepository;
+  let pushSubsRepo: PushSubscriptionRepository;
+  let chatRepo: ChatRepository;
+  let clubsRepo: ClubRepository;
+  let seasonsRepo: SeasonRepository;
   let verificationTokensRepo: VerificationTokenRepository;
   let uow: UnitOfWork | undefined; // transactional wrapper for credit/debit (Prisma only)
+  let dbPing: (() => Promise<boolean>) | undefined; // DB readiness probe (Prisma only)
 
   if (config.databaseUrl && !opts.userRepository) {
     const { getPrisma } = await import('./db/prismaClient.ts');
     const { createPrismaStores } = await import('./db/prismaRepositories.ts');
-    const stores = createPrismaStores(getPrisma(config.databaseUrl));
+    const prisma = getPrisma(config.databaseUrl);
+    dbPing = async () => {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const stores = createPrismaStores(prisma);
     repo = stores.users;
     ledger = stores.ledger;
     matchesRepo = stores.matches;
@@ -176,6 +280,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     refreshTokensRepo = stores.refreshTokens;
     adminAuditRepo = stores.adminAudit;
     gamesRepo = stores.games;
+    matchLogRepo = stores.matchActions;
+    supportRepo = stores.support;
+    suspicionRepo = stores.suspicion;
+    pushSubsRepo = stores.pushSubscriptions;
+    chatRepo = stores.chat;
+    clubsRepo = stores.clubs;
+    seasonsRepo = stores.seasons;
     verificationTokensRepo = stores.verificationTokens;
     uow = stores.uow; // Postgres: credit/debit run in one $transaction
   } else {
@@ -188,29 +299,58 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     refreshTokensRepo = new InMemoryRefreshTokens();
     adminAuditRepo = new InMemoryAdminAudit();
     gamesRepo = new InMemoryGames();
+    matchLogRepo = new InMemoryMatchActions();
+    supportRepo = new InMemorySupportRepository();
+    suspicionRepo = new InMemorySuspicion();
+    pushSubsRepo = new InMemoryPushSubscriptions();
+    chatRepo = new InMemoryChatRepository();
+    clubsRepo = new InMemoryClubRepository();
+    seasonsRepo = new InMemorySeasonRepository();
     verificationTokensRepo = new InMemoryVerificationTokens();
   }
 
-  // Email verification + password reset use the console email provider until real
-  // SMTP/API credentials are configured (links are logged in dev).
+  // Provider stubs (mock payment, console email) must NEVER ship to production
+  // silently: a stub can't move real money or deliver verification/reset links.
+  // Fail CLOSED — a prod boot still on a stub throws. Wire a real provider here
+  // (env-selected) before going live.
+  const email = new ConsoleEmailProvider();
+  const provider = new MockPaymentProvider(config.paymentWebhookSecret);
+  if (config.isProd) {
+    if (provider.name === 'mock') throw new Error('A real PaymentProvider must be configured in production (MockPaymentProvider is a stub — wire Stripe/PayPal/crypto).');
+    if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark).');
+  }
+
+  // Email verification + password reset go through the EmailProvider above.
   const auth = new AuthService(repo, tokens, refreshTokensRepo, {
     verificationTokens: verificationTokensRepo,
     appUrl: config.clientOrigin,
+    email,
   });
   const rooms = new RoomManager({ startTarget: 21 });
   const presence = new Presence();
   const profiles = new ProfileService(repo);
+  const ranked = new RankedService(seasonsRepo, repo);
+  const matchmaking = new MatchmakingService();
   const friends = new FriendsService(repo, friendsRepo, presence);
   const rewards = new RewardsService(repo, config.rewardsEnabled);
 
   const wallet = new WalletService(repo, ledger, uow);
   const money = new MoneyService(wallet, matchesRepo, uow);
-  const provider = new MockPaymentProvider(config.paymentWebhookSecret);
   const withdrawals = new WithdrawalService(wallet, withdrawalsRepo);
   const intents = intentsRepo;
   const compliance = new ComplianceService(config.compliance);
+  const responsibleGaming = new ResponsibleGamingService(repo, wallet);
+  const antiCheat = new AntiCheatService(matchLogRepo, repo, suspicionRepo);
+  // Web Push re-engagement. ConsolePushProvider LOGS nudges until VAPID keys are
+  // configured for real browser delivery (see push/pushProvider.ts).
+  const push = new PushService(pushSubsRepo, new ConsolePushProvider());
+  const vip = new VipService(wallet);
+  const clubs = new ClubService(clubsRepo, repo);
+  // Club chat + moderation. Membership-gated + mute-aware + abuse reports.
+  // Foundation ships ON; review moderation POLICY before broad public promotion.
+  const chat = new ChatService(chatRepo, clubs);
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rooms, profiles, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, chat, rooms, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -234,10 +374,17 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     rakeBps: config.rakeBps,
     abandonMs: config.abandonMs,
     compliance,
+    rg: responsibleGaming,
     profiles,
+    ranked,
+    antiCheat,
+    matchmaking,
     friends,
     presence,
     games: gamesRepo,
+    matchLog: matchLogRepo,
+    push,
+    chat,
   });
 
   // Crash recovery: refund any match a previous (crashed) process left 'active'
@@ -247,7 +394,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     app.log.error({ err }, 'boot crash-recovery sweep failed');
     return [] as string[];
   });
-  if (recovered.length) app.log.warn({ matchIds: recovered }, 'refunded orphaned matches at boot');
+  if (recovered.length) {
+    app.log.warn({ matchIds: recovered }, 'refunded orphaned matches at boot');
+    orphanedMatchesRefunded.inc(recovered.length);
+  }
 
   // Periodic safety net: refund matches no live room owns + verify the money
   // conservation invariant, paging the operator on any drift.
@@ -256,9 +406,20 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     void (async () => {
       try {
         const refunded = await money.recoverOrphanedMatches(rooms.activeMatchIds());
-        if (refunded.length) app.log.warn({ matchIds: refunded }, 'refunded orphaned matches (periodic sweep)');
+        if (refunded.length) {
+          app.log.warn({ matchIds: refunded }, 'refunded orphaned matches (periodic sweep)');
+          orphanedMatchesRefunded.inc(refunded.length);
+        }
         const rec = await wallet.reconcile();
-        if (!rec.ok) app.log.error({ mismatches: rec.mismatches }, 'BALANCE RECONCILE MISMATCH — investigate');
+        if (!rec.ok) {
+          app.log.error({ mismatches: rec.mismatches }, 'BALANCE RECONCILE MISMATCH — investigate');
+          reconcileMismatches.inc();
+        }
+        // Retention: purge expired auth/verification tokens so the tables don't
+        // grow unbounded (and stale data doesn't linger past its usefulness).
+        const now = Date.now();
+        const purged = (await refreshTokensRepo.deleteExpired(now)) + (await verificationTokensRepo.deleteExpired(now));
+        if (purged > 0) app.log.info({ purged }, 'purged expired tokens');
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');
       }

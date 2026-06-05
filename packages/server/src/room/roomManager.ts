@@ -52,6 +52,8 @@ interface Room {
   matchId: string | null; // unique per match instance (NOT the reusable room id)
   matchSeq: number;
   createdAt: number;
+  ranked: boolean; // auto-formed by matchmaking; hidden from the public lobby
+  practice: boolean; // vs-bot practice room; zero-stake, hidden from lobby + spectators
 }
 
 const err = (code: string, message: string): ManagerResult => ({ ok: false, error: { code, message } });
@@ -94,8 +96,11 @@ export class RoomManager {
   // ---------- Lobby -----------------------------------------------------------
 
   listLobby(): LobbyStateDTO {
-    const rooms = [...this.rooms.values()]
-      .filter((r) => r.status === 'waiting' || r.status === 'ready')
+    const all = [...this.rooms.values()];
+    // Ranked rooms are auto-formed by matchmaking and auto-start — never list
+    // them publicly (no one can join, and they're meant for the matched players).
+    const rooms = all
+      .filter((r) => !r.ranked && !r.practice && (r.status === 'waiting' || r.status === 'ready'))
       .map((r) => ({
         id: r.id,
         type: r.type,
@@ -105,12 +110,21 @@ export class RoomManager {
         status: r.status,
         createdAt: r.createdAt,
       }));
-    return { rooms };
+    // Live (in-match) rooms anyone can spectate — usernames + seats only, no cards.
+    const live = all
+      .filter((r) => !r.ranked && !r.practice && r.status === 'inMatch')
+      .map((r) => ({
+        roomId: r.id,
+        type: r.type,
+        target: r.target,
+        players: r.seats.map((s, i) => ({ seat: i, username: s.username })),
+      }));
+    return { rooms, live };
   }
 
   // ---------- Room lifecycle --------------------------------------------------
 
-  createRoom(user: ActingUser, payload: { type: MatchType; stakeCents: number; team?: 0 | 1 }): CreateResult {
+  createRoom(user: ActingUser, payload: { type: MatchType; stakeCents: number; team?: 0 | 1; ranked?: boolean; practice?: boolean }): CreateResult {
     if (this.userRoom.has(user.userId)) {
       return err('already_in_room', 'Je tashmë në një dhomë.');
     }
@@ -134,6 +148,8 @@ export class RoomManager {
       matchId: null,
       matchSeq: 0,
       createdAt: Date.now(),
+      ranked: !!payload.ranked,
+      practice: !!payload.practice,
     };
     this.rooms.set(room.id, room);
     if (!this.seat(room, user, payload.team)) {
@@ -405,7 +421,7 @@ export class RoomManager {
   private seat(room: Room, user: ActingUser, team?: 0 | 1): boolean {
     const idx = this.pickSeat(room, team);
     if (idx < 0) return false;
-    const s = room.seats[idx];
+    const s = room.seats[idx]!; // pickSeat returns a valid in-bounds seat index (or <0)
     s.userId = user.userId;
     s.username = user.username;
     s.team = room.type === '2v2' ? (TEAM_SEATS[0].includes(idx) ? 0 : 1) : null;
@@ -417,7 +433,7 @@ export class RoomManager {
   }
 
   private pickSeat(room: Room, team?: 0 | 1): number {
-    const open = (i: number) => room.seats[i].userId === null;
+    const open = (i: number) => room.seats[i]!.userId === null; // i ranges over valid seat indices
     if (room.type === '2v2' && team !== undefined) {
       const seatsForTeam = TEAM_SEATS[team];
       const free = seatsForTeam.find(open);

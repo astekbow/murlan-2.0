@@ -72,8 +72,12 @@ export class ComplianceService {
         return block('age_restricted', `Duhet të jesh të paktën ${this.cfg.minAge} vjeç.`);
       }
     }
-    if (this.cfg.blockedCountries.length > 0 && profile.country && this.cfg.blockedCountries.includes(profile.country.trim().toUpperCase())) {
-      return block('geo_blocked', 'Loja për para nuk lejohet në vendin tënd.');
+    // Geo gate, FAIL-CLOSED: when geo enforcement is on, an unknown/missing country
+    // is blocked too — we cannot confirm the user is NOT in a restricted jurisdiction.
+    if (this.cfg.blockedCountries.length > 0) {
+      const country = profile.country?.trim().toUpperCase();
+      if (!country) return block('geo_required', 'Vendi i llogarisë mungon — kërkohet për lojën me para.');
+      if (this.cfg.blockedCountries.includes(country)) return block('geo_blocked', 'Loja për para nuk lejohet në vendin tënd.');
     }
     return ALLOWED;
   }
@@ -94,8 +98,10 @@ export class ComplianceService {
         return block('age_restricted', `Duhet të jesh të paktën ${this.cfg.minAge} vjeç.`);
       }
     }
-    if (this.cfg.blockedCountries.length > 0 && profile.country && this.cfg.blockedCountries.includes(profile.country.trim().toUpperCase())) {
-      return block('geo_blocked', 'Tërheqja nuk lejohet në vendin tënd.');
+    if (this.cfg.blockedCountries.length > 0) {
+      const country = profile.country?.trim().toUpperCase();
+      if (!country) return block('geo_required', 'Vendi i llogarisë mungon — kërkohet për tërheqje.');
+      if (this.cfg.blockedCountries.includes(country)) return block('geo_blocked', 'Tërheqja nuk lejohet në vendin tënd.');
     }
     return ALLOWED;
   }

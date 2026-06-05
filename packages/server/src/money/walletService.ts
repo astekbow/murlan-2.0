@@ -10,6 +10,7 @@
 import type { UserRepository } from '../auth/userRepository.ts';
 import type { LedgerRepository, Transaction, TransactionType } from './ledger.ts';
 import type { UnitOfWork, WalletTxContext } from './unitOfWork.ts';
+import { depositsToday } from '../compliance/responsibleGaming.ts';
 
 /** Synthetic account that accumulates the house rake (ledger-only, no balance). */
 export const HOUSE_ACCOUNT_ID = '__house__';
@@ -24,12 +25,28 @@ export class InsufficientFundsError extends Error {
   }
 }
 
+/** A deposit credit that would push today's deposits over the player's daily cap. */
+export class DepositCapExceededError extends Error {
+  constructor(public readonly userId: string, public readonly usedCents: number, public readonly amountCents: number, public readonly capCents: number) {
+    super(`deposit cap exceeded for ${userId}: ${usedCents}+${amountCents} > ${capCents}`);
+    this.name = 'DepositCapExceededError';
+  }
+}
+
 export interface CreditOptions {
   type: TransactionType;
   reason?: string;
   providerRef?: string | null;
   matchId?: string | null;
   currency?: string;
+  /**
+   * Responsible-gaming daily DEPOSIT cap (cents), enforced ATOMICALLY here: the
+   * day's deposits are summed from the in-transaction ledger and the credit is
+   * rejected (DepositCapExceededError, nothing appended) if it would exceed the cap.
+   * Capped deposits are also serialized per user so concurrent webhooks can't both
+   * pass (single-instance). Only meaningful with a `providerRef` (the deposit path).
+   */
+  depositCapCents?: number | null;
 }
 export interface DebitOptions {
   type: TransactionType;
@@ -64,6 +81,19 @@ export class WalletService {
     return new WalletService(ctx.users, ctx.ledger, undefined, true);
   }
 
+  // Per-user serialization for CAPPED deposits: chains each capped deposit for a
+  // user after the previous one so two concurrent webhooks can't both read a stale
+  // "deposits today" and both pass the cap. Single-instance only — multi-instance
+  // needs a DB row-lock / SERIALIZABLE deposit tx (documented follow-up, gated on a
+  // real payment provider). Uncapped credits (refunds, payouts, rake) skip this.
+  private readonly depositChain = new Map<string, Promise<unknown>>();
+  private serializeDeposit<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.depositChain.get(userId) ?? Promise.resolve();
+    const next = prev.then(fn, fn); // run after prev settles, success or failure
+    this.depositChain.set(userId, next.catch(() => undefined)); // a rejection must not break the chain
+    return next;
+  }
+
   async getBalance(userId: string): Promise<number> {
     const user = await this.users.findById(userId);
     return user?.balanceCents ?? 0;
@@ -88,7 +118,7 @@ export class WalletService {
    */
   async credit(userId: string, amountCents: number, opts: CreditOptions): Promise<MoveResult> {
     this.assertAmount(amountCents);
-    return this.run(async (users, ledger) => {
+    const doCredit = () => this.run(async (users, ledger) => {
       const balanceOf = async () => (await users.findById(userId))?.balanceCents ?? 0;
       const user = await users.findById(userId);
       if (!user) throw new Error(`user ${userId} not found`);
@@ -97,6 +127,17 @@ export class WalletService {
       // insert never raises on a duplicate (ON CONFLICT DO NOTHING), so it can't
       // abort an enclosing Postgres transaction. created=false => replay.
       if (opts.providerRef) {
+        // Responsible-gaming deposit cap, enforced ATOMICALLY here (inside the same
+        // transaction as the balance write) and BEFORE the append, so a rejected
+        // deposit leaves NO ledger row. The current providerRef is excluded from the
+        // sum so a retried webhook (its row already present) isn't double-counted —
+        // a legitimate replay still falls through to the idempotent return below.
+        if (opts.depositCapCents != null) {
+          const used = depositsToday(await ledger.listByUser(userId), Date.now(), opts.providerRef);
+          if (used + amountCents > opts.depositCapCents) {
+            throw new DepositCapExceededError(userId, used, amountCents, opts.depositCapCents);
+          }
+        }
         const { transaction, created } = await ledger.appendIdempotent({
           userId, type: opts.type, amountCents, currency: opts.currency,
           providerRef: opts.providerRef, matchId: opts.matchId ?? null, reason: opts.reason ?? null,
@@ -127,6 +168,9 @@ export class WalletService {
       }
       return { transaction, balanceCents, idempotent: false };
     });
+    // Capped deposits run one-at-a-time per user (close the concurrent-webhook race
+    // single-instance); everything else (refunds, payouts, rake) credits directly.
+    return opts.depositCapCents != null ? this.serializeDeposit(userId, doCredit) : doCredit();
   }
 
   /**

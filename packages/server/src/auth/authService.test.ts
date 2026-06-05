@@ -6,6 +6,7 @@ import { AuthService, AuthError } from './authService.ts';
 import type { OutboundEmail, EmailProvider } from '../email/emailProvider.ts';
 
 class CapturingEmail implements EmailProvider {
+  readonly name = 'capturing';
   sent: OutboundEmail[] = [];
   async send(email: OutboundEmail): Promise<void> {
     this.sent.push(email);
@@ -207,4 +208,25 @@ test('resetPassword rejects a weak new password', async () => {
   await auth.register(valid);
   await auth.requestPasswordReset(valid.email);
   await assert.rejects(auth.resetPassword(email.lastLink(), 'short'), (e: unknown) => e instanceof AuthError && e.code === 'validation');
+});
+
+test('updateSelfProfile: editable before KYC, LOCKED after verification (service-layer gate)', async () => {
+  const { auth, repo } = makeService();
+  await auth.register(valid);
+  const me = (await repo.findByEmail(valid.email))!;
+
+  // Before verification: DOB/country editable; the change is flagged for audit.
+  const r1 = await auth.updateSelfProfile(me.id, { dateOfBirth: '1990-05-01', country: 'al' });
+  assert.equal(r1.ok, true);
+  assert.equal((r1 as { changed: boolean }).changed, true);
+
+  // After KYC verification: the SERVICE rejects DOB/country changes (not just the route).
+  await auth.updateCompliance(me.id, { kycStatus: 'verified' });
+  const r2 = await auth.updateSelfProfile(me.id, { dateOfBirth: '2004-01-01', country: 'gb' });
+  assert.deepEqual(r2, { ok: false, code: 'kyc_locked' });
+
+  // Re-submitting the SAME verified values is a no-op (changed=false), not a lock error.
+  const r3 = await auth.updateSelfProfile(me.id, { dateOfBirth: '1990-05-01', country: 'AL' });
+  assert.equal(r3.ok, true);
+  assert.equal((r3 as { changed: boolean }).changed, false);
 });

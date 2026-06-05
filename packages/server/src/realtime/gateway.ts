@@ -18,8 +18,9 @@ import { singlePower, type Card } from '@murlan/engine';
 import type {
   ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData,
   Ack, RoomCreatePayload, RoomJoinPayload, GamePlayPayload, SwitchGivePayload,
-  CardSwitchDTO,
+  CardSwitchDTO, MatchType, RankedDeltaDTO,
 } from '@murlan/shared';
+import { PLAYERS_PER_TYPE } from '@murlan/shared';
 import type { RoomManager } from '../room/roomManager.ts';
 import type { MatchActionResult } from '../match/match.ts';
 import { DEFAULT_TEAMS } from '../match/scoring.ts';
@@ -28,12 +29,22 @@ import type { MoneyService } from '../money/moneyService.ts';
 import { forfeitWinners } from '../money/moneyService.ts';
 import { createFairShuffle, combineClientSeeds, generateServerSeed, sha256Hex, type FairShuffle } from '../fair/provablyFair.ts';
 import type { GamesRepository } from '../fair/gamesRepository.ts';
+import type { MatchActionsRepository, MatchActionType } from './matchActions.ts';
+import { MatchmakingService, type QueueEntry } from './matchmaking.ts';
 import { RateLimiter } from '../util/rateLimiter.ts';
+import { TimerOrchestrator } from './timerOrchestrator.ts';
 import { isCardArray, isValidCard, isMatchType, isTeam, isValidStake, isNonEmptyString } from './validation.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
+import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 import type { ProfileService } from '../profile/profileService.ts';
 import type { FriendsService } from '../social/friendsService.ts';
 import type { Presence } from './presence.ts';
+import type { RankedService } from '../ranked/rankedService.ts';
+import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
+import type { PushService } from '../push/pushService.ts';
+import type { ChatService } from '../chat/chatService.ts';
+import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
+import { settlementFailures } from '../metrics.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -46,10 +57,19 @@ export interface GatewayOptions {
   abandonMs?: number;    // reconnection grace before a disconnect forfeits; default 30s
   provablyFair?: boolean; // use the commit-reveal shuffle (default true); tests disable to script deals
   compliance?: ComplianceService; // gates staked play (KYC/age/geo/self-exclusion) when enabled
+  rg?: ResponsibleGamingService;  // gates staked play on the player's daily loss cap
   profiles?: ProfileService; // awards cosmetic XP/stats at match end (isolated; never affects money)
+  ranked?: RankedService;    // updates MMR/season ladder at match end (isolated; competitive/cosmetic only)
+  antiCheat?: AntiCheatService; // flags suspicious matches for manual review at match end (isolated)
   friends?: FriendsService;  // gates/handles friend room invites
   presence?: Presence;       // tracks who is online (shared with the friends routes)
   games?: GamesRepository;   // persists provably-fair seeds per game (durable audit)
+  matchLog?: MatchActionsRepository; // persists the move-log for replay/dispute (isolated; never blocks play)
+  matchmaking?: MatchmakingService;  // ranked skill-matched queue (requires `ranked` to rate the result)
+  push?: PushService; // Web Push re-engagement nudges (isolated; never affects play)
+  chat?: ChatService; // club chat (membership-gated, rate-limited, mute-aware)
+  botDelayMs?: number; // practice-bot "thinking" delay (ms); injectable for deterministic tests
+  rateLimiter?: RateLimiter; // per-user intent bucket (default 40 burst / 20-per-sec); injectable for tests
 }
 
 const ackError = (code: string, message: string): Ack => ({ ok: false, error: { code, message } });
@@ -65,6 +85,19 @@ function safeAck(ack: unknown): (res: Ack) => void {
 // is treated as abandoning: the match ends and the still-active side wins the pot.
 const IDLE_FORFEIT_STRIKES = 5;
 
+// Cap spectators per room so a flood of watchers can't blow up broadcast fan-out.
+const SPECTATOR_CAP = 100;
+
+// Practice-vs-bot: bots are synthetic, socket-less "players" seated in a zero-stake
+// room (escrow/settlement is gated on stakeCents>0, so they never touch money).
+// They are identified by a `bot:` userId prefix and act server-side on their turn.
+const BOT_PREFIX = 'bot:';
+const isBot = (userId: string | null): boolean => !!userId && userId.startsWith(BOT_PREFIX);
+const BOT_NAMES = ['🤖 Roboti', '🤖 Bardha', '🤖 Genci'];
+// Bot "thinking" delay before it acts, for a natural pace (ms).
+const BOT_MIN_DELAY = 550;
+const BOT_MAX_DELAY = 1100;
+
 export class GameGateway {
   private readonly turnMs: number;
   private readonly countdownMs: number;
@@ -73,22 +106,35 @@ export class GameGateway {
   private readonly abandonMs: number;
   private readonly provablyFair: boolean;
   private readonly compliance: ComplianceService | null;
+  private readonly rg: ResponsibleGamingService | null;
   private readonly profiles: ProfileService | null;
+  private readonly ranked: RankedService | null;
+  private readonly antiCheat: AntiCheatService | null;
   private readonly friends: FriendsService | null;
   private readonly presence: Presence | null;
   private readonly games: GamesRepository | null;
-  private countdowns = new Map<string, ReturnType<typeof setTimeout>>();
-  private countdownDeadlines = new Map<string, number>();
-  private turnTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private turnDeadlines = new Map<string, number>();
-  private abandonTimers = new Map<string, ReturnType<typeof setTimeout>>(); // userId -> timer
+  private readonly matchLog: MatchActionsRepository | null;
+  private readonly push: PushService | null;
+  private readonly chat: ChatService | null;
+  private readonly botDelayMs: number | null;
+  private readonly matchmaking: MatchmakingService | null;
+  // Per-match monotonic action counter (turn order for the move-log). Assigned
+  // synchronously so ordering is correct regardless of async write timing; the
+  // entry is dropped when the match finalizes.
+  private matchActionSeq = new Map<string, number>();
+  // Spectators per room (count only; identity not needed). Bounded by SPECTATOR_CAP.
+  private spectatorCount = new Map<string, number>();
+  // All scheduled timers (countdown / turn / abandon) + their deadlines live here.
+  private readonly timers = new TimerOrchestrator();
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
+  private botTiers = new Map<string, BotTier>(); // practice roomId -> bot difficulty
+  private botTimers = new Map<string, ReturnType<typeof setTimeout>>(); // practice roomId -> pending bot-move timer
   private finalizedMatches = new Set<string>(); // matchIds whose match:end has been emitted (exactly-once finalize)
   private fairByRoom = new Map<string, FairShuffle>(); // provably-fair shuffle per active match
   private pendingServerSeeds = new Map<string, string>(); // roomId -> serverSeed committed at countdown start
   private clientSeeds = new Map<string, string>(); // userId -> clientSeed (submitted AFTER the commit)
   // Per-user token bucket: 40 burst, 20/s sustained — ample for real play, caps abuse.
-  private limiter = new RateLimiter(40, 20);
+  private readonly limiter: RateLimiter;
 
   constructor(
     private readonly io: IO,
@@ -103,10 +149,21 @@ export class GameGateway {
     this.abandonMs = opts.abandonMs ?? 30_000;
     this.provablyFair = opts.provablyFair ?? true;
     this.compliance = opts.compliance ?? null;
+    this.rg = opts.rg ?? null;
     this.profiles = opts.profiles ?? null;
+    this.ranked = opts.ranked ?? null;
+    this.antiCheat = opts.antiCheat ?? null;
     this.friends = opts.friends ?? null;
     this.presence = opts.presence ?? null;
     this.games = opts.games ?? null;
+    this.matchLog = opts.matchLog ?? null;
+    this.push = opts.push ?? null;
+    this.chat = opts.chat ?? null;
+    this.botDelayMs = opts.botDelayMs ?? null;
+    // Matchmaking needs MMR ratings to bracket players, so it's only active when
+    // the ranked service is also present.
+    this.matchmaking = this.ranked ? (opts.matchmaking ?? new MatchmakingService()) : null;
+    this.limiter = opts.rateLimiter ?? new RateLimiter(40, 20);
     this.registerAuth();
     this.io.on('connection', (socket) => this.onConnection(socket));
   }
@@ -124,6 +181,7 @@ export class GameGateway {
         socket.data.roomId = null;
         socket.data.seat = null;
         socket.data.clientSeed = null;
+        socket.data.spectating = null;
         next();
       } catch {
         next(new Error('unauthorized'));
@@ -137,6 +195,9 @@ export class GameGateway {
     const { userId } = socket.data;
     void socket.join(personalRoom(userId));
     this.presence?.add(userId);
+    // Join the user's club channel so they receive live chat. (Membership change
+    // via REST takes effect on the next (re)connect — acceptable for v1.)
+    if (this.chat) void this.chat.clubIdFor(userId).then((cid) => { if (cid) void socket.join(clubRoom(cid)); }).catch(() => undefined);
 
     // Reconnection: if this user is already seated in a room, re-attach and push
     // a fresh full state to THIS socket only.
@@ -159,6 +220,10 @@ export class GameGateway {
     socket.on('game:play', (payload, ack) => this.onPlay(socket, payload, ack));
     socket.on('game:pass', (ack) => this.onPass(socket, ack));
     socket.on('game:switchGive', (payload, ack) => this.onSwitchGive(socket, payload, ack));
+    socket.on('ranked:queue:join', (payload, ack) => void this.onRankedQueueJoin(socket, payload, ack));
+    socket.on('ranked:queue:leave', (ack) => this.onRankedQueueLeave(socket, ack));
+    socket.on('room:spectate', (payload, ack) => this.onSpectate(socket, payload, ack));
+    socket.on('room:unspectate', (ack) => this.onUnspectate(socket, ack));
     socket.on('fair:clientSeed', (seed) => {
       if (!this.limiter.allow(socket.data.userId)) return;
       if (typeof seed === 'string' && seed.length > 0 && seed.length <= 128) {
@@ -188,21 +253,30 @@ export class GameGateway {
       this.io.to(room.id).emit('chat', { seat, username: socket.data.username, text: text.slice(0, 80) });
     });
     socket.on('room:invite', (payload, ack) => void this.onInvite(socket, payload, ack));
+    socket.on('club:message', (payload, ack) => void this.onClubMessage(socket, payload, ack));
+    socket.on('practice:start', (payload, ack) => this.onPracticeStart(socket, payload, ack));
 
     socket.on('disconnect', () => this.onDisconnect(socket));
   }
 
   private onDisconnect(socket: IOSocket): void {
     const { userId } = socket.data;
+    this.removeSpectator(socket); // per-socket: free its spectator slot if watching
     // If other sockets for this user remain, keep state untouched.
     if (this.socketCountFor(userId) > 0) return;
     this.limiter.release(userId); // no sockets left — free the rate bucket
     this.clientSeeds.delete(userId); // don't carry a stale seed into a future match
+    this.matchmaking?.remove(userId); // stop trying to matchmake a user who's gone
     this.presence?.remove(userId); // last socket gone — mark offline
 
     const room = this.rooms.roomOf(userId);
     if (!room) return;
-    if (room.status === 'inMatch') {
+    if (room.practice) {
+      // Practice is ephemeral + zero-stake: end it immediately and remove the bots
+      // (no reconnection grace — a solo practice table isn't worth holding open).
+      this.leaveAndNotify(userId, room.id);
+      this.teardownPractice(room.id);
+    } else if (room.status === 'inMatch') {
       // Keep the seat for reconnection; mark offline and start the forfeit grace.
       this.rooms.setConnected(userId, false);
       this.broadcastRoomState(room.id);
@@ -247,6 +321,7 @@ export class GameGateway {
     try {
       const res = this.rooms.createRoom(actor(socket), payload);
       if (!res.ok || !res.roomId) return reply({ ok: false, error: res.error });
+      this.matchmaking?.remove(socket.data.userId); // can't be queued AND in a room
       socket.data.roomId = res.roomId;
       socket.data.seat = this.rooms.seatOf(res.roomId, socket.data.userId);
       void socket.join(res.roomId);
@@ -268,6 +343,7 @@ export class GameGateway {
     try {
       const res = this.rooms.joinRoom(actor(socket), payload.roomId, payload.team);
       if (!res.ok) return reply({ ok: false, error: res.error });
+      this.matchmaking?.remove(socket.data.userId); // can't be queued AND in a room
       socket.data.roomId = payload.roomId;
       socket.data.seat = this.rooms.seatOf(payload.roomId, socket.data.userId);
       void socket.join(payload.roomId);
@@ -290,6 +366,7 @@ export class GameGateway {
     const room = this.rooms.getRoom(roomId);
     const seat = this.rooms.seatOf(roomId, socket.data.userId);
     const userId = socket.data.userId;
+    const wasPractice = room?.practice ?? false;
 
     // Detach this socket from the room immediately.
     void socket.leave(roomId);
@@ -306,6 +383,9 @@ export class GameGateway {
     } else {
       this.leaveAndNotify(userId, roomId);
     }
+    // Practice rooms are ephemeral: once the human is gone, remove the bots so the
+    // room empties + is deleted (otherwise it lingers with only bots seated).
+    if (wasPractice) this.teardownPractice(roomId);
     reply({ ok: true });
   }
 
@@ -328,8 +408,11 @@ export class GameGateway {
       return reply(ackError('bad_request', 'Letra të pavlefshme.'));
     }
     try {
+      // Capture the seat + active game index BEFORE the move is applied (a play
+      // can end the game and advance the index) so the move-log groups it right.
+      const gameIndex = this.gameIndexOf(socket.data.roomId);
       const res = this.rooms.play(socket.data.userId, payload.cards);
-      this.afterAction(res, reply, socket, 'game:play');
+      this.afterAction(res, reply, socket, 'game:play', { gameIndex, type: 'play', cards: payload.cards });
     } catch (e) {
       console.error('[gateway] onPlay failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
@@ -339,8 +422,9 @@ export class GameGateway {
     const reply = safeAck(ack);
     if (!this.rateOk(socket, reply)) return;
     try {
+      const gameIndex = this.gameIndexOf(socket.data.roomId);
       const res = this.rooms.pass(socket.data.userId);
-      this.afterAction(res, reply, socket, 'game:pass');
+      this.afterAction(res, reply, socket, 'game:pass', { gameIndex, type: 'pass', cards: null });
     } catch (e) {
       console.error('[gateway] onPass failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
@@ -353,8 +437,9 @@ export class GameGateway {
       return reply(ackError('bad_request', 'Letër e pavlefshme.'));
     }
     try {
+      const gameIndex = this.gameIndexOf(socket.data.roomId);
       const res = this.rooms.switchGive(socket.data.userId, payload.card);
-      this.afterAction(res, reply, socket, 'game:switchGive');
+      this.afterAction(res, reply, socket, 'game:switchGive', { gameIndex, type: 'switch', cards: [payload.card] });
     } catch (e) {
       console.error('[gateway] onSwitchGive failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
@@ -366,6 +451,7 @@ export class GameGateway {
     ack: (r: Ack) => void,
     socket: IOSocket,
     event: string,
+    log?: { gameIndex: number; type: MatchActionType; cards: Card[] | null },
   ): void {
     if (!res.ok) {
       // Server-authoritative rejection: log the illegal/impossible move (spec §9).
@@ -374,7 +460,300 @@ export class GameGateway {
     }
     ack({ ok: true });
     this.idleStrikes.delete(socket.data.userId); // a real move resets the AFK counter
+    // Record the move-log BEFORE applyResult — applyResult may finalize the match
+    // (which drops the per-match seq counter), so the final move must be assigned
+    // its seq first. Isolated + fire-and-forget; never affects play.
+    if (res.roomId && log) this.recordAction(res.roomId, socket.data.seat ?? -1, log);
     if (res.roomId) this.applyResult(res.roomId, res);
+  }
+
+  /** Current active game index of a room's match (0 if not in a match). */
+  private gameIndexOf(roomId: string | null): number {
+    if (!roomId) return 0;
+    const room = this.rooms.getRoom(roomId);
+    return room?.match ? room.match.snapshot().gameIndex : 0;
+  }
+
+  /**
+   * Persist one applied move to the move-log. `seq` is assigned synchronously
+   * (monotonic per match) so replay ordering is correct regardless of async write
+   * timing; the write itself is fire-and-forget and can never block play.
+   */
+  private recordAction(roomId: string, seat: number, log: { gameIndex: number; type: MatchActionType; cards: Card[] | null }): void {
+    if (!this.matchLog || seat < 0) return;
+    const matchId = this.rooms.matchIdOf(roomId);
+    if (!matchId) return;
+    const seq = this.matchActionSeq.get(matchId) ?? 0;
+    this.matchActionSeq.set(matchId, seq + 1);
+    void this.matchLog.append({ matchId, seq, gameIndex: log.gameIndex, seat, type: log.type, cards: log.cards, at: Date.now() }).catch(() => undefined);
+  }
+
+  // ---------- Spectating -----------------------------------------------------
+
+  /**
+   * Watch a live match. The socket joins the room's broadcast channel (so it
+   * receives the SAME public, hands-hidden state every player's client sees) but
+   * takes no seat — kept on a separate `spectating` field so none of the
+   * seated-player logic (leave/abandon/reconnect) ever treats a watcher as a
+   * player. Private hands go to personal rooms only, never the room channel.
+   */
+  private onSpectate(socket: IOSocket, payload: { roomId: string }, ack: (res: Ack) => void): void {
+    const reply = safeAck(ack);
+    if (!this.rateOk(socket, reply)) return;
+    if (!payload || !isNonEmptyString(payload.roomId)) return reply(ackError('bad_request', 'Dhomë e pavlefshme.'));
+    const roomId = payload.roomId;
+    const room = this.rooms.getRoom(roomId);
+    if (!room || room.status === 'finished') return reply(ackError('no_room', 'Ndeshja nuk është e disponueshme.'));
+    // A seated player can't also spectate (would desync their own room view).
+    if (socket.data.roomId || this.rooms.seatOf(roomId, socket.data.userId) >= 0) {
+      return reply(ackError('seated', 'Po luan — nuk mund të shikosh njëkohësisht.'));
+    }
+    if (socket.data.spectating && socket.data.spectating !== roomId) this.removeSpectator(socket);
+    if (socket.data.spectating !== roomId) {
+      const current = this.spectatorCount.get(roomId) ?? 0;
+      if (current >= SPECTATOR_CAP) return reply(ackError('spectators_full', 'Kuota e shikuesve është mbushur.'));
+      this.spectatorCount.set(roomId, current + 1);
+      socket.data.spectating = roomId;
+      void socket.join(roomId);
+    }
+    reply({ ok: true, roomId });
+    this.pushSpectatorState(socket, roomId); // catch the watcher up to the live state
+  }
+
+  private onUnspectate(socket: IOSocket, ack: (res: Ack) => void): void {
+    const reply = safeAck(ack); // always allowed (never rate-gated)
+    this.removeSpectator(socket);
+    reply({ ok: true });
+  }
+
+  /** Send a joining spectator the current public state (room + game + scoreboard). */
+  private pushSpectatorState(socket: IOSocket, roomId: string): void {
+    const roomState = this.roomStateWithCountdown(roomId);
+    if (roomState) socket.emit('room:state', roomState);
+    const room = this.rooms.getRoom(roomId);
+    if (room?.status === 'inMatch') {
+      const pub = this.rooms.publicGameDTO(roomId, this.deadlineFor(roomId));
+      if (pub) socket.emit('game:state', pub);
+      const sb = this.rooms.scoreboardDTO(roomId);
+      if (sb) socket.emit('match:scoreboard', sb);
+    }
+  }
+
+  /** Detach a socket from whatever room it's watching, freeing its spectator slot. */
+  private removeSpectator(socket: IOSocket): void {
+    const roomId = socket.data.spectating;
+    if (!roomId) return;
+    socket.data.spectating = null;
+    void socket.leave(roomId);
+    const n = (this.spectatorCount.get(roomId) ?? 1) - 1;
+    if (n <= 0) this.spectatorCount.delete(roomId);
+    else this.spectatorCount.set(roomId, n);
+  }
+
+  // ---------- Ranked matchmaking ---------------------------------------------
+
+  /** All currently-connected local sockets for a user (single-instance). */
+  private socketsOf(userId: string): IOSocket[] {
+    const out: IOSocket[] = [];
+    for (const s of this.io.sockets.sockets.values()) if (s.data.userId === userId) out.push(s);
+    return out;
+  }
+
+  /** Push a queue status to one user (matchType=null ⇒ "you've left the queue"). */
+  private emitQueueTo(userId: string, matchType: MatchType | null): void {
+    this.io.to(personalRoom(userId)).emit('ranked:queue:update', {
+      inQueue: matchType !== null,
+      matchType,
+      size: matchType && this.matchmaking ? this.matchmaking.count(matchType) : 0,
+      needed: matchType ? PLAYERS_PER_TYPE[matchType] : 0,
+    });
+  }
+
+  /** Refresh the live waiting count for everyone still queued for a type. */
+  private broadcastQueueCount(type: MatchType): void {
+    if (!this.matchmaking) return;
+    for (const userId of this.matchmaking.userIdsIn(type)) this.emitQueueTo(userId, type);
+  }
+
+  private async onRankedQueueJoin(socket: IOSocket, payload: { matchType: MatchType }, ack: (res: Ack) => void): Promise<void> {
+    const reply = safeAck(ack);
+    if (!this.rateOk(socket, reply)) return;
+    if (!this.matchmaking || !this.ranked) return reply(ackError('unavailable', 'Ranked s’është i disponueshëm.'));
+    if (!payload || !isMatchType(payload.matchType)) return reply(ackError('bad_request', 'Lloj ndeshjeje i pavlefshëm.'));
+    if (socket.data.roomId) return reply(ackError('already_in_room', 'Je tashmë në një dhomë.'));
+    const userId = socket.data.userId;
+    const standing = await this.ranked.getUserRanked(userId).catch(() => null);
+    this.matchmaking.enqueue({ userId, username: socket.data.username, rating: standing?.rating ?? 1000, matchType: payload.matchType, since: Date.now() });
+    reply({ ok: true });
+    this.tryFormRanked(payload.matchType);     // may seat the joiner + others right away
+    this.broadcastQueueCount(payload.matchType); // anyone still waiting gets the new count
+  }
+
+  private onRankedQueueLeave(socket: IOSocket, ack: (res: Ack) => void): void {
+    const reply = safeAck(ack); // leaving the queue is always allowed (no rate gate)
+    this.matchmaking?.remove(socket.data.userId);
+    this.emitQueueTo(socket.data.userId, null);
+    reply({ ok: true });
+  }
+
+  /** Seat every startable group for a match type into fresh ranked rooms. */
+  private tryFormRanked(type: MatchType): void {
+    if (!this.matchmaking) return;
+    for (let group = this.matchmaking.formGroup(type); group; group = this.matchmaking.formGroup(type)) {
+      this.seatRankedGroup(group, type);
+    }
+  }
+
+  /**
+   * Create a ranked room and seat a matched group into it, reusing the normal
+   * room lifecycle (createRoom/joinRoom → ready → countdown → beginMatch). Queued
+   * users are guaranteed connected + roomless (enforced on enqueue + cleared on
+   * create/join/disconnect), so seating succeeds; the failure paths are defensive
+   * and just release the group back to the lobby.
+   */
+  private seatRankedGroup(group: QueueEntry[], type: MatchType): void {
+    const [creator, ...rest] = group;
+    if (!creator || this.rooms.roomOf(creator.userId)) return this.dropGroup(group);
+    const created = this.rooms.createRoom({ userId: creator.userId, username: creator.username }, { type, stakeCents: 0, ranked: true });
+    if (!created.ok || !created.roomId) return this.dropGroup(group);
+    const roomId = created.roomId;
+    for (const e of rest) {
+      if (!this.rooms.joinRoom({ userId: e.userId, username: e.username }, roomId).ok) {
+        for (const u of group) this.rooms.leaveRoom(u.userId); // tear the half-built room down
+        return this.dropGroup(group);
+      }
+    }
+    for (const e of group) {
+      for (const s of this.socketsOf(e.userId)) {
+        s.data.roomId = roomId;
+        s.data.seat = this.rooms.seatOf(roomId, e.userId);
+        void s.join(roomId);
+      }
+      this.rooms.setReady(e.userId, true);
+      this.emitQueueTo(e.userId, null); // out of the queue — into a match
+    }
+    this.broadcastRoomState(roomId);
+    this.maybeStartCountdown(roomId); // all ready ⇒ commit + countdown + deal
+    this.broadcastLobby();
+  }
+
+  /** Reset clients' queue UI when a (rare) seating failure drops a group. */
+  private dropGroup(group: QueueEntry[]): void {
+    for (const e of group) this.emitQueueTo(e.userId, null);
+  }
+
+  // ---------- Practice vs bots -----------------------------------------------
+
+  /**
+   * Spin up a private ZERO-STAKE room, seat the requester, and fill the remaining
+   * seats with AI bots, then start. Bots are socket-less synthetic players that
+   * act server-side on their turn (see driveBot). Because the stake is 0 there is
+   * no escrow/settlement, so bots never touch money. Practice rooms are hidden
+   * from the lobby + spectators and are NOT rated / do NOT award XP.
+   */
+  private onPracticeStart(socket: IOSocket, payload: { type: MatchType; tier?: BotTier } | undefined, ack: (res: Ack) => void): void {
+    const reply = safeAck(ack);
+    if (!this.rateOk(socket, reply)) return;
+    const userId = socket.data.userId;
+    if (this.rooms.roomOf(userId)) return reply(ackError('already_in_room', 'Je tashmë në një dhomë.'));
+    const type = payload?.type;
+    if (type !== '1v1' && type !== '1v1v1' && type !== '2v2') return reply(ackError('bad_type', 'Lloji i ndeshjes është i pavlefshëm.'));
+    const tier: BotTier = payload?.tier === 'easy' || payload?.tier === 'hard' ? payload.tier : 'medium';
+
+    const created = this.rooms.createRoom({ userId, username: socket.data.username }, { type, stakeCents: 0, practice: true });
+    if (!created.ok || !created.roomId) return reply(ackError('create_failed', created.error?.message ?? 'Nuk u krijua dot.'));
+    const roomId = created.roomId;
+    this.botTiers.set(roomId, tier);
+
+    for (const s of this.socketsOf(userId)) {
+      s.data.roomId = roomId;
+      s.data.seat = this.rooms.seatOf(roomId, userId);
+      void s.join(roomId);
+    }
+    this.rooms.setReady(userId, true);
+
+    // Fill every empty seat with a bot (marked connected + ready so the match starts).
+    const room = this.rooms.getRoom(roomId);
+    let bi = 0;
+    for (let seat = 0; seat < (room?.seats.length ?? 0); seat += 1) {
+      if (room!.seats[seat]!.userId) continue; // the human's seat
+      const botId = `${BOT_PREFIX}${roomId}:${seat}`;
+      const joined = this.rooms.joinRoom({ userId: botId, username: BOT_NAMES[bi % BOT_NAMES.length]! }, roomId);
+      bi += 1;
+      if (!joined.ok) { this.teardownPractice(roomId); return reply(ackError('seat_failed', 'Vendet nuk u mbushën.')); }
+      this.rooms.setConnected(botId, true);
+      this.rooms.setReady(botId, true);
+    }
+    reply({ ok: true, roomId });
+    this.broadcastRoomState(roomId);
+    this.maybeStartCountdown(roomId); // all ready ⇒ commit + countdown + deal
+  }
+
+  /** Schedule a bot's move after a short, natural "thinking" delay. */
+  private scheduleBot(roomId: string, seat: number): void {
+    const prev = this.botTimers.get(roomId);
+    if (prev) clearTimeout(prev);
+    const delay = this.botDelayMs ?? (BOT_MIN_DELAY + Math.floor(Math.random() * (BOT_MAX_DELAY - BOT_MIN_DELAY)));
+    this.botTimers.set(roomId, setTimeout(() => { this.botTimers.delete(roomId); this.driveBot(roomId, seat); }, delay));
+  }
+
+  /** Compute + apply a bot's move for its current turn (or card-switch return). */
+  private driveBot(roomId: string, seat: number): void {
+    const room = this.rooms.getRoom(roomId);
+    if (!room?.match || room.status !== 'inMatch') return;
+    const botUserId = this.userAtSeat(roomId, seat);
+    if (!isBot(botUserId)) return;
+    const tier = this.botTiers.get(roomId) ?? 'medium';
+    const snap = room.match.snapshot();
+
+    // Card-switch: the bot is the winner who must return a 3–10 card. Return the
+    // weakest eligible (same choice the auto-resolver makes for an idle human).
+    if (snap.pendingSwitch && snap.pendingSwitch.winner === seat) {
+      const eligible = room.match.eligibleReturnCardsForWinner();
+      if (eligible.length === 0) return; // engine skips the return; armTurnTimer re-runs
+      const weakest = [...eligible].sort((a, b) => singlePower(a) - singlePower(b))[0]!;
+      const res = this.rooms.switchGive(botUserId, weakest);
+      if (res.ok && res.roomId) this.applyBotResult(res.roomId, seat, snap.gameIndex, 'switch', [weakest], res);
+      return;
+    }
+
+    const pub = this.rooms.publicGameDTO(roomId, null);
+    const hand = this.rooms.handOf(roomId, seat);
+    if (!pub || pub.turn !== seat || !hand) return; // no longer the bot's turn
+    const three = hand.find((c) => c.kind === 'standard' && c.rank === '3' && c.suit === 'S');
+    const mustInclude = snap.gameIndex === 0 && pub.pile == null && three ? three : undefined;
+    const move = decideBotMove(
+      { hand: [...hand], pile: pub.pile, canPass: pub.pile != null, opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude },
+      tier,
+    );
+    const res = move.action === 'play' ? this.rooms.play(botUserId, move.cards) : this.rooms.pass(botUserId);
+    if (!res.ok) {
+      // decideBotMove only yields legal moves; this is a defensive recovery so a
+      // rejected bot move can never stall the match.
+      console.warn('[bot] move rejected, recovering', { roomId, seat, reason: res.reason });
+      const fb = this.rooms.pass(botUserId);
+      if (fb.ok && fb.roomId) this.applyBotResult(fb.roomId, seat, snap.gameIndex, 'pass', null, fb);
+      return;
+    }
+    this.applyBotResult(res.roomId ?? roomId, seat, snap.gameIndex, move.action === 'play' ? 'play' : 'pass', move.action === 'play' ? move.cards : null, res);
+  }
+
+  private applyBotResult(roomId: string, seat: number, gameIndex: number, type: MatchActionType, cards: Card[] | null, res: MatchActionResult & { roomId?: string }): void {
+    this.recordAction(roomId, seat, { gameIndex, type, cards });
+    this.applyResult(roomId, res);
+  }
+
+  private clearBotTimer(roomId: string): void {
+    const t = this.botTimers.get(roomId);
+    if (t) { clearTimeout(t); this.botTimers.delete(roomId); }
+  }
+
+  /** Remove a practice room's bots + timers (called when the human leaves/disconnects). */
+  private teardownPractice(roomId: string): void {
+    this.clearBotTimer(roomId);
+    this.botTiers.delete(roomId);
+    const room = this.rooms.getRoom(roomId);
+    if (room) for (const s of room.seats) if (isBot(s.userId)) this.rooms.leaveRoom(s.userId!);
   }
 
   // ---------- Ready-check countdown ------------------------------------------
@@ -384,7 +763,7 @@ export class GameGateway {
       this.clearCountdown(roomId);
       return;
     }
-    if (this.countdowns.has(roomId)) return; // already counting down
+    if (this.timers.hasCountdown(roomId)) return; // already counting down
 
     // Provably-fair COMMIT happens here — BEFORE clientSeeds are collected for
     // this match. We generate+commit the serverSeed, discard any pre-commit
@@ -398,13 +777,7 @@ export class GameGateway {
       this.io.to(roomId).emit('fair:commit', { serverSeedHash });
     }
 
-    this.countdownDeadlines.set(roomId, Date.now() + this.countdownMs);
-    const handle = setTimeout(() => {
-      this.countdowns.delete(roomId);
-      this.countdownDeadlines.delete(roomId);
-      void this.beginMatch(roomId);
-    }, this.countdownMs);
-    this.countdowns.set(roomId, handle);
+    this.timers.armCountdown(roomId, this.countdownMs, () => void this.beginMatch(roomId));
     this.broadcastRoomState(roomId); // push the countdown to clients immediately
   }
 
@@ -441,20 +814,40 @@ export class GameGateway {
     const matchId = this.rooms.assignMatchId(roomId);
     if (!matchId) return;
 
-    // Compliance gate (spec §13): for staked matches, every player must clear the
-    // enabled KYC/age/geo/self-exclusion checks before any money moves.
-    if (room.stakeCents > 0 && this.compliance?.enabled) {
+    // Real-money gates for a staked match: every player must clear the enabled
+    // compliance checks (KYC/age/geo/self-exclusion) AND their own responsible-
+    // gaming daily loss cap before any money moves. A failure unreadies that
+    // player + tells them why; if anyone is blocked the match doesn't start.
+    if (room.stakeCents > 0) {
       let blocked = false;
+      const fail = (userId: string, code: string | undefined, message: string | undefined) => {
+        blocked = true;
+        this.rooms.setReady(userId, false);
+        this.io.to(personalRoom(userId)).emit('error', { code: code ?? 'blocked', message: message ?? 'Bllokuar nga rregullat.' });
+      };
       for (const s of room.seats) {
         if (!s.userId) continue;
-        const profile = await this.auth.getComplianceProfile(s.userId);
-        const verdict = profile
-          ? this.compliance.checkRealMoney(profile)
-          : { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
-        if (!verdict.allowed) {
-          blocked = true;
-          this.rooms.setReady(s.userId, false);
-          this.io.to(personalRoom(s.userId)).emit('error', { code: verdict.code ?? 'compliance', message: verdict.message ?? 'Bllokuar nga rregullat.' });
+        // Account-state gate (always on, no deployment switch): a frozen account
+        // cannot stake. Banned/suspended can't be logged in, so 'frozen' is the
+        // case that bites here.
+        const acct = await this.auth.checkAccountRealMoney(s.userId);
+        if (!acct.allowed) { fail(s.userId, acct.code, acct.message); continue; }
+        if (this.compliance?.enabled) {
+          const profile = await this.auth.getComplianceProfile(s.userId);
+          const verdict = profile ? this.compliance.checkRealMoney(profile) : { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
+          if (!verdict.allowed) { fail(s.userId, verdict.code, verdict.message); continue; }
+        }
+        // Responsible-gaming daily loss cap. The check is read-then-escrow (not
+        // atomic), but it can't be raced into a bypass HERE: a user is in at most
+        // one room (RoomManager rejects already_in_room), so they have exactly one
+        // check→escrow sequence at a time; and a prior match's fire-and-forget
+        // settlement only ever makes this MORE restrictive (the bet/loss is already
+        // escrowed; a pending payout would reduce the loss), i.e. fail-safe. Making
+        // it atomic inside escrow() is the right move once matches can run
+        // multi-instance — a documented follow-up.
+        if (this.rg) {
+          const loss = await this.rg.checkLoss(s.userId);
+          if (!loss.allowed) fail(s.userId, loss.code, loss.message);
         }
       }
       if (blocked) {
@@ -551,12 +944,7 @@ export class GameGateway {
   }
 
   private clearCountdown(roomId: string): void {
-    const h = this.countdowns.get(roomId);
-    if (h) {
-      clearTimeout(h);
-      this.countdowns.delete(roomId);
-    }
-    this.countdownDeadlines.delete(roomId);
+    this.timers.clearCountdown(roomId);
     this.pendingServerSeeds.delete(roomId); // abandon the committed-but-unused seed
   }
 
@@ -564,8 +952,8 @@ export class GameGateway {
   private roomStateWithCountdown(roomId: string): ReturnType<RoomManager['roomStateDTO']> {
     const state = this.rooms.roomStateDTO(roomId);
     if (!state) return state;
-    const deadline = this.countdownDeadlines.get(roomId);
-    state.countdownMs = deadline !== undefined ? Math.max(0, deadline - Date.now()) : null;
+    const deadline = this.timers.countdownDeadline(roomId);
+    state.countdownMs = deadline !== null ? Math.max(0, deadline - Date.now()) : null;
     return state;
   }
 
@@ -635,6 +1023,7 @@ export class GameGateway {
       // (a player who disconnected mid-match no longer abandons a finished match).
       this.clearTurnTimer(roomId);
       this.clearRoomAbandonTimers(roomId);
+      this.clearBotTimer(roomId); // no stray bot move after the match ends
       this.broadcastLobby();
     }
     this.broadcastRoomState(roomId);
@@ -704,7 +1093,7 @@ export class GameGateway {
   private recordMatchStats(roomId: string, winnerSeats: number[]): void {
     if (!this.profiles) return;
     const room = this.rooms.getRoom(roomId);
-    if (!room) return;
+    if (!room || room.practice) return; // practice vs bots awards no XP/stats (no farming)
     const winSet = new Set(winnerSeats);
     const potCents = room.stakeCents * room.seats.filter((s) => s.userId).length;
     const seats = room.seats
@@ -712,6 +1101,54 @@ export class GameGateway {
       .filter((x): x is { userId: string; i: number } => x.userId !== null)
       .map((x) => ({ userId: x.userId, won: winSet.has(x.i), potCents }));
     void this.profiles.recordMatch(seats).catch(() => undefined);
+  }
+
+  /**
+   * Update the ranked/season MMR ladder for a finished match. Like cosmetic XP
+   * this is isolated and fire-and-forget — a rating-write failure can NEVER
+   * affect settlement, scoring, or the rules engine, and it runs OUTSIDE the
+   * money transaction. A no-winner (voided/refunded) match is not rated; ranked
+   * is a no-op unless an admin has opened a season. Forfeits ARE rated (the
+   * quitter loses MMR, the present player gains) to discourage rage-quits.
+   */
+  private async recordRankedResult(roomId: string, winnerSeats: number[]): Promise<RankedDeltaDTO[]> {
+    if (!this.ranked || winnerSeats.length === 0) return [];
+    const room = this.rooms.getRoom(roomId);
+    if (!room || room.practice) return []; // practice vs bots is never rated
+    const winSet = new Set(winnerSeats);
+    const seats = room.seats
+      .map((s, i) => ({ userId: s.userId, i }))
+      .filter((x): x is { userId: string; i: number } => x.userId !== null)
+      .map((x) => ({ userId: x.userId, won: winSet.has(x.i) }));
+    if (seats.length < 2) return [];
+    // Isolated + fail-safe: a rating-write failure resolves to [] so match:end
+    // still fires unchanged (settlement already committed before this runs).
+    try {
+      return await this.ranked.recordMatchResult(seats);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Run anti-collusion/anti-bot heuristics over the finished match + record any
+   * flags for MANUAL admin review. Isolated + fire-and-forget — never auto-acts,
+   * never affects settlement/scoring/rules. (Best-effort: reads the persisted
+   * move-log, which on Postgres is written fire-and-forget, so the very last move
+   * or two may not be analyzed — acceptable for a heuristic.)
+   */
+  private recordAntiCheat(roomId: string, winnerSeats: number[] = []): void {
+    if (!this.antiCheat) return;
+    const matchId = this.rooms.matchIdOf(roomId);
+    const room = this.rooms.getRoom(roomId);
+    if (!matchId || !room || room.practice) return; // practice vs bots isn't analyzed
+    const winSet = new Set(winnerSeats);
+    const seats = room.seats
+      .map((s, i) => ({ seat: i, userId: s.userId, won: winSet.has(i), team: s.team }))
+      .filter((x): x is { seat: number; userId: string; won: boolean; team: 0 | 1 | null } => x.userId !== null);
+    if (seats.length < 2) return;
+    // Pass the staked flag so collusion analysis (cross-match) runs for money tables only.
+    void this.antiCheat.analyzeMatch(matchId, seats, { staked: room.stakeCents > 0 }).catch(() => undefined);
   }
 
   // ---------- Settlement & forfeit -------------------------------------------
@@ -729,6 +1166,7 @@ export class GameGateway {
     const key = this.rooms.matchIdOf(roomId) ?? roomId;
     if (this.finalizedMatches.has(key)) return false;
     this.finalizedMatches.add(key);
+    this.matchActionSeq.delete(key); // match over — drop its move-log seq counter
     this.rooms.markFinished(roomId); // idempotent (may already be 'finished')
     return true;
   }
@@ -744,14 +1182,33 @@ export class GameGateway {
     let payoutCents: number | null = null;
     const matchId = this.rooms.matchIdOf(roomId);
     if (this.money && matchId) {
-      const settlement = await this.money.settle({ matchId, winnerSeats });
-      if (settlement) payoutCents = settlement.payouts.reduce((a, p) => a + p.amountCents, 0);
+      try {
+        const settlement = await this.money.settle({ matchId, winnerSeats });
+        if (settlement) payoutCents = settlement.payouts.reduce((a, p) => a + p.amountCents, 0);
+      } catch (err) {
+        // Settlement threw AFTER finalize: the escrowed pot is unpaid. Surface it
+        // LOUDLY (counter to PAGE on) and bail BEFORE emitting a normal match:end —
+        // the match row stays 'active', so the periodic crash-recovery sweep refunds
+        // every stake. Players are told it's delayed, not lost; this never throws on.
+        settlementFailures.inc();
+        // eslint-disable-next-line no-console
+        console.error(`[settlement] FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
+        this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
+        this.clearBotTimer(roomId);
+        this.broadcastLobby();
+        return;
+      }
     }
     this.recordMatchStats(roomId, winnerSeats); // cosmetic XP/stats (isolated)
+    const ratingDeltas = await this.recordRankedResult(roomId, winnerSeats); // MMR/season ladder (isolated, fail-safe)
+    this.recordAntiCheat(roomId, winnerSeats); // heuristic flags for review (isolated)
     this.clearRoomStrikes(roomId);
     const sb = this.rooms.scoreboardDTO(roomId);
     if (!sb) return;
-    this.io.to(roomId).emit('match:end', { winnerSide, winnerSeats, finalSideScores, scoreboard: sb, payoutCents });
+    this.io.to(roomId).emit('match:end', {
+      winnerSide, winnerSeats, finalSideScores, scoreboard: sb, payoutCents,
+      ...(ratingDeltas.length ? { ratingDeltas } : {}),
+    });
     this.revealFair(roomId);
   }
 
@@ -771,20 +1228,16 @@ export class GameGateway {
   }
 
   private startAbandonTimer(roomId: string, userId: string): void {
-    this.clearAbandonTimer(userId);
-    const handle = setTimeout(() => void this.onAbandon(roomId, userId), this.abandonMs);
-    this.abandonTimers.set(userId, handle);
+    this.timers.armAbandon(userId, this.abandonMs, () => void this.onAbandon(roomId, userId));
   }
 
   private clearAbandonTimer(userId: string): void {
-    const h = this.abandonTimers.get(userId);
-    if (h) clearTimeout(h);
-    this.abandonTimers.delete(userId);
+    this.timers.clearAbandon(userId);
   }
 
   /** Grace expired and the player is still gone: forfeit the match. */
   private async onAbandon(roomId: string, userId: string): Promise<void> {
-    this.abandonTimers.delete(userId);
+    this.timers.clearAbandon(userId);
     if (this.socketCountFor(userId) > 0) return; // reconnected in time
     const seat = this.rooms.seatOf(roomId, userId);
     if (seat < 0) return;
@@ -825,17 +1278,20 @@ export class GameGateway {
       }
     }
     this.recordMatchStats(roomId, winnerSeats); // cosmetic XP/stats (isolated)
+    const ratingDeltas = await this.recordRankedResult(roomId, winnerSeats); // MMR/season ladder (isolated, fail-safe)
+    this.recordAntiCheat(roomId, winnerSeats); // heuristic flags for review (isolated)
     // (room already flipped to 'finished' synchronously by claimFinalize)
 
     const sb = this.rooms.scoreboardDTO(roomId);
     const winnerSide =
-      winnerSeats.length === 0 ? -1 : room.type === '2v2' ? (DEFAULT_TEAMS[0].includes(winnerSeats[0]) ? 0 : 1) : winnerSeats[0];
+      winnerSeats.length === 0 ? -1 : room.type === '2v2' ? (DEFAULT_TEAMS[0].includes(winnerSeats[0]!) ? 0 : 1) : winnerSeats[0]!; // length>0 in these branches
     this.io.to(roomId).emit('match:end', {
       winnerSide,
       winnerSeats,
       finalSideScores: sb?.cumulative ?? [],
       scoreboard: sb ?? { type: room.type, target: room.target, cumulative: [], teamTotals: null },
       payoutCents,
+      ...(ratingDeltas.length ? { ratingDeltas } : {}),
     });
     // Tell only the NON-winners why the match ended — never the winners, whose
     // victory overlay must not be covered by a red "opponent left" error toast.
@@ -873,17 +1329,30 @@ export class GameGateway {
     // match can NEVER hang waiting on the switch (real money is at stake).
     if (snap.pendingSwitch) {
       const winnerSeat = snap.pendingSwitch.winner;
-      this.turnDeadlines.set(roomId, Date.now() + this.turnMs);
-      const handle = setTimeout(() => this.onSwitchTimeout(roomId, winnerSeat), this.turnMs);
-      this.turnTimers.set(roomId, handle);
+      // A bot winner returns its card itself (no human timer needed).
+      if (isBot(this.userAtSeat(roomId, winnerSeat))) { this.scheduleBot(roomId, winnerSeat); return; }
+      this.timers.armTurn(roomId, this.turnMs, () => this.onSwitchTimeout(roomId, winnerSeat));
       return;
     }
 
     const turn = snap.game?.turn;
     if (turn === null || turn === undefined) return;
-    this.turnDeadlines.set(roomId, Date.now() + this.turnMs);
-    const handle = setTimeout(() => this.onTurnTimeout(roomId, turn), this.turnMs);
-    this.turnTimers.set(roomId, handle);
+    // A bot acts on its own turn (server-side); humans get the turn timer + push.
+    if (isBot(this.userAtSeat(roomId, turn))) { this.scheduleBot(roomId, turn); return; }
+    this.notifyTurnIfAway(roomId, turn); // re-engagement push (isolated, fire-and-forget)
+    this.timers.armTurn(roomId, this.turnMs, () => this.onTurnTimeout(roomId, turn));
+  }
+
+  /**
+   * If the turn just passed to a player who is currently DISCONNECTED, send them a
+   * "your turn" Web Push so they can come back before the timer forfeits. Isolated
+   * + fire-and-forget — a push failure can never affect the turn/timer/match.
+   */
+  private notifyTurnIfAway(roomId: string, seat: number): void {
+    if (!this.push) return;
+    const s = this.rooms.getRoom(roomId)?.seats[seat];
+    if (!s?.userId || s.connected) return; // only nudge a player who is away
+    void this.push.notifyTurn(s.userId).catch(() => undefined);
   }
 
   /**
@@ -908,21 +1377,18 @@ export class GameGateway {
 
     const eligible = room.match.eligibleReturnCardsForWinner();
     if (eligible.length === 0) { this.armTurnTimer(roomId); return; }
-    const weakest = [...eligible].sort((a, b) => singlePower(a) - singlePower(b))[0];
+    const weakest = [...eligible].sort((a, b) => singlePower(a) - singlePower(b))[0]!; // non-empty (checked)
     const res = this.rooms.switchGive(userId, weakest);
     if (res.ok && res.roomId) this.applyResult(res.roomId, res);
     else this.armTurnTimer(roomId);
   }
 
   private clearTurnTimer(roomId: string): void {
-    const h = this.turnTimers.get(roomId);
-    if (h) clearTimeout(h);
-    this.turnTimers.delete(roomId);
-    this.turnDeadlines.delete(roomId);
+    this.timers.clearTurn(roomId);
   }
 
   private deadlineFor(roomId: string): number | null {
-    return this.turnDeadlines.get(roomId) ?? null;
+    return this.timers.turnDeadline(roomId);
   }
 
   /** On timeout: a responder auto-passes; a leader auto-plays a forced legal lead. */
@@ -1060,6 +1526,7 @@ export class GameGateway {
     if (result.roomClosed) {
       this.clearCountdown(roomId);
       this.clearTurnTimer(roomId);
+      this.spectatorCount.delete(roomId); // room gone — drop its spectator tally
     } else {
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
@@ -1077,10 +1544,38 @@ export class GameGateway {
     const room = this.io.sockets.adapter.rooms.get(personalRoom(userId));
     return room ? room.size : 0;
   }
+
+  /**
+   * Club chat: rate-limited, membership-derived (clubId is NOT client-supplied),
+   * sanitized + mute-aware in the service. A muted sender is shadow-dropped (ack
+   * ok, no broadcast). On success, broadcast to the club channel. Isolated from
+   * all game/money logic.
+   */
+  private async onClubMessage(socket: IOSocket, payload: { text: string } | undefined, ack: (res: Ack) => void): Promise<void> {
+    const reply = safeAck(ack);
+    if (!this.chat) return reply(ackError('disabled', 'Chat-i nuk është aktiv.'));
+    const userId = socket.data.userId;
+    if (!this.limiter.allow(userId)) return reply(ackError('rate', 'Shumë mesazhe — prit pak.'));
+    const text = typeof payload?.text === 'string' ? payload.text : '';
+    const res = await this.chat.send(userId, socket.data.username, text).catch(() => null);
+    if (!res) return reply(ackError('error', 'Mesazhi dështoi.'));
+    if (!res.ok) {
+      // Shadow-mute: a muted sender is told it "sent" but nothing broadcasts.
+      if (res.code === 'muted') return reply({ ok: true });
+      return reply(ackError(res.code, res.code === 'no_club' ? 'Nuk je në një klub.' : 'Mesazh bosh.'));
+    }
+    // Ensure this socket is in the channel (covers a join-after-connect), then fan out.
+    void socket.join(clubRoom(res.message.clubId));
+    this.io.to(clubRoom(res.message.clubId)).emit('club:chat', res.message);
+    reply({ ok: true });
+  }
 }
 
 function personalRoom(userId: string): string {
   return `u:${userId}`;
+}
+function clubRoom(clubId: string): string {
+  return `club:${clubId}`;
 }
 function actor(socket: IOSocket): { userId: string; username: string } {
   return { userId: socket.data.userId, username: socket.data.username };

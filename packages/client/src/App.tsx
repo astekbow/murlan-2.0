@@ -10,10 +10,14 @@ import { Toast } from './components/Toast.tsx';
 import { Background } from './components/ui/Background.tsx';
 import { TopBar } from './components/ui/TopBar.tsx';
 import { InviteBanner } from './components/ui/InviteBanner.tsx';
+import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
+import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
 import { useCosmeticsStore } from './store/cosmeticsStore.ts';
+import { useT, translate, useLangStore } from './lib/i18n.ts';
+import { maybeSubscribePush } from './lib/push.ts';
 
 // Code-split the heavier / less-frequent views so the initial lobby payload
 // stays small (loaded on demand with a Suspense fallback; retried once on a
@@ -26,6 +30,11 @@ const LeaderboardView = lazyWithRetry(() => import('./views/LeaderboardView.tsx'
 const FriendsView = lazyWithRetry(() => import('./views/FriendsView.tsx').then((m) => ({ default: m.FriendsView })));
 const ShopView = lazyWithRetry(() => import('./views/ShopView.tsx').then((m) => ({ default: m.ShopView })));
 const RewardsView = lazyWithRetry(() => import('./views/RewardsView.tsx').then((m) => ({ default: m.RewardsView })));
+const SupportView = lazyWithRetry(() => import('./views/SupportView.tsx').then((m) => ({ default: m.SupportView })));
+const VipView = lazyWithRetry(() => import('./views/VipView.tsx').then((m) => ({ default: m.VipView })));
+const ClubsView = lazyWithRetry(() => import('./views/ClubsView.tsx').then((m) => ({ default: m.ClubsView })));
+const ReplayView = lazyWithRetry(() => import('./views/ReplayView.tsx').then((m) => ({ default: m.ReplayView })));
+const SpectateView = lazyWithRetry(() => import('./views/SpectateView.tsx').then((m) => ({ default: m.SpectateView })));
 
 function Splash({ text }: { text: string }) {
   return (
@@ -38,12 +47,13 @@ function Splash({ text }: { text: string }) {
 /** Shown when bootstrap couldn't reach the server (vs. genuinely no session) —
  *  a logged-in user with a valid cookie can retry instead of being sent to login. */
 function OfflineSplash({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
   return (
     <div className="min-h-full flex flex-col items-center justify-center gap-4 px-6 text-center">
       <div className="text-4xl">📡</div>
-      <div className="font-display text-lg tracking-wide text-txt">S'u lidh dot me serverin</div>
-      <div className="text-sm text-muted max-w-xs">Kontrollo internetin. Sesioni yt ruhet — provo sërish.</div>
-      <button className="btn btn-gold" onClick={onRetry}>Provo sërish</button>
+      <div className="font-display text-lg tracking-wide text-txt">{t('app.offlineTitle')}</div>
+      <div className="text-sm text-muted max-w-xs">{t('app.offlineBody')}</div>
+      <button className="btn btn-gold" onClick={onRetry}>{t('app.retry')}</button>
     </div>
   );
 }
@@ -60,8 +70,10 @@ function Shell({ children }: { children: ReactNode }) {
 
 export function App() {
   const { status, accessToken, user, bootstrap, bootstrapped } = useAuthStore();
-  const { socket, room, connect, disconnect, toast, toastKind, dismissToast } = useGameStore();
+  const { socket, room, spectating, connect, disconnect, toast, toastKind, dismissToast } = useGameStore();
   const lobbyView = useUiStore((s) => s.view);
+  const replayMatchId = useUiStore((s) => s.replayMatchId);
+  const t = useT();
 
   // Email-link entry points (?resetPassword=… / ?verifyEmail=…). Captured once on
   // load; the param is stripped from the URL after handling.
@@ -75,14 +87,24 @@ export function App() {
     void bootstrap();
   }, [bootstrap]);
 
+  // Shareable provably-fair replay link (?replay=<matchId>). Opens the verifier
+  // for anyone — no sign-in required — then strips the param from the URL.
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get('replay');
+    if (r) {
+      useUiStore.getState().openReplay(r);
+      clearQuery();
+    }
+  }, []);
+
   // Handle an email-verification link on load (independent of session).
   useEffect(() => {
     const verify = new URLSearchParams(window.location.search).get('verifyEmail');
     if (!verify) return;
     void authApi
       .confirmEmail(verify)
-      .then(() => useGameStore.setState({ toast: 'Email-i u verifikua! 🎉', toastKind: 'success' }))
-      .catch(() => useGameStore.setState({ toast: 'Lidhja e verifikimit s’është e vlefshme ose ka skaduar.', toastKind: 'error' }))
+      .then(() => useGameStore.setState({ toast: translate('app.emailVerified', useLangStore.getState().lang), toastKind: 'success' }))
+      .catch(() => useGameStore.setState({ toast: translate('app.emailVerifyFailed', useLangStore.getState().lang), toastKind: 'error' }))
       .finally(clearQuery);
   }, []);
 
@@ -102,11 +124,21 @@ export function App() {
     if (status === 'authed' && accessToken) void useCosmeticsStore.getState().load(accessToken);
   }, [status, accessToken]);
 
+  // Refresh an already-granted Web Push subscription (no-op unless VAPID keys are
+  // configured and the user previously opted in — never prompts).
+  useEffect(() => {
+    if (status === 'authed' && accessToken) void maybeSubscribePush(accessToken);
+  }, [status, accessToken]);
+
   let body: ReactNode;
-  if (resetToken) body = <ResetPasswordView token={resetToken} onDone={() => { setResetToken(null); clearQuery(); }} />;
-  else if (!bootstrapped) body = <Splash text="Duke u ngarkuar…" />;
+  // The provably-fair replay/verifier overrides everything and works unauthenticated
+  // (public data) so a shared replay link opens for anyone.
+  if (replayMatchId) body = <ReplayView matchId={replayMatchId} onClose={() => useUiStore.getState().closeReplay()} />;
+  else if (resetToken) body = <ResetPasswordView token={resetToken} onDone={() => { setResetToken(null); clearQuery(); }} />;
+  else if (!bootstrapped) body = <Splash text={t('app.loading')} />;
   else if (status === 'offline') body = <OfflineSplash onRetry={() => void bootstrap()} />;
   else if (status !== 'authed') body = <AuthView />;
+  else if (spectating && room) body = <SpectateView room={room} />;
   else if (room && (room.status === 'inMatch' || room.status === 'finished')) body = <TableView room={room} />;
   else if (room) body = <Shell><RoomView room={room} /></Shell>;
   else if (lobbyView === 'wallet') body = <Shell><WalletView /></Shell>;
@@ -115,13 +147,18 @@ export function App() {
   else if (lobbyView === 'friends') body = <Shell><FriendsView /></Shell>;
   else if (lobbyView === 'shop') body = <Shell><ShopView /></Shell>;
   else if (lobbyView === 'rewards') body = <Shell><RewardsView /></Shell>;
+  else if (lobbyView === 'support') body = <Shell><SupportView /></Shell>;
+  else if (lobbyView === 'vip') body = <Shell><VipView /></Shell>;
+  else if (lobbyView === 'clubs') body = <Shell><ClubsView /></Shell>;
   else body = <Shell><LobbyView /></Shell>;
 
   return (
     <ErrorBoundary>
       <Background />
-      <Suspense fallback={<Splash text="Duke u ngarkuar…" />}>{body}</Suspense>
+      <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
       {status === 'authed' && <InviteBanner />}
+      {status === 'authed' && <RankedSearchOverlay />}
+      {status === 'authed' && <RealityCheckModal />}
       {status === 'authed' && <ReconnectOverlay />}
       <Toast message={toast} kind={toastKind} onDismiss={dismissToast} />
     </ErrorBoundary>

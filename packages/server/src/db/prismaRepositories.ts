@@ -10,7 +10,7 @@
 // ============================================================================
 
 import type { PrismaClient } from '@prisma/client';
-import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, DuplicateUserError } from '../auth/userRepository.ts';
+import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, DuplicateUserError } from '../auth/userRepository.ts';
 import {
   type LedgerRepository, type Transaction, type NewTransaction, type TransactionType, type TransactionStatus,
   DuplicateProviderRefError,
@@ -24,6 +24,15 @@ import type { RefreshTokenRepository, RefreshTokenRecord, NewRefreshToken } from
 import type { AdminAuditRepository, AdminActionRecord, NewAdminAction, AdminActionType } from '../auth/adminAudit.ts';
 import type { GamesRepository, GameRecord, NewGameRecord } from '../fair/gamesRepository.ts';
 import type { VerificationTokenRepository, VerificationTokenRecord, NewVerificationToken, VerificationTokenType } from '../auth/verificationTokens.ts';
+import type { SeasonRepository, Season, NewSeason, SeasonStatus, UserSeason } from '../ranked/seasonRepository.ts';
+import type { MatchActionsRepository, MatchActionRecord, NewMatchAction, MatchActionType } from '../realtime/matchActions.ts';
+import type { SupportRepository, SupportTicket, NewSupportTicket, SupportStatus, SupportCategory } from '../support/supportRepository.ts';
+import type { SuspicionRepository, SuspicionFlag, NewSuspicionFlag } from '../antiCheat/suspicionRepository.ts';
+import type { PushSubscriptionRepository, PushSubscriptionRecord } from '../push/pushRepository.ts';
+import type { WebPushSubscription } from '../push/pushProvider.ts';
+import type { ChatRepository, ChatMessageRecord, ChatReportRecord } from '../chat/chatRepository.ts';
+import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError } from '../social/clubRepository.ts';
+import type { Card } from '@murlan/engine';
 import type { MatchType } from '@murlan/shared';
 
 const ms = (d: Date): number => d.getTime();
@@ -40,10 +49,15 @@ function toUser(row: any): User {
     createdAt: ms(row.createdAt),
     tokenVersion: row.tokenVersion ?? 0,
     emailVerified: row.emailVerified ?? false,
+    accountState: (row.accountState ?? 'active') as User['accountState'],
+    accountStateReason: row.accountStateReason ?? null,
+    accountStateUntil: msOrNull(row.accountStateUntil ?? null),
     kycStatus: row.kycStatus as KycStatus,
     dateOfBirth: row.dateOfBirth,
     country: row.country,
     selfExcludedUntil: msOrNull(row.selfExcludedUntil),
+    dailyDepositLimitCents: row.dailyDepositLimitCents ?? null,
+    dailyLossLimitCents: row.dailyLossLimitCents ?? null,
     xp: row.xp ?? 0,
     gamesPlayed: row.gamesPlayed ?? 0,
     wins: row.wins ?? 0,
@@ -116,6 +130,26 @@ export class PrismaUserRepository implements UserRepository {
     if (patch.country !== undefined) data.country = patch.country;
     if (patch.selfExcludedUntil !== undefined) data.selfExcludedUntil = patch.selfExcludedUntil ? new Date(patch.selfExcludedUntil) : null;
     const row = await this.db.user.update({ where: { id }, data }).catch(() => null);
+    return row ? toUser(row) : null;
+  }
+
+  async setLimits(id: string, patch: { dailyDepositLimitCents?: number | null; dailyLossLimitCents?: number | null }): Promise<User | null> {
+    const data: Record<string, unknown> = {};
+    if (patch.dailyDepositLimitCents !== undefined) data.dailyDepositLimitCents = patch.dailyDepositLimitCents;
+    if (patch.dailyLossLimitCents !== undefined) data.dailyLossLimitCents = patch.dailyLossLimitCents;
+    const row = await this.db.user.update({ where: { id }, data }).catch(() => null);
+    return row ? toUser(row) : null;
+  }
+
+  async setAccountState(id: string, patch: AccountStatePatch): Promise<User | null> {
+    const row = await this.db.user.update({
+      where: { id },
+      data: {
+        accountState: patch.state,
+        accountStateReason: patch.reason ?? null,
+        accountStateUntil: patch.until ? new Date(patch.until) : null,
+      },
+    }).catch(() => null);
     return row ? toUser(row) : null;
   }
 
@@ -441,6 +475,10 @@ export class PrismaRefreshTokens implements RefreshTokenRepository {
   async revokeFamily(family: string): Promise<void> {
     await this.db.refreshToken.updateMany({ where: { family }, data: { revoked: true } });
   }
+  async deleteExpired(nowMs: number): Promise<number> {
+    const res = await this.db.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date(nowMs) } } });
+    return res.count;
+  }
 }
 
 export class PrismaAdminAudit implements AdminAuditRepository {
@@ -516,6 +554,293 @@ export class PrismaVerificationTokens implements VerificationTokenRepository {
   async consume(id: string, nowMs: number): Promise<void> {
     await this.db.verificationToken.updateMany({ where: { id, usedAt: null }, data: { usedAt: new Date(nowMs) } });
   }
+  async deleteExpired(nowMs: number): Promise<number> {
+    const res = await this.db.verificationToken.deleteMany({ where: { expiresAt: { lt: new Date(nowMs) } } });
+    return res.count;
+  }
+}
+
+function toSeason(row: any): Season {
+  return {
+    id: row.id,
+    number: row.number,
+    name: row.name,
+    status: row.status as SeasonStatus,
+    decayFactor: row.decayFactor,
+    startedAt: ms(row.startedAt),
+    endedAt: msOrNull(row.endedAt),
+  };
+}
+
+function toUserSeason(row: any): UserSeason {
+  return {
+    userId: row.userId,
+    seasonId: row.seasonId,
+    rating: row.rating,
+    peakRating: row.peakRating,
+    games: row.games,
+    wins: row.wins,
+    updatedAt: ms(row.updatedAt),
+  };
+}
+
+export class PrismaSeasonRepository implements SeasonRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async createSeason(input: NewSeason): Promise<Season> {
+    const row = await this.db.season.create({
+      data: { number: input.number, name: input.name, decayFactor: input.decayFactor, startedAt: new Date(input.startedAt), status: 'active' },
+    });
+    return toSeason(row);
+  }
+  async archiveSeason(seasonId: string, endedAt: number): Promise<void> {
+    await this.db.season.update({ where: { id: seasonId }, data: { status: 'archived', endedAt: new Date(endedAt) } }).catch(() => undefined);
+  }
+  async getActiveSeason(): Promise<Season | null> {
+    const row = await this.db.season.findFirst({ where: { status: 'active' }, orderBy: { number: 'desc' } });
+    return row ? toSeason(row) : null;
+  }
+  async getSeason(id: string): Promise<Season | null> {
+    const row = await this.db.season.findUnique({ where: { id } });
+    return row ? toSeason(row) : null;
+  }
+  async listSeasons(): Promise<Season[]> {
+    return (await this.db.season.findMany({ orderBy: { number: 'desc' } })).map(toSeason);
+  }
+
+  async getUserSeason(userId: string, seasonId: string): Promise<UserSeason | null> {
+    const row = await this.db.userSeason.findUnique({ where: { seasonId_userId: { seasonId, userId } } });
+    return row ? toUserSeason(row) : null;
+  }
+  async upsertUserSeason(row: UserSeason): Promise<void> {
+    await this.db.userSeason.upsert({
+      where: { seasonId_userId: { seasonId: row.seasonId, userId: row.userId } },
+      create: { userId: row.userId, seasonId: row.seasonId, rating: row.rating, peakRating: row.peakRating, games: row.games, wins: row.wins, updatedAt: new Date(row.updatedAt) },
+      update: { rating: row.rating, peakRating: row.peakRating, games: row.games, wins: row.wins, updatedAt: new Date(row.updatedAt) },
+    });
+  }
+  async listUserSeasons(seasonId: string): Promise<UserSeason[]> {
+    return (await this.db.userSeason.findMany({ where: { seasonId } })).map(toUserSeason);
+  }
+  async topByRating(seasonId: string, limit: number): Promise<UserSeason[]> {
+    const rows = await this.db.userSeason.findMany({
+      where: { seasonId },
+      orderBy: [{ rating: 'desc' }, { peakRating: 'desc' }, { userId: 'asc' }],
+      take: Math.max(0, limit),
+    });
+    return rows.map(toUserSeason);
+  }
+}
+
+export class PrismaMatchActions implements MatchActionsRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async append(a: NewMatchAction): Promise<void> {
+    // Idempotent on the (matchId, seq) primary key — a retried fire-and-forget
+    // write never raises (skipDuplicates → ON CONFLICT DO NOTHING).
+    await this.db.gameAction.createMany({
+      data: [{
+        matchId: a.matchId, seq: a.seq, gameIndex: a.gameIndex, seat: a.seat,
+        type: a.type, cards: (a.cards ?? undefined) as any, createdAt: new Date(a.at),
+      }],
+      skipDuplicates: true,
+    });
+  }
+  async listByMatch(matchId: string): Promise<MatchActionRecord[]> {
+    const rows = await this.db.gameAction.findMany({ where: { matchId }, orderBy: { seq: 'asc' } });
+    return rows.map((row: any) => ({
+      matchId: row.matchId,
+      seq: row.seq,
+      gameIndex: row.gameIndex,
+      seat: row.seat,
+      type: row.type as MatchActionType,
+      cards: (row.cards ?? null) as Card[] | null,
+      at: ms(row.createdAt),
+    }));
+  }
+}
+
+function toTicket(row: any): SupportTicket {
+  return {
+    id: row.id,
+    userId: row.userId,
+    category: row.category as SupportCategory,
+    subject: row.subject,
+    message: row.message,
+    status: row.status as SupportStatus,
+    matchId: row.matchId ?? null,
+    adminNote: row.adminNote ?? null,
+    createdAt: ms(row.createdAt),
+    resolvedAt: msOrNull(row.resolvedAt),
+  };
+}
+
+export class PrismaSupport implements SupportRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async create(t: NewSupportTicket): Promise<SupportTicket> {
+    const row = await this.db.supportTicket.create({
+      data: { userId: t.userId, category: t.category, subject: t.subject, message: t.message, matchId: t.matchId ?? null },
+    });
+    return toTicket(row);
+  }
+  async get(id: string): Promise<SupportTicket | null> {
+    const row = await this.db.supportTicket.findUnique({ where: { id } });
+    return row ? toTicket(row) : null;
+  }
+  async listByUser(userId: string): Promise<SupportTicket[]> {
+    return (await this.db.supportTicket.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } })).map(toTicket);
+  }
+  async list(limit: number): Promise<SupportTicket[]> {
+    return (await this.db.supportTicket.findMany({ orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) })).map(toTicket);
+  }
+  async resolve(id: string, status: 'resolved' | 'closed', adminNote: string | null, atMs: number): Promise<SupportTicket | null> {
+    const row = await this.db.supportTicket.update({ where: { id }, data: { status, adminNote, resolvedAt: new Date(atMs) } }).catch(() => null);
+    return row ? toTicket(row) : null;
+  }
+}
+
+export class PrismaSuspicion implements SuspicionRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async add(f: NewSuspicionFlag): Promise<void> {
+    await this.db.suspicionFlag.create({
+      data: { userId: f.userId, type: f.type, severity: f.severity, detail: f.detail, matchId: f.matchId ?? null },
+    });
+  }
+  async list(opts: { minSeverity?: number; limit?: number } = {}): Promise<SuspicionFlag[]> {
+    const rows = await this.db.suspicionFlag.findMany({
+      where: { severity: { gte: opts.minSeverity ?? 1 } },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(0, opts.limit ?? 200),
+    });
+    return rows.map((row: any) => ({
+      id: row.id, userId: row.userId, type: row.type, severity: row.severity,
+      detail: row.detail, matchId: row.matchId ?? null, reviewed: row.reviewed, createdAt: ms(row.createdAt),
+    }));
+  }
+}
+
+export class PrismaPushSubscriptions implements PushSubscriptionRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async add(userId: string, sub: WebPushSubscription): Promise<void> {
+    await this.db.pushSubscription.upsert({
+      where: { endpoint: sub.endpoint },
+      create: { userId, endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+      update: { userId, p256dh: sub.p256dh, auth: sub.auth },
+    });
+  }
+  async removeByEndpoint(endpoint: string): Promise<void> {
+    await this.db.pushSubscription.deleteMany({ where: { endpoint } });
+  }
+  async listByUser(userId: string): Promise<PushSubscriptionRecord[]> {
+    const rows = await this.db.pushSubscription.findMany({ where: { userId } });
+    return rows.map((r: any) => ({ id: r.id, userId: r.userId, endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth, createdAt: ms(r.createdAt) }));
+  }
+}
+
+export class PrismaChat implements ChatRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async addMessage(m: { clubId: string; userId: string; username: string; text: string }): Promise<ChatMessageRecord> {
+    const row = await this.db.chatMessage.create({ data: m });
+    return { id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) };
+  }
+  async getMessage(id: string): Promise<ChatMessageRecord | null> {
+    const row = await this.db.chatMessage.findUnique({ where: { id } });
+    return row ? { id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) } : null;
+  }
+  async listByClub(clubId: string, limit: number): Promise<ChatMessageRecord[]> {
+    const rows = await this.db.chatMessage.findMany({ where: { clubId }, orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
+    return rows.reverse().map((row: any) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));
+  }
+  async addReport(r: { messageId: string; clubId: string; reporterId: string; reason: string }): Promise<void> {
+    await this.db.chatReport.create({ data: r });
+  }
+  async listReports(limit: number): Promise<ChatReportRecord[]> {
+    const rows = await this.db.chatReport.findMany({ orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
+    return rows.map((row: any) => ({ id: row.id, messageId: row.messageId, clubId: row.clubId, reporterId: row.reporterId, reason: row.reason, reviewed: row.reviewed, createdAt: ms(row.createdAt) }));
+  }
+  async setMute(userId: string, until: number, by: string, reason: string): Promise<void> {
+    await this.db.userMute.upsert({
+      where: { userId },
+      create: { userId, until: new Date(until), by, reason },
+      update: { until: new Date(until), by, reason },
+    });
+  }
+  async clearMute(userId: string): Promise<void> {
+    await this.db.userMute.deleteMany({ where: { userId } });
+  }
+  async muteUntil(userId: string): Promise<number | null> {
+    const row = await this.db.userMute.findUnique({ where: { userId } });
+    return row ? ms(row.until) : null;
+  }
+}
+
+function toClub(row: any): Club {
+  return { id: row.id, name: row.name, tag: row.tag, founderId: row.founderId, createdAt: ms(row.createdAt) };
+}
+function toMember(row: any): ClubMember {
+  return { userId: row.userId, clubId: row.clubId, role: row.role as ClubRole, joinedAt: ms(row.joinedAt) };
+}
+
+export class PrismaClubs implements ClubRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async createClub(c: NewClub): Promise<Club> {
+    try {
+      const row = await this.db.club.create({
+        data: { name: c.name, tag: c.tag.toUpperCase(), founderId: c.founderId, members: { create: { userId: c.founderId, role: 'founder' } } },
+      });
+      return toClub(row);
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new DuplicateClubTagError();
+      throw e;
+    }
+  }
+  async getClub(id: string): Promise<Club | null> {
+    const row = await this.db.club.findUnique({ where: { id } });
+    return row ? toClub(row) : null;
+  }
+  async getByTag(tag: string): Promise<Club | null> {
+    const row = await this.db.club.findUnique({ where: { tag: tag.toUpperCase() } });
+    return row ? toClub(row) : null;
+  }
+  async listClubs(limit: number): Promise<Array<Club & { memberCount: number }>> {
+    const rows = await this.db.club.findMany({
+      orderBy: { members: { _count: 'desc' } },
+      take: Math.max(0, limit),
+      include: { _count: { select: { members: true } } },
+    });
+    return rows.map((r: any) => ({ ...toClub(r), memberCount: r._count.members }));
+  }
+  async deleteClub(id: string): Promise<void> {
+    await this.db.clubMember.deleteMany({ where: { clubId: id } });
+    await this.db.club.delete({ where: { id } }).catch(() => undefined);
+  }
+  async setFounder(clubId: string, founderId: string): Promise<void> {
+    await this.db.club.update({ where: { id: clubId }, data: { founderId } }).catch(() => undefined);
+  }
+  async memberOf(userId: string): Promise<ClubMember | null> {
+    const row = await this.db.clubMember.findUnique({ where: { userId } });
+    return row ? toMember(row) : null;
+  }
+  async addMember(m: { userId: string; clubId: string; role: ClubRole }): Promise<ClubMember> {
+    return toMember(await this.db.clubMember.create({ data: { userId: m.userId, clubId: m.clubId, role: m.role } }));
+  }
+  async removeMember(userId: string): Promise<void> {
+    await this.db.clubMember.deleteMany({ where: { userId } });
+  }
+  async setRole(userId: string, role: ClubRole): Promise<void> {
+    await this.db.clubMember.update({ where: { userId }, data: { role } }).catch(() => undefined);
+  }
+  async listMembers(clubId: string): Promise<ClubMember[]> {
+    const rows = await this.db.clubMember.findMany({ where: { clubId } });
+    return rows
+      .map(toMember)
+      .sort((a, b) => (a.role === 'founder' ? -1 : b.role === 'founder' ? 1 : 0) || a.joinedAt - b.joinedAt);
+  }
 }
 
 /** Runs WalletService credit/debit inside one Postgres transaction (atomic). */
@@ -543,6 +868,13 @@ export interface PrismaStores {
   refreshTokens: PrismaRefreshTokens;
   adminAudit: PrismaAdminAudit;
   games: PrismaGames;
+  seasons: PrismaSeasonRepository;
+  matchActions: PrismaMatchActions;
+  support: PrismaSupport;
+  suspicion: PrismaSuspicion;
+  pushSubscriptions: PrismaPushSubscriptions;
+  chat: PrismaChat;
+  clubs: PrismaClubs;
   verificationTokens: PrismaVerificationTokens;
   uow: PrismaUnitOfWork;
 }
@@ -558,6 +890,13 @@ export function createPrismaStores(db: PrismaClient): PrismaStores {
     refreshTokens: new PrismaRefreshTokens(db),
     adminAudit: new PrismaAdminAudit(db),
     games: new PrismaGames(db),
+    seasons: new PrismaSeasonRepository(db),
+    matchActions: new PrismaMatchActions(db),
+    support: new PrismaSupport(db),
+    suspicion: new PrismaSuspicion(db),
+    pushSubscriptions: new PrismaPushSubscriptions(db),
+    chat: new PrismaChat(db),
+    clubs: new PrismaClubs(db),
     verificationTokens: new PrismaVerificationTokens(db),
     uow: new PrismaUnitOfWork(db),
   };

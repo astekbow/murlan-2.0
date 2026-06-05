@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useAuthStore } from '../store/authStore.ts';
 import { authApi } from '../lib/api.ts';
+import { useT } from '../lib/i18n.ts';
 
 export function AuthView() {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
@@ -11,6 +12,7 @@ export function AuthView() {
   const [forgotSent, setForgotSent] = useState(false);
 
   const { status, error, login, register, clearError } = useAuthStore();
+  const t = useT();
   const loading = status === 'loading';
 
   async function submit(e: FormEvent) {
@@ -32,23 +34,21 @@ export function AuthView() {
       <div className="relative z-10 min-h-full flex items-center justify-center p-4">
         <form onSubmit={submit} className="panel-solid w-full max-w-sm p-7 space-y-5 animate-rise">
           <div className="text-center">
-            <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">Rikuperim</h1>
-            <p className="text-sm text-muted mt-2">Të dërgojmë një lidhje për të rivendosur fjalëkalimin.</p>
+            <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('auth.recoverTitle')}</h1>
+            <p className="text-sm text-muted mt-2">{t('auth.recoverBlurb')}</p>
           </div>
           {forgotSent ? (
-            <p className="text-sm text-emerald-200 text-center">
-              Nëse ka një llogari me këtë email, lidhja u dërgua. Kontrollo email-in.
-            </p>
+            <p className="text-sm text-emerald-200 text-center">{t('auth.recoverSent')}</p>
           ) : (
             <>
-              <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" required />
+              <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required />
               <button type="submit" disabled={forgotBusy} className="btn btn-gold btn-lg btn-block">
-                {forgotBusy ? 'Po dërgohet…' : 'Dërgo lidhjen'}
+                {forgotBusy ? t('auth.sending') : t('auth.sendLink')}
               </button>
             </>
           )}
           <button type="button" className="btn btn-ghost btn-block" onClick={() => { setMode('login'); setForgotSent(false); clearError(); }}>
-            ← Kthehu te hyrja
+            {t('auth.backToLogin')}
           </button>
         </form>
       </div>
@@ -61,7 +61,7 @@ export function AuthView() {
         <div className="text-center">
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">CARD CLUB</div>
           <h1 className="gold-text font-display font-bold text-5xl tracking-wide leading-none">MURLAN</h1>
-          <p className="text-sm text-muted mt-2">Luaj online për të vërtetë</p>
+          <p className="text-sm text-muted mt-2">{t('auth.tagline')}</p>
         </div>
 
         <div className="seg grid grid-cols-2 w-full">
@@ -70,23 +70,23 @@ export function AuthView() {
             onClick={() => { setMode('login'); clearError(); }}
             className={`seg-tab text-center ${mode === 'login' ? 'active' : ''}`}
           >
-            HYR
+            {t('auth.login')}
           </button>
           <button
             type="button"
             onClick={() => { setMode('register'); clearError(); }}
             className={`seg-tab text-center ${mode === 'register' ? 'active' : ''}`}
           >
-            REGJISTROHU
+            {t('auth.register')}
           </button>
         </div>
 
         {mode === 'register' && (
-          <Field label="Përdoruesi" value={username} onChange={setUsername} autoComplete="username" required minLength={3} />
+          <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} />
         )}
-        <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" required />
+        <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required />
         <Field
-          label="Fjalëkalimi"
+          label={t('auth.password')}
           type="password"
           value={password}
           onChange={setPassword}
@@ -100,12 +100,12 @@ export function AuthView() {
         )}
 
         <button type="submit" disabled={loading} className="btn btn-gold btn-lg btn-block">
-          {loading ? 'Duke u procesuar…' : mode === 'login' ? 'HYR' : 'KRIJO LLOGARI'}
+          {loading ? t('auth.processing') : mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
         </button>
 
         {mode === 'login' && (
           <button type="button" onClick={() => { setMode('forgot'); clearError(); }} className="block w-full text-center text-xs text-gold-hi border-b border-dashed border-gold/40 pb-0.5 mx-auto" style={{ width: 'fit-content' }}>
-            Harrove fjalëkalimin?
+            {t('auth.forgot')}
           </button>
         )}
       </form>

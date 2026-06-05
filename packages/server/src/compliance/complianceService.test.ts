@@ -38,6 +38,15 @@ test('geo gate blocks listed countries (case-insensitive) when enabled', () => {
   assert.equal(svc.checkRealMoney({ ...clean, country: 'AL' }).allowed, true);
 });
 
+test('geo gate FAILS CLOSED: an unknown/missing country is blocked when geo is enabled', () => {
+  const svc = new ComplianceService({ kycRequired: false, minAge: 0, blockedCountries: ['US'], responsibleGaming: false }, () => NOW);
+  assert.equal(svc.checkRealMoney({ ...clean, country: null }).code, 'geo_required');
+  assert.equal(svc.checkWithdrawal({ ...clean, country: null }).code, 'geo_required');
+  // With geo OFF (empty blocklist), a null country is fine.
+  const off = new ComplianceService({ kycRequired: false, minAge: 0, blockedCountries: [], responsibleGaming: false }, () => NOW);
+  assert.equal(off.checkRealMoney({ ...clean, country: null }).allowed, true);
+});
+
 test('self-exclusion blocks while active when responsible-gaming is on', () => {
   const svc = new ComplianceService({ kycRequired: false, minAge: 0, blockedCountries: [], responsibleGaming: true }, () => NOW);
   assert.equal(svc.checkRealMoney({ ...clean, selfExcludedUntil: NOW + 1000 }).code, 'self_excluded');

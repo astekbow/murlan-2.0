@@ -16,6 +16,13 @@ enum UserRole {
   admin
 }
 
+enum AccountState {
+  active
+  frozen
+  suspended
+  banned
+}
+
 enum KycStatus {
   none
   pending
@@ -49,6 +56,17 @@ enum WithdrawalStatus {
   rejected
 }
 
+enum SeasonStatus {
+  active
+  archived
+}
+
+enum SupportStatus {
+  open
+  resolved
+  closed
+}
+
 model User {
   id            String   @id @default(cuid())
   username      String // display value (original case)
@@ -64,11 +82,22 @@ model User {
   tokenVersion  Int     @default(0)
   emailVerified Boolean @default(false)
 
+  // Account lifecycle (trust & safety): admin-set suspend/freeze/ban. Defaults to
+  // active so every existing row is unaffected. `accountStateUntil` is a
+  // suspension expiry (NULL = permanent / not applicable).
+  accountState       AccountState @default(active)
+  accountStateReason String?
+  accountStateUntil  DateTime?
+
   // Compliance (§13)
   kycStatus         KycStatus @default(none)
   dateOfBirth       String?
   country           String?
   selfExcludedUntil DateTime?
+
+  // Responsible-gaming self-imposed limits (cents per UTC day; null = no limit).
+  dailyDepositLimitCents Int?
+  dailyLossLimitCents    Int?
 
   // Progression & cosmetics (§2.3) — XP/stats only, never cashable. Level is
   // DERIVED from xp (see profile/level helper), not stored.
@@ -95,7 +124,10 @@ model User {
   friendOf       Friendship[] @relation("FriendOf")
   refreshTokens  RefreshToken[]
   adminActions   AdminAction[] @relation("AdminActor")
+  adminTargetedActions AdminAction[] @relation("AdminTarget")
   verificationTokens VerificationToken[]
+  userSeasons    UserSeason[]
+  supportTickets SupportTicket[]
 
   @@map("users")
 }
@@ -161,6 +193,10 @@ model AdminAction {
   createdAt    DateTime @default(now())
 
   admin User @relation("AdminActor", fields: [adminId], references: [id])
+  // FK on the audited subject. Restrict (not Cascade/SetNull) so a user with
+  // audit history can't be silently deleted and the immutable AML trail keeps
+  // its referential link — orphaned audit rows are unacceptable for compliance.
+  targetUser User? @relation("AdminTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
 
   @@index([adminId])
   @@index([targetUserId])
@@ -218,6 +254,9 @@ model Match {
   games        Game[]
   transactions Transaction[]
 
+  // Crash-recovery sweep + admin views filter on status; index it to avoid a
+  // full table scan as the table grows.
+  @@index([status])
   @@map("matches")
 }
 
@@ -254,6 +293,142 @@ model Game {
   @@map("games")
 }
 
+// Match move-log: every applied move in turn order, for deterministic replay +
+// dispute/audit. Standalone (no FK) — a matchId exists for every match (staked or
+// casual), but a `matches` row is only created when stakes are escrowed, so a FK
+// would reject casual-match actions. Keyed by (matchId, seq) for ordering.
+model GameAction {
+  matchId   String
+  seq       Int // monotonic within the match (turn order)
+  gameIndex Int
+  seat      Int
+  type      String // 'play' | 'pass' | 'switch'
+  cards     Json? // played cards / given card; null for a pass
+  createdAt DateTime @default(now())
+
+  @@id([matchId, seq])
+  @@index([matchId])
+  @@map("game_actions")
+}
+
+// In-app support / dispute tickets. A player can reference a match (dispute) or
+// transaction; an admin resolves with a note (the action is also written to the
+// immutable AdminAction audit trail). Standalone — links are soft (string ids).
+model SupportTicket {
+  id         String        @id @default(cuid())
+  userId     String
+  category   String // 'match' | 'payment' | 'account' | 'other'
+  subject    String
+  message    String
+  status     SupportStatus @default(open)
+  matchId    String? // optional dispute link
+  adminNote  String?
+  createdAt  DateTime      @default(now())
+  resolvedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+// Anti-collusion / anti-bot telemetry: heuristic flags for MANUAL admin review
+// (never auto-action). Standalone (soft userId/matchId links) — an analytics
+// table, not part of the money/identity referential graph.
+model SuspicionFlag {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String // 'bot_timing' | 'win_rate'
+  severity  Int // 1 low · 2 medium · 3 high
+  detail    String
+  matchId   String?
+  reviewed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([reviewed])
+  @@index([userId])
+  @@map("suspicion_flags")
+}
+
+// Browser Web Push subscriptions for re-engagement nudges (turn / match / reward).
+// Standalone — userId is a soft string id (no FK). `endpoint` is unique so a
+// device re-subscribing replaces its row. Real delivery needs VAPID keys.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+// Club chat (§9 social) + moderation. All standalone (soft string ids, no FK).
+// `username` is denormalized so history renders without a join.
+model ChatMessage {
+  id        String   @id @default(cuid())
+  clubId    String
+  userId    String
+  username  String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([clubId])
+  @@map("chat_messages")
+}
+
+model ChatReport {
+  id         String   @id @default(cuid())
+  messageId  String
+  clubId     String
+  reporterId String
+  reason     String
+  reviewed   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([reviewed])
+  @@map("chat_reports")
+}
+
+// Global per-user chat mute (silences a user in all club channels until `until`).
+model UserMute {
+  userId String   @id
+  until  DateTime
+  by     String // admin or founder userId who set it
+  reason String
+
+  @@map("user_mutes")
+}
+
+// Clubs (social): a player belongs to at most ONE club (ClubMember.userId is the
+// PK), with a founder/member role. Foundation for club chat / leaderboards / tables.
+model Club {
+  id        String   @id @default(cuid())
+  name      String
+  tag       String   @unique // short uppercase tag shown by names, e.g. MUR
+  founderId String
+  createdAt DateTime @default(now())
+
+  members ClubMember[]
+
+  @@map("clubs")
+}
+
+model ClubMember {
+  userId   String   @id // one club per user
+  clubId   String
+  role     String // 'founder' | 'member'
+  joinedAt DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@index([clubId])
+  @@map("club_members")
+}
+
 model Withdrawal {
   id          String           @id @default(cuid())
   userId      String
@@ -266,6 +441,8 @@ model Withdrawal {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  // Admin withdrawal triage lists pending rows; index status to avoid a scan.
+  @@index([status])
   @@map("withdrawals")
 }
 
@@ -277,4 +454,42 @@ model DepositIntent {
   createdAt   DateTime @default(now())
 
   @@map("deposit_intents")
+}
+
+// Ranked competitive ladder (§ next-level). A Season is a rating window with its
+// own MMR; UserSeason is a player's per-season rating row. Ratings are
+// competitive/cosmetic ONLY — never cashable, never linked to the ledger.
+model Season {
+  id          String       @id @default(cuid())
+  number      Int          @unique // 1-based, monotonically increasing
+  name        String
+  status      SeasonStatus @default(active)
+  decayFactor Float        @default(0.5) // soft-reset pull applied when the NEXT season opens
+  startedAt   DateTime     @default(now())
+  endedAt     DateTime?
+
+  userSeasons UserSeason[]
+
+  // At most one active season; this index keeps the active-season lookup cheap.
+  @@index([status])
+  @@map("seasons")
+}
+
+model UserSeason {
+  userId     String
+  seasonId   String
+  rating     Int      @default(1000)
+  peakRating Int      @default(1000)
+  games      Int      @default(0)
+  wins       Int      @default(0)
+  updatedAt  DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  season Season @relation(fields: [seasonId], references: [id])
+
+  @@id([seasonId, userId])
+  // Leaderboard query: top-by-rating within a season.
+  @@index([seasonId, rating])
+  @@index([userId])
+  @@map("user_seasons")
 }

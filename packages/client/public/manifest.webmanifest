@@ -1,0 +1,16 @@
+{
+  "name": "Murlan Online",
+  "short_name": "Murlan",
+  "description": "Murlan — loja shqiptare e letrave online, në kohë reale.",
+  "lang": "sq",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#160407",
+  "theme_color": "#160407",
+  "categories": ["games", "card"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -8,7 +8,8 @@
 
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { type UserRepository, type User, type ComplianceUpdate, DuplicateUserError } from './userRepository.ts';
+import { type UserRepository, type User, type ComplianceUpdate, type AccountStatePatch, DuplicateUserError } from './userRepository.ts';
+import { AccountStateService, type AccountStatus, type AccountCheck } from './accountStateService.ts';
 import { hashPassword, verifyPassword } from './password.ts';
 import { TokenService, type TokenPair } from './tokens.ts';
 import { InMemoryRefreshTokens, type RefreshTokenRepository } from './refreshTokens.ts';
@@ -87,12 +88,19 @@ export class AuthService {
     this.verificationTokens = deps.verificationTokens ?? new InMemoryVerificationTokens();
     this.appUrl = deps.appUrl ?? 'http://localhost:5173';
     this.now = deps.now ?? (() => Date.now());
+    this.accountState = new AccountStateService(this.now);
   }
 
   private readonly email: EmailProvider;
   private readonly verificationTokens: VerificationTokenRepository;
   private readonly appUrl: string;
   private readonly now: () => number;
+  private readonly accountState: AccountStateService;
+
+  /** The lifecycle status carried on a user, for the account-state gate. */
+  private statusOf(user: User): AccountStatus {
+    return { state: user.accountState, reason: user.accountStateReason, until: user.accountStateUntil };
+  }
 
   /** Mint an access+refresh pair and PERSIST the refresh token (jti/family) so it
    *  can be rotated and revoked. Continues an existing rotation `family` if given. */
@@ -151,6 +159,9 @@ export class AuthService {
     if (!user || !okPassword) {
       throw new AuthError('bad_credentials', 'Email ose fjalëkalim i gabuar.');
     }
+    // Trust & safety: a banned / actively-suspended account cannot sign in.
+    const gate = this.accountState.checkLogin(this.statusOf(user));
+    if (!gate.allowed) throw new AuthError(gate.code!, gate.message!);
     return { user: toPublicUser(user), tokens: await this.issueSession(user) };
   }
 
@@ -173,6 +184,9 @@ export class AuthService {
     if (!user) throw expired;
     if (claims.ver !== user.tokenVersion) throw expired; // force-logout / ban
     if (!claims.jti) throw expired; // stateless legacy token no longer accepted
+    // Block a session that was banned/suspended after the token was minted (a ban
+    // also bumps tokenVersion above; this also catches a freshly-applied suspension).
+    if (!this.accountState.checkLogin(this.statusOf(user)).allowed) throw expired;
 
     const record = await this.refreshTokens.find(claims.jti);
     if (!record) throw expired; // unknown jti
@@ -278,15 +292,64 @@ export class AuthService {
     };
   }
 
-  /** All users for the admin panel (includes KYC status). */
-  async listUsers(): Promise<Array<PublicUser & { kycStatus: string }>> {
-    return (await this.users.list()).map((u) => ({ ...toPublicUser(u), kycStatus: u.kycStatus }));
+  /** All users for the admin panel (includes KYC + account state). */
+  async listUsers(): Promise<Array<PublicUser & { kycStatus: string; accountState: string }>> {
+    return (await this.users.list()).map((u) => ({ ...toPublicUser(u), kycStatus: u.kycStatus, accountState: u.accountState }));
   }
 
-  /** Update compliance fields (admin KYC verification, self-service DOB/country, self-exclusion). */
+  /** The lifecycle status of a user (for gates / admin display). */
+  async getAccountStatus(userId: string): Promise<AccountStatus | null> {
+    const user = await this.users.findById(userId);
+    return user ? this.statusOf(user) : null;
+  }
+
+  /**
+   * Set a user's account lifecycle state (admin). When the new state blocks login
+   * (banned / suspended) ALL existing sessions are revoked so the user is kicked
+   * immediately (tokenVersion bump → next refresh fails; access tokens lapse within
+   * their short TTL). Returns the updated public user + the resolved status.
+   */
+  async setAccountState(userId: string, patch: AccountStatePatch): Promise<{ user: PublicUser; status: AccountStatus } | null> {
+    const user = await this.users.setAccountState(userId, patch);
+    if (!user) return null;
+    if (patch.state === 'banned' || patch.state === 'suspended') await this.revokeAllSessions(userId);
+    return { user: toPublicUser(user), status: this.statusOf(user) };
+  }
+
+  /** Gate a real-money action (staked play / deposit) on the account state. */
+  async checkAccountRealMoney(userId: string): Promise<AccountCheck> {
+    const status = await this.getAccountStatus(userId);
+    if (!status) return { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
+    return this.accountState.checkRealMoney(status);
+  }
+
+  /** Update compliance fields (admin KYC verification, self-exclusion). Low-level
+   *  — callers that expose this to end users MUST go through updateSelfProfile. */
   async updateCompliance(userId: string, patch: ComplianceUpdate): Promise<PublicUser | null> {
     const user = await this.users.updateCompliance(userId, patch);
     return user ? toPublicUser(user) : null;
+  }
+
+  /**
+   * Self-service DOB/country update with the age/geo immutability gate enforced
+   * HERE (service layer), not just at the route — so the control can't be bypassed
+   * by a future caller. Once KYC is verified, DOB/country are locked (a correction
+   * requires re-KYC). Returns whether a value actually changed (for auditing).
+   */
+  async updateSelfProfile(
+    userId: string,
+    patch: { dateOfBirth?: string; country?: string },
+  ): Promise<{ ok: true; user: PublicUser | null; changed: boolean } | { ok: false; code: 'kyc_locked' }> {
+    const current = await this.users.findById(userId);
+    if (!current) return { ok: true, user: null, changed: false };
+    const nextCountry = patch.country?.toUpperCase();
+    const changingDob = patch.dateOfBirth !== undefined && patch.dateOfBirth !== current.dateOfBirth;
+    const changingCountry = nextCountry !== undefined && nextCountry !== (current.country ?? null);
+    if (current.kycStatus === 'verified' && (changingDob || changingCountry)) {
+      return { ok: false, code: 'kyc_locked' };
+    }
+    const user = await this.users.updateCompliance(userId, { dateOfBirth: patch.dateOfBirth, country: nextCountry });
+    return { ok: true, user: user ? toPublicUser(user) : null, changed: changingDob || changingCountry };
   }
 
   /** Verify an access token (Socket.IO handshake / REST guard). Throws on failure. */

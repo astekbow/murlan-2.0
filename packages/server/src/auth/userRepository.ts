@@ -8,6 +8,14 @@
 
 export type UserRole = 'user' | 'admin';
 export type KycStatus = 'none' | 'pending' | 'verified';
+/**
+ * Account lifecycle state (trust & safety enforcement, separate from compliance):
+ *  active    — normal.
+ *  frozen    — may log in + WITHDRAW, but staked play + deposits are blocked.
+ *  suspended — temporary login block until `accountStateUntil` (then auto-active).
+ *  banned    — permanent login block.
+ */
+export type AccountState = 'active' | 'frozen' | 'suspended' | 'banned';
 
 export interface User {
   id: string;
@@ -19,11 +27,18 @@ export interface User {
   createdAt: number;    // epoch ms
   tokenVersion: number; // bumped to force-invalidate all refresh tokens
   emailVerified: boolean;
+  // Account lifecycle (trust & safety). Defaults to 'active'; admin-set.
+  accountState: AccountState;
+  accountStateReason: string | null; // admin note explaining the state
+  accountStateUntil: number | null;  // epoch ms — suspension expiry (null = permanent/none)
   // Compliance (spec §13) — gated by ComplianceService switches.
   kycStatus: KycStatus;
   dateOfBirth: string | null;     // 'YYYY-MM-DD'
   country: string | null;         // ISO-2
   selfExcludedUntil: number | null; // epoch ms
+  // Responsible-gaming self-imposed daily limits (cents; null = no limit).
+  dailyDepositLimitCents: number | null;
+  dailyLossLimitCents: number | null;
   // Progression & cosmetics (§2.3) — XP/stats only, never cashable.
   xp: number;
   gamesPlayed: number;
@@ -64,6 +79,19 @@ export interface ComplianceUpdate {
   selfExcludedUntil?: number | null;
 }
 
+/** Patch for responsible-gaming self-imposed limits (null clears a limit). */
+export interface LimitsPatch {
+  dailyDepositLimitCents?: number | null;
+  dailyLossLimitCents?: number | null;
+}
+
+/** Patch for the account lifecycle state (admin action). */
+export interface AccountStatePatch {
+  state: AccountState;
+  reason?: string | null;
+  until?: number | null; // epoch ms (suspension expiry); null = permanent/none
+}
+
 export interface NewUser {
   username: string;
   email: string;
@@ -92,6 +120,10 @@ export interface UserRepository {
   adjustBalance(id: string, deltaCents: number): Promise<number | null>;
   /** Patch compliance fields (KYC status, DOB, country, self-exclusion). */
   updateCompliance(id: string, patch: ComplianceUpdate): Promise<User | null>;
+  /** Set/clear responsible-gaming daily limits. */
+  setLimits(id: string, patch: LimitsPatch): Promise<User | null>;
+  /** Set the account lifecycle state (admin: suspend/freeze/ban/reactivate). */
+  setAccountState(id: string, patch: AccountStatePatch): Promise<User | null>;
   /** All users (admin listing). Production impl should paginate. */
   list(): Promise<User[]>;
   /** Apply a finished match to a player's cosmetic stats/XP. */
@@ -142,10 +174,15 @@ export class InMemoryUserRepository implements UserRepository {
       createdAt: epochMs(),
       tokenVersion: 0,
       emailVerified: false,
+      accountState: 'active',
+      accountStateReason: null,
+      accountStateUntil: null,
       kycStatus: 'none',
       dateOfBirth: null,
       country: null,
       selfExcludedUntil: null,
+      dailyDepositLimitCents: null,
+      dailyLossLimitCents: null,
       xp: 0,
       gamesPlayed: 0,
       wins: 0,
@@ -196,6 +233,23 @@ export class InMemoryUserRepository implements UserRepository {
     if (patch.dateOfBirth !== undefined) user.dateOfBirth = patch.dateOfBirth;
     if (patch.country !== undefined) user.country = patch.country;
     if (patch.selfExcludedUntil !== undefined) user.selfExcludedUntil = patch.selfExcludedUntil;
+    return { ...user };
+  }
+
+  async setLimits(id: string, patch: LimitsPatch): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    if (patch.dailyDepositLimitCents !== undefined) user.dailyDepositLimitCents = patch.dailyDepositLimitCents;
+    if (patch.dailyLossLimitCents !== undefined) user.dailyLossLimitCents = patch.dailyLossLimitCents;
+    return { ...user };
+  }
+
+  async setAccountState(id: string, patch: AccountStatePatch): Promise<User | null> {
+    const user = this.byId.get(id);
+    if (!user) return null;
+    user.accountState = patch.state;
+    user.accountStateReason = patch.reason ?? null;
+    user.accountStateUntil = patch.until ?? null;
     return { ...user };
   }
 

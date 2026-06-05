@@ -17,7 +17,7 @@ function scripted(scripts: Card[][][]) {
   return (_n: 2 | 3 | 4) => {
     let i = 0;
     return () => {
-      const h = scripts[Math.min(i, scripts.length - 1)];
+      const h = scripts[Math.min(i, scripts.length - 1)]!;
       i += 1;
       return h.map((hand) => hand.map((card) => ({ ...card })));
     };

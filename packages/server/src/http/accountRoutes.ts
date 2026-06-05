@@ -10,9 +10,15 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAuth } from './authRoutes.ts';
+import type { AdminAuditRepository } from '../auth/adminAudit.ts';
+import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
+import type { PushService } from '../push/pushService.ts';
 
 export interface AccountRoutesDeps {
   auth: AuthService;
+  audit?: AdminAuditRepository; // records self-service compliance (DOB/country) changes
+  rg?: ResponsibleGamingService; // responsible-gaming daily limits (self-service)
+  push?: PushService; // Web Push re-engagement subscriptions
 }
 
 const profileSchema = z.object({
@@ -20,6 +26,16 @@ const profileSchema = z.object({
   country: z.string().trim().regex(/^[A-Za-z]{2}$/, 'Kod vendi i pavlefshëm.').optional(),
 });
 const selfExcludeSchema = z.object({ days: z.number().int().positive().max(3650) });
+// Browser PushSubscription.toJSON() shape: { endpoint, keys: { p256dh, auth } }.
+const pushSubSchema = z.object({
+  endpoint: z.string().url().max(2000),
+  keys: z.object({ p256dh: z.string().min(1).max(500), auth: z.string().min(1).max(500) }),
+});
+const pushUnsubSchema = z.object({ endpoint: z.string().url().max(2000) });
+const limitsSchema = z.object({
+  dailyDepositLimitCents: z.number().int().nonnegative().max(1_000_000_00).nullable().optional(),
+  dailyLossLimitCents: z.number().int().nonnegative().max(1_000_000_00).nullable().optional(),
+});
 
 export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDeps): Promise<void> {
   const guard = requireAuth(deps.auth);
@@ -38,26 +54,18 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     const parsed = profileSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna profili të pavlefshme.' } });
 
-    // Age/geo gating must not sit on freely-mutable data: once KYC is VERIFIED the
-    // declared DOB/country are locked (a verified user changing them to dodge a
-    // gate must go through KYC again). Before verification they remain editable.
-    const current = await deps.auth.getComplianceProfile(caller.userId);
-    if (current?.kycStatus === 'verified') {
-      const changingDob = parsed.data.dateOfBirth !== undefined && parsed.data.dateOfBirth !== current.dateOfBirth;
-      const changingCountry =
-        parsed.data.country !== undefined && parsed.data.country.toUpperCase() !== (current.country ?? null);
-      if (changingDob || changingCountry) {
-        return reply.code(409).send({
-          error: { code: 'kyc_locked', message: 'Data e lindjes dhe vendi nuk ndryshohen pas verifikimit (KYC).' },
-        });
-      }
+    // The KYC immutability gate is enforced in the SERVICE layer (updateSelfProfile),
+    // not here — so it can't be bypassed by another caller.
+    const res = await deps.auth.updateSelfProfile(caller.userId, { dateOfBirth: parsed.data.dateOfBirth, country: parsed.data.country });
+    if (!res.ok) {
+      return reply.code(409).send({ error: { code: 'kyc_locked', message: 'Data e lindjes dhe vendi nuk ndryshohen pas verifikimit (KYC).' } });
     }
-
-    const updated = await deps.auth.updateCompliance(caller.userId, {
-      dateOfBirth: parsed.data.dateOfBirth,
-      country: parsed.data.country?.toUpperCase(),
-    });
-    return reply.send({ user: updated });
+    // Compliance data is audit-relevant: record self-service DOB/country changes
+    // with the same rigor as admin changes (regulators expect a full trail).
+    if (res.changed && deps.audit) {
+      await deps.audit.record({ adminId: caller.userId, action: 'profile_self_update', targetUserId: caller.userId, detail: 'DOB/country (self-service)' }).catch(() => undefined);
+    }
+    return reply.send({ user: res.user });
   });
 
   app.post('/api/account/self-exclude', async (req, reply) => {
@@ -72,4 +80,45 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     await deps.auth.updateCompliance(caller.userId, { selfExcludedUntil: until });
     return reply.send({ ok: true, selfExcludedUntil: until });
   });
+
+  // ----- Web Push subscriptions (re-engagement) ------------------------------
+  if (deps.push) {
+    const push = deps.push;
+    app.post('/api/account/push-subscription', async (req, reply) => {
+      const caller = await guard(req, reply);
+      if (!caller) return;
+      const parsed = pushSubSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Abonim njoftimesh i pavlefshëm.' } });
+      await push.subscribe(caller.userId, { endpoint: parsed.data.endpoint, p256dh: parsed.data.keys.p256dh, auth: parsed.data.keys.auth });
+      return reply.send({ ok: true });
+    });
+
+    app.delete('/api/account/push-subscription', async (req, reply) => {
+      const caller = await guard(req, reply);
+      if (!caller) return;
+      const parsed = pushUnsubSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Endpoint i pavlefshëm.' } });
+      await push.unsubscribe(parsed.data.endpoint);
+      return reply.send({ ok: true });
+    });
+  }
+
+  // ----- Responsible-gaming daily limits (self-service) ----------------------
+  if (deps.rg) {
+    const rg = deps.rg;
+    app.get('/api/account/limits', async (req, reply) => {
+      const caller = await guard(req, reply);
+      if (!caller) return;
+      return reply.send({ limits: await rg.getLimits(caller.userId) });
+    });
+
+    app.post('/api/account/limits', async (req, reply) => {
+      const caller = await guard(req, reply);
+      if (!caller) return;
+      const parsed = limitsSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Kufij të pavlefshëm.' } });
+      const limits = await rg.setLimits(caller.userId, parsed.data);
+      return reply.send({ limits });
+    });
+  }
 }

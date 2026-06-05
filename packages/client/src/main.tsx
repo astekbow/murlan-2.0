@@ -14,3 +14,11 @@ createRoot(rootEl).render(
     </ErrorBoundary>
   </React.StrictMode>,
 );
+
+// Register the offline-shell service worker in PRODUCTION only — in dev it would
+// fight Vite's HMR (caching dev modules). Failures are non-fatal.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}

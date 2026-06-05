@@ -135,7 +135,7 @@ export class Match {
   /** Private hand for a seat — from the live game, or the pending deal between games. */
   handOf(seat: Seat): readonly Card[] {
     if (this.state === 'playing' && this.game) return this.game.handOf(seat);
-    if (this.pendingHands) return this.pendingHands[seat];
+    if (this.pendingHands) return this.pendingHands[seat] ?? [];
     return [];
   }
 
@@ -143,7 +143,7 @@ export class Match {
    *  EXCLUDING the card the loser just gave them (can't be handed straight back). */
   eligibleReturnCardsForWinner(): Card[] {
     if (this.state !== 'awaitingSwitch' || this.pendingWinner === null || !this.pendingHands) return [];
-    return eligibleReturnCards(this.pendingHands[this.pendingWinner]).filter((c) => cardId(c) !== this.pendingReceivedId);
+    return eligibleReturnCards(this.pendingHands[this.pendingWinner] ?? []).filter((c) => cardId(c) !== this.pendingReceivedId);
   }
 
   snapshot(): MatchSnapshot {
@@ -189,12 +189,14 @@ export class Match {
     if (seat !== this.pendingWinner) return fail('Vetëm fituesi zgjedh letrën që kthen.');
     if (!isReturnEligible(card)) return fail('Letra e kthyer duhet të jetë e rangut 3–10.');
     if (cardId(card) === this.pendingReceivedId) return fail('Nuk mund të kthesh të njëjtën letër që sapo more.');
-    const winnerHand = this.pendingHands[this.pendingWinner];
+    // pendingHands is fully dealt (one entry per seat) and pendingWinner/Loser are
+    // valid, non-null seats (checked above) → these index accesses are defined.
+    const winnerHand = this.pendingHands[this.pendingWinner]!;
     const idx = winnerHand.findIndex((x) => cardId(x) === cardId(card));
     if (idx < 0) return fail('Nuk e ke këtë letër në dorë.');
 
-    const returned = winnerHand.splice(idx, 1)[0];
-    this.pendingHands[this.pendingLoser].push(returned);
+    const returned = winnerHand.splice(idx, 1)[0]!; // idx >= 0 ⇒ one element removed
+    this.pendingHands[this.pendingLoser]!.push(returned);
     const matchEvents: MatchEvent[] = [
       { kind: 'cardSwitchReturn', winner: this.pendingWinner, loser: this.pendingLoser, card: returned },
     ];
@@ -235,7 +237,7 @@ export class Match {
     this.lastFinishingOrder = finishingOrder;
 
     const points = gamePoints(this.type, finishingOrder);
-    this.cumulative = this.cumulative.map((v, i) => v + points[i]);
+    this.cumulative = this.cumulative.map((v, i) => v + (points[i] ?? 0));
 
     events.push({
       kind: 'gameScored',
@@ -275,17 +277,19 @@ export class Match {
 
   /** Deal the next game and perform the automatic loser→winner give (spec §2.8.1). */
   private prepareNextGame(prevOrder: Seat[], events: MatchEvent[]): void {
-    const winner = prevOrder[0];
-    const loser = prevOrder[prevOrder.length - 1];
+    // prevOrder is a completed game's finishing order (every seat, non-empty), and
+    // assertHandCount guarantees a full deal — so these indices are defined.
+    const winner = prevOrder[0]!;
+    const loser = prevOrder[prevOrder.length - 1]!;
     const hands = this.dealHands();
     this.assertHandCount(hands);
 
     // Step 1 (automatic): the loser gives their single strongest card (POWER
     // order — possibly the red joker) to the winner.
-    const loserHand = hands[loser];
+    const loserHand = hands[loser]!;
     const strongIdx = strongestIndexByPower(loserHand);
-    const strongest = loserHand.splice(strongIdx, 1)[0];
-    hands[winner].push(strongest);
+    const strongest = loserHand.splice(strongIdx, 1)[0]!;
+    hands[winner]!.push(strongest);
     events.push({ kind: 'cardSwitchAuto', loser, winner, card: strongest });
 
     this.pendingHands = hands;
@@ -296,7 +300,7 @@ export class Match {
 
     // Step 2: the winner chooses a rank-3–10 card to return — but NOT the card
     // just received. If they have no OTHER eligible card, skip the return.
-    const eligible = eligibleReturnCards(hands[winner]).filter((c) => cardId(c) !== this.pendingReceivedId);
+    const eligible = eligibleReturnCards(hands[winner]!).filter((c) => cardId(c) !== this.pendingReceivedId);
     if (eligible.length === 0) {
       events.push({ kind: 'cardSwitchReturn', winner, loser, card: null });
       events.push(this.beginPendingGame());
@@ -329,7 +333,7 @@ export class Match {
   }
 
   private seatsOfSide(side: number): Seat[] {
-    return this.type === '2v2' ? [...this.teams[side]] : [side];
+    return this.type === '2v2' ? [...(this.teams[side] ?? [])] : [side];
   }
 
   private assertHandCount(hands: Card[][]): void {

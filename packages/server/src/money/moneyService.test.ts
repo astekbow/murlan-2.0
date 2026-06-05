@@ -32,7 +32,7 @@ async function setup(balances: number[]) {
   for (let i = 0; i < balances.length; i++) {
     const u = await users.create({ username: `p${i}`, email: `p${i}@x.com`, passwordHash: 'h' });
     ids.push(u.id);
-    if (balances[i] > 0) await wallet.credit(u.id, balances[i], { type: 'deposit' });
+    if (balances[i]! > 0) await wallet.credit(u.id, balances[i]!, { type: 'deposit' });
   }
   const money = new MoneyService(wallet, new InMemoryMatchesRepository());
   return { wallet, money, ids, ledger };
@@ -45,8 +45,8 @@ test('escrow debits every stake into the pot', async () => {
   const res = await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
   assert.equal(res.ok, true);
   assert.equal(res.potCents, 2000);
-  assert.equal(await wallet.getBalance(ids[0]), 0);
-  assert.equal(await wallet.getBalance(ids[1]), 0);
+  assert.equal(await wallet.getBalance(ids[0]!), 0);
+  assert.equal(await wallet.getBalance(ids[1]!), 0);
 });
 
 test('escrow refuses (and moves no money) when a player cannot afford the stake', async () => {
@@ -54,9 +54,9 @@ test('escrow refuses (and moves no money) when a player cannot afford the stake'
   const res = await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
   assert.equal(res.ok, false);
   assert.equal(res.code, 'insufficient_funds');
-  assert.deepEqual(res.insufficientUserIds, [ids[1]]);
-  assert.equal(await wallet.getBalance(ids[0]), 1000); // untouched
-  assert.equal(await wallet.getBalance(ids[1]), 300);
+  assert.deepEqual(res.insufficientUserIds, [ids[1]!]);
+  assert.equal(await wallet.getBalance(ids[0]!), 1000); // untouched
+  assert.equal(await wallet.getBalance(ids[1]!), 300);
 });
 
 test('escrow creates the match row BEFORE debiting (honors the transactions.matchId FK)', async () => {
@@ -70,15 +70,15 @@ test('escrow creates the match row BEFORE debiting (honors the transactions.matc
   }
   const matches = new InMemoryMatchesRepository();
   const wallet = new WalletService(users, new FkLedger(new InMemoryLedger(), matches));
-  await wallet.credit(ids[0], 1000, { type: 'deposit' }); // no matchId → FK ok
-  await wallet.credit(ids[1], 1000, { type: 'deposit' });
+  await wallet.credit(ids[0]!, 1000, { type: 'deposit' }); // no matchId → FK ok
+  await wallet.credit(ids[1]!, 1000, { type: 'deposit' });
   const money = new MoneyService(wallet, matches);
 
   // Under the old debit-first order this threw the FK error; now it succeeds.
   const res = await money.escrow({ matchId: 'mfk', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
   assert.equal(res.ok, true);
   assert.equal(res.potCents, 2000);
-  assert.equal(await wallet.getBalance(ids[0]), 0);
+  assert.equal(await wallet.getBalance(ids[0]!), 0);
   assert.ok(await matches.find('mfk'), 'match row must exist after escrow');
 });
 
@@ -87,7 +87,7 @@ test('escrow is idempotent (re-escrow returns the pot without re-debiting)', asy
   await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
   const again = await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
   assert.equal(again.potCents, 2000);
-  assert.equal(await wallet.getBalance(ids[0]), 0); // not -1000
+  assert.equal(await wallet.getBalance(ids[0]!), 0); // not -1000
 });
 
 test('1v1 settle pays the winner pot − rake and books the house rake; ledger reconciles', async () => {
@@ -96,8 +96,8 @@ test('1v1 settle pays the winner pot − rake and books the house rake; ledger r
   const settlement = await money.settle({ matchId: 'm1', winnerSeats: [0] });
   assert.ok(settlement);
   assert.equal(settlement!.rakeCents, 200);
-  assert.equal(await wallet.getBalance(ids[0]), 1800); // won 1800
-  assert.equal(await wallet.getBalance(ids[1]), 0);    // lost stake
+  assert.equal(await wallet.getBalance(ids[0]!), 1800); // won 1800
+  assert.equal(await wallet.getBalance(ids[1]!), 0);    // lost stake
 
   const house = (await ledger.all()).filter((t) => t.userId === HOUSE_ACCOUNT_ID);
   assert.equal(house.reduce((a, t) => a + t.amountCents, 0), 200);
@@ -112,10 +112,10 @@ test('2v2 settle splits the winning team’s share; whole pot is conserved', asy
   // team 0 = seats {0,2} win
   const s = await money.settle({ matchId: 'm2', winnerSeats: [0, 2] });
   assert.equal(s!.rakeCents, 200);          // 10% of 2000
-  assert.equal(await wallet.getBalance(ids[0]), 900);
-  assert.equal(await wallet.getBalance(ids[2]), 900);
-  assert.equal(await wallet.getBalance(ids[1]), 0);
-  assert.equal(await wallet.getBalance(ids[3]), 0);
+  assert.equal(await wallet.getBalance(ids[0]!), 900);
+  assert.equal(await wallet.getBalance(ids[2]!), 900);
+  assert.equal(await wallet.getBalance(ids[1]!), 0);
+  assert.equal(await wallet.getBalance(ids[3]!), 0);
 });
 
 test('settle is idempotent (a second settle is a no-op)', async () => {
@@ -124,15 +124,15 @@ test('settle is idempotent (a second settle is a no-op)', async () => {
   await money.settle({ matchId: 'm1', winnerSeats: [0] });
   const second = await money.settle({ matchId: 'm1', winnerSeats: [0] });
   assert.equal(second, null);
-  assert.equal(await wallet.getBalance(ids[0]), 1800); // not paid twice
+  assert.equal(await wallet.getBalance(ids[0]!), 1800); // not paid twice
 });
 
 test('refund returns every stake with no rake and reconciles', async () => {
   const { wallet, money, ids } = await setup([1000, 1000]);
   await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
   await money.refund('m1');
-  assert.equal(await wallet.getBalance(ids[0]), 1000);
-  assert.equal(await wallet.getBalance(ids[1]), 1000);
+  assert.equal(await wallet.getBalance(ids[0]!), 1000);
+  assert.equal(await wallet.getBalance(ids[1]!), 1000);
   const rec = await wallet.reconcile();
   assert.equal(rec.ok, true);
 });
@@ -144,7 +144,7 @@ test('free match (zero stake) escrows and settles without touching balances', as
   assert.equal(res.potCents, 0);
   const s = await money.settle({ matchId: 'm0', winnerSeats: [0] });
   assert.equal(s!.rakeCents, 0);
-  assert.equal(await wallet.getBalance(ids[0]), 0);
+  assert.equal(await wallet.getBalance(ids[0]!), 0);
 });
 
 test('concurrent escrow for the same match never double-debits', async () => {
@@ -153,8 +153,8 @@ test('concurrent escrow for the same match never double-debits', async () => {
     money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) }),
     money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) }),
   ]);
-  assert.equal(await wallet.getBalance(ids[0]), 0); // debited exactly once (not -1000)
-  assert.equal(await wallet.getBalance(ids[1]), 0);
+  assert.equal(await wallet.getBalance(ids[0]!), 0); // debited exactly once (not -1000)
+  assert.equal(await wallet.getBalance(ids[1]!), 0);
   assert.ok(a.ok); // first claim escrows
   assert.equal(b.ok, false); // second is rejected as busy
   assert.equal(b.code, 'busy');
@@ -174,6 +174,35 @@ test('per-match ledger conservation holds after a refund too', async () => {
   await money.refund('m2');
   const sums = await wallet.matchLedgerSums();
   assert.equal(sums.get('m2'), 0);
+});
+
+test('recoverOrphanedMatches refunds an active match no live room owns (crash recovery)', async () => {
+  const { wallet, money, ids } = await setup([1000, 1000]);
+  await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
+  assert.equal(await wallet.getBalance(ids[0]!), 0); // stakes escrowed
+
+  const refunded = await money.recoverOrphanedMatches(new Set()); // boot: no live rooms
+  assert.deepEqual(refunded, ['m1']);
+  assert.equal(await wallet.getBalance(ids[0]!), 1000); // stake returned
+  assert.equal(await wallet.getBalance(ids[1]!), 1000);
+});
+
+test('recoverOrphanedMatches leaves a genuinely in-progress match alone', async () => {
+  const { wallet, money, ids } = await setup([1000, 1000]);
+  await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
+  const refunded = await money.recoverOrphanedMatches(new Set(['m1'])); // m1 is live
+  assert.deepEqual(refunded, []);
+  assert.equal(await wallet.getBalance(ids[0]!), 0); // still escrowed
+});
+
+test('recoverOrphanedMatches ignores already-settled matches (idempotent, no double-pay)', async () => {
+  const { wallet, money, ids } = await setup([1000, 1000]);
+  await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
+  await money.settle({ matchId: 'm1', winnerSeats: [0] });
+  const before = await wallet.getBalance(ids[0]!);
+  const refunded = await money.recoverOrphanedMatches(new Set());
+  assert.deepEqual(refunded, []); // settled => not active => untouched
+  assert.equal(await wallet.getBalance(ids[0]!), before);
 });
 
 test('forfeitWinners: 1v1 other player, 2v2 opposing team, 1v1v1 the two remaining', () => {

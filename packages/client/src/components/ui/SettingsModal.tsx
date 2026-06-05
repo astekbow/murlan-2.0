@@ -1,15 +1,39 @@
 import { Modal } from './Modal.tsx';
 import { useSettingsStore } from '../../store/settingsStore.ts';
 import { sound } from '../../lib/sound.ts';
+import { useT, useLangStore, type Lang } from '../../lib/i18n.ts';
 
 /** Audio settings: mute, master volume, and ambient music — persisted per device. */
+const RC_OPTIONS = [0, 15, 30, 60];
+const LANGS: Array<{ id: Lang; label: string }> = [{ id: 'sq', label: 'Shqip' }, { id: 'en', label: 'English' }];
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { muted, volume, musicOn, setMuted, setVolume, setMusicOn } = useSettingsStore();
+  const { muted, volume, musicOn, realityCheckMinutes, setMuted, setVolume, setMusicOn, setRealityCheckMinutes } = useSettingsStore();
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const setLang = useLangStore((s) => s.setLang);
 
   return (
-    <Modal title="Cilësimet" onClose={onClose}>
+    <Modal title={t('settings.title')} onClose={onClose}>
       <div className="space-y-5">
-        <Row label="Zëri (efektet)">
+        {/* Language */}
+        <div>
+          <div className="field-label">{t('settings.language')}</div>
+          <div className="seg w-full grid grid-cols-2 mt-1">
+            {LANGS.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                className={`seg-tab text-center ${lang === l.id ? 'active' : ''}`}
+                onClick={() => { setLang(l.id); sound.play('button'); }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Row label={t('settings.soundFx')}>
           <Toggle
             on={!muted}
             onChange={(on) => { setMuted(!on); if (on) sound.play('button'); }}
@@ -19,7 +43,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <span className="field-label">Volumi</span>
+            <span className="field-label">{t('settings.volume')}</span>
             <span className="text-xs text-muted tabular-nums">{Math.round(volume * 100)}%</span>
           </div>
           <input
@@ -28,7 +52,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             max={100}
             value={Math.round(volume * 100)}
             disabled={muted}
-            aria-label="Volumi"
+            aria-label={t('settings.volume')}
             aria-valuetext={`${Math.round(volume * 100)}%`}
             onChange={(e) => setVolume(Number(e.target.value) / 100)}
             onMouseUp={() => sound.play('select')}
@@ -36,11 +60,29 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           />
         </div>
 
-        <Row label="Muzika e sfondit">
+        <Row label={t('settings.music')}>
           <Toggle on={musicOn} onChange={(on) => { setMusicOn(on); sound.play('button'); }} labels={['Off', 'On']} />
         </Row>
 
-        <p className="text-xs text-muted/80">Cilësimet ruhen në këtë pajisje.</p>
+        {/* Responsible gaming: a periodic reality-check reminder. */}
+        <div className="pt-1 border-t border-white/10">
+          <div className="field-label mt-3">{t('settings.realityCheck')}</div>
+          <div className="seg w-full grid grid-cols-4 mt-1">
+            {RC_OPTIONS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`seg-tab text-center ${realityCheckMinutes === m ? 'active' : ''}`}
+                onClick={() => { setRealityCheckMinutes(m); sound.play('button'); }}
+              >
+                {m === 0 ? 'Off' : `${m}m`}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted/80 mt-1.5">{t('settings.realityCheckHint')}</p>
+        </div>
+
+        <p className="text-xs text-muted/80">{t('settings.savedOnDevice')}</p>
       </div>
     </Modal>
   );

@@ -7,3 +7,7 @@ node_modules
 .claude
 CLAUDE_CODE_PROMPT.md
 **/*.test.ts
+# Never bake secrets into the image — pass them via runtime env instead.
+.env
+.env.*
+!.env.example

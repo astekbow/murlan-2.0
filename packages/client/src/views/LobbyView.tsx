@@ -6,6 +6,8 @@ import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts
 import { dollars } from '../lib/money.ts';
 import { sound } from '../lib/sound.ts';
 import { Modal } from '../components/ui/Modal.tsx';
+import { InstallBanner } from '../components/ui/InstallBanner.tsx';
+import { useT } from '../lib/i18n.ts';
 
 const TYPE_LABEL: Record<MatchType, string> = {
   '1v1': '1 kundër 1',
@@ -14,11 +16,14 @@ const TYPE_LABEL: Record<MatchType, string> = {
 };
 const TYPES: MatchType[] = ['1v1', '1v1v1', '2v2'];
 
-const RAIL: Array<{ icon: string; label: string; badge: string | null; to: LobbyViewName | null }> = [
-  { icon: '🏆', label: 'KLASIFIKIMI', badge: null, to: 'leaderboard' },
-  { icon: '👥', label: 'MIQTË', badge: null, to: 'friends' },
-  { icon: '🎯', label: 'SFIDAT', badge: null, to: 'rewards' },
-  { icon: '🛍️', label: 'DYQANI', badge: null, to: 'shop' },
+const RAIL: Array<{ icon: string; labelKey: string; badge: string | null; to: LobbyViewName | null }> = [
+  { icon: '🏆', labelKey: 'nav.leaderboard', badge: null, to: 'leaderboard' },
+  { icon: '👥', labelKey: 'nav.friends', badge: null, to: 'friends' },
+  { icon: '🛡️', labelKey: 'nav.clubs', badge: null, to: 'clubs' },
+  { icon: '🎯', labelKey: 'nav.challenges', badge: null, to: 'rewards' },
+  { icon: '🛍️', labelKey: 'nav.shop', badge: null, to: 'shop' },
+  { icon: '♛', labelKey: 'nav.vip', badge: null, to: 'vip' },
+  { icon: '🛟', labelKey: 'nav.support', badge: null, to: 'support' },
 ];
 
 function scrollToRooms() {
@@ -26,12 +31,14 @@ function scrollToRooms() {
 }
 
 export function LobbyView() {
-  const { lobby, createRoom, joinRoom, refreshLobby } = useGameStore();
+  const { lobby, live, createRoom, joinRoom, refreshLobby, findRanked, spectate } = useGameStore();
   const setView = useUiStore((s) => s.setView);
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
+  const t = useT();
 
   const [quickOpen, setQuickOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [rankedOpen, setRankedOpen] = useState(false);
 
   // Refresh the authoritative balance on entry so the join affordability gate
   // ("Pa fonde") reflects any deposit made since login.
@@ -41,13 +48,15 @@ export function LobbyView() {
 
   return (
     <div className="space-y-6">
+      <h1 className="sr-only">Murlan — Lobi</h1>
+      <InstallBanner />
       {/* Menu: side rail + hero */}
       <div className="grid gap-5 md:grid-cols-[76px_1fr] items-start">
         {/* Side rail */}
         <nav className="flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise order-2 md:order-1">
           {RAIL.map((r) => (
             <button
-              key={r.label}
+              key={r.labelKey}
               className="rail-item"
               onClick={() => {
                 sound.play('button');
@@ -58,7 +67,7 @@ export function LobbyView() {
                 {r.icon}
                 {r.badge && <span className="badge">{r.badge}</span>}
               </span>
-              <span className="rail-lbl">{r.label}</span>
+              <span className="rail-lbl">{t(r.labelKey)}</span>
             </button>
           ))}
         </nav>
@@ -71,9 +80,9 @@ export function LobbyView() {
               <div className="pcard"><span className="pr">A♠</span><span className="pb">♠</span></div>
               <div className="pcard two red"><span className="pr">A♦</span><span className="pb">♦</span></div>
             </div>
-            <div className="mname gold-text">Lojë e Shpejtë</div>
-            <div className="mdesc">1v1 · 1v1v1 · 2v2 — gjej kundërshtar në sekonda</div>
-            <div className="mcta">LUAJ TANI</div>
+            <div className="mname gold-text">{t('lobby.quickName')}</div>
+            <div className="mdesc">{t('lobby.quickDesc')}</div>
+            <div className="mcta">{t('lobby.quickCta')}</div>
           </button>
 
           <button className="mode tourn animate-rise text-inherit" style={{ animationDelay: '.15s' }} onClick={() => { sound.play('button'); scrollToRooms(); }}>
@@ -82,20 +91,36 @@ export function LobbyView() {
               <div className="pcard"><span className="pr">K♠</span><span className="pb">♠</span></div>
               <div className="pcard two red"><span className="pr">Q♥</span><span className="pb">♥</span></div>
             </div>
-            <div className="mname gold-text">Turne · Dhomat</div>
-            <div className="mdesc">Tavolina me bast · çmime më të mëdha</div>
-            <div className="mcta">HYR</div>
+            <div className="mname gold-text">{t('lobby.tournName')}</div>
+            <div className="mdesc">{t('lobby.tournDesc')}</div>
+            <div className="mcta">{t('lobby.tournCta')}</div>
           </button>
         </div>
       </div>
 
+      {/* Ranked matchmaking — skill-matched, feeds the MMR ladder */}
+      <button
+        onClick={() => { sound.play('button'); setRankedOpen(true); }}
+        className="w-full panel p-4 flex items-center justify-between gap-4 hover:border-gold transition-all animate-rise text-left"
+        style={{ animationDelay: '.18s' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-3xl shrink-0">⚔️</span>
+          <div className="min-w-0">
+            <div className="font-display font-bold gold-text tracking-wide">{t('lobby.rankedTitle')}</div>
+            <div className="text-xs text-muted truncate">{t('lobby.rankedDesc')}</div>
+          </div>
+        </div>
+        <span className="btn btn-gold shrink-0">{t('lobby.findMatch')}</span>
+      </button>
+
       {/* Open rooms */}
       <section id="rooms" className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
         <div className="flex items-center justify-between mb-3 gap-2">
-          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">DHOMAT E HAPURA</h2>
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('lobby.openRooms')}</h2>
           <div className="flex items-center gap-3">
-            <button onClick={refreshLobby} className="text-xs text-gold-hi border-b border-dashed border-gold/50">Rifresko</button>
-            <button onClick={() => setCreateOpen(true)} className="btn btn-gold">＋ Krijo dhomë</button>
+            <button onClick={refreshLobby} className="text-xs text-gold-hi border-b border-dashed border-gold/50">{t('lobby.refresh')}</button>
+            <button onClick={() => setCreateOpen(true)} className="btn btn-gold">{t('lobby.createRoom')}</button>
           </div>
         </div>
 
@@ -139,6 +164,32 @@ export function LobbyView() {
         )}
       </section>
 
+      {/* Live matches — spectate a game in progress */}
+      {live.length > 0 && (
+        <section className="panel p-5 animate-rise" style={{ animationDelay: '.22s' }}>
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('lobby.liveMatches')}</h2>
+            <span className="text-xs text-muted">Shiko ndeshjet që po luhen</span>
+          </div>
+          <ul className="space-y-2.5">
+            {live.map((m, i) => (
+              <li
+                key={m.roomId}
+                className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold transition-all animate-rise"
+                style={{ animationDelay: `${i * 0.05}s` }}
+              >
+                <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{TYPE_LABEL[m.type]}</div>
+                <div className="flex-1 min-w-0 text-sm text-muted truncate">
+                  {m.players.map((p) => p.username).filter(Boolean).join(' · ') || 'Lojtarë'}
+                </div>
+                <span className="tag tag-live shrink-0"><span className="pls" />Live</span>
+                <button onClick={() => { sound.play('button'); void spectate(m.roomId); }} className="btn btn-ghost w-full sm:w-auto">👁 Shiko</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {quickOpen && (
         <QuickMatchModal
           onClose={() => setQuickOpen(false)}
@@ -154,7 +205,40 @@ export function LobbyView() {
         />
       )}
       {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} onCreate={createRoom} />}
+      {rankedOpen && <RankedModal onClose={() => setRankedOpen(false)} onFind={findRanked} />}
     </div>
+  );
+}
+
+interface RankedProps {
+  onClose: () => void;
+  onFind: (type: MatchType) => Promise<boolean>;
+}
+function RankedModal({ onClose, onFind }: RankedProps) {
+  const [type, setType] = useState<MatchType>('1v1');
+  const [busy, setBusy] = useState(false);
+
+  async function find() {
+    if (busy) return;
+    setBusy(true);
+    const ok = await onFind(type);
+    if (ok) onClose(); // the searching overlay takes over until matched
+    else setBusy(false);
+  }
+
+  return (
+    <Modal title="Ndeshje Ranked" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <span className="field-label">Lloji i lojës</span>
+          <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
+        </div>
+        <p className="text-xs text-muted">Do të të çiftëzojmë me lojtarë afër nivelit tënd (MMR). Pa bast — vetëm renditje sezonale dhe tier-i yt.</p>
+        <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void find()}>
+          {busy ? 'Po hyjmë…' : 'GJEJ NDESHJE'}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -214,6 +298,16 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
     else setBusy(false);
   }
 
+  // Practice vs AI bots: a private zero-stake table that starts instantly. No
+  // matchmaking, no money — great for learning the rules or warming up.
+  async function practice() {
+    if (busy) return;
+    setBusy(true);
+    const ok = await useGameStore.getState().startPractice(type);
+    if (ok) onClose();
+    else setBusy(false);
+  }
+
   return (
     <Modal title="Lojë e Shpejtë" onClose={onClose}>
       <div className="space-y-4">
@@ -225,6 +319,9 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
         <p className="text-xs text-muted">Do të të çojmë te një tavolinë e hapur që përputhet, ose do hapim një të re dhe presim kundërshtar.</p>
         <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
           {busy ? 'Po kërkojmë…' : 'LUAJ TANI'}
+        </button>
+        <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => void practice()}>
+          🤖 Praktikë me robotë
         </button>
       </div>
     </Modal>

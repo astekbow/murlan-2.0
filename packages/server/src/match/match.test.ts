@@ -12,7 +12,7 @@ function dealer(scripts: Card[][][]): () => Card[][] {
   return () => {
     const idx = Math.min(i, scripts.length - 1);
     i += 1;
-    return scripts[idx].map((hand) => hand.map((card) => ({ ...card })));
+    return scripts[idx]!.map((hand) => hand.map((card) => ({ ...card })));
   };
 }
 

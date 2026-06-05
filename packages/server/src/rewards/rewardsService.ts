@@ -19,11 +19,20 @@ export interface Cosmetic {
 }
 
 export const COSMETICS: Cosmetic[] = [
+  // Card backs
   { id: 'cb_classic', name: 'Pas klasik', type: 'cardBack', cost: 0 },
   { id: 'cb_gold', name: 'Pas ari', type: 'cardBack', cost: 300 },
+  { id: 'cb_emerald', name: 'Pas smerald', type: 'cardBack', cost: 350 },
+  { id: 'cb_sapphire', name: 'Pas safir', type: 'cardBack', cost: 350 },
+  { id: 'cb_rose', name: 'Pas trëndafili', type: 'cardBack', cost: 450 },
+  { id: 'cb_carbon', name: 'Pas karboni', type: 'cardBack', cost: 500 },
   { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600 },
+  // Table felts
   { id: 'felt_red', name: 'Çoha e kuqe', type: 'tableFelt', cost: 0 },
   { id: 'felt_emerald', name: 'Çoha smerald', type: 'tableFelt', cost: 400 },
+  { id: 'felt_sapphire', name: 'Çoha safir', type: 'tableFelt', cost: 400 },
+  { id: 'felt_wine', name: 'Çoha verë', type: 'tableFelt', cost: 450 },
+  { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },
   { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700 },
 ];
 

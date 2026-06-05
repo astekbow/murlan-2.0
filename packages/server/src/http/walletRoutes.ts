@@ -10,12 +10,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAuth } from './authRoutes.ts';
-import type { WalletService } from '../money/walletService.ts';
+import { type WalletService, DepositCapExceededError } from '../money/walletService.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
 import type { PaymentProvider } from '../money/paymentProvider.ts';
 import type { DepositIntentRepository } from '../money/depositIntents.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
+import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 
 export interface WalletRoutesDeps {
   auth: AuthService;
@@ -24,6 +25,7 @@ export interface WalletRoutesDeps {
   provider: PaymentProvider;
   intents: DepositIntentRepository;
   compliance?: ComplianceService;
+  rg?: ResponsibleGamingService; // responsible-gaming daily deposit cap
   webhookSignatureHeader?: string; // default 'x-signature'
 }
 
@@ -62,6 +64,9 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   app.post('/api/wallet/deposit', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
+    // Account-state gate (always on): a frozen account cannot deposit.
+    const acct = await auth.checkAccountRealMoney(caller.userId);
+    if (!acct.allowed) return reply.code(403).send({ error: { code: acct.code ?? 'account', message: acct.message ?? 'Bllokuar.' } });
     // Compliance gate (spec §13): a real-money deposit requires the enabled checks.
     if (deps.compliance?.enabled) {
       const profile = await auth.getComplianceProfile(caller.userId);
@@ -70,6 +75,12 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     }
     const parsed = depositSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Shumë e pavlefshme.' } });
+    // Responsible-gaming daily deposit cap (self-imposed) — blocks before any
+    // intent is created so the player never pays toward a deposit we'd reject.
+    if (deps.rg) {
+      const verdict = await deps.rg.checkDeposit(caller.userId, parsed.data.amountCents);
+      if (!verdict.allowed) return reply.code(422).send({ error: { code: verdict.code ?? 'deposit_limit', message: verdict.message ?? 'Kufiri ditor u arrit.' } });
+    }
     const intent = await provider.createDeposit({ userId: caller.userId, amountCents: parsed.data.amountCents });
     // Record the intent so the webhook credits THIS user, not a body-controlled one.
     await intents.save({ providerRef: intent.providerRef, userId: caller.userId, amountCents: parsed.data.amountCents, currency: 'USD' });
@@ -133,12 +144,38 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
       return reply.code(400).send({ error: { code: 'intent_expired', message: 'Kërkesa e depozitës ka skaduar.' } });
     }
 
-    const res = await wallet.credit(intent.userId, intent.amountCents, {
-      type: 'deposit',
-      providerRef: deposit.providerRef,
-      currency: intent.currency,
-      reason: `deposit via ${provider.name}`,
-    });
-    return reply.send({ ok: true, idempotent: res.idempotent, balanceCents: res.balanceCents });
+    // Responsible-gaming cap RE-CHECKED at credit time — when the money actually
+    // lands. The intent-time pre-check counts only CREDITED deposits, so a flurry
+    // of intents could each pass it; this binds the cap on the real balance.
+    // (Sequential webhooks are exact; truly-concurrent credits for one user would
+    // need the check inside credit()'s transaction — a follow-up tied to a real
+    // payment provider + multi-instance, like the documented money-atomicity TODO.)
+    let depositCapCents: number | null = null;
+    if (deps.rg) {
+      const verdict = await deps.rg.checkDeposit(intent.userId, intent.amountCents);
+      if (!verdict.allowed) {
+        return reply.code(422).send({ error: { code: verdict.code ?? 'deposit_limit', message: verdict.message ?? 'Kufiri ditor i depozitës u arrit.' } });
+      }
+      // The authoritative cap is enforced ATOMICALLY inside credit() (the pre-check
+      // above is just an early, cheaper rejection); pass it through so concurrent
+      // credits can't both slip past the cap.
+      depositCapCents = (await deps.rg.getLimits(intent.userId)).dailyDepositLimitCents;
+    }
+
+    try {
+      const res = await wallet.credit(intent.userId, intent.amountCents, {
+        type: 'deposit',
+        providerRef: deposit.providerRef,
+        currency: intent.currency,
+        reason: `deposit via ${provider.name}`,
+        depositCapCents,
+      });
+      return reply.send({ ok: true, idempotent: res.idempotent, balanceCents: res.balanceCents });
+    } catch (e) {
+      if (e instanceof DepositCapExceededError) {
+        return reply.code(422).send({ error: { code: 'deposit_limit', message: 'Kufiri ditor i depozitës u arrit.' } });
+      }
+      throw e;
+    }
   });
 }

@@ -1,18 +1,26 @@
 import { create } from 'zustand';
 
 /** Top-level view selection while in the lobby area (outside a room). */
-export type LobbyView = 'lobby' | 'wallet' | 'admin' | 'leaderboard' | 'friends' | 'shop' | 'rewards';
+export type LobbyView = 'lobby' | 'wallet' | 'admin' | 'leaderboard' | 'friends' | 'shop' | 'rewards' | 'support' | 'vip' | 'clubs';
 
 interface UiStore {
   view: LobbyView;
+  // When set, the provably-fair replay/verifier is shown for this match (overrides
+  // the normal routing — works even unauthenticated, for shareable replay links).
+  replayMatchId: string | null;
   setView: (v: LobbyView) => void;
+  openReplay: (matchId: string) => void;
+  closeReplay: () => void;
   reset: () => void;
 }
 
 export const useUiStore = create<UiStore>((set) => ({
   view: 'lobby',
+  replayMatchId: null,
   setView: (view) => set({ view }),
+  openReplay: (replayMatchId) => set({ replayMatchId }),
+  closeReplay: () => set({ replayMatchId: null }),
   // Reset to the lobby — called on logout so a new user on the same tab never
   // lands on the previous user's wallet/shop/admin view.
-  reset: () => set({ view: 'lobby' }),
+  reset: () => set({ view: 'lobby', replayMatchId: null }),
 }));

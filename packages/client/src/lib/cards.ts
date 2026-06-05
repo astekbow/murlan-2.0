@@ -23,3 +23,12 @@ export function cardLabel(card: Card): string {
     ? card.color === 'red' ? 'Joker i kuq' : 'Joker i zi'
     : `${card.rank}${SUIT_SYMBOL[card.suit] ?? ''}`;
 }
+
+// Screen-reader label: suit symbols (♠/♥…) read poorly, so spell the suit in
+// Albanian (matches the UI language) for an accessible aria-label.
+const SUIT_WORD: Record<string, string> = { S: 'spadë', H: 'kupë', D: 'karo', C: 'spathi' };
+export function cardAriaLabel(card: Card): string {
+  return card.kind === 'joker'
+    ? card.color === 'red' ? 'Xhol i kuq' : 'Xhol i zi'
+    : `${card.rank} ${SUIT_WORD[card.suit] ?? ''}`.trim();
+}

@@ -39,8 +39,18 @@ export interface LobbyRoomInfo {
   createdAt: number; // epoch ms (server-stamped)
 }
 
+/** A live (in-match) room a user can spectate. Public-safe: usernames + seats
+ *  only, never cards. */
+export interface LiveMatchInfo {
+  roomId: string;
+  type: MatchType;
+  players: Array<{ seat: Seat; username: string | null }>;
+  target: number;
+}
+
 export interface LobbyStateDTO {
   rooms: LobbyRoomInfo[];
+  live: LiveMatchInfo[]; // in-match, non-ranked rooms open to spectators
 }
 
 // ---------- Room -------------------------------------------------------------
@@ -134,12 +144,28 @@ export interface CardSwitchDTO {
   awaitingReturn: boolean; // true while the winner still has to choose
 }
 
+/**
+ * Per-player ranked rating change for a finished match — surfaced purely for
+ * transparency in the match-end UI ("+18 · 41% expected"). MMR is competitive
+ * /cosmetic only, never cashable. Present only when a ranked season is active;
+ * the rating math (server) is unaffected by whether this is shown.
+ */
+export interface RankedDeltaDTO {
+  userId: string;
+  oldRating: number;
+  newRating: number;
+  tierKey: RankedTierKey;
+  won: boolean;
+  expectedWinRate: number; // 0..1 — Elo expected score vs the field's average
+}
+
 export interface MatchEndDTO {
   winnerSide: number;
   winnerSeats: Seat[];
   finalSideScores: number[];
   scoreboard: ScoreboardDTO;
   payoutCents: number | null; // populated once money settlement exists (Phase 6)
+  ratingDeltas?: RankedDeltaDTO[]; // present only when a ranked season is active
 }
 
 // ---------- Provably-fair shuffle (spec §8) ---------------------------------
@@ -161,6 +187,136 @@ export interface FairRevealDTO {
   numPlayers: 2 | 3 | 4; // needed to reproduce the deal independently
   gameCount: number;     // deals were made with nonce = 0 .. gameCount-1
   matchId?: string;      // links to the durable public verify endpoint
+}
+
+// ---------- Ranked / seasons (competitive MMR — never cashable) --------------
+
+export type RankedTierKey = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master';
+
+/** A rank tier for the client to render a badge; `next` is the tier above (if any). */
+export interface TierInfo {
+  key: RankedTierKey;
+  name: string;   // Albanian, player-facing
+  min: number;    // inclusive lower rating bound
+  color: string;  // hex
+  emoji: string;
+  next: { key: RankedTierKey; name: string; min: number } | null;
+}
+
+export type SeasonStatusDTO = 'active' | 'archived';
+
+export interface SeasonDTO {
+  id: string;
+  number: number;
+  name: string;
+  status: SeasonStatusDTO;
+  startedAt: number;       // epoch ms
+  endedAt: number | null;
+}
+
+/** A viewer's own ranked standing in the active season (null season ⇒ ranked off). */
+export interface RankedProfileDTO {
+  season: SeasonDTO | null;
+  rating: number;
+  peakRating: number;
+  tier: TierInfo;
+  games: number;
+  wins: number;
+  winRate: number; // 0..1
+}
+
+/** A club chat message (broadcast to club members + returned in history). */
+export interface ChatMessageDTO {
+  id: string;
+  clubId: string;
+  userId: string;
+  username: string;
+  text: string;
+  createdAt: number; // epoch ms
+}
+
+export interface RankedLeaderboardRow {
+  rank: number;
+  userId: string;
+  username: string;
+  avatar: string | null;
+  rating: number;
+  peakRating: number;
+  tier: TierInfo;
+  games: number;
+  wins: number;
+  winRate: number;
+}
+
+// ---------- Replay / move-log (deterministic match playback + audit) --------
+
+export interface ReplayActionDTO {
+  seq: number;       // turn order within the match
+  gameIndex: number; // which game within the match
+  seat: Seat;
+  type: 'play' | 'pass' | 'switch';
+  cards: Card[] | null; // played cards / given card; null for a pass
+}
+
+export interface ReplayGameDTO {
+  index: number;
+  nonce: number;
+  revealed: boolean;
+  serverSeed: string | null; // published only once the match revealed it
+}
+
+/** Everything needed to replay a finished match: the deal seeds + the move-log. */
+export interface ReplayDTO {
+  matchId: string;
+  revealed: boolean;            // all deals' server seeds published (verifiable)
+  numPlayers: number;           // derived from the move-log (deal reproduction)
+  serverSeedHash: string | null;
+  clientSeed: string | null;
+  games: ReplayGameDTO[];
+  actions: ReplayActionDTO[];
+}
+
+// ---------- VIP / loyalty (status only — rake-back cashout is payment-gated) -
+
+export type VipTierKey = 'standard' | 'bronze' | 'silver' | 'gold' | 'diamond';
+
+export interface VipTierInfo {
+  key: VipTierKey;
+  name: string;        // Albanian, player-facing
+  minStakedCents: number; // lifetime staked volume to reach this tier
+  rakebackBps: number; // perk rate (basis points) — cashout deferred until payments
+  color: string;
+}
+
+export interface VipStatusDTO {
+  stakedCents: number;          // lifetime staked volume (loyalty)
+  tier: VipTierInfo;
+  next: VipTierInfo | null;     // the tier above, if any
+  toNextCents: number;          // staked volume still needed for `next` (0 at top)
+}
+
+// ---------- Clubs (social) --------------------------------------------------
+
+export type ClubRoleDTO = 'founder' | 'member';
+
+export interface ClubMemberDTO {
+  userId: string;
+  username: string;
+  avatar: string | null;
+  role: ClubRoleDTO;
+}
+
+export interface ClubSummaryDTO {
+  id: string;
+  name: string;
+  tag: string;
+  founderId: string;
+  createdAt: number;
+  memberCount: number;
+}
+
+export interface ClubDetailDTO extends ClubSummaryDTO {
+  members: ClubMemberDTO[];
 }
 
 // ---------- Errors -----------------------------------------------------------

@@ -11,7 +11,7 @@ test('1v1: $10 stake, 10% rake -> winner $18, house $2', () => {
   const s = computeSettlement({ potCents: 2000, rakeBps: 1000, winnerSeats: [0] });
   assert.equal(s.rakeCents, 200);
   assert.deepEqual(s.payouts, [{ seat: 0, amountCents: 1800 }]);
-  assert.equal(s.payouts[0].amountCents + s.rakeCents, s.potCents); // conservation
+  assert.equal(s.payouts[0]!.amountCents + s.rakeCents, s.potCents); // conservation
 });
 
 test('2v2: pot split equally between the two winning teammates after rake', () => {
@@ -32,21 +32,21 @@ test('odd remainder cent in a 2v2 split goes to the first winner (no cent lost)'
     { seat: 1, amountCents: 901 },
     { seat: 3, amountCents: 900 },
   ]);
-  assert.equal(s.payouts[0].amountCents + s.payouts[1].amountCents + s.rakeCents, s.potCents);
+  assert.equal(s.payouts[0]!.amountCents + s.payouts[1]!.amountCents + s.rakeCents, s.potCents);
 });
 
 test('rake uses floor so the winner is never short-changed a cent', () => {
   // pot 999, 10% -> floor(99.9)=99 rake, winner 900
   const s = computeSettlement({ potCents: 999, rakeBps: 1000, winnerSeats: [0] });
   assert.equal(s.rakeCents, 99);
-  assert.equal(s.payouts[0].amountCents, 900);
-  assert.equal(s.payouts[0].amountCents + s.rakeCents, 999);
+  assert.equal(s.payouts[0]!.amountCents, 900);
+  assert.equal(s.payouts[0]!.amountCents + s.rakeCents, 999);
 });
 
 test('0% rake gives the entire pot to the winner', () => {
   const s = computeSettlement({ potCents: 3000, rakeBps: 0, winnerSeats: [2] });
   assert.equal(s.rakeCents, 0);
-  assert.equal(s.payouts[0].amountCents, 3000);
+  assert.equal(s.payouts[0]!.amountCents, 3000);
 });
 
 test('conservation holds across a sweep of pots and rakes', () => {

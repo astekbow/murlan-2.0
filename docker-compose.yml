@@ -33,9 +33,11 @@ services:
       NODE_ENV: production
       PORT: '3000'
       CLIENT_ORIGIN: http://localhost:8080
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh}
-      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change-me-webhook}
+      # Fail CLOSED: Compose refuses to start if these are unset/empty (no weak
+      # 'change-me-*' fallback). Set strong, unique values in your .env.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env (>=32 random chars)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env (>=32 random chars, different from access)}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?set PAYMENT_WEBHOOK_SECRET in .env}
       REDIS_URL: redis://redis:6379
       # Postgres is OPT-IN — the server runs in-memory unless DATABASE_URL is set.
       # To enable Prisma/Postgres: set DATABASE_URL (e.g. postgres://murlan:murlan@postgres:5432/murlan)

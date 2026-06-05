@@ -26,8 +26,8 @@ export async function fairRoutes(app: FastifyInstance, deps: FairRoutesDeps): Pr
     return reply.send({
       matchId,
       revealed,
-      serverSeedHash: games[0].serverSeedHash,
-      clientSeed: games[0].clientSeed,
+      serverSeedHash: games[0]!.serverSeedHash, // games.length > 0 (guarded above)
+      clientSeed: games[0]!.clientSeed,
       // serverSeed is published per game ONLY after the match revealed it.
       games: games.map((g) => ({
         index: g.index,

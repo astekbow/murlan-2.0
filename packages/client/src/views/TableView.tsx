@@ -4,11 +4,14 @@ import type { RoomStateDTO } from '@murlan/shared';
 import { PLAYERS_PER_TYPE, isReturnEligible } from '@murlan/shared';
 import { useGameStore, type Bubble } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
+import { useUiStore } from '../store/uiStore.ts';
 import { selectedCards } from '../lib/selection.ts';
 import { cardKey } from '../lib/cards.ts';
 import { seatPosition, type SeatPosition } from '../lib/layout.ts';
 import { sound } from '../lib/sound.ts';
+import { haptics } from '../lib/haptics.ts';
 import { dollars } from '../lib/money.ts';
+import { wentOutSeat } from '../lib/finish.ts';
 import { Hand } from '../components/Hand.tsx';
 import { PlayLog } from '../components/PlayLog.tsx';
 import { Pile } from '../components/Pile.tsx';
@@ -17,6 +20,7 @@ import { Controls } from '../components/Controls.tsx';
 import { Scoreboard } from '../components/Scoreboard.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
+import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
 import { ProfileModal } from '../components/ui/ProfileModal.tsx';
 import { useCosmeticsStore } from '../store/cosmeticsStore.ts';
@@ -85,14 +89,14 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const {
     game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, matchResult,
     fairCommit, fairReveal, bubbles,
-    toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult,
+    toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
       scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, matchResult: s.matchResult,
       fairCommit: s.fairCommit, fairReveal: s.fairReveal, bubbles: s.bubbles,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
-      giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult,
+      giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch,
     })),
   );
 
@@ -130,6 +134,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const finishedSet = new Set(game?.finishingOrder ?? []);
   const myTeam = mySeat !== null ? room.seats[mySeat]?.team ?? null : null;
   const iWon = matchResult ? matchResult.winnerSeats.includes(mySeat ?? -1) : false;
+  // Ranked transparency: my own MMR change for this match (present only when a
+  // ranked season is active). Keyed by userId since seats are per-room.
+  const myUserId = mySeat !== null ? room.seats[mySeat]?.userId ?? null : null;
+  const myDelta = matchResult?.ratingDeltas?.find((d) => d.userId === myUserId) ?? null;
 
   // Card-switch: the winner returns a rank-3–10 card to the loser. Handled
   // ON the real hand (no blurring modal) — tap an eligible card to give it.
@@ -153,6 +161,12 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const wasGameActive = useRef(false);
   const wasMyTurn = useRef(false);
   const hadResult = useRef(false);
+  const [shake, setShake] = useState(false);
+  const lastPileKey = useRef('');
+  const shakeTimer = useRef<number | null>(null);
+  const [finishFx, setFinishFx] = useState(false);
+  const prevFinishing = useRef<number[]>([]);
+  const finishTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const active = game !== null;
@@ -161,7 +175,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   }, [game]);
 
   useEffect(() => {
-    if (isMyTurn && !wasMyTurn.current) sound.play('turn');
+    if (isMyTurn && !wasMyTurn.current) { sound.play('turn'); haptics.turn(); }
     wasMyTurn.current = isMyTurn;
   }, [isMyTurn]);
 
@@ -169,13 +183,64 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     const has = matchResult !== null;
     if (has && !hadResult.current) {
       sound.play(iWon ? 'win' : 'lose');
+      if (iWon) haptics.win(); else haptics.lose();
       void refreshMe(); // re-read the authoritative balance so the chip counts up
     }
     hadResult.current = has;
   }, [matchResult, iWon, refreshMe]);
 
+  // AAA feel: when a bomb (four-of-a-kind) lands on the pile — from ANY player —
+  // thump the speakers, buzz the phone, and shake the table. Keyed off a content
+  // hash of the pile so it fires once per distinct play (the DTO re-creates the
+  // pile object every broadcast). Reduced-motion disables the shake (CSS) + buzz.
+  useEffect(() => {
+    const pile = game?.pile ?? null;
+    const key = pile ? pile.cards.map(cardKey).join(',') : '';
+    if (key !== lastPileKey.current) {
+      lastPileKey.current = key;
+      if (pile?.type === 'bomb') {
+        sound.play('bomb');
+        haptics.bomb();
+        setShake(true);
+        if (shakeTimer.current) window.clearTimeout(shakeTimer.current);
+        shakeTimer.current = window.setTimeout(() => setShake(false), 460);
+      }
+    }
+  }, [game]);
+
+  // AAA feel: when a player empties their hand (goes out), give the centre pile a
+  // brief slow-mo emphasis. `finishingOrder` growing = a new finisher (source of
+  // truth on the server); a new game resets it to [] (wentOutSeat returns null on
+  // a shorter list, so the reset is silent). Fires once per finisher.
+  useEffect(() => {
+    const next = game?.finishingOrder ?? [];
+    const seat = wentOutSeat(prevFinishing.current, next);
+    prevFinishing.current = next;
+    if (seat === null) return;
+    sound.play('select');
+    haptics.tap();
+    setFinishFx(true);
+    if (finishTimer.current) window.clearTimeout(finishTimer.current);
+    finishTimer.current = window.setTimeout(() => setFinishFx(false), 800);
+  }, [game]);
+
+  useEffect(() => () => {
+    if (shakeTimer.current) window.clearTimeout(shakeTimer.current);
+    if (finishTimer.current) window.clearTimeout(finishTimer.current);
+  }, []);
+
+  // Win theater: count the winnings up from 0 shortly after the overlay pops in.
+  const [shownPayout, setShownPayout] = useState(0);
+  useEffect(() => {
+    if (!(matchResult && iWon && matchResult.payoutCents)) { setShownPayout(0); return; }
+    setShownPayout(0);
+    const id = window.setTimeout(() => setShownPayout(matchResult.payoutCents ?? 0), 360);
+    return () => window.clearTimeout(id);
+  }, [matchResult, iWon]);
+
   return (
-    <div className="relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px] px-3 pb-4">
+    <div className={`relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px] px-3 pb-4${shake ? ' shake-fx' : ''}`}>
+      <h1 className="sr-only">Tavolina e lojës Murlan</h1>
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="flex items-center justify-between gap-2 pt-3 pb-1">
         <button
@@ -241,7 +306,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               })}
 
             {/* Centre pile (above the betting ring + logo) */}
-            <div className="absolute inset-0 grid place-items-center z-[3]">
+            <div className={`absolute inset-0 grid place-items-center z-[3]${finishFx ? ' finish-pop' : ''}`}>
               <Pile pile={game?.pile ?? null} />
             </div>
           </div>
@@ -283,7 +348,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             isMyTurn={isMyTurn}
             canPass={canPass}
             requireThreeSpades={requireThreeSpades}
-            onPlay={() => { sound.play('card'); void play(); }}
+            onPlay={() => { sound.play('card'); haptics.tap(); void play(); }}
             onPass={() => { sound.play('pass'); void pass(); }}
             onClear={clearSelection}
           />
@@ -328,6 +393,34 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               {iWon ? 'Urime — fitove! 🎉' : `Fitoi ${matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ')}.`}
             </p>
 
+            {/* Winnings reveal — counts up from 0 (staked matches only). */}
+            {iWon && matchResult.payoutCents != null && matchResult.payoutCents > 0 && (
+              <div className="mb-4 pot-slide">
+                <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">Fitime</div>
+                <CountUp valueCents={shownPayout} className="gold-text font-display font-bold text-4xl tracking-wide" />
+              </div>
+            )}
+
+            {/* Ranked transparency: my MMR change + the pre-match win probability
+                (only shown when a ranked season is active). Counters "rigged"
+                accusations — the rating math is unchanged whether or not this shows. */}
+            {myDelta && (() => {
+              const change = myDelta.newRating - myDelta.oldRating;
+              const pct = Math.round(myDelta.expectedWinRate * 100);
+              return (
+                <div className="mb-4">
+                  <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">Vlerësimi · MMR</div>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="font-display font-bold text-2xl tracking-wide text-txt tabular-nums">{myDelta.newRating}</span>
+                    <span className={`font-display font-semibold text-lg tabular-nums ${change >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                      {change >= 0 ? `+${change}` : change}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted/80 mt-0.5">{pct}% probabilitet fitimi para ndeshjes</div>
+                </div>
+              );
+            })()}
+
             {/* Final standings */}
             <div className="text-left bg-black/30 rounded-xl p-3 mb-5 space-y-1.5">
               {matchResult.scoreboard.type === '2v2' && matchResult.scoreboard.teamTotals
@@ -348,23 +441,24 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                   ))}
             </div>
 
-            <button autoFocus onClick={() => { dismissResult(); void leaveRoom(); }} className="btn btn-gold btn-lg btn-block">
+            <button autoFocus onClick={() => { sound.play('button'); void rematch(); }} className="btn btn-gold btn-lg btn-block">
+              ⚔️ Luaj sërish
+            </button>
+            <button onClick={() => { dismissResult(); void leaveRoom(); }} className="btn btn-ghost btn-block mt-2">
               Kthehu në lobi
             </button>
 
-            {/* Provably-fair: link to the durable public verify endpoint (the
-                committed hash, client seed, and revealed server seed + nonces for
-                this match — recompute every deal and check it against the hash). */}
+            {/* Provably-fair: open the in-app replay + verifier — recomputes every
+                deal IN THE BROWSER from the revealed seeds, checks them against the
+                committed hash, and replays every move. */}
             {fairReveal?.matchId && (
-              <a
-                href={`/api/fair/match/${fairReveal.matchId}`}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                onClick={() => { const id = fairReveal.matchId!; dismissResult(); void leaveRoom(); useUiStore.getState().openReplay(id); }}
                 className="block mt-3 text-xs text-gold-hi/80 hover:text-gold-hi border-b border-dashed border-gold/40 mx-auto"
                 style={{ width: 'fit-content' }}
               >
-                🔒 Verifiko ndarjen (provably fair)
-              </a>
+                🔁 Riprodho & verifiko (provably fair)
+              </button>
             )}
           </div>
         </div>

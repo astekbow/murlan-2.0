@@ -40,7 +40,7 @@ export function gamePoints(type: MatchType, finishingOrder: Seat[]): number[] {
   const scale = PLACE_POINTS[type];
   const pts = new Array<number>(n).fill(0);
   finishingOrder.forEach((seat, place) => {
-    pts[seat] = scale[place];
+    pts[seat] = scale[place] ?? 0;
   });
   return pts;
 }
@@ -93,9 +93,9 @@ export function evaluateMatch(sideScores: number[], target: number): MatchEvalua
 export function strongestIndexByPower(hand: readonly Card[]): number {
   if (hand.length === 0) throw new Error('empty hand has no strongest card');
   let best = 0;
-  let bestPow = singlePower(hand[0]);
+  let bestPow = singlePower(hand[0]!); // non-empty (checked above)
   for (let i = 1; i < hand.length; i++) {
-    const p = singlePower(hand[i]);
+    const p = singlePower(hand[i]!); // i < length ⇒ in-bounds
     if (p > bestPow) {
       bestPow = p;
       best = i;

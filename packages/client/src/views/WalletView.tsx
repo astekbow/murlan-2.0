@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useWalletStore } from '../store/walletStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
+import { useAuthStore } from '../store/authStore.ts';
+import { accountApi, type RgLimits } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 
 export function WalletView() {
@@ -156,6 +158,8 @@ export function WalletView() {
         {profile?.selfExcludedUntil && profile.selfExcludedUntil > Date.now() && (
           <p className="text-xs text-red-300">I vetëpërjashtuar deri më {new Date(profile.selfExcludedUntil).toLocaleDateString()}.</p>
         )}
+
+        <RgLimitsControls />
       </section>
 
       {/* History */}
@@ -200,6 +204,63 @@ export function WalletView() {
             ))}
           </ul>
         </section>
+      )}
+    </div>
+  );
+}
+
+/** Self-service responsible-gaming daily caps (deposit + loss). Fetches/saves via
+ *  the account API; empty/0 clears a limit. */
+function RgLimitsControls() {
+  const [limits, setLimitsState] = useState<RgLimits | null>(null);
+  const [dep, setDep] = useState('');
+  const [loss, setLoss] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    void accountApi.getLimits(token).then(({ limits }) => {
+      setLimitsState(limits);
+      setDep(limits.dailyDepositLimitCents != null ? String(limits.dailyDepositLimitCents / 100) : '');
+      setLoss(limits.dailyLossLimitCents != null ? String(limits.dailyLossLimitCents / 100) : '');
+    }).catch(() => undefined);
+  }, []);
+
+  const toCents = (s: string): number | null => {
+    const c = Math.round(parseFloat(s || '0') * 100);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  };
+  const save = async (patch: Partial<RgLimits>) => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || busy) return;
+    setBusy(true);
+    try { setLimitsState((await accountApi.setLimits(token, patch)).limits); } catch { /* surfaced elsewhere */ } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="pt-2 mt-1 border-t border-white/10 space-y-2.5">
+      <div className="field-label">Kufijtë ditorë (loja me përgjegjësi)</div>
+      <div className="flex flex-wrap gap-3 items-end">
+        <label className="block">
+          <span className="field-label">Depozitë max/ditë ($)</span>
+          <input type="number" min="0" step="1" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="pa kufi" className="field w-32" />
+        </label>
+        <button disabled={busy} onClick={() => void save({ dailyDepositLimitCents: toCents(dep) })} className="btn btn-gold">Ruaj</button>
+        <button disabled={busy} onClick={() => { setDep(''); void save({ dailyDepositLimitCents: null }); }} className="btn btn-ghost">Hiq</button>
+      </div>
+      <div className="flex flex-wrap gap-3 items-end">
+        <label className="block">
+          <span className="field-label">Humbje max/ditë ($)</span>
+          <input type="number" min="0" step="1" value={loss} onChange={(e) => setLoss(e.target.value)} placeholder="pa kufi" className="field w-32" />
+        </label>
+        <button disabled={busy} onClick={() => void save({ dailyLossLimitCents: toCents(loss) })} className="btn btn-gold">Ruaj</button>
+        <button disabled={busy} onClick={() => { setLoss(''); void save({ dailyLossLimitCents: null }); }} className="btn btn-ghost">Hiq</button>
+      </div>
+      {limits && (
+        <p className="text-[11px] text-muted">
+          Tani: depozitë {limits.dailyDepositLimitCents != null ? dollars(limits.dailyDepositLimitCents) : 'pa kufi'} · humbje {limits.dailyLossLimitCents != null ? dollars(limits.dailyLossLimitCents) : 'pa kufi'} në ditë.
+        </p>
       )}
     </div>
   );

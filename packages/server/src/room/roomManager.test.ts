@@ -11,7 +11,7 @@ function scripted(scripts: Card[][][]) {
   return (_n: 2 | 3 | 4) => {
     let i = 0;
     return () => {
-      const h = scripts[Math.min(i, scripts.length - 1)];
+      const h = scripts[Math.min(i, scripts.length - 1)]!;
       i += 1;
       return h.map((hand) => hand.map((card) => ({ ...card })));
     };
@@ -32,11 +32,11 @@ test('createRoom seats the creator and lists the room in the lobby', () => {
 
   const lobby = m.listLobby();
   assert.equal(lobby.rooms.length, 1);
-  assert.equal(lobby.rooms[0].seatsFilled, 1);
-  assert.equal(lobby.rooms[0].seatsTotal, 2);
+  assert.equal(lobby.rooms[0]!.seatsFilled, 1);
+  assert.equal(lobby.rooms[0]!.seatsTotal, 2);
 
   const state = m.roomStateDTO('room_1')!;
-  assert.equal(state.seats[0].userId, 'u1');
+  assert.equal(state.seats[0]!.userId, 'u1');
   assert.equal(state.status, 'waiting');
 });
 
@@ -165,7 +165,7 @@ test('leaving frees the seat and closes a room once empty', () => {
   const leave2 = m.leaveRoom('u2');
   assert.equal(leave2.roomClosed, false);
   assert.equal(m.roomStateDTO('room_1')!.status, 'waiting'); // reverted from ready
-  assert.equal(m.roomStateDTO('room_1')!.seats[1].userId, null);
+  assert.equal(m.roomStateDTO('room_1')!.seats[1]!.userId, null);
 
   const leave1 = m.leaveRoom('u1');
   assert.equal(leave1.roomClosed, true);

@@ -56,3 +56,26 @@ test('end-to-end: HTTP register issues a token that authenticates a socket and c
     await server.close();
   }
 });
+
+test('observability: /health, /ready (no DB → db:null) and /metrics are served', async () => {
+  const config = loadConfig({ NODE_ENV: 'test', PORT: '0' } as NodeJS.ProcessEnv);
+  const server = await createGameServer({ config }); // in-memory (no DATABASE_URL)
+  await server.listen();
+  const port = (server.app.server.address() as AddressInfo).port;
+  try {
+    const health = await fetch(`http://localhost:${port}/health`);
+    assert.equal(health.status, 200);
+
+    const ready = await fetch(`http://localhost:${port}/ready`);
+    assert.equal(ready.status, 200); // no DB configured → not "down"
+    assert.deepEqual(await ready.json(), { ok: true, db: null });
+
+    const metrics = await fetch(`http://localhost:${port}/metrics`);
+    assert.equal(metrics.status, 200);
+    const body = await metrics.text();
+    assert.match(body, /murlan_http_request_duration_seconds/); // our histogram is registered
+    assert.match(body, /process_cpu_seconds_total/); // default process metrics present
+  } finally {
+    await server.close();
+  }
+});

@@ -10,6 +10,7 @@ import { WalletService } from '../money/walletService.ts';
 import { InMemoryWithdrawals, WithdrawalService } from '../money/withdrawals.ts';
 import { MockPaymentProvider } from '../money/paymentProvider.ts';
 import { InMemoryDepositIntents } from '../money/depositIntents.ts';
+import { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 
 async function build() {
   const repo = new InMemoryUserRepository();
@@ -20,14 +21,15 @@ async function build() {
   const intents = new InMemoryDepositIntents();
   const tokens = new TokenService({ accessSecret: 'a', refreshSecret: 'r' });
   const auth = new AuthService(repo, tokens);
+  const rg = new ResponsibleGamingService(repo, wallet); // limits default null ⇒ no-op unless set
   const config = loadConfig({ NODE_ENV: 'test' } as NodeJS.ProcessEnv);
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, rg });
 
   const reg = await auth.register({ username: 'lojtar', email: 'l@x.com', password: 'password123' });
   const admin = await repo.create({ username: 'admin', email: 'a@x.com', passwordHash: 'h', role: 'admin' });
   const adminToken = tokens.issuePair(admin.id, admin.username).accessToken;
 
-  return { app, wallet, provider, userId: reg.user.id, userToken: reg.tokens.accessToken, adminToken };
+  return { app, wallet, provider, rg, userId: reg.user.id, userToken: reg.tokens.accessToken, adminToken };
 }
 
 const authH = (token: string) => ({ authorization: `Bearer ${token}` });
@@ -49,6 +51,26 @@ test('GET /api/wallet requires auth and returns the balance', async () => {
   const ok = await app.inject({ method: 'GET', url: '/api/wallet', headers: authH(userToken) });
   assert.equal(ok.statusCode, 200);
   assert.equal(ok.json().balanceCents, 0);
+  await app.close();
+});
+
+test('responsible-gaming: the deposit cap binds at CREDIT time, even after intents passed the pre-check', async () => {
+  const { app, provider, wallet, rg, userToken, userId } = await build();
+  await rg.setLimits(userId, { dailyDepositLimitCents: 10_000 }); // $100/day
+  // Two $60 intents both clear the intent-time pre-check (neither is credited yet).
+  const ref1 = await startDeposit(app, userToken, 6_000);
+  const ref2 = await startDeposit(app, userToken, 6_000);
+
+  const w1 = webhook(provider, { providerRef: ref1, userId, amountCents: 6_000, status: 'confirmed' });
+  const r1 = await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': w1.sig }, payload: w1.body });
+  assert.equal(r1.statusCode, 200); // $60 ≤ $100 → credited
+
+  const w2 = webhook(provider, { providerRef: ref2, userId, amountCents: 6_000, status: 'confirmed' });
+  const r2 = await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': w2.sig }, payload: w2.body });
+  assert.equal(r2.statusCode, 422); // $60 + $60 = $120 > $100 → blocked at credit
+  assert.equal(r2.json().error.code, 'deposit_limit');
+
+  assert.equal(await wallet.getBalance(userId), 6_000); // only the first deposit landed
   await app.close();
 });
 

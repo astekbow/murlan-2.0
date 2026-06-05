@@ -64,6 +64,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
 
   return (
     <div className="space-y-5">
+      <h1 className="sr-only">Dhoma e ndeshjes</h1>
       <button onClick={() => void leaveRoom()} className="btn btn-ghost">← Kthehu te lobi</button>
 
       {/* Crest / matchmaking header */}

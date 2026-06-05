@@ -81,8 +81,8 @@ function straightTop(cards: Card[]): number | null {
     for (let i = 0; i < aces; i++) vals.push((mask >> i) & 1 ? 14 : 1);
     vals.sort((a, b) => a - b);
     const distinct = new Set(vals).size === vals.length;
-    const consecutive = vals.every((v, i) => i === 0 || v === vals[i - 1] + 1);
-    if (distinct && consecutive) return vals[vals.length - 1];
+    const consecutive = vals.every((v, i) => i === 0 || v === vals[i - 1]! + 1); // i>0 ⇒ defined
+    if (distinct && consecutive) return vals[vals.length - 1] ?? null;
   }
   return null;
 }
@@ -106,7 +106,7 @@ export function identifyCombo(cards: Card[]): Combo | null {
   if (n === 0) return null;
 
   if (n === 1) {
-    return { type: 'single', cards, size: 1, power: singlePower(cards[0]) };
+    return { type: 'single', cards, size: 1, power: singlePower(cards[0]!) }; // n===1 ⇒ defined
   }
   if (n === 2) {
     if (!allSameRank(cards)) return null; // no joker pairs, no mixed pairs
@@ -201,7 +201,9 @@ export function shuffle<T>(arr: T[], rng: () => number): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+    const tmp = a[i]!; // i and j are in-bounds (0 <= j <= i < a.length)
+    a[i] = a[j]!;
+    a[j] = tmp;
   }
   return a;
 }
@@ -229,7 +231,7 @@ export function deal(players: 2 | 3 | 4, rng: () => number): Card[][] {
 // "3 maç" = three of SPADES (♠). Configurable, but defaults to spades.
 export function firstLeaderIndex(hands: Card[][], startSuit: Suit = 'S'): number {
   for (let h = 0; h < hands.length; h++) {
-    if (hands[h].some(c => c.kind === 'standard' && c.rank === '3' && c.suit === startSuit)) return h;
+    if (hands[h]?.some(c => c.kind === 'standard' && c.rank === '3' && c.suit === startSuit)) return h;
   }
   return 0;
 }

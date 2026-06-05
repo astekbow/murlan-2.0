@@ -358,9 +358,21 @@ select:focus-visible,
    (which .rail-inner reads) and the card-back gradient var (which .mini reads). */
 .felt_red { --felt-hi: #94202b; --felt: #7c1620; --felt-edge: #330a0e; }
 .felt_emerald { --felt-hi: #1f9a6a; --felt: #0f6a44; --felt-edge: #06281a; }
+.felt_sapphire { --felt-hi: #2f57b0; --felt: #18306e; --felt-edge: #0a1430; }
+.felt_wine { --felt-hi: #7a2240; --felt: #571530; --felt-edge: #2a0a18; }
+.felt_obsidian { --felt-hi: #2a2f3a; --felt: #15181f; --felt-edge: #060708; }
 .felt_midnight { --felt-hi: #2a3a6a; --felt: #16224a; --felt-edge: #070c1c; }
 .cb_gold { --cb: repeating-linear-gradient(45deg, #9a7528 0 4px, #c9a14d 4px 8px); }
+.cb_emerald { --cb: repeating-linear-gradient(45deg, #0f6a44 0 4px, #1f9a6a 4px 8px); }
+.cb_sapphire { --cb: repeating-linear-gradient(45deg, #18306e 0 4px, #2f57b0 4px 8px); }
+.cb_rose { --cb: repeating-linear-gradient(45deg, #8a2a55 0 4px, #c0477f 4px 8px); }
+.cb_carbon { --cb: repeating-linear-gradient(45deg, #1a1d24 0 5px, #2a2f3a 5px 10px); }
 .cb_royal { --cb: repeating-linear-gradient(45deg, #2f2467 0 4px, #5a4a9a 4px 8px); }
+
+/* Shop preview swatches: a mini card-back / felt rendered from the theme vars. */
+.cosmo-swatch { width: 42px; height: 58px; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.6); }
+.cosmo-swatch.cardback { background: var(--cb, repeating-linear-gradient(45deg, #8f2620 0 4px, #a23029 4px 8px)); }
+.cosmo-swatch.felt { background: radial-gradient(125% 96% at 50% 35%, var(--felt-hi), var(--felt) 55%, var(--felt-edge)); }
 
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dealfly {
@@ -370,6 +382,52 @@ select:focus-visible,
 @keyframes confettiFall {
   to { transform: translateY(105vh) translateX(var(--drift, 0)) rotate(var(--rot, 180deg)); opacity: 0.15; }
 }
+/* Screen-shake when a bomb (four-of-a-kind) lands. Auto-disabled under
+   prefers-reduced-motion by the universal rule below. */
+@keyframes shakefx {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  15% { transform: translate(-5px, 2px) rotate(-0.5deg); }
+  30% { transform: translate(4px, -3px) rotate(0.5deg); }
+  45% { transform: translate(-4px, 2px) rotate(-0.3deg); }
+  60% { transform: translate(3px, -2px) rotate(0.2deg); }
+  78% { transform: translate(-2px, 1px) rotate(0); }
+}
+.shake-fx { animation: shakefx 0.45s ease-in-out; }
+
+/* Cards thrown onto the pile drop in from above and settle. Plays once per play:
+   the pile card elements remount with new keys each play, so unchanged re-broadcasts
+   don't re-trigger it. Reduced-motion safe (universal rule neutralises it). */
+@keyframes throwin {
+  from { opacity: 0; transform: translateY(-44px) rotate(-7deg) scale(1.08); }
+  to { opacity: 1; transform: none; }
+}
+.pile-cards .gcard { animation: throwin 0.3s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.pile-cards .gcard:nth-child(2) { animation-delay: 0.04s; }
+.pile-cards .gcard:nth-child(3) { animation-delay: 0.08s; }
+.pile-cards .gcard:nth-child(4) { animation-delay: 0.12s; }
+.pile-cards .gcard:nth-child(5) { animation-delay: 0.16s; }
+.pile-cards .gcard:nth-child(n + 6) { animation-delay: 0.2s; }
+
+/* "Going out" slow-mo: when a player empties their hand, the centre pile gets a
+   brief, slow scale-up + gold glow to mark the finish. Keyed off a state flag in
+   TableView (cleared after the run) so it fires once per finisher. The slow easing
+   reads as a deliberate slow-motion beat. Reduced-motion safe (universal rule). */
+@keyframes finishpop {
+  0% { transform: scale(1); filter: none; }
+  40% { transform: scale(1.16); filter: drop-shadow(0 0 18px rgba(241, 222, 174, 0.85)); }
+  100% { transform: scale(1); filter: none; }
+}
+.finish-pop { animation: finishpop 0.78s cubic-bezier(0.16, 0.84, 0.28, 1) both; }
+
+/* Winner pot-slide: a gold chip stack slides up into the winnings figure when the
+   match-end overlay reveals a staked payout. Plays once (mounts with the overlay).
+   Reduced-motion safe (universal rule neutralises the travel). */
+@keyframes potslide {
+  from { opacity: 0; transform: translateY(38px) scale(0.7); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.pot-slide { animation: potslide 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
 
 /* ---- Background atmosphere (suit watermark, grain, vignette, sparkles) --- */
 .bgfx { position: fixed; inset: 0; z-index: 0; pointer-events: none; }

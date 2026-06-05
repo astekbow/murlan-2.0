@@ -15,6 +15,7 @@ import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
 import type { RoomManager } from '../room/roomManager.ts';
 import { InMemoryAdminAudit, type AdminAuditRepository } from '../auth/adminAudit.ts';
+import type { ChatService } from '../chat/chatService.ts';
 
 export interface AdminRoutesDeps {
   auth: AuthService;
@@ -22,10 +23,20 @@ export interface AdminRoutesDeps {
   withdrawals: WithdrawalService;
   rooms?: RoomManager; // for the active-matches view
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
+  chat?: ChatService; // chat-report triage + global mute
 }
 
 const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1) });
 const kycSchema = z.object({ status: z.enum(['none', 'pending', 'verified']) });
+const accountStateSchema = z.object({
+  state: z.enum(['active', 'frozen', 'suspended', 'banned']),
+  reason: z.string().max(280).optional(),
+  durationMs: z.number().int().positive().optional(), // suspension length (suspended only)
+});
+const muteSchema = z.object({
+  durationMs: z.number().int().positive().max(30 * 24 * 60 * 60 * 1000).optional(), // default 24h
+  reason: z.string().max(280).optional(),
+});
 
 export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, rooms } = deps;
@@ -82,10 +93,59 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     return reply.send({ user });
   });
 
+  app.post('/api/admin/users/:id/account-state', async (req, reply) => {
+    const caller = await admin(req, reply);
+    if (!caller) return;
+    const parsed = accountStateSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Gjendje llogarie e pavlefshme.' } });
+    const userId = (req.params as { id: string }).id;
+    // A suspension carries an expiry; the other states are open-ended.
+    const until = parsed.data.state === 'suspended' && parsed.data.durationMs ? Date.now() + parsed.data.durationMs : null;
+    const res = await auth.setAccountState(userId, { state: parsed.data.state, reason: parsed.data.reason ?? null, until });
+    if (!res) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    await audit.record({
+      adminId: caller.userId,
+      action: 'account_state_set',
+      targetUserId: userId,
+      detail: `${parsed.data.state}${parsed.data.reason ? ': ' + parsed.data.reason : ''}`,
+    });
+    return reply.send({ user: res.user, accountState: res.status });
+  });
+
   app.get('/api/admin/withdrawals', async (req, reply) => {
     if (!(await admin(req, reply))) return;
     return reply.send({ withdrawals: await withdrawals.listPending() });
   });
+
+  // ----- Chat moderation: report queue + global mute -------------------------
+  if (deps.chat) {
+    const chat = deps.chat;
+    app.get('/api/admin/chat-reports', async (req, reply) => {
+      if (!(await admin(req, reply))) return;
+      return reply.send({ reports: await chat.listReports() });
+    });
+
+    app.post('/api/admin/users/:id/mute', async (req, reply) => {
+      const caller = await admin(req, reply);
+      if (!caller) return;
+      const parsed = muteSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna heshtjeje të pavlefshme.' } });
+      const userId = (req.params as { id: string }).id;
+      const durationMs = parsed.data.durationMs ?? 24 * 60 * 60 * 1000;
+      await chat.adminMute(userId, durationMs, caller.userId, parsed.data.reason ?? '');
+      await audit.record({ adminId: caller.userId, action: 'chat_moderation', targetUserId: userId, detail: `mute ${Math.round(durationMs / 3600000)}h${parsed.data.reason ? ': ' + parsed.data.reason : ''}` });
+      return reply.send({ ok: true });
+    });
+
+    app.post('/api/admin/users/:id/unmute', async (req, reply) => {
+      const caller = await admin(req, reply);
+      if (!caller) return;
+      const userId = (req.params as { id: string }).id;
+      await chat.adminUnmute(userId);
+      await audit.record({ adminId: caller.userId, action: 'chat_moderation', targetUserId: userId, detail: 'unmute' });
+      return reply.send({ ok: true });
+    });
+  }
 
   app.post('/api/admin/withdrawals/:id/approve', async (req, reply) => {
     const caller = await admin(req, reply);

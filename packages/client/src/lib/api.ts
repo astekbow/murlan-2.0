@@ -2,7 +2,11 @@
 // automatically with credentials: 'include'); the access token is held in
 // memory by the auth store and passed as a Bearer header.
 
-import type { MatchType } from '@murlan/shared';
+import type {
+  MatchType, RankedProfileDTO, RankedLeaderboardRow, SeasonDTO, TierInfo, RankedTierKey,
+  ReplayDTO, ReplayActionDTO, ReplayGameDTO, VipStatusDTO, VipTierInfo,
+  ClubSummaryDTO, ClubDetailDTO, ChatMessageDTO,
+} from '@murlan/shared';
 
 export interface PublicUser {
   id: string;
@@ -213,6 +217,25 @@ export const rewardsApi = {
   equip: (token: string, id: string) => request<{ ok: boolean }>('/cosmetics/equip', { method: 'POST', token, body: { id } }),
 };
 
+// ---------- Ranked / seasons (competitive MMR — never cashable) -------------
+
+export const rankedApi = {
+  tiers: () => request<{ tiers: TierInfo[] }>('/ranked/tiers'),
+  season: () => request<{ season: SeasonDTO | null }>('/ranked/season'),
+  leaderboard: () => request<{ rows: RankedLeaderboardRow[] }>('/ranked/leaderboard'),
+  me: (token: string) => request<{ ranked: RankedProfileDTO }>('/ranked/me', { token }),
+};
+
+export type { RankedProfileDTO, RankedLeaderboardRow, SeasonDTO, TierInfo, RankedTierKey };
+
+// ---------- Replay / provably-fair verification (public) --------------------
+
+export const replayApi = {
+  get: (matchId: string) => request<ReplayDTO>(`/replay/${encodeURIComponent(matchId)}`),
+};
+
+export type { ReplayDTO, ReplayActionDTO, ReplayGameDTO };
+
 // ---------- Wallet & account ------------------------------------------------
 
 export type TransactionType = 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'rake' | 'admin_adjust';
@@ -259,12 +282,69 @@ export const walletApi = {
   withdrawals: (token: string) => request<{ withdrawals: WithdrawalRecord[] }>('/wallet/withdrawals', { token }),
 };
 
+export interface RgLimits {
+  dailyDepositLimitCents: number | null;
+  dailyLossLimitCents: number | null;
+}
+
 export const accountApi = {
   get: (token: string) => request<{ profile: ComplianceProfile }>('/account', { token }),
   setProfile: (token: string, body: { dateOfBirth?: string; country?: string }) =>
     request<{ user: PublicUser }>('/account/profile', { method: 'POST', token, body }),
   selfExclude: (token: string, days: number) =>
     request<{ ok: boolean; selfExcludedUntil: number }>('/account/self-exclude', { method: 'POST', token, body: { days } }),
+  getLimits: (token: string) => request<{ limits: RgLimits }>('/account/limits', { token }),
+  setLimits: (token: string, body: Partial<RgLimits>) =>
+    request<{ limits: RgLimits }>('/account/limits', { method: 'POST', token, body }),
+  subscribePush: (token: string, sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    request<{ ok: boolean }>('/account/push-subscription', { method: 'POST', token, body: sub }),
+  unsubscribePush: (token: string, endpoint: string) =>
+    request<{ ok: boolean }>('/account/push-subscription', { method: 'DELETE', token, body: { endpoint } }),
+};
+
+// ---------- Clubs (social) --------------------------------------------------
+
+export const clubsApi = {
+  list: (token: string) => request<{ clubs: ClubSummaryDTO[] }>('/clubs', { token }),
+  mine: (token: string) => request<{ club: ClubDetailDTO | null }>('/clubs/me', { token }),
+  get: (token: string, id: string) => request<{ club: ClubDetailDTO }>(`/clubs/${encodeURIComponent(id)}`, { token }),
+  create: (token: string, name: string, tag: string) => request<{ club: ClubDetailDTO }>('/clubs', { method: 'POST', token, body: { name, tag } }),
+  join: (token: string, id: string) => request<{ club: ClubDetailDTO }>(`/clubs/${encodeURIComponent(id)}/join`, { method: 'POST', token }),
+  leave: (token: string) => request<{ ok: boolean }>('/clubs/leave', { method: 'POST', token }),
+  messages: (token: string, clubId: string) => request<{ messages: ChatMessageDTO[] }>(`/clubs/${encodeURIComponent(clubId)}/messages`, { token }),
+  report: (token: string, messageId: string, reason: string) => request<{ ok: boolean }>(`/clubs/messages/${encodeURIComponent(messageId)}/report`, { method: 'POST', token, body: { reason } }),
+  mute: (token: string, userId: string, durationMs?: number, reason?: string) => request<{ ok: boolean }>('/clubs/mute', { method: 'POST', token, body: { userId, durationMs, reason } }),
+};
+export type { ClubSummaryDTO, ClubDetailDTO, ChatMessageDTO };
+
+// ---------- VIP / loyalty ---------------------------------------------------
+
+export const vipApi = {
+  status: (token: string) => request<{ vip: VipStatusDTO }>('/vip', { token }),
+  tiers: () => request<{ tiers: VipTierInfo[] }>('/vip/tiers'),
+};
+export type { VipStatusDTO, VipTierInfo };
+
+// ---------- Support / disputes ----------------------------------------------
+
+export type SupportCategory = 'match' | 'payment' | 'account' | 'other';
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  category: SupportCategory;
+  subject: string;
+  message: string;
+  status: 'open' | 'resolved' | 'closed';
+  matchId: string | null;
+  adminNote: string | null;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
+export const supportApi = {
+  create: (token: string, body: { category: SupportCategory; subject: string; message: string; matchId?: string }) =>
+    request<{ ticket: SupportTicket }>('/support/tickets', { method: 'POST', token, body }),
+  mine: (token: string) => request<{ tickets: SupportTicket[] }>('/support/tickets', { token }),
 };
 
 // ---------- Admin ------------------------------------------------------------

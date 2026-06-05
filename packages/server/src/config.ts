@@ -12,7 +12,7 @@ const DEV_REFRESH_SECRET = 'dev-refresh-secret-change-me';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().nonnegative().default(3000), // 0 = OS-assigned ephemeral port
+  PORT: z.coerce.number().int().nonnegative().default(3100), // 3100 (NOT 3000 — avoids the local ren4all collision); 0 = OS-assigned
   HOST: z.string().default('0.0.0.0'),
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
   JWT_ACCESS_SECRET: z.string().optional(),
@@ -68,8 +68,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = schema.parse(env);
   const isProd = parsed.NODE_ENV === 'production';
 
-  if (isProd && (!parsed.JWT_ACCESS_SECRET || !parsed.JWT_REFRESH_SECRET || !parsed.PAYMENT_WEBHOOK_SECRET)) {
-    throw new Error('JWT_ACCESS_SECRET, JWT_REFRESH_SECRET and PAYMENT_WEBHOOK_SECRET are required in production.');
+  if (isProd) {
+    // Fail CLOSED: a production deploy that forgot to set strong secrets must not
+    // boot with a present-but-weak/placeholder value (e.g. the docker-compose
+    // 'change-me-*' defaults or the dev fallbacks below) — those are publicly
+    // known and would make every token forgeable.
+    const PLACEHOLDER = /change[-_ ]?me|^dev-|secret-change/i;
+    for (const [name, val] of [
+      ['JWT_ACCESS_SECRET', parsed.JWT_ACCESS_SECRET],
+      ['JWT_REFRESH_SECRET', parsed.JWT_REFRESH_SECRET],
+      ['PAYMENT_WEBHOOK_SECRET', parsed.PAYMENT_WEBHOOK_SECRET],
+    ] as const) {
+      if (!val) throw new Error(`${name} is required in production.`);
+      if (val.length < 32) throw new Error(`${name} must be at least 32 characters in production.`);
+      if (PLACEHOLDER.test(val)) throw new Error(`${name} looks like a placeholder/dev secret — set a strong, unique value in production.`);
+    }
+    if (parsed.JWT_ACCESS_SECRET === parsed.JWT_REFRESH_SECRET) {
+      throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different in production.');
+    }
+
+    // Fail CLOSED on compliance: a real-money production deploy must make a DELIBERATE
+    // decision on each gate, never inherit a silent OFF default. Every compliance flag
+    // must be explicitly present in the environment — set it to enable, or explicitly
+    // to a disabling value ('false'/'0'/'' for geo) to acknowledge it is intentionally
+    // off for this jurisdiction. This prevents accidentally shipping with zero KYC/age/geo.
+    const COMPLIANCE_FLAGS = ['KYC_REQUIRED', 'MIN_AGE', 'GEO_BLOCKED_COUNTRIES', 'RESPONSIBLE_GAMING'] as const;
+    const unset = COMPLIANCE_FLAGS.filter((k) => env[k] === undefined);
+    if (unset.length > 0) {
+      throw new Error(
+        `Compliance flags must be explicitly configured in production (unset: ${unset.join(', ')}). ` +
+        `Set each to enable, or explicitly to a disabling value ('false'/'0', or empty for GEO_BLOCKED_COUNTRIES) to acknowledge it is intentionally off.`,
+      );
+    }
   }
 
   return {

@@ -150,6 +150,11 @@ export function ShopView() {
                           : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'
                       }`}
                     >
+                      {/* Visual preview rendered from the cosmetic's own theme vars. */}
+                      <span
+                        aria-hidden
+                        className={`cosmo-swatch ${item.type === 'cardBack' ? 'cardback' : 'felt'} ${item.id}`}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-display font-semibold tracking-wide text-txt truncate">

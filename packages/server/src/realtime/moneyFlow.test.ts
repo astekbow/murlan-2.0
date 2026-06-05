@@ -14,6 +14,7 @@ import { InMemoryLedger } from '../money/ledger.ts';
 import { WalletService } from '../money/walletService.ts';
 import { InMemoryMatchesRepository } from '../money/matchesRepository.ts';
 import { MoneyService } from '../money/moneyService.ts';
+import { RateLimiter } from '../util/rateLimiter.ts';
 
 const c = (rank: any, suit: any): Card => ({ kind: 'standard', rank, suit });
 
@@ -37,8 +38,13 @@ interface Harness {
   close: () => Promise<void>;
 }
 
-/** A staked 1v1 server with both players funded $10, seat 0 holding the 3♠. */
-async function staked1v1(startTarget: number): Promise<Harness> {
+/** A staked 1v1 server with both players funded $10, seat 0 holding the 3♠.
+ *  `gatewayOpts` overrides the gateway defaults (e.g. a short abandonMs or a tiny
+ *  rate limiter) so timing/limit behaviour can be tested deterministically. */
+async function staked1v1(
+  startTarget: number,
+  gatewayOpts: { abandonMs?: number; rateLimiter?: RateLimiter } = {},
+): Promise<Harness> {
   const httpServer: HttpServer = createServer();
   const io = new Server(httpServer);
   const repo = new InMemoryUserRepository();
@@ -51,7 +57,7 @@ async function staked1v1(startTarget: number): Promise<Harness> {
     dealerFactory: () => () => [[c('3', 'S')], [c('4', 'S')]].map((h) => h.map((x) => ({ ...x }))),
     idFactory: (() => { let n = 0; return () => `room_${(n += 1)}`; })(),
   });
-  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, money, rakeBps: 1_000, abandonMs: 60_000, provablyFair: false });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, money, rakeBps: 1_000, abandonMs: 60_000, provablyFair: false, ...gatewayOpts });
 
   await new Promise<void>((res) => httpServer.listen(0, res));
   const port = (httpServer.address() as AddressInfo).port;
@@ -119,5 +125,45 @@ test('leaving mid-match forfeits the pot to the opponent — escrow is never lea
     assert.equal((await h.wallet.reconcile()).ok, true);
   } finally {
     c1.close(); c2.close(); await h.close();
+  }
+});
+
+test('disconnect mid-match: after the abandon grace expires, the pot forfeits to the opponent', async () => {
+  // Short grace so the timer fires fast; the assertion AWAITS the match:end event
+  // (not a fixed sleep), so it is deterministic, not flaky.
+  const h = await staked1v1(100, { abandonMs: 40 });
+  const { c1, c2 } = await startStakedMatch(h);
+  try {
+    assert.equal(await h.wallet.getBalance(h.u1), 0);
+    assert.equal(await h.wallet.getBalance(h.u2), 0);
+
+    const end = once(c1, 'match:end'); // c1 stays connected and should win
+    c2.close(); // seat 1 DROPS (not an explicit leave) → server starts the abandon grace
+    const result = await end;
+
+    assert.deepEqual(result.winnerSeats, [0]); // grace expired → forfeit to the present player
+    assert.equal(result.payoutCents, 1800);
+    assert.equal(await h.wallet.getBalance(h.u1), 1800);
+    assert.equal(await h.wallet.getBalance(h.u2), 0);
+    assert.equal((await h.wallet.reconcile()).ok, true);
+  } finally {
+    c1.close(); await h.close();
+  }
+});
+
+test('rate limiter: once a user’s bucket is empty, further intents are rejected with rate_limited', async () => {
+  // capacity 1, refill 0/s → exactly one intent allowed, the next is rejected
+  // deterministically (no time-based refill to race).
+  const h = await staked1v1(1, { rateLimiter: new RateLimiter(1, 0) });
+  const c1: any = ioClient(`http://localhost:${h.port}`, { auth: { token: h.t1 }, transports: ['websocket'], forceNew: true });
+  try {
+    await once(c1, 'connect');
+    const first = await emitAck<any>(c1, 'room:create', { type: '1v1', stakeCents: 0 });
+    assert.ok(first.ok); // first intent consumes the only token
+    const second = await emitAck<any>(c1, 'room:create', { type: '1v1', stakeCents: 0 });
+    assert.equal(second.ok, false);
+    assert.equal(second.error?.code, 'rate_limited'); // bucket empty → gated before the handler runs
+  } finally {
+    c1.close(); await h.close();
   }
 });

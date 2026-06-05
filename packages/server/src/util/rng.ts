@@ -11,7 +11,7 @@ export function cryptoRng(): () => number {
     // 6 random bytes -> 48 bits of entropy, divided into the unit interval.
     const buf = randomBytes(6);
     let value = 0;
-    for (let i = 0; i < 6; i++) value = value * 256 + buf[i];
+    for (let i = 0; i < 6; i++) value = value * 256 + buf[i]!; // i < 6 = buf length
     return value / 2 ** 48;
   };
 }

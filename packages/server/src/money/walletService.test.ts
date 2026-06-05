@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { InMemoryLedger } from './ledger.ts';
-import { WalletService, InsufficientFundsError } from './walletService.ts';
+import { WalletService, InsufficientFundsError, DepositCapExceededError } from './walletService.ts';
 import { InMemoryUnitOfWork } from './unitOfWork.ts';
 
 async function setup() {
@@ -30,6 +30,39 @@ test('credit is idempotent on providerRef (a retried webhook never double-credit
   assert.equal(retry.idempotent, true);
   assert.equal(await wallet.getBalance(userId), 5000); // still 5000, not 10000
   assert.equal(retry.transaction.id, first.transaction.id);
+});
+
+test('deposit cap: a credit within the cap succeeds; one over the cap is rejected with NO ledger row', async () => {
+  const { wallet, ledger, userId } = await setup();
+  const ok = await wallet.credit(userId, 6000, { type: 'deposit', providerRef: 'd1', depositCapCents: 10000 });
+  assert.equal(ok.balanceCents, 6000);
+  await assert.rejects(
+    () => wallet.credit(userId, 5000, { type: 'deposit', providerRef: 'd2', depositCapCents: 10000 }),
+    DepositCapExceededError,
+  );
+  assert.equal(await wallet.getBalance(userId), 6000); // unchanged
+  assert.equal((await ledger.listByUser(userId)).length, 1); // the rejected deposit left no row
+});
+
+test('deposit cap: a retried webhook (same providerRef) stays idempotent, never double-counted into the cap', async () => {
+  const { wallet, userId } = await setup();
+  await wallet.credit(userId, 8000, { type: 'deposit', providerRef: 'd1', depositCapCents: 10000 });
+  const retry = await wallet.credit(userId, 8000, { type: 'deposit', providerRef: 'd1', depositCapCents: 10000 });
+  assert.equal(retry.idempotent, true); // not rejected as 8000+8000 over cap
+  assert.equal(await wallet.getBalance(userId), 8000);
+});
+
+test('deposit cap: concurrent same-user deposits cannot BOTH pass the cap (race closed)', async () => {
+  const { wallet, userId } = await setup();
+  const results = await Promise.allSettled([
+    wallet.credit(userId, 6000, { type: 'deposit', providerRef: 'c1', depositCapCents: 10000 }),
+    wallet.credit(userId, 6000, { type: 'deposit', providerRef: 'c2', depositCapCents: 10000 }),
+  ]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+  assert.equal(rejected.length, 1);
+  assert.ok(rejected[0]!.reason instanceof DepositCapExceededError);
+  assert.equal(await wallet.getBalance(userId), 6000); // only one 6000 landed
 });
 
 test('debit decreases the balance and refuses to overdraw', async () => {

@@ -16,6 +16,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Generate the Prisma client (used only when DATABASE_URL is set; harmless otherwise).
 RUN npx prisma generate --schema packages/server/prisma/schema.prisma
+# Drop privileges: run as the built-in unprivileged `node` user, not root.
+# (The app writes nothing to disk; node only needs read access to /app.)
+USER node
 EXPOSE 3000
 # Healthcheck hits the Fastify /health route.
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \

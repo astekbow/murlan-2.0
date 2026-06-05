@@ -4,6 +4,14 @@
 
 import jwt from 'jsonwebtoken';
 
+// Pin the signing algorithm + bind issuer/audience. Without an explicit
+// `algorithms` allowlist on verify, jsonwebtoken honours the token's own `alg`
+// header — the classic algorithm-confusion footgun (alg:none / RS256 with the
+// public key as HMAC secret). HS256 is symmetric and the only algorithm we use.
+const ALG: jwt.Algorithm = 'HS256';
+const ISSUER = 'murlan';
+const AUDIENCE = 'murlan';
+
 export interface TokenClaims {
   sub: string;      // user id
   username: string;
@@ -42,12 +50,15 @@ export interface TokenPair {
 export class TokenService {
   constructor(private readonly cfg: TokenConfig) {}
 
+  private signOpts(expiresIn: string | number, sub: string): jwt.SignOptions {
+    return { subject: sub, expiresIn: expiresIn as ExpiresIn, algorithm: ALG, issuer: ISSUER, audience: AUDIENCE };
+  }
+  private verifyOpts(): jwt.VerifyOptions {
+    return { algorithms: [ALG], issuer: ISSUER, audience: AUDIENCE };
+  }
+
   issueAccess(sub: string, username: string): string {
-    return jwt.sign(
-      { username, type: 'access' } satisfies Omit<TokenClaims, 'sub'>,
-      this.cfg.accessSecret,
-      { subject: sub, expiresIn: (this.cfg.accessTtl ?? '15m') as ExpiresIn },
-    );
+    return jwt.sign({ username, type: 'access' } satisfies Omit<TokenClaims, 'sub'>, this.cfg.accessSecret, this.signOpts(this.cfg.accessTtl ?? '15m', sub));
   }
 
   /** Issue a refresh token bound to a server-side record (jti/family/ver). */
@@ -55,7 +66,7 @@ export class TokenService {
     return jwt.sign(
       { username, type: 'refresh', jti: opts.jti, family: opts.family, ver: opts.ver } satisfies Omit<RefreshClaims, 'sub'>,
       this.cfg.refreshSecret,
-      { subject: sub, expiresIn: (this.cfg.refreshTtl ?? '7d') as ExpiresIn },
+      this.signOpts(this.cfg.refreshTtl ?? '7d', sub),
     );
   }
 
@@ -65,11 +76,7 @@ export class TokenService {
   issuePair(sub: string, username: string): TokenPair {
     return {
       accessToken: this.issueAccess(sub, username),
-      refreshToken: jwt.sign(
-        { username, type: 'refresh' } satisfies Omit<TokenClaims, 'sub'>,
-        this.cfg.refreshSecret,
-        { subject: sub, expiresIn: (this.cfg.refreshTtl ?? '7d') as ExpiresIn },
-      ),
+      refreshToken: jwt.sign({ username, type: 'refresh' } satisfies Omit<TokenClaims, 'sub'>, this.cfg.refreshSecret, this.signOpts(this.cfg.refreshTtl ?? '7d', sub)),
     };
   }
 
@@ -80,7 +87,7 @@ export class TokenService {
   /** Verify a refresh token. jti/family/ver are present for tokens issued via
    *  issueRefresh; undefined for legacy issuePair tokens. */
   verifyRefresh(token: string): RefreshClaims {
-    const decoded = jwt.verify(token, this.cfg.refreshSecret) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, this.cfg.refreshSecret, this.verifyOpts()) as jwt.JwtPayload;
     if (decoded.type !== 'refresh' || typeof decoded.sub !== 'string') throw new Error('invalid refresh token');
     return {
       sub: decoded.sub,
@@ -93,7 +100,7 @@ export class TokenService {
   }
 
   private verify(token: string, secret: string, expected: 'access' | 'refresh'): TokenClaims {
-    const decoded = jwt.verify(token, secret) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, secret, this.verifyOpts()) as jwt.JwtPayload;
     if (decoded.type !== expected || typeof decoded.sub !== 'string') {
       throw new Error(`invalid ${expected} token`);
     }

@@ -26,6 +26,8 @@ export interface RefreshTokenRepository {
   find(jti: string): Promise<RefreshTokenRecord | null>;
   revoke(jti: string): Promise<void>;
   revokeFamily(family: string): Promise<void>;
+  /** Purge tokens past their expiry (retention/cleanup). Returns rows removed. */
+  deleteExpired(nowMs: number): Promise<number>;
 }
 
 export class InMemoryRefreshTokens implements RefreshTokenRepository {
@@ -44,5 +46,10 @@ export class InMemoryRefreshTokens implements RefreshTokenRepository {
   }
   async revokeFamily(family: string): Promise<void> {
     for (const r of this.byJti.values()) if (r.family === family) r.revoked = true;
+  }
+  async deleteExpired(nowMs: number): Promise<number> {
+    let n = 0;
+    for (const [jti, r] of this.byJti) if (r.expiresAt < nowMs) { this.byJti.delete(jti); n++; }
+    return n;
   }
 }

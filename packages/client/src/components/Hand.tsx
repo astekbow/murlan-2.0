@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Card } from '@murlan/engine';
 import { singlePower } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
-import { cardKey } from '../lib/cards.ts';
+import { cardKey, cardAriaLabel } from '../lib/cards.ts';
 
 interface HandProps {
   cards: Card[];
@@ -123,11 +123,21 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
             style = { left: i * step, bottom: 0, transform: `translateY(${isSel ? -22 : 0}px)`, zIndex: i };
           }
           if (eligibleIds && !eligibleIds.has(id)) style = { ...style, opacity: 0.4 };
+          const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(id); }
+          };
           return (
             <div
               key={id}
               className="hand-card"
               style={style}
+              // Keyboard + screen-reader access: each card is a labelled toggle
+              // button (pointer users also drag to reorder; keyboard users select).
+              role="button"
+              tabIndex={0}
+              aria-label={cardAriaLabel(card)}
+              aria-pressed={isSel}
+              onKeyDown={onKey}
               onPointerDown={(e) => onDown(id, e)}
               onPointerMove={(e) => onMove(id, e)}
               onPointerUp={(e) => onUp(id, e)}

@@ -4,10 +4,12 @@
 // and then refresh both the local profile and the auth store.
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal.tsx';
-import { profileApi, ApiError, type Profile } from '../../lib/api.ts';
+import { profileApi, rankedApi, ApiError, type Profile, type RankedProfileDTO } from '../../lib/api.ts';
 import { avatarEmoji, AVATARS } from '../../lib/avatars.ts';
 import { dollars } from '../../lib/money.ts';
 import { useAuthStore } from '../../store/authStore.ts';
+import { TierBadge } from './TierBadge.tsx';
+import { earnedBadges } from '../../lib/badges.ts';
 
 interface ProfileModalProps {
   userId: string;
@@ -16,6 +18,7 @@ interface ProfileModalProps {
 
 export function ProfileModal({ userId, onClose }: ProfileModalProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [ranked, setRanked] = useState<RankedProfileDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingAvatar, setSavingAvatar] = useState<string | null>(null);
@@ -27,6 +30,11 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
       const { profile: p } = await profileApi.get(userId);
       setProfile(p);
       setError(null);
+      // Ranked standing is only exposed for the signed-in user (/ranked/me).
+      const token = useAuthStore.getState().accessToken;
+      if (isMe && token) {
+        rankedApi.me(token).then(({ ranked }) => setRanked(ranked)).catch(() => setRanked(null));
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Profili nuk u ngarkua.');
     } finally {
@@ -88,6 +96,47 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
               </div>
             </div>
           </div>
+
+          {/* Earned badges (derived from stats) */}
+          {earnedBadges(profile).length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {earnedBadges(profile).map((b) => (
+                <span
+                  key={b.id}
+                  title={b.desc}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/[.10] px-2.5 py-1 text-xs font-display font-semibold text-gold-hi"
+                >
+                  <span aria-hidden>{b.icon}</span>{b.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Ranked standing (signed-in user only; shown when a season is active) */}
+          {isMe && ranked?.season && (
+            <div className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.05] to-white/[.01]">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="font-serif text-[10px] tracking-[0.25em] text-muted uppercase">
+                  Ranked · Sezoni {ranked.season.number}
+                </span>
+                <TierBadge tier={ranked.tier} size="sm" />
+              </div>
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <div className="font-display font-bold text-2xl text-gold-hi leading-none">{ranked.rating}</div>
+                  <div className="text-[10px] text-muted mt-1">MMR · maja {ranked.peakRating}</div>
+                </div>
+                <div className="text-right text-xs text-muted">
+                  {ranked.wins}/{ranked.games} fitore · {Math.round(ranked.winRate * 100)}%
+                  {ranked.tier.next && (
+                    <div className="text-[10px] text-muted/70 mt-0.5">
+                      {Math.max(0, ranked.tier.next.min - ranked.rating)} MMR → {ranked.tier.next.name}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Lifetime stats */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import type { Card } from '@murlan/engine';
 import { cardId } from '@murlan/engine';
 import type {
-  LobbyRoomInfo, LobbyStateDTO, RoomStateDTO, PublicGameStateDTO, ScoreboardDTO, MatchEndDTO, MatchType,
-  FairCommitDTO, FairRevealDTO,
+  LobbyRoomInfo, LiveMatchInfo, LobbyStateDTO, RoomStateDTO, PublicGameStateDTO, ScoreboardDTO, MatchEndDTO, MatchType,
+  FairCommitDTO, FairRevealDTO, ChatMessageDTO,
 } from '@murlan/shared';
+import { PLAYERS_PER_TYPE } from '@murlan/shared';
 import { connectSocket, request, type MurlanSocket } from '../lib/socket.ts';
 import { refreshAccessToken } from '../lib/api.ts';
 import { toggleCard, selectedCards } from '../lib/selection.ts';
@@ -62,6 +63,7 @@ interface GameStore {
   myUserId: string | null;
 
   lobby: LobbyRoomInfo[];
+  live: LiveMatchInfo[]; // in-match rooms available to spectate
   room: RoomStateDTO | null;
   game: PublicGameStateDTO | null;
   gameIndex: number;
@@ -81,13 +83,20 @@ interface GameStore {
   toast: string | null;
   toastKind: ToastKind;
   bubbles: Bubble[];
+  /** Club chat messages (history seed + live appends). */
+  clubChat: ChatMessageDTO[];
   invite: Invite | null;
+  /** Ranked matchmaking status while waiting (null = not queued). */
+  queue: { matchType: MatchType; size: number; needed: number } | null;
+  /** True while watching a live match as a spectator (read-only, not seated). */
+  spectating: boolean;
 
   connect: (getToken: () => string | null, userId: string) => void;
   disconnect: () => void;
   refreshLobby: () => void;
   createRoom: (type: MatchType, stakeCents: number, team?: 0 | 1) => Promise<string | null>;
   joinRoom: (roomId: string, team?: 0 | 1) => Promise<boolean>;
+  rematch: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   setReady: (ready: boolean) => Promise<void>;
   toggleCardSel: (id: string) => void;
@@ -100,8 +109,17 @@ interface GameStore {
   sendEmote: (emote: string) => void;
   sendChat: (text: string) => void;
   inviteFriend: (friendUserId: string) => Promise<boolean>;
+  /** Club chat: seed history (REST) + send a message (socket). */
+  setClubChat: (messages: ChatMessageDTO[]) => void;
+  sendClubMessage: (text: string) => Promise<boolean>;
   acceptInvite: () => Promise<void>;
   dismissInvite: () => void;
+  findRanked: (matchType: MatchType) => Promise<boolean>;
+  cancelRanked: () => void;
+  /** Start a private zero-stake match vs AI bots. */
+  startPractice: (type: MatchType, tier?: 'easy' | 'medium' | 'hard') => Promise<boolean>;
+  spectate: (roomId: string) => Promise<boolean>;
+  stopSpectate: () => void;
 }
 
 function appendLog(prev: LogEntry[], text: string): LogEntry[] {
@@ -122,6 +140,7 @@ const emptyRoomState = {
   fairCommit: null,
   fairReveal: null,
   bubbles: [] as Bubble[],
+  clubChat: [] as ChatMessageDTO[],
 };
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -129,11 +148,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   connected: false,
   myUserId: null,
   lobby: [],
+  live: [],
   ...emptyRoomState,
   log: [],
   toast: null,
   toastKind: 'error',
   invite: null,
+  queue: null,
+  spectating: false,
 
   connect(getToken, userId) {
     if (get().socket) return; // already connected
@@ -152,15 +174,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (err.message === 'unauthorized') void refreshAccessToken().catch(() => {});
     });
 
-    socket.on('lobby:state', (state) => set({ lobby: state.rooms }));
+    socket.on('lobby:state', (state) => set({ lobby: state.rooms, live: state.live }));
 
     socket.on('room:state', (state) => {
       const seat = state.seats.findIndex((s) => s.userId === get().myUserId);
-      set({ room: state, mySeat: seat >= 0 ? seat : get().mySeat });
+      set({ room: state, mySeat: seat >= 0 ? seat : get().mySeat, queue: null });
     });
 
     socket.on('match:start', (room) => {
-      set((s) => ({ room, log: appendLog(s.log, 'Ndeshja filloi!') }));
+      set((s) => ({ room, queue: null, log: appendLog(s.log, 'Ndeshja filloi!') }));
+    });
+
+    // Ranked matchmaking status while waiting (cleared once we're seated/matched).
+    socket.on('ranked:queue:update', (dto) => {
+      set({ queue: dto.inQueue && dto.matchType ? { matchType: dto.matchType, size: dto.size, needed: dto.needed } : null });
     });
 
     socket.on('game:start', (dto) => {
@@ -254,17 +281,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
       useNotifications.getState().push(`📨 ${dto.fromUsername} të ftoi në një lojë`, 'invite');
       set({ invite: dto, toast: `${dto.fromUsername} të ftoi në një lojë!`, toastKind: 'info' });
     });
+    socket.on('club:chat', (dto) => {
+      // Append live; dedup by id (the sender also receives their own message).
+      set((s) => (s.clubChat.some((m) => m.id === dto.id) ? s : { clubChat: [...s.clubChat, dto].slice(-100) }));
+    });
   },
 
   disconnect() {
     get().socket?.close();
-    set({ socket: null, connected: false, lobby: [], log: [], toast: null, toastKind: 'error', invite: null, ...emptyRoomState });
+    set({ socket: null, connected: false, lobby: [], live: [], log: [], toast: null, toastKind: 'error', invite: null, queue: null, spectating: false, ...emptyRoomState });
   },
 
   refreshLobby() {
     const socket = get().socket;
     if (!socket) return;
-    void request<LobbyStateDTO>(socket, 'lobby:list').then((state) => set({ lobby: state?.rooms ?? [] }));
+    void request<LobbyStateDTO>(socket, 'lobby:list').then((state) => set({ lobby: state?.rooms ?? [], live: state?.live ?? [] }));
   },
 
   async createRoom(type, stakeCents, team) {
@@ -284,6 +315,69 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const res = await request<Ack>(socket, 'room:join', { roomId, team });
     if (!res.ok) set({ toast: res.error?.message ?? 'Bashkimi në dhomë dështoi.', toastKind: 'error' });
     return res.ok;
+  },
+
+  // "Luaj sërish": from a finished match, open a FRESH room of the same type/stake
+  // (and my same team in 2v2) and land in it waiting for opponents. The prior
+  // match is fully settled — this is its own room/escrow, never a continuation.
+  // One-room-per-user means we must leave the finished room first.
+  async rematch() {
+    const { room, mySeat } = get();
+    if (!room) return;
+    const type = room.type;
+    const stakeCents = room.stakeCents;
+    const team = type === '2v2' && mySeat !== null ? room.seats[mySeat]?.team ?? undefined : undefined;
+    get().dismissResult();
+    await get().leaveRoom();
+    await get().createRoom(type, stakeCents, team ?? undefined);
+  },
+
+  async startPractice(type, tier) {
+    const socket = get().socket;
+    if (!socket) return false;
+    const res = await request<Ack>(socket, 'practice:start', { type, tier });
+    if (!res.ok) set({ toast: res.error?.message ?? 'Praktika nuk filloi dot.', toastKind: 'error' });
+    return res.ok;
+  },
+
+  async findRanked(matchType) {
+    const socket = get().socket;
+    if (!socket) return false;
+    const res = await request<Ack>(socket, 'ranked:queue:join', { matchType });
+    if (!res.ok) {
+      set({ toast: res.error?.message ?? 'Hyrja në radhë dështoi.', toastKind: 'error' });
+      return false;
+    }
+    // Optimistic searching state (the server confirms/updates via ranked:queue:update).
+    set((s) => ({ queue: s.queue ?? { matchType, size: 1, needed: PLAYERS_PER_TYPE[matchType] } }));
+    return true;
+  },
+
+  cancelRanked() {
+    const socket = get().socket;
+    set({ queue: null });
+    if (socket) void request<Ack>(socket, 'ranked:queue:leave');
+  },
+
+  async spectate(roomId) {
+    const socket = get().socket;
+    if (!socket) return false;
+    const res = await request<Ack>(socket, 'room:spectate', { roomId });
+    if (!res.ok) {
+      set({ toast: res.error?.message ?? 'Shikimi i ndeshjes dështoi.', toastKind: 'error' });
+      return false;
+    }
+    // The server pushes room:state + game:state + scoreboard, which populate the
+    // store; this flag routes the app to the read-only spectator view.
+    set({ spectating: true, queue: null });
+    return true;
+  },
+
+  stopSpectate() {
+    const socket = get().socket;
+    if (socket) void request<Ack>(socket, 'room:unspectate');
+    set({ ...emptyRoomState, spectating: false });
+    get().refreshLobby();
   },
 
   async leaveRoom() {
@@ -355,6 +449,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
   sendChat(text) {
     const t = text.trim().slice(0, 80);
     if (t) get().socket?.emit('chat', t);
+  },
+  setClubChat(messages) {
+    set({ clubChat: messages });
+  },
+  async sendClubMessage(text) {
+    const socket = get().socket;
+    const t = text.trim();
+    if (!socket || !t) return false;
+    const res = await request<Ack>(socket, 'club:message', { text: t });
+    if (!res.ok) set({ toast: res.error?.message ?? 'Mesazhi dështoi.', toastKind: 'error' });
+    return res.ok;
   },
   async inviteFriend(friendUserId) {
     const socket = get().socket;
