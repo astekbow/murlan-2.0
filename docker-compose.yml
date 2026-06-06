@@ -46,6 +46,11 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env (>=32 random chars)}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env (>=32 random chars, different from access)}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?set PAYMENT_WEBHOOK_SECRET in .env}
+      # Real crypto deposits: set BOTH to switch from the stub to NOWPayments
+      # (auto-credits via the IPN webhook). Leave empty to keep the stub.
+      NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
+      NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
+      NOWPAYMENTS_SANDBOX: ${NOWPAYMENTS_SANDBOX:-}  # 'true' to test with the NOWPayments sandbox
       REDIS_URL: redis://redis:6379
       # Persistence ON by default → the bundled Postgres, so accounts/wallets SURVIVE
       # restarts & redeploys (in-memory wiped them). Migrations auto-apply on boot

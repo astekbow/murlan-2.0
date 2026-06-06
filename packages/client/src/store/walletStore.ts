@@ -24,7 +24,7 @@ interface WalletStore {
   notice: string | null;
 
   refresh: () => Promise<void>;
-  deposit: (amountCents: number) => Promise<void>;
+  deposit: (amountCents: number) => Promise<DepositIntent | null>;
   withdraw: (amountCents: number, destination: string) => Promise<boolean>;
   setProfile: (dateOfBirth: string, country: string) => Promise<void>;
   selfExclude: (days: number) => Promise<void>;
@@ -66,13 +66,15 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
 
   async deposit(amountCents) {
     const t = token();
-    if (!t) return;
+    if (!t) return null;
     set({ error: null, notice: null });
     try {
       const intent = await walletApi.deposit(t, amountCents);
       set({ lastIntent: intent, notice: tr('msg.depositAddressCreated') });
+      return intent;
     } catch (e) {
       set({ error: e instanceof ApiError ? e.message : tr('err.depositFailed') });
+      return null;
     }
   },
 

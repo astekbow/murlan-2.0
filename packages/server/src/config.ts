@@ -28,6 +28,9 @@ const schema = z.object({
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)
+  NOWPAYMENTS_API_KEY: z.string().optional(),  // set both API_KEY + IPN_SECRET to enable real crypto deposits
+  NOWPAYMENTS_IPN_SECRET: z.string().optional(),
+  NOWPAYMENTS_SANDBOX: z.string().optional(), // 'true' → use the NOWPayments sandbox API (test payments)
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -57,6 +60,9 @@ export interface AppConfig {
   abandonMs: number;
   paymentWebhookSecret: string;
   paymentWebhookIps: string[];
+  nowPaymentsApiKey: string | null;
+  nowPaymentsIpnSecret: string | null;
+  nowPaymentsSandbox: boolean;
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -127,6 +133,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(',')
       .map((ip) => ip.trim())
       .filter((ip) => ip.length > 0),
+    nowPaymentsApiKey: parsed.NOWPAYMENTS_API_KEY || null,
+    nowPaymentsIpnSecret: parsed.NOWPAYMENTS_IPN_SECRET || null,
+    nowPaymentsSandbox: isTrue(parsed.NOWPAYMENTS_SANDBOX),
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,

@@ -44,6 +44,7 @@ import { WalletService } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
+import { NowPaymentsProvider } from './money/nowPaymentsProvider.ts';
 import { ConsoleEmailProvider } from './email/emailProvider.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
@@ -213,6 +214,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       webhookIps: deps.config.paymentWebhookIps,
+      webhookSignatureHeader: deps.provider.signatureHeader,
     });
     await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, audit: deps.adminAudit, chat: deps.chat });
   }
@@ -330,7 +332,11 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // protection) so the app can be deployed WITHOUT payment/email integration —
   // NEVER set it for a real-money instance.
   const email = new ConsoleEmailProvider();
-  const provider = new MockPaymentProvider(config.paymentWebhookSecret);
+  // Real crypto deposits when NOWPayments is configured (env), else the stub.
+  const provider: PaymentProvider =
+    config.nowPaymentsApiKey && config.nowPaymentsIpnSecret
+      ? new NowPaymentsProvider(config.nowPaymentsApiKey, config.nowPaymentsIpnSecret, config.clientOrigin, config.nowPaymentsSandbox)
+      : new MockPaymentProvider(config.paymentWebhookSecret);
   if (config.isProd && !config.allowStubProviders) {
     if (provider.name === 'mock') throw new Error('A real PaymentProvider must be configured in production (MockPaymentProvider is a stub — wire Stripe/PayPal/crypto). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
     if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');

@@ -34,6 +34,8 @@ export interface WebhookDeposit {
 
 export interface PaymentProvider {
   readonly name: string;
+  /** HTTP header the provider signs its webhook with (default 'x-signature'). */
+  readonly signatureHeader?: string;
   createDeposit(req: DepositRequest): Promise<DepositIntent>;
   /** Verify the signature and parse the body, or return null if invalid/unconfirmed. */
   verifyWebhook(rawBody: string, signature: string | undefined): WebhookDeposit | null;

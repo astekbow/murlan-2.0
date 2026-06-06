@@ -129,6 +129,8 @@ const STRINGS: Record<string, Entry> = {
   'wallet.copyAddress': { sq: 'Kopjo adresën', en: 'Copy address' },
   'wallet.copied': { sq: 'U kopjua ✓', en: 'Copied ✓' },
   'wallet.cryptoNote': { sq: 'Dërgo VETËM monedhën e saktë në rrjetin përkatës. Bilanci kreditohet pas konfirmimit të transaksionit.', en: 'Send ONLY the matching coin on the matching network. Your balance is credited after the transaction is confirmed.' },
+  'wallet.depositCrypto': { sq: 'Depozito me kripto', en: 'Deposit with crypto' },
+  'wallet.cryptoRedirectNote': { sq: 'Do të çohesh te faqja e sigurt e pagesës për të zgjedhur monedhën (BTC, USDT…). Bilanci kreditohet automatikisht pas konfirmimit.', en: 'You’ll be taken to the secure payment page to pick a coin (BTC, USDT…). Your balance is credited automatically once confirmed.' },
   'wallet.withdraw': { sq: 'TËRHEQJE', en: 'WITHDRAW' },
   'wallet.addressDest': { sq: 'Adresa / destinacioni', en: 'Address / destination' },
   'wallet.addressPlaceholder': { sq: 'adresë kripto ose email PayPal', en: 'crypto address or PayPal email' },
