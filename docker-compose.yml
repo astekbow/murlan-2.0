@@ -8,7 +8,9 @@ services:
       POSTGRES_USER: murlan
       POSTGRES_PASSWORD: murlan
       POSTGRES_DB: murlan
-    ports: ['5432:5432']
+    # Bind to localhost only — Postgres is reached by the server over the internal
+    # Docker network (host:port is for local debugging, never public on a VPS).
+    ports: ['127.0.0.1:5432:5432']
     volumes: ['pgdata:/var/lib/postgresql/data']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U murlan']
@@ -18,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ['6379:6379']
+    ports: ['127.0.0.1:6379:6379'] # localhost only (reached over the internal network)
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -32,7 +34,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: '3000'
-      CLIENT_ORIGIN: http://localhost:8080
+      # Your public site origin (used for CORS + cookies). Override in .env for a domain.
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:8080}
+      # Staging/demo WITHOUT payment+email integration: set ALLOW_STUB_PROVIDERS=true
+      # so the server boots on the stub providers (mock deposits, emails to logs).
+      # Leave false (the default) for any real-money instance — boot will then refuse
+      # to start until real Stripe/PayPal + SMTP providers are wired.
+      ALLOW_STUB_PROVIDERS: ${ALLOW_STUB_PROVIDERS:-false}
       # Fail CLOSED: Compose refuses to start if these are unset/empty (no weak
       # 'change-me-*' fallback). Set strong, unique values in your .env.
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env (>=32 random chars)}
@@ -49,7 +57,10 @@ services:
       MIN_AGE: ${MIN_AGE:-0}
       GEO_BLOCKED_COUNTRIES: ${GEO_BLOCKED_COUNTRIES:-}
       RESPONSIBLE_GAMING: ${RESPONSIBLE_GAMING:-false}
-    ports: ['3000:3000']
+    # Localhost only — the public entry point is the client (nginx) below, which
+    # proxies /api + /socket.io to this service over the internal Docker network.
+    # Don't expose the server directly (it would bypass nginx's headers + your TLS).
+    ports: ['127.0.0.1:3000:3000']
     depends_on:
       redis:
         condition: service_healthy

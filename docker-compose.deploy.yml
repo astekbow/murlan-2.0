@@ -1,0 +1,34 @@
+# Deploy overlay: adds Caddy for automatic HTTPS (Let's Encrypt) in front of the
+# client, so the whole stack comes up on a real https:// URL with one command.
+#
+#   In .env:  CADDY_DOMAIN=yourdomain.com        (or  <SERVER_IP>.sslip.io  for a quick test)
+#             CLIENT_ORIGIN=https://yourdomain.com   (must match — secure cookies)
+#             ALLOW_STUB_PROVIDERS=true               (demo without payment/email integration)
+#   Run:      docker compose -f docker-compose.yml -f docker-compose.deploy.yml up --build -d
+#
+# Requires ports 80 + 443 open on the host, and CADDY_DOMAIN's DNS pointing at it
+# (sslip.io does this automatically: 203.0.113.7.sslip.io → 203.0.113.7).
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:?set CADDY_DOMAIN in .env (your domain, or <SERVER_IP>.sslip.io)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: ['client']
+
+  # Keep the stack restarting across reboots/crashes in a real deploy.
+  server:
+    restart: unless-stopped
+  client:
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

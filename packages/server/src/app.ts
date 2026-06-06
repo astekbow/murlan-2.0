@@ -325,12 +325,19 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Provider stubs (mock payment, console email) must NEVER ship to production
   // silently: a stub can't move real money or deliver verification/reset links.
   // Fail CLOSED — a prod boot still on a stub throws. Wire a real provider here
-  // (env-selected) before going live.
+  // (env-selected) before going live. ALLOW_STUB_PROVIDERS=true is a DELIBERATE
+  // staging/demo escape: it permits the stubs in prod (keeping every other prod
+  // protection) so the app can be deployed WITHOUT payment/email integration —
+  // NEVER set it for a real-money instance.
   const email = new ConsoleEmailProvider();
   const provider = new MockPaymentProvider(config.paymentWebhookSecret);
-  if (config.isProd) {
-    if (provider.name === 'mock') throw new Error('A real PaymentProvider must be configured in production (MockPaymentProvider is a stub — wire Stripe/PayPal/crypto).');
-    if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark).');
+  if (config.isProd && !config.allowStubProviders) {
+    if (provider.name === 'mock') throw new Error('A real PaymentProvider must be configured in production (MockPaymentProvider is a stub — wire Stripe/PayPal/crypto). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
+    if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
+  }
+  if (config.isProd && config.allowStubProviders && (provider.name === 'mock' || email.name === 'console')) {
+    // eslint-disable-next-line no-console
+    console.warn('⚠️  ALLOW_STUB_PROVIDERS=true: running in production with STUB payment/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Wire real providers + unset this flag before accepting deposits.');
   }
 
   // Email verification + password reset go through the EmailProvider above.

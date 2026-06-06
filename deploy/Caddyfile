@@ -1,0 +1,6 @@
+# Caddy auto-HTTPS in front of the client (nginx). The domain comes from the
+# CADDY_DOMAIN env var — a real domain OR a free `<IP>.sslip.io` for quick testing.
+# Caddy fetches + renews a Let's Encrypt cert automatically (ports 80/443 must be open).
+{$CADDY_DOMAIN} {
+	reverse_proxy client:80
+}

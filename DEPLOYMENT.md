@@ -6,6 +6,54 @@ README first — a license + KYC/AML are legal prerequisites for real-money oper
 
 ---
 
+## 0. Quickstart — single-host deploy (one VPS, Docker)
+
+This app deploys as **one stack on one host**: the client (nginx) is the only public
+service; it proxies `/api` + `/socket.io` to the server over the internal Docker network.
+**It is NOT a Vercel/serverless app** — the server is a long-running Socket.IO (WebSocket)
++ Postgres service. Any host with Docker works (a VPS, or a Docker-capable PaaS).
+
+**1. Prereqs on the host:** Docker + Docker Compose, a domain pointed at the host, ports 80/443 open.
+
+**2. Create `.env`** (next to `docker-compose.yml`):
+```bash
+# Strong, unique, ≥32 chars each (e.g. `openssl rand -base64 48`):
+JWT_ACCESS_SECRET=<random-48+>
+JWT_REFRESH_SECRET=<different-random-48+>
+PAYMENT_WEBHOOK_SECRET=<random>
+CLIENT_ORIGIN=https://yourdomain.com        # your real public URL (HTTPS)
+# Compliance — set each deliberately (prod refuses to boot if any is unset):
+KYC_REQUIRED=false
+MIN_AGE=0
+GEO_BLOCKED_COUNTRIES=
+RESPONSIBLE_GAMING=false
+# DEMO/STAGING WITHOUT payment+email integration → true (mock deposits, emails to logs).
+# For a REAL-money instance: leave false and wire real Stripe/PayPal + SMTP providers first.
+ALLOW_STUB_PROVIDERS=true
+# Optional persistence (else in-memory). If set, run migrations FIRST (see §4):
+# DATABASE_URL=postgres://murlan:murlan@postgres:5432/murlan
+```
+
+**3. TLS is required** (auth cookies are `secure`/HTTPS-only in production). Easiest is
+**Caddy** in front of the client (auto Let's Encrypt). On the host, a one-line `Caddyfile`:
+```
+yourdomain.com {
+  reverse_proxy 127.0.0.1:8080
+}
+```
+…then `caddy run` (or run Caddy as a container/service). Cloudflare Tunnel or your own
+nginx+certbot work too. Plain HTTP works for a quick look but login won't persist (secure cookie).
+
+**4. Launch:**
+```bash
+docker compose up --build -d      # client→:8080 (Caddy fronts it on 443), server+postgres+redis internal
+docker compose logs -f server     # watch for "listening … (production)" + the ALLOW_STUB_PROVIDERS warning
+```
+Visit `https://yourdomain.com`. To go real-money later: wire real providers, set `ALLOW_STUB_PROVIDERS=false`,
+set `DATABASE_URL` + run migrations, and work through §9 (pre-launch checklist).
+
+---
+
 ## 1. Architecture at a glance
 
 ```
