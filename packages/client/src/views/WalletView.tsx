@@ -5,27 +5,27 @@ import { useAuthStore } from '../store/authStore.ts';
 import { accountApi, type RgLimits } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
+import { QRCodeSVG } from 'qrcode.react';
+import { CRYPTO_WALLETS } from '../lib/cryptoWallets.ts';
 
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 export function WalletView() {
   const {
-    balanceCents, transactions, withdrawals, profile, lastIntent, error, notice,
-    refresh, deposit, withdraw, setProfile, selfExclude, clearMessages,
+    balanceCents, transactions, withdrawals, profile, error, notice,
+    refresh, withdraw, setProfile, selfExclude, clearMessages,
   } = useWalletStore();
   const setView = useUiStore((s) => s.setView);
   const t = useT();
 
-  const [depositAmt, setDepositAmt] = useState('10');
   const [withdrawAmt, setWithdrawAmt] = useState('5');
   const [destination, setDestination] = useState('');
   const [dob, setDob] = useState(profile?.dateOfBirth ?? '');
   const [country, setCountry] = useState(profile?.country ?? '');
   const [exclDays, setExclDays] = useState('30');
-  // In-flight guards: disable money buttons while a request is pending so a
-  // double-click can't fire two deposits / split one withdrawal into duplicates.
-  const [depositing, setDepositing] = useState(false);
+  // In-flight guard: disable the withdraw button while a request is pending so a
+  // double-click can't split one withdrawal into duplicates.
   const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
@@ -36,16 +36,6 @@ export function WalletView() {
     setCountry(profile?.country ?? '');
   }, [profile]);
 
-  const onDeposit = async () => {
-    if (depositing) return;
-    const cents = parseDollarsToCents(depositAmt);
-    if (!cents || cents <= 0) {
-      useWalletStore.setState({ error: tr('wallet.errAmountGt0') });
-      return;
-    }
-    setDepositing(true);
-    try { await deposit(cents); } finally { setDepositing(false); }
-  };
   const onWithdraw = async () => {
     if (withdrawing) return;
     const cents = parseDollarsToCents(withdrawAmt);
@@ -94,25 +84,11 @@ export function WalletView() {
         </div>
       )}
 
-      {/* Deposit */}
+      {/* Deposit — crypto: send to one of the addresses below (scan the QR or copy). */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.08s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.deposit')}</h2>
-        <div className="flex flex-wrap gap-3 items-end">
-          <label className="flex-1">
-            <span className="field-label">{t('wallet.amountUsd')}</span>
-            <input type="number" min="1" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)}
-              className="field" />
-          </label>
-          <button onClick={() => void onDeposit()} disabled={depositing} className="btn btn-gold w-full sm:w-auto">{depositing ? t('wallet.sending') : t('wallet.crypto')}</button>
-          <button disabled className="btn btn-ghost w-full sm:w-auto" title={t('wallet.soon')}>PayPal</button>
-        </div>
-        {lastIntent && (
-          <div className="panel-solid p-3 text-xs break-all">
-            <div className="text-muted">{t('wallet.sendToAddress', { amount: dollars(lastIntent.amountCents) })}</div>
-            <div className="font-mono text-emerald-300 mt-0.5">{lastIntent.payAddress}</div>
-            <div className="text-muted/70 mt-1">{t('wallet.testModeNote')}</div>
-          </div>
-        )}
+        <CryptoDeposit />
+        <button disabled className="btn btn-ghost w-full opacity-60" title={t('wallet.soon')}>PayPal — {t('wallet.soon')}</button>
       </section>
 
       {/* Withdraw */}
@@ -210,6 +186,54 @@ export function WalletView() {
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+/** Crypto deposit: pick a chain → show the house receiving address + an auto-generated
+ *  QR code + a copy button. Static addresses (no per-deposit invoice). */
+function CryptoDeposit() {
+  const t = useT();
+  const [sel, setSel] = useState(CRYPTO_WALLETS[0]!);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(sel.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable — the address is selectable above */ }
+  };
+  return (
+    <div className="space-y-3">
+      {/* Chain picker */}
+      <div className="flex flex-wrap gap-2">
+        {CRYPTO_WALLETS.map((w) => (
+          <button
+            key={w.id}
+            onClick={() => { setSel(w); setCopied(false); }}
+            className={`btn flex-1 min-w-[130px] ${sel.id === w.id ? 'btn-gold' : 'btn-ghost'}`}
+          >
+            {w.icon} {w.coin} · {w.network}
+          </button>
+        ))}
+      </div>
+
+      {/* Selected wallet: QR + address + copy */}
+      <div className="panel-solid p-4 flex flex-col items-center gap-3">
+        <div className="bg-white p-2.5 rounded-xl">
+          <QRCodeSVG value={sel.address} size={170} />
+        </div>
+        <div className="text-xs text-muted text-center">
+          {t('wallet.cryptoNetwork')} <b className="text-txt">{sel.coin}</b> · <b className="text-txt">{sel.network}</b>
+        </div>
+        <div className="w-full break-all font-mono text-xs text-emerald-300 bg-black/30 rounded-lg px-3 py-2 text-center select-all">
+          {sel.address}
+        </div>
+        <button onClick={() => void copy()} className="btn btn-gold btn-block">
+          {copied ? t('wallet.copied') : t('wallet.copyAddress')}
+        </button>
+        <p className="text-[11px] text-muted/80 text-center leading-snug">{t('wallet.cryptoNote')}</p>
+      </div>
     </div>
   );
 }
