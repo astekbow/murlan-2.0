@@ -1,6 +1,9 @@
 // Lightweight modal: dimmed backdrop + glass panel. Closes on backdrop click,
-// the ✕ button, or Escape. Visual only.
+// the ✕ button, or Escape. Rendered through a portal to <body> so it sits above
+// ALL page chrome (the lobby's animated panels create stacking contexts that would
+// otherwise trap a modal rendered inside them — making it appear behind content).
 import { useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useFocusTrap } from './useFocusTrap.ts';
 
 interface ModalProps {
@@ -18,7 +21,7 @@ export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) 
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
       <div
         ref={trapRef}
@@ -33,6 +36,7 @@ export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) 
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

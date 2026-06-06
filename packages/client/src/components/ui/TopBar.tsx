@@ -7,6 +7,7 @@
 // Phase 5. The `$` balance is the real wallet figure, untouched.
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuthStore } from '../../store/authStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { useGameStore } from '../../store/gameStore.ts';
@@ -120,10 +121,10 @@ export function TopBar() {
           >
             ⚙
           </button>
-          {menuOpen && (
+          {menuOpen && createPortal(
             <>
-              <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div role="menu" aria-label={t('topbar.settings')} className="absolute right-0 mt-2 w-44 z-40 panel-solid p-1.5 animate-pop">
+              <div className="fixed inset-0 z-[90]" onClick={() => setMenuOpen(false)} aria-hidden />
+              <div role="menu" aria-label={t('topbar.settings')} className="fixed right-3 top-16 w-44 z-[91] panel-solid p-1.5 animate-pop">
                 {user.role === 'admin' && (
                   <button
                     role="menuitem"
@@ -148,7 +149,8 @@ export function TopBar() {
                   {t('topbar.logout')}
                 </button>
               </div>
-            </>
+            </>,
+            document.body,
           )}
         </div>
       </div>

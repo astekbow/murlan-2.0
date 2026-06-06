@@ -472,7 +472,9 @@ select:focus-visible,
   /* Shrink seat footprint so 2v2 side seats clear the centre pile. */
   .av { width: 46px; height: 46px; font-size: 14px; border-width: 2px; }
   .seat-nm { max-width: 64px; font-size: 11px; }
-  .rail-inner { min-height: clamp(300px, 42vh, 400px); }
+  /* Slimmer rail/bumper on phones → more felt + room for the seats around the oval. */
+  .rail-outer { padding: 13px; border-radius: 104px / 34%; }
+  .rail-inner { min-height: clamp(300px, 42vh, 400px); border-radius: 96px / 30%; }
   .tlogo { font-size: 28px; letter-spacing: 4px; }
   /* 16px inputs stop iOS Safari from auto-zooming on focus (pinch-zoom is now allowed). */
   .field { font-size: 16px; }

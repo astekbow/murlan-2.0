@@ -487,6 +487,7 @@ const STRINGS: Record<string, Entry> = {
   'install.title': { sq: 'INSTALO APLIKACIONIN', en: 'INSTALL THE APP' },
   'install.subtitle': { sq: 'Luaj si aplikacion — në ekran të plotë, më shpejt.', en: 'Play as an app — full screen, faster.' },
   'install.cta': { sq: 'Instalo', en: 'Install' },
+  'install.iosHint': { sq: 'Shtyp butonin Share, pastaj “Add to Home Screen”.', en: 'Tap the Share button, then “Add to Home Screen”.' },
   'errboundary.title': { sq: 'Diçka shkoi keq', en: 'Something went wrong' },
   'errboundary.chunkBody': { sq: 'Aplikacioni u përditësua. Ringarkoje për të vazhduar.', en: 'The app was updated. Reload to continue.' },
   'errboundary.genericBody': { sq: 'Ndodhi një gabim i papritur. Ringarko faqen për të vazhduar.', en: 'An unexpected error occurred. Reload the page to continue.' },

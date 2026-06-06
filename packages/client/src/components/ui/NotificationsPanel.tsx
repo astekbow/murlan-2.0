@@ -4,6 +4,7 @@
 // mount. Visual only — never touches game/money state.
 
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNotifications } from '../../store/notificationsStore.ts';
 import type { NotifKind } from '../../store/notificationsStore.ts';
 import { useT, translate, useLangStore } from '../../lib/i18n.ts';
@@ -43,15 +44,17 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  return (
+  // Portaled to <body> so it floats above all page chrome (avoids being trapped
+  // behind the lobby's animated panels). Anchored top-right under the bell icon.
+  return createPortal(
     <>
-      {/* Full-screen click-catcher (same pattern as the gear menu in TopBar). */}
-      <div className="fixed inset-0 z-30" onClick={onClose} aria-hidden />
+      {/* Full-screen click-catcher. */}
+      <div className="fixed inset-0 z-[90]" onClick={onClose} aria-hidden />
 
       <div
         role="dialog"
         aria-label={t('notifs.ariaLabel')}
-        className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] z-40 panel-solid animate-pop overflow-hidden"
+        className="fixed right-3 top-16 w-80 max-w-[calc(100vw-1.5rem)] z-[91] panel-solid animate-pop overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10">
@@ -94,6 +97,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

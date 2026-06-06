@@ -38,3 +38,21 @@ export async function promptInstall(): Promise<void> {
 export function useCanInstall(): boolean {
   return useSyncExternalStore(subscribe, () => deferred !== null, () => false);
 }
+
+/** iOS (iPhone/iPad) — no `beforeinstallprompt`; installs via Share → Add to Home Screen. */
+export function isIos(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return (
+    /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && (navigator as unknown as { maxTouchPoints?: number }).maxTouchPoints! > 1)
+  );
+}
+
+/** Already launched as an installed PWA (so we shouldn't nag to install). */
+export function isStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia?.('(display-mode: standalone)').matches === true ||
+    (navigator as unknown as { standalone?: boolean }).standalone === true
+  );
+}
