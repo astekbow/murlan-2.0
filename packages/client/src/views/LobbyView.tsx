@@ -17,23 +17,50 @@ const TYPE_LABEL: Record<MatchType, string> = {
 };
 const TYPES: MatchType[] = ['1v1', '1v1v1', '2v2'];
 
-const RAIL: Array<{ icon: string; labelKey: string; badge: string | null; to: LobbyViewName | null }> = [
+interface RailItem { icon: string; labelKey: string; badge: string | null; to: LobbyViewName | null }
+// Split into two rails — 3 on the left, 3 on the right of the hero (desktop).
+// Support lives in the ⚙ settings menu now (not the rail).
+const RAIL_LEFT: RailItem[] = [
   { icon: '🏆', labelKey: 'nav.leaderboard', badge: null, to: 'leaderboard' },
   { icon: '👥', labelKey: 'nav.friends', badge: null, to: 'friends' },
   { icon: '🛡️', labelKey: 'nav.clubs', badge: null, to: 'clubs' },
+];
+const RAIL_RIGHT: RailItem[] = [
   { icon: '🎯', labelKey: 'nav.challenges', badge: null, to: 'rewards' },
   { icon: '🛍️', labelKey: 'nav.shop', badge: null, to: 'shop' },
   { icon: '♛', labelKey: 'nav.vip', badge: null, to: 'vip' },
-  { icon: '🛟', labelKey: 'nav.support', badge: null, to: 'support' },
 ];
 
 function scrollToRooms() {
   document.getElementById('rooms')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/** A vertical rail of nav icons (one on each side of the hero on desktop; wraps
+ *  into a row on mobile). `side` only controls the responsive ordering. */
+function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' }) {
+  const t = useT();
+  const setView = useUiStore((s) => s.setView);
+  return (
+    <nav className={`flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise ${side === 'left' ? 'order-2 md:order-1' : 'order-3'}`}>
+      {items.map((r) => (
+        <button
+          key={r.labelKey}
+          className="rail-item"
+          onClick={() => { sound.play('button'); if (r.to) setView(r.to); }}
+        >
+          <span className="rail-ic">
+            {r.icon}
+            {r.badge && <span className="badge">{r.badge}</span>}
+          </span>
+          <span className="rail-lbl">{t(r.labelKey)}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export function LobbyView() {
   const { lobby, live, createRoom, joinRoom, refreshLobby, findRanked, spectate } = useGameStore();
-  const setView = useUiStore((s) => s.setView);
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
   const t = useT();
 
@@ -51,27 +78,9 @@ export function LobbyView() {
     <div className="space-y-6">
       <h1 className="sr-only">{t('lobby.srTitle')}</h1>
       <InstallBanner />
-      {/* Menu: side rail + hero */}
-      <div className="grid gap-5 md:grid-cols-[76px_1fr] items-start">
-        {/* Side rail */}
-        <nav className="flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise order-2 md:order-1">
-          {RAIL.map((r) => (
-            <button
-              key={r.labelKey}
-              className="rail-item"
-              onClick={() => {
-                sound.play('button');
-                if (r.to) setView(r.to);
-              }}
-            >
-              <span className="rail-ic">
-                {r.icon}
-                {r.badge && <span className="badge">{r.badge}</span>}
-              </span>
-              <span className="rail-lbl">{t(r.labelKey)}</span>
-            </button>
-          ))}
-        </nav>
+      {/* Menu: 3 nav icons left · hero · 3 nav icons right (desktop). */}
+      <div className="grid gap-5 md:grid-cols-[64px_1fr_64px] items-start">
+        <RailNav items={RAIL_LEFT} side="left" />
 
         {/* Hero mode cards */}
         <div className="grid sm:grid-cols-2 gap-5 order-1 md:order-2">
@@ -97,6 +106,8 @@ export function LobbyView() {
             <div className="mcta">{t('lobby.tournCta')}</div>
           </button>
         </div>
+
+        <RailNav items={RAIL_RIGHT} side="right" />
       </div>
 
       {/* Ranked matchmaking — skill-matched, feeds the MMR ladder */}

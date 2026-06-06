@@ -434,7 +434,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!socket) return;
     const res = await request<Ack>(socket, 'game:switchGive', { card });
     if (res.ok) {
-      set((s) => ({ switchPrompt: null, switchPending: false, myHand: s.myHand.filter((c) => cardId(c) !== cardId(card)) }));
+      // Don't mutate the hand here. The authoritative `game:start` for the next game
+      // (with the 2-card swap already applied + re-sorted) sets the correct hand a
+      // moment later. Mutating optimistically flashed a half-updated, mis-ordered
+      // hand for that moment — which is the glitch players saw. Just close the prompt.
+      set({ switchPrompt: null, switchPending: false });
     } else {
       set({ toast: ackText(res.error, 'err.cardSwitchFailed'), toastKind: 'error' });
     }

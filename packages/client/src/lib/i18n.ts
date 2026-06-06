@@ -446,6 +446,7 @@ const STRINGS: Record<string, Entry> = {
   'topbar.notifications': { sq: 'Njoftimet', en: 'Notifications' },
   'topbar.settings': { sq: 'Cilësimet', en: 'Settings' },
   'topbar.adminPanel': { sq: 'Paneli i Adminit', en: 'Admin Panel' },
+  'topbar.support': { sq: 'Ndihmë', en: 'Support' },
   'topbar.logout': { sq: 'Dil', en: 'Log out' },
   'profile.title': { sq: 'Profili', en: 'Profile' },
   'profile.loading': { sq: 'Po ngarkohet…', en: 'Loading…' },

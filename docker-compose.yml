@@ -47,10 +47,12 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env (>=32 random chars, different from access)}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?set PAYMENT_WEBHOOK_SECRET in .env}
       REDIS_URL: redis://redis:6379
-      # Postgres is OPT-IN — the server runs in-memory unless DATABASE_URL is set.
-      # To enable Prisma/Postgres: set DATABASE_URL (e.g. postgres://murlan:murlan@postgres:5432/murlan)
-      # and apply the migration first: npm run db:migrate --workspace @murlan/server
-      DATABASE_URL: ${DATABASE_URL:-}
+      # Persistence ON by default → the bundled Postgres, so accounts/wallets SURVIVE
+      # restarts & redeploys (in-memory wiped them). Migrations auto-apply on boot
+      # (see Dockerfile.server). Override DATABASE_URL/DIRECT_URL in .env for an
+      # external DB (e.g. Supabase); set DATABASE_URL='' to force in-memory.
+      DATABASE_URL: ${DATABASE_URL-postgres://murlan:murlan@postgres:5432/murlan}
+      DIRECT_URL: ${DIRECT_URL-postgres://murlan:murlan@postgres:5432/murlan}
       RAKE_BPS: ${RAKE_BPS:-1000}
       # Compliance switches (off by default):
       KYC_REQUIRED: ${KYC_REQUIRED:-false}
@@ -63,6 +65,8 @@ services:
     ports: ['127.0.0.1:3000:3000']
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   client:

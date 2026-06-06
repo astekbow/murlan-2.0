@@ -33,4 +33,7 @@ EXPOSE 3100
 # ($PORT, default 3100) — shell form so the env var expands.
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT:-3100}/health" || exit 1
-CMD ["npm", "run", "start", "--workspace", "@murlan/server"]
+# Apply DB migrations on boot when a database is configured (idempotent — a no-op
+# if already applied), then start the server. With no DATABASE_URL the server runs
+# in-memory and the migrate step is skipped.
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy --schema packages/server/prisma/schema.prisma; fi; exec npm run start --workspace @murlan/server"]

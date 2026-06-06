@@ -143,6 +143,13 @@ export function TopBar() {
                 </button>
                 <button
                   role="menuitem"
+                  className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-white/5 text-muted"
+                  onClick={() => { setMenuOpen(false); setView('support'); }}
+                >
+                  {t('topbar.support')}
+                </button>
+                <button
+                  role="menuitem"
                   className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-white/5 text-suit"
                   onClick={() => { setMenuOpen(false); void logout(); }}
                 >
