@@ -2,7 +2,10 @@
 // by default; when DATABASE_URL is set it uses the Prisma-backed adapters that
 // implement the same repository interfaces, with $transaction for atomic money.
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Bundle the Alpine/musl engine (the Docker base) alongside the dev one, so the
+  // container never has to download an engine at runtime (it runs as non-root).
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

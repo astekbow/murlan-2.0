@@ -8,6 +8,10 @@
 # (Left as a floating tag here because this build env has no Docker to resolve it.)
 FROM node:22-alpine AS deps
 WORKDIR /app
+# Prisma needs openssl present to pick the correct engine for Alpine/musl (else it
+# guesses openssl-1.1.x and tries to download an engine at runtime — which fails as
+# the non-root user). Install it before npm ci so the engine fetch resolves right.
+RUN apk add --no-cache openssl
 # Install workspace deps using only the manifests first (better layer caching).
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/package.json
@@ -18,12 +22,15 @@ RUN npm ci
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+# openssl so Prisma detects the right engine at build AND runtime (see deps stage).
+RUN apk add --no-cache openssl
 # PORT must match EXPOSE + the HEALTHCHECK below (config.ts defaults to 3100). A
 # mismatch would make Docker probe the wrong port and falsely evict the container.
 ENV NODE_ENV=production PORT=3100
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Generate the Prisma client (used only when DATABASE_URL is set; harmless otherwise).
+# Generate the Prisma client + bundle the engines at build time (as root, writable)
+# so the non-root runtime never needs to download one.
 RUN npx prisma generate --schema packages/server/prisma/schema.prisma
 # Drop privileges: run as the built-in unprivileged `node` user, not root.
 # (The app writes nothing to disk; node only needs read access to /app.)
@@ -33,7 +40,8 @@ EXPOSE 3100
 # ($PORT, default 3100) — shell form so the env var expands.
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT:-3100}/health" || exit 1
-# Apply DB migrations on boot when a database is configured (idempotent — a no-op
-# if already applied), then start the server. With no DATABASE_URL the server runs
-# in-memory and the migrate step is skipped.
-CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy --schema packages/server/prisma/schema.prisma; fi; exec npm run start --workspace @murlan/server"]
+# Apply DB migrations on boot when a database is configured (idempotent), then start
+# the server. FAIL-FAST: if the migration fails, exit (the container restarts and
+# retries) rather than starting on an empty DB and 500-ing every query. With no
+# DATABASE_URL the server runs in-memory and the migrate step is skipped.
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy --schema packages/server/prisma/schema.prisma || exit 1; fi; exec npm run start --workspace @murlan/server"]
