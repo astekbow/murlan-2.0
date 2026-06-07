@@ -47,14 +47,22 @@ const usernameSchema = z
   .max(20, 'Përdoruesi nuk mund të kalojë 20 shkronja.')
   .regex(/^[a-zA-Z0-9_]+$/, 'Përdoruesi lejon vetëm shkronja, numra dhe nënvizë.');
 
+// Email is matched case-INSENSITIVELY: phone keyboards auto-capitalize, so a user
+// who registers as "Astek@x.com" must still log in typing "astek@x.com". Normalize
+// (trim + lowercase) on EVERY entry point so the stored value and lookups agree.
+const emailSchema = z
+  .string()
+  .email('Email i pavlefshëm.')
+  .transform((e) => e.trim().toLowerCase());
+
 const registerSchema = z.object({
   username: usernameSchema,
-  email: z.string().email('Email i pavlefshëm.'),
+  email: emailSchema,
   password: z.string().min(8, 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.'),
 });
 
 const loginSchema = z.object({
-  email: z.string().email('Email i pavlefshëm.'),
+  email: emailSchema,
   password: z.string().min(1, 'Fjalëkalimi mungon.'),
 });
 
@@ -244,7 +252,7 @@ export class AuthService {
 
   /** Email a password-reset link. ALWAYS succeeds silently (no account enumeration). */
   async requestPasswordReset(email: string): Promise<void> {
-    const parsed = z.string().email().safeParse(email);
+    const parsed = emailSchema.safeParse(email);
     if (!parsed.success) return;
     const user = await this.users.findByEmail(parsed.data);
     if (!user) return; // do not reveal whether the email exists

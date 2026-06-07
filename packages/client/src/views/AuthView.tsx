@@ -132,6 +132,12 @@ function Field({ label, value, onChange, type = 'text', autoComplete, required, 
         autoComplete={autoComplete}
         required={required}
         minLength={minLength}
+        // Stop mobile keyboards from auto-capitalizing/autocorrecting credentials
+        // (an auto-capped first letter in the email was breaking login).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        inputMode={type === 'email' ? 'email' : undefined}
         onChange={(e) => onChange(e.target.value)}
         className="field"
       />

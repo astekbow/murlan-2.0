@@ -35,7 +35,8 @@ export interface WalletRoutesDeps {
 // process than they're worth; max stops typo/oversized intents from being
 // recorded (then becoming un-creditable) AFTER the user has paid. Enforced at
 // the route so a bad amount is rejected before any intent/record is created.
-const MIN_DEPOSIT_CENTS = 100; // $1
+const MIN_DEPOSIT_CENTS = 1_000; // $10 — below this most crypto (esp. BTC) is under
+// the provider's per-coin minimum, so the checkout would just show "unavailable".
 const MAX_DEPOSIT_CENTS = 1_000_000_00; // $1,000,000
 const MIN_WITHDRAW_CENTS = 500; // $5
 const INTENT_TTL_MS = 72 * 60 * 60 * 1000; // a deposit intent is creditable for 72h
@@ -76,7 +77,7 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
       if (!verdict.allowed) return reply.code(403).send({ error: { code: verdict.code ?? 'compliance', message: verdict.message ?? 'Bllokuar.' } });
     }
     const parsed = depositSchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Shumë e pavlefshme.' } });
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Depozita minimale është 10 USD.' } });
     // Responsible-gaming daily deposit cap (self-imposed) — blocks before any
     // intent is created so the player never pays toward a deposit we'd reject.
     if (deps.rg) {

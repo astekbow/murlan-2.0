@@ -131,6 +131,8 @@ const STRINGS: Record<string, Entry> = {
   'wallet.cryptoNote': { sq: 'Dërgo VETËM monedhën e saktë në rrjetin përkatës. Bilanci kreditohet pas konfirmimit të transaksionit.', en: 'Send ONLY the matching coin on the matching network. Your balance is credited after the transaction is confirmed.' },
   'wallet.depositCrypto': { sq: 'Depozito me kripto', en: 'Deposit with crypto' },
   'wallet.cryptoRedirectNote': { sq: 'Do të çohesh te faqja e sigurt e pagesës për të zgjedhur monedhën (BTC, USDT…). Bilanci kreditohet automatikisht pas konfirmimit.', en: 'You’ll be taken to the secure payment page to pick a coin (BTC, USDT…). Your balance is credited automatically once confirmed.' },
+  'wallet.minDepositHint': { sq: 'Minimumi 10 USD. Për shuma të vogla përdor USDT (TRC-20) — tarifat më të ulëta. BTC ka minimum më të lartë.', en: 'Minimum $10. For small amounts use USDT (TRC-20) — lowest fees. BTC has a higher minimum.' },
+  'wallet.errMinDeposit': { sq: 'Depozita minimale është 10 USD.', en: 'The minimum deposit is $10.' },
   'wallet.withdraw': { sq: 'TËRHEQJE', en: 'WITHDRAW' },
   'wallet.addressDest': { sq: 'Adresa / destinacioni', en: 'Address / destination' },
   'wallet.addressPlaceholder': { sq: 'adresë kripto ose email PayPal', en: 'crypto address or PayPal email' },

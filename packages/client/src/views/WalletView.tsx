@@ -9,6 +9,10 @@ import { useT, translate, useLangStore } from '../lib/i18n.ts';
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
+// Minimum deposit (USD cents) — keep in sync with the server (walletRoutes). Below
+// this, most crypto is under the provider's per-coin minimum (the "unavailable" trap).
+const MIN_DEPOSIT_CENTS = 1_000; // $10
+
 export function WalletView() {
   const {
     balanceCents, transactions, withdrawals, profile, lastIntent, error, notice,
@@ -32,6 +36,9 @@ export function WalletView() {
     if (depositing) return;
     const cents = parseDollarsToCents(depositAmt);
     if (!cents || cents <= 0) { useWalletStore.setState({ error: tr('wallet.errAmountGt0') }); return; }
+    // Below the provider's per-coin minimum the checkout just shows "unavailable",
+    // so reject it here with a clear message instead.
+    if (cents < MIN_DEPOSIT_CENTS) { useWalletStore.setState({ error: tr('wallet.errMinDeposit') }); return; }
     setDepositing(true);
     const intent = await deposit(cents);
     setDepositing(false);
@@ -102,12 +109,13 @@ export function WalletView() {
         <div className="flex flex-wrap gap-3 items-end">
           <label className="flex-1">
             <span className="field-label">{t('wallet.amountUsd')}</span>
-            <input type="number" min="1" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
+            <input type="number" min="10" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
           </label>
           <button onClick={() => void onDeposit()} disabled={depositing} className="btn btn-gold w-full sm:w-auto">
             {depositing ? t('wallet.sending') : t('wallet.depositCrypto')}
           </button>
         </div>
+        <p className="text-[11px] text-muted/80">{t('wallet.minDepositHint')}</p>
         <p className="text-[11px] text-muted/80">{t('wallet.cryptoRedirectNote')}</p>
         {/* Dev/stub fallback: no hosted URL → show the raw (mock) address. */}
         {lastIntent && !/^https?:\/\//i.test(lastIntent.payAddress) && (
