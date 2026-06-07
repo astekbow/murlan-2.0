@@ -17,6 +17,8 @@ export function ClubsView() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [tag, setTag] = useState('');
+  const [priv, setPriv] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
   const [busy, setBusy] = useState(false);
 
   const token = () => useAuthStore.getState().accessToken;
@@ -66,6 +68,18 @@ export function ClubsView() {
             <button disabled={busy} onClick={() => void act(() => clubsApi.leave(token()!))} className="btn btn-danger">{t('clubs.leaveClub')}</button>
           </div>
           <div className="text-xs text-muted">{t('clubs.memberCount', { n: mine.memberCount })}</div>
+          {mine.private && mine.joinCode && (
+            <div className="rounded-xl px-4 py-3 border border-gold/40 bg-gold/[.06] text-center">
+              <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-0.5">{t('clubs.shareCode')}</div>
+              <button
+                onClick={() => { void navigator.clipboard?.writeText(mine.joinCode!).catch(() => {}); }}
+                className="font-mono text-2xl tracking-[0.35em] gold-text font-bold"
+                title={t('clubs.shareCodeHint')}
+              >
+                {mine.joinCode}
+              </button>
+            </div>
+          )}
           <ul className="space-y-2">
             {mine.members.map((m) => (
               <li key={m.userId} className="flex items-center gap-3 rounded-xl px-4 py-2.5 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
@@ -90,9 +104,32 @@ export function ClubsView() {
                 <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} placeholder="Murlan Masters" className="field" /></label>
               <label className="block"><span className="field-label">{t('clubs.tagLabel')}</span>
                 <input value={tag} onChange={(e) => setTag(e.target.value.toUpperCase().slice(0, 5))} maxLength={5} placeholder="MUR" className="field w-24 uppercase font-mono" /></label>
-              <button disabled={busy || name.trim().length < 3 || tag.trim().length < 2} onClick={() => void act(() => clubsApi.create(token()!, name.trim(), tag.trim()))} className="btn btn-gold">{t('clubs.create')}</button>
+              <button disabled={busy || name.trim().length < 3 || tag.trim().length < 2} onClick={() => void act(() => clubsApi.create(token()!, name.trim(), tag.trim(), priv))} className="btn btn-gold">{t('clubs.create')}</button>
             </div>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="w-4 h-4 accent-gold" />
+              <span className="text-sm text-txt">{t('clubs.privateClub')}</span>
+              <span className="text-[11px] text-muted/70">{t('clubs.privateHint')}</span>
+            </label>
             {error && <p className="text-xs text-red-300">{error}</p>}
+          </section>
+
+          {/* Join a PRIVATE club by its share code */}
+          <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('clubs.joinByCodeTitle')}</h2>
+            <div className="flex items-center gap-2">
+              <input
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                maxLength={6}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder={t('clubs.codePlaceholder')}
+                className="field flex-1 tracking-[0.3em] font-mono uppercase"
+              />
+              <button disabled={busy || codeInput.trim().length < 4} onClick={() => void act(() => clubsApi.joinByCode(token()!, codeInput.trim()))} className="btn btn-ghost shrink-0">{t('clubs.join')}</button>
+            </div>
           </section>
 
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.1s' }}>

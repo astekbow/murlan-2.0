@@ -5,6 +5,8 @@
 // also seats the founder. Interface + in-memory impl (Prisma mirrors it).
 // ============================================================================
 
+import { randomBytes } from 'node:crypto';
+
 export type ClubRole = 'founder' | 'member';
 
 export interface Club {
@@ -13,6 +15,17 @@ export interface Club {
   tag: string;
   founderId: string;
   createdAt: number;
+  private: boolean;        // hidden from the public club list; join by code only
+  joinCode: string | null; // share code for a private club
+}
+
+// Unambiguous code alphabet (no 0/O/1/I/L) for shareable private-club codes.
+const CLUB_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export function genClubCode(): string {
+  const b = randomBytes(6);
+  let s = '';
+  for (let i = 0; i < 6; i++) s += CLUB_CODE_ALPHABET[b[i]! % CLUB_CODE_ALPHABET.length];
+  return s;
 }
 
 export interface ClubMember {
@@ -26,6 +39,7 @@ export interface NewClub {
   name: string;
   tag: string;
   founderId: string;
+  private?: boolean;
 }
 
 /** Thrown when a club tag collides (unique). */
@@ -38,6 +52,7 @@ export interface ClubRepository {
   createClub(c: NewClub): Promise<Club>;
   getClub(id: string): Promise<Club | null>;
   getByTag(tag: string): Promise<Club | null>;
+  getByCode(code: string): Promise<Club | null>;
   listClubs(limit: number): Promise<Array<Club & { memberCount: number }>>;
   deleteClub(id: string): Promise<void>;
   setFounder(clubId: string, founderId: string): Promise<void>;
@@ -58,7 +73,8 @@ export class InMemoryClubRepository implements ClubRepository {
     const tag = c.tag.toUpperCase();
     for (const cl of this.clubs.values()) if (cl.tag === tag) throw new DuplicateClubTagError();
     this.seq += 1;
-    const club: Club = { id: `club_${this.seq}`, name: c.name, tag, founderId: c.founderId, createdAt: Date.now() };
+    const isPrivate = !!c.private;
+    const club: Club = { id: `club_${this.seq}`, name: c.name, tag, founderId: c.founderId, createdAt: Date.now(), private: isPrivate, joinCode: isPrivate ? genClubCode() : null };
     this.clubs.set(club.id, club);
     this.members.set(c.founderId, { userId: c.founderId, clubId: club.id, role: 'founder', joinedAt: Date.now() });
     return { ...club };
@@ -72,10 +88,17 @@ export class InMemoryClubRepository implements ClubRepository {
     for (const c of this.clubs.values()) if (c.tag === up) return { ...c };
     return null;
   }
+  async getByCode(code: string): Promise<Club | null> {
+    const up = code.trim().toUpperCase();
+    if (!up) return null;
+    for (const c of this.clubs.values()) if (c.private && c.joinCode === up) return { ...c };
+    return null;
+  }
   async listClubs(limit: number): Promise<Array<Club & { memberCount: number }>> {
     const counts = new Map<string, number>();
     for (const m of this.members.values()) counts.set(m.clubId, (counts.get(m.clubId) ?? 0) + 1);
     return [...this.clubs.values()]
+      .filter((c) => !c.private) // private clubs are not listed publicly
       .map((c) => ({ ...c, memberCount: counts.get(c.id) ?? 0 }))
       .sort((a, b) => b.memberCount - a.memberCount || b.createdAt - a.createdAt)
       .slice(0, Math.max(0, limit));

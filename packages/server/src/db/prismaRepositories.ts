@@ -31,7 +31,7 @@ import type { SuspicionRepository, SuspicionFlag, NewSuspicionFlag } from '../an
 import type { PushSubscriptionRepository, PushSubscriptionRecord } from '../push/pushRepository.ts';
 import type { WebPushSubscription } from '../push/pushProvider.ts';
 import type { ChatRepository, ChatMessageRecord, ChatReportRecord } from '../chat/chatRepository.ts';
-import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError } from '../social/clubRepository.ts';
+import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError, genClubCode } from '../social/clubRepository.ts';
 import type { Card } from '@murlan/engine';
 import type { MatchType } from '@murlan/shared';
 
@@ -787,7 +787,7 @@ export class PrismaChat implements ChatRepository {
 }
 
 function toClub(row: any): Club {
-  return { id: row.id, name: row.name, tag: row.tag, founderId: row.founderId, createdAt: ms(row.createdAt) };
+  return { id: row.id, name: row.name, tag: row.tag, founderId: row.founderId, createdAt: ms(row.createdAt), private: !!row.private, joinCode: row.joinCode ?? null };
 }
 function toMember(row: any): ClubMember {
   return { userId: row.userId, clubId: row.clubId, role: row.role as ClubRole, joinedAt: ms(row.joinedAt) };
@@ -797,9 +797,10 @@ export class PrismaClubs implements ClubRepository {
   constructor(private readonly db: PrismaClient) {}
 
   async createClub(c: NewClub): Promise<Club> {
+    const isPrivate = !!c.private;
     try {
       const row = await this.db.club.create({
-        data: { name: c.name, tag: c.tag.toUpperCase(), founderId: c.founderId, members: { create: { userId: c.founderId, role: 'founder' } } },
+        data: { name: c.name, tag: c.tag.toUpperCase(), founderId: c.founderId, private: isPrivate, joinCode: isPrivate ? genClubCode() : null, members: { create: { userId: c.founderId, role: 'founder' } } },
       });
       return toClub(row);
     } catch (e: any) {
@@ -815,8 +816,15 @@ export class PrismaClubs implements ClubRepository {
     const row = await this.db.club.findUnique({ where: { tag: tag.toUpperCase() } });
     return row ? toClub(row) : null;
   }
+  async getByCode(code: string): Promise<Club | null> {
+    const up = code.trim().toUpperCase();
+    if (!up) return null;
+    const row = await this.db.club.findFirst({ where: { private: true, joinCode: up } });
+    return row ? toClub(row) : null;
+  }
   async listClubs(limit: number): Promise<Array<Club & { memberCount: number }>> {
     const rows = await this.db.club.findMany({
+      where: { private: false }, // private clubs are not listed publicly
       orderBy: { members: { _count: 'desc' } },
       take: Math.max(0, limit),
       include: { _count: { select: { members: true } } },

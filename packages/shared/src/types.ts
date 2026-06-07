@@ -318,6 +318,8 @@ export interface ClubSummaryDTO {
 
 export interface ClubDetailDTO extends ClubSummaryDTO {
   members: ClubMemberDTO[];
+  private?: boolean;
+  joinCode?: string | null; // members see it so they can share/invite friends
 }
 
 // ---------- Errors -----------------------------------------------------------

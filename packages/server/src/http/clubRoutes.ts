@@ -18,6 +18,7 @@ export interface ClubRoutesDeps {
 const createSchema = z.object({
   name: z.string().trim().min(3).max(32),
   tag: z.string().trim().min(2).max(5),
+  private: z.boolean().optional(),
 });
 const reportSchema = z.object({ reason: z.string().trim().min(1).max(280) });
 const founderMuteSchema = z.object({
@@ -58,7 +59,7 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna klubi të pavlefshme.' } });
     try {
-      return reply.code(201).send({ club: await clubs.create(caller.userId, parsed.data.name, parsed.data.tag) });
+      return reply.code(201).send({ club: await clubs.create(caller.userId, parsed.data.name, parsed.data.tag, !!parsed.data.private) });
     } catch (e) {
       return fail(reply, e);
     }
@@ -69,6 +70,19 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
     if (!caller) return;
     try {
       return reply.send({ club: await clubs.join(caller.userId, (req.params as { id: string }).id) });
+    } catch (e) {
+      return fail(reply, e);
+    }
+  });
+
+  // Join a PRIVATE club by its share code.
+  app.post('/api/clubs/joinByCode', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const code = (req.body as { code?: unknown } | undefined)?.code;
+    if (typeof code !== 'string' || code.trim().length < 4) return reply.code(400).send({ error: { code: 'validation', message: 'Kod i pavlefshëm.' } });
+    try {
+      return reply.send({ club: await clubs.joinByCode(caller.userId, code) });
     } catch (e) {
       return fail(reply, e);
     }

@@ -36,7 +36,7 @@ export class ClubService {
         return { userId: m.userId, username: u?.username ?? '—', avatar: u?.avatar ?? null, role: m.role as ClubRoleDTO };
       }),
     );
-    return { ...this.summary(c, rows.length), members };
+    return { ...this.summary(c, rows.length), members, private: c.private, joinCode: c.joinCode };
   }
 
   async listClubs(): Promise<ClubSummaryDTO[]> {
@@ -56,13 +56,13 @@ export class ClubService {
     return c ? this.detail(c) : null;
   }
 
-  async create(userId: string, name: string, tag: string): Promise<ClubDetailDTO> {
+  async create(userId: string, name: string, tag: string, priv = false): Promise<ClubDetailDTO> {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const trimmed = name.trim();
     if (!NAME_RE.test(trimmed)) throw new ClubError('bad_name', 'Emër klubi i pavlefshëm (3–32 shkronja).');
     if (!TAG_RE.test(tag)) throw new ClubError('bad_tag', 'Etiketë e pavlefshme (2–5 shkronja/numra).');
     try {
-      const c = await this.clubs.createClub({ name: trimmed, tag: tag.toUpperCase(), founderId: userId });
+      const c = await this.clubs.createClub({ name: trimmed, tag: tag.toUpperCase(), founderId: userId, private: priv });
       return this.detail(c);
     } catch (e) {
       if (e instanceof DuplicateClubTagError) throw new ClubError('tag_taken', 'Kjo etiketë është e zënë.');
@@ -74,7 +74,18 @@ export class ClubService {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const c = await this.clubs.getClub(clubId);
     if (!c) throw new ClubError('no_club', 'Klubi nuk ekziston.');
+    // A private club can't be joined by id from the public path — only by its code.
+    if (c.private) throw new ClubError('no_club', 'Klubi nuk ekziston.');
     await this.clubs.addMember({ userId, clubId, role: 'member' });
+    return this.detail(c);
+  }
+
+  /** Join a PRIVATE club by its share code. */
+  async joinByCode(userId: string, code: string): Promise<ClubDetailDTO> {
+    if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
+    const c = await this.clubs.getByCode(code);
+    if (!c) throw new ClubError('no_club', 'Kodi i klubit nuk u gjet.');
+    await this.clubs.addMember({ userId, clubId: c.id, role: 'member' });
     return this.detail(c);
   }
 

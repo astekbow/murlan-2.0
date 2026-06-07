@@ -419,6 +419,8 @@ model Club {
   tag       String   @unique // short uppercase tag shown by names, e.g. MUR
   founderId String
   createdAt DateTime @default(now())
+  private   Boolean  @default(false) // hidden from the public list; join by code only
+  joinCode  String?  // share code for a private club
 
   members ClubMember[]
   // FK so a club always points at a real founder. Restrict: a user who founded a
