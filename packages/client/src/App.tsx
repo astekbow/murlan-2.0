@@ -33,6 +33,7 @@ const RewardsView = lazyWithRetry(() => import('./views/RewardsView.tsx').then((
 const SupportView = lazyWithRetry(() => import('./views/SupportView.tsx').then((m) => ({ default: m.SupportView })));
 const VipView = lazyWithRetry(() => import('./views/VipView.tsx').then((m) => ({ default: m.VipView })));
 const ClubsView = lazyWithRetry(() => import('./views/ClubsView.tsx').then((m) => ({ default: m.ClubsView })));
+const TournamentsView = lazyWithRetry(() => import('./views/TournamentsView.tsx').then((m) => ({ default: m.TournamentsView })));
 const ReplayView = lazyWithRetry(() => import('./views/ReplayView.tsx').then((m) => ({ default: m.ReplayView })));
 const SpectateView = lazyWithRetry(() => import('./views/SpectateView.tsx').then((m) => ({ default: m.SpectateView })));
 
@@ -150,6 +151,7 @@ export function App() {
   else if (lobbyView === 'support') body = <Shell><SupportView /></Shell>;
   else if (lobbyView === 'vip') body = <Shell><VipView /></Shell>;
   else if (lobbyView === 'clubs') body = <Shell><ClubsView /></Shell>;
+  else if (lobbyView === 'tournaments') body = <Shell><TournamentsView /></Shell>;
   else body = <Shell><LobbyView /></Shell>;
 
   return (

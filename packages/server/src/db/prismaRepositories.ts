@@ -32,6 +32,7 @@ import type { PushSubscriptionRepository, PushSubscriptionRecord } from '../push
 import type { WebPushSubscription } from '../push/pushProvider.ts';
 import type { ChatRepository, ChatMessageRecord, ChatReportRecord } from '../chat/chatRepository.ts';
 import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError, genClubCode } from '../social/clubRepository.ts';
+import type { TournamentRepository, Tournament, BracketMatch } from '../tournament/tournamentService.ts';
 import type { Card } from '@murlan/engine';
 import type { MatchType } from '@murlan/shared';
 
@@ -891,8 +892,39 @@ export interface PrismaStores {
   pushSubscriptions: PrismaPushSubscriptions;
   chat: PrismaChat;
   clubs: PrismaClubs;
+  tournaments: PrismaTournaments;
   verificationTokens: PrismaVerificationTokens;
   uow: PrismaUnitOfWork;
+}
+
+export class PrismaTournaments implements TournamentRepository {
+  constructor(private readonly db: PrismaClient) {}
+  private map(row: any): Tournament {
+    return {
+      id: row.id, name: row.name, buyInCents: row.buyInCents, capacity: row.capacity,
+      status: row.status, playerIds: (row.playerIds as string[]) ?? [], bracket: (row.bracket as BracketMatch[]) ?? [],
+      prizePoolCents: row.prizePoolCents, rakeBps: row.rakeBps, winnerId: row.winnerId ?? null, createdAt: ms(row.createdAt),
+    };
+  }
+  async create(t: Tournament): Promise<void> {
+    await this.db.tournament.create({
+      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId },
+    });
+  }
+  async get(id: string): Promise<Tournament | null> {
+    const row = await this.db.tournament.findUnique({ where: { id } });
+    return row ? this.map(row) : null;
+  }
+  async list(): Promise<Tournament[]> {
+    const rows = await this.db.tournament.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
+    return rows.map((r: any) => this.map(r));
+  }
+  async save(t: Tournament): Promise<void> {
+    await this.db.tournament.update({
+      where: { id: t.id },
+      data: { status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, winnerId: t.winnerId },
+    });
+  }
 }
 
 export function createPrismaStores(db: PrismaClient): PrismaStores {
@@ -913,6 +945,7 @@ export function createPrismaStores(db: PrismaClient): PrismaStores {
     pushSubscriptions: new PrismaPushSubscriptions(db),
     chat: new PrismaChat(db),
     clubs: new PrismaClubs(db),
+    tournaments: new PrismaTournaments(db),
     verificationTokens: new PrismaVerificationTokens(db),
     uow: new PrismaUnitOfWork(db),
   };

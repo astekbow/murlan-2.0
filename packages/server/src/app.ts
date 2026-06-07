@@ -76,6 +76,8 @@ import { ClubService } from './social/clubService.ts';
 import { InMemoryChatRepository, type ChatRepository } from './chat/chatRepository.ts';
 import { ChatService } from './chat/chatService.ts';
 import { clubRoutes } from './http/clubRoutes.ts';
+import { tournamentRoutes } from './http/tournamentRoutes.ts';
+import { TournamentService, InMemoryTournamentRepository, type TournamentRepository, type TournamentWallet } from './tournament/tournamentService.ts';
 
 export interface HttpDeps {
   auth: AuthService;
@@ -88,6 +90,7 @@ export interface HttpDeps {
   rg?: ResponsibleGamingService;
   vip?: VipService;
   clubs?: ClubService;
+  tournaments?: TournamentService;
   chat?: ChatService;
   rooms?: RoomManager;
   profiles?: ProfileService;
@@ -192,6 +195,9 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   if (deps.clubs) {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
   }
+  if (deps.tournaments) {
+    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments });
+  }
   if (deps.antiCheat) {
     // Admin-only review list of anti-collusion/anti-bot heuristic flags (never auto-action).
     const adminGuard = requireAdmin(deps.auth);
@@ -269,6 +275,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   let pushSubsRepo: PushSubscriptionRepository;
   let chatRepo: ChatRepository;
   let clubsRepo: ClubRepository;
+  let tournamentsRepo: TournamentRepository;
   let seasonsRepo: SeasonRepository;
   let verificationTokensRepo: VerificationTokenRepository;
   let uow: UnitOfWork | undefined; // transactional wrapper for credit/debit (Prisma only)
@@ -302,6 +309,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     pushSubsRepo = stores.pushSubscriptions;
     chatRepo = stores.chat;
     clubsRepo = stores.clubs;
+    tournamentsRepo = stores.tournaments;
     seasonsRepo = stores.seasons;
     verificationTokensRepo = stores.verificationTokens;
     uow = stores.uow; // Postgres: credit/debit run in one $transaction
@@ -321,6 +329,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     pushSubsRepo = new InMemoryPushSubscriptions();
     chatRepo = new InMemoryChatRepository();
     clubsRepo = new InMemoryClubRepository();
+    tournamentsRepo = new InMemoryTournamentRepository();
     seasonsRepo = new InMemorySeasonRepository();
     verificationTokensRepo = new InMemoryVerificationTokens();
   }
@@ -393,6 +402,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const push = new PushService(pushSubsRepo, new ConsolePushProvider());
   const vip = new VipService(wallet);
   const clubs = new ClubService(clubsRepo, repo);
+  // Tournaments: buy-in escrow + prize payout reuse the proven wallet money paths.
+  // Credits carry the reason as a unique providerRef → idempotent (no double-pay).
+  const tournamentWallet: TournamentWallet = {
+    async debit(userId, cents, reason) { await wallet.debit(userId, cents, { type: 'bet', reason }); },
+    async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
+    async recordRake(cents, ref) { await wallet.recordRake(cents, { providerRef: ref }); },
+  };
+  const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps);
   // Club chat + moderation. Membership-gated + mute-aware + abuse reports.
   // Foundation ships ON; review moderation POLICY before broad public promotion.
   const chat = new ChatService(chatRepo, clubs);
@@ -403,7 +420,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const drainState = { active: false };
   const isDraining = () => drainState.active;
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, chat, rooms, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

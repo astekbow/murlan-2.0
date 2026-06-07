@@ -31,10 +31,6 @@ const RAIL_RIGHT: RailItem[] = [
   { icon: '♛', labelKey: 'nav.vip', badge: null, to: 'vip' },
 ];
 
-function scrollToRooms() {
-  document.getElementById('rooms')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 /** A vertical rail of nav icons (one on each side of the hero on desktop; wraps
  *  into a row on mobile). `side` only controls the responsive ordering. */
 function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' }) {
@@ -62,6 +58,7 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
 export function LobbyView() {
   const { lobby, live, createRoom, joinRoom, joinByCode, refreshLobby, findRanked, spectate } = useGameStore();
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
+  const setView = useUiStore((s) => s.setView);
   const t = useT();
 
   const [quickOpen, setQuickOpen] = useState(false);
@@ -103,7 +100,7 @@ export function LobbyView() {
             <div className="mcta">{t('lobby.quickCta')}</div>
           </button>
 
-          <button className="mode tourn animate-rise text-inherit" style={{ animationDelay: '.15s' }} onClick={() => { sound.play('button'); scrollToRooms(); }}>
+          <button className="mode tourn animate-rise text-inherit" style={{ animationDelay: '.15s' }} onClick={() => { sound.play('button'); setView('tournaments'); }}>
             <div className="art" />
             <div className="motif">
               <div className="pcard"><span className="pr">K♠</span><span className="pb">♠</span></div>

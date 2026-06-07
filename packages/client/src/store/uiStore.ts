@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** Top-level view selection while in the lobby area (outside a room). */
-export type LobbyView = 'lobby' | 'wallet' | 'admin' | 'leaderboard' | 'friends' | 'shop' | 'rewards' | 'support' | 'vip' | 'clubs';
+export type LobbyView = 'lobby' | 'wallet' | 'admin' | 'leaderboard' | 'friends' | 'shop' | 'rewards' | 'support' | 'vip' | 'clubs' | 'tournaments';
 
 interface UiStore {
   view: LobbyView;

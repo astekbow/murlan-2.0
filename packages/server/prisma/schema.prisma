@@ -508,3 +508,22 @@ model UserSeason {
   @@index([userId])
   @@map("user_seasons")
 }
+
+// Single-elimination, real-money tournament. playerIds + bracket are stored as JSON
+// so escrowed buy-ins + bracket state SURVIVE a restart (money-critical).
+model Tournament {
+  id             String   @id
+  name           String
+  buyInCents     Int
+  capacity       Int
+  status         String   @default("registering") // registering|running|finished|cancelled
+  playerIds      Json     @default("[]")
+  bracket        Json     @default("[]")
+  prizePoolCents Int      @default(0)
+  rakeBps        Int
+  winnerId       String?
+  createdAt      DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@map("tournaments")
+}

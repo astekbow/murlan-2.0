@@ -163,7 +163,7 @@ export class TournamentService {
     const t = await this.repo.get(tournamentId);
     if (!t) throw new TournamentError('not_found', 'Turneu nuk u gjet.');
     if (t.status !== 'registering') throw new TournamentError('not_cancellable', 'Vetëm turne në regjistrim mund të anulohen.');
-    if (t.buyInCents > 0) for (const uid of t.playerIds) await this.wallet.credit(uid, t.buyInCents, `tournament refund:${t.id}`);
+    if (t.buyInCents > 0) for (const uid of t.playerIds) await this.wallet.credit(uid, t.buyInCents, `tournament refund:${t.id}:${uid}`);
     t.status = 'cancelled';
     t.prizePoolCents = 0;
     await this.repo.save(t);

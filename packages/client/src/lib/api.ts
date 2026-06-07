@@ -389,5 +389,23 @@ export const adminApi = {
   revenue: (token: string) => request<{ totalRakeCents: number; rakeCount: number }>('/admin/revenue', { token }),
 };
 
+// ----- Tournaments ---------------------------------------------------------
+export interface BracketMatchDTO { round: number; index: number; aUserId: string | null; bUserId: string | null; winnerId: string | null }
+export interface TournamentDTO {
+  id: string; name: string; buyInCents: number; capacity: number;
+  status: 'registering' | 'running' | 'finished' | 'cancelled';
+  playerIds: string[]; bracket: BracketMatchDTO[]; prizePoolCents: number; winnerId: string | null; createdAt: number;
+}
+export const tournamentsApi = {
+  list: (token: string) => request<{ tournaments: TournamentDTO[] }>('/tournaments', { token }),
+  get: (token: string, id: string) => request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}`, { token }),
+  register: (token: string, id: string) => request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}/register`, { method: 'POST', token }),
+  create: (token: string, name: string, buyInCents: number, capacity: 2 | 4 | 8) =>
+    request<{ tournament: TournamentDTO }>('/tournaments', { method: 'POST', token, body: { name, buyInCents, capacity } }),
+  report: (token: string, id: string, round: number, index: number, winnerId: string) =>
+    request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}/report`, { method: 'POST', token, body: { round, index, winnerId } }),
+  cancel: (token: string, id: string) => request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}/cancel`, { method: 'POST', token }),
+};
+
 // Re-export so the lobby create form can type its stake/room-type field.
 export type { MatchType };
