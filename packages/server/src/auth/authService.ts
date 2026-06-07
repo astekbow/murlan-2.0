@@ -234,11 +234,16 @@ export class AuthService {
     if (!user || user.emailVerified) return;
     const raw = generateRawToken();
     await this.verificationTokens.create({ userId, type: 'email_verify', tokenHash: hashToken(raw), expiresAt: this.now() + EMAIL_VERIFY_TTL_MS });
-    await this.email.send({
-      to: user.email,
-      subject: 'Verifiko email-in — Murlan',
-      text: `Përshëndetje ${user.username},\n\nKonfirmo email-in tënd:\n${this.appUrl}/?verifyEmail=${raw}\n\nLidhja skadon për 24 orë.`,
-    });
+    try {
+      await this.email.send({
+        to: user.email,
+        subject: 'Verifiko email-in — Murlan',
+        text: `Përshëndetje ${user.username},\n\nKonfirmo email-in tënd:\n${this.appUrl}/?verifyEmail=${raw}\n\nLidhja skadon për 24 orë.`,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[auth] verification email send failed:', err);
+    }
   }
 
   /** Confirm a verification token; returns true on success. */
@@ -258,11 +263,18 @@ export class AuthService {
     if (!user) return; // do not reveal whether the email exists
     const raw = generateRawToken();
     await this.verificationTokens.create({ userId: user.id, type: 'password_reset', tokenHash: hashToken(raw), expiresAt: this.now() + PASSWORD_RESET_TTL_MS });
-    await this.email.send({
-      to: user.email,
-      subject: 'Rivendos fjalëkalimin — Murlan',
-      text: `Përshëndetje ${user.username},\n\nRivendos fjalëkalimin:\n${this.appUrl}/?resetPassword=${raw}\n\nLidhja skadon për 1 orë. Nëse nuk e kërkove ti, injoroje.`,
-    });
+    try {
+      await this.email.send({
+        to: user.email,
+        subject: 'Rivendos fjalëkalimin — Murlan',
+        text: `Përshëndetje ${user.username},\n\nRivendos fjalëkalimin:\n${this.appUrl}/?resetPassword=${raw}\n\nLidhja skadon për 1 orë. Nëse nuk e kërkove ti, injoroje.`,
+      });
+    } catch (err) {
+      // Best-effort: a mail-provider failure must NOT 500 the route (and must not
+      // reveal that the email exists). The token is stored; the user can retry.
+      // eslint-disable-next-line no-console
+      console.error('[auth] password-reset email send failed:', err);
+    }
   }
 
   /** Reset the password with a valid token; revokes all existing sessions. */

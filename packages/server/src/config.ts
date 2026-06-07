@@ -31,6 +31,8 @@ const schema = z.object({
   NOWPAYMENTS_API_KEY: z.string().optional(),  // set both API_KEY + IPN_SECRET to enable real crypto deposits
   NOWPAYMENTS_IPN_SECRET: z.string().optional(),
   NOWPAYMENTS_SANDBOX: z.string().optional(), // 'true' → use the NOWPayments sandbox API (test payments)
+  RESEND_API_KEY: z.string().optional(),       // set to send real reset/verification emails via Resend
+  EMAIL_FROM: z.string().optional(),           // sender, e.g. "Murlan <noreply@yourdomain.com>"
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -63,6 +65,8 @@ export interface AppConfig {
   nowPaymentsApiKey: string | null;
   nowPaymentsIpnSecret: string | null;
   nowPaymentsSandbox: boolean;
+  resendApiKey: string | null;
+  emailFrom: string;
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -136,6 +140,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nowPaymentsApiKey: parsed.NOWPAYMENTS_API_KEY || null,
     nowPaymentsIpnSecret: parsed.NOWPAYMENTS_IPN_SECRET || null,
     nowPaymentsSandbox: isTrue(parsed.NOWPAYMENTS_SANDBOX),
+    resendApiKey: parsed.RESEND_API_KEY || null,
+    emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,

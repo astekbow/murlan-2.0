@@ -45,7 +45,8 @@ import { InMemoryMatchesRepository, type MatchesRepository } from './money/match
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
 import { NowPaymentsProvider } from './money/nowPaymentsProvider.ts';
-import { ConsoleEmailProvider } from './email/emailProvider.ts';
+import { ConsoleEmailProvider, type EmailProvider } from './email/emailProvider.ts';
+import { ResendEmailProvider } from './email/resendEmailProvider.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -331,7 +332,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // staging/demo escape: it permits the stubs in prod (keeping every other prod
   // protection) so the app can be deployed WITHOUT payment/email integration —
   // NEVER set it for a real-money instance.
-  const email = new ConsoleEmailProvider();
+  // Real email (Resend) when configured, else the console stub.
+  const email: EmailProvider = config.resendApiKey
+    ? new ResendEmailProvider(config.resendApiKey, config.emailFrom)
+    : new ConsoleEmailProvider();
   // Real crypto deposits when NOWPayments is configured (env), else the stub.
   const provider: PaymentProvider =
     config.nowPaymentsApiKey && config.nowPaymentsIpnSecret

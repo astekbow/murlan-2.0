@@ -51,6 +51,11 @@ services:
       NOWPAYMENTS_API_KEY: ${NOWPAYMENTS_API_KEY:-}
       NOWPAYMENTS_IPN_SECRET: ${NOWPAYMENTS_IPN_SECRET:-}
       NOWPAYMENTS_SANDBOX: ${NOWPAYMENTS_SANDBOX:-}  # 'true' to test with the NOWPayments sandbox
+      # Real reset/verification emails via Resend. Set RESEND_API_KEY to enable.
+      # EMAIL_FROM must be on a domain verified in Resend; leave blank to use Resend's
+      # test sender (delivers ONLY to your own Resend account email).
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
       REDIS_URL: redis://redis:6379
       # Persistence ON by default → the bundled Postgres, so accounts/wallets SURVIVE
       # restarts & redeploys (in-memory wiped them). Migrations auto-apply on boot
