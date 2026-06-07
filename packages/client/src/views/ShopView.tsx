@@ -6,6 +6,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useCosmeticsStore } from '../store/cosmeticsStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
+import { dollars } from '../lib/money.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
@@ -15,12 +16,13 @@ const GROUPS: ReadonlyArray<{ type: CosmeticType; title: string; icon: string }>
 ];
 
 function costLabel(cost: number): string {
-  return cost === 0 ? tr('shop.free') : `${cost} XP`;
+  return cost === 0 ? tr('shop.free') : dollars(cost);
 }
 
 export function ShopView() {
   const t = useT();
   const setView = useUiStore((s) => s.setView);
+  const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
 
   const [status, setStatus] = useState<RewardsStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,9 +98,9 @@ export function ShopView() {
         </div>
         {status && (
           <div className="text-right">
-            <div className="text-[11px] uppercase tracking-wider text-muted/70">{t('shop.yourXp')}</div>
+            <div className="text-[11px] uppercase tracking-wider text-muted/70">{t('shop.yourBalance')}</div>
             <div className="font-display font-semibold tracking-wide text-gold-hi text-2xl leading-none">
-              {status.xp} XP
+              {dollars(balanceCents)}
             </div>
           </div>
         )}
@@ -143,7 +145,7 @@ export function ShopView() {
               <ul className="space-y-2.5">
                 {items.map((item) => {
                   const isEquipped = status.equipped[item.type] === item.id;
-                  const canAfford = status.xp >= item.cost;
+                  const canAfford = balanceCents >= item.cost;
                   const busy = busyId === item.id;
                   return (
                     <li
@@ -187,7 +189,7 @@ export function ShopView() {
                             onClick={() => void buy(item)}
                             disabled={busy || !canAfford}
                             className="btn btn-gold"
-                            title={!canAfford ? t('shop.notEnoughXp') : undefined}
+                            title={!canAfford ? t('shop.notEnoughBalance') : undefined}
                           >
                             {busy ? t('shop.buying') : t('shop.buy')}
                           </button>

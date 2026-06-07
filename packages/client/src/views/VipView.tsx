@@ -8,8 +8,6 @@ import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
 import { useT } from '../lib/i18n.ts';
 
-const rakeback = (bps: number): string => (bps === 0 ? '—' : `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%`);
-
 function Badge({ tier, size = 'md' }: { tier: VipTierInfo; size?: 'sm' | 'md' }) {
   const pad = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-sm';
   return (
@@ -82,7 +80,6 @@ export function VipView() {
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.1s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('vip.tiersTitle')}</h2>
-              <span className="text-xs text-muted">{t('vip.rakebackSoon')}</span>
             </div>
             <ul className="space-y-2.5">
               {tiers.map((t2) => {
@@ -92,12 +89,11 @@ export function VipView() {
                     <Badge tier={t2} size="sm" />
                     {isMine && <span className="tag tag-open">{t('vip.you')}</span>}
                     <span className="text-xs text-muted ml-auto">{t('vip.from')} {dollars(t2.minStakedCents)}</span>
-                    <span className="font-display font-semibold tracking-wide text-gold-hi w-16 text-right">{rakeback(t2.rakebackBps)}</span>
                   </li>
                 );
               })}
             </ul>
-            <p className="text-[11px] text-muted/70 mt-3">{t('vip.rakebackNote')}</p>
+            <p className="text-[11px] text-muted/70 mt-3">{t('vip.statusNote')}</p>
           </section>
         </>
       )}

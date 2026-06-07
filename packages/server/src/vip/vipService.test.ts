@@ -33,7 +33,6 @@ test('getStatus derives tier + progress from the ledger', async () => {
   const s = await vip.getStatus(u.id);
   assert.equal(s.stakedCents, 12_000);
   assert.equal(s.tier.key, 'bronze');
-  assert.equal(s.tier.rakebackBps, 50);
   assert.equal(s.next!.key, 'silver');
   assert.equal(s.toNextCents, 100_000 - 12_000);
 

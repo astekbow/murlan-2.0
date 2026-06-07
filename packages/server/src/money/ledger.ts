@@ -13,6 +13,7 @@ export type TransactionType =
   | 'bet'         // stake debited into a match pot
   | 'payout'      // winnings credited from a pot
   | 'rake'        // house cut (recorded against the house account)
+  | 'purchase'    // cosmetic bought from the shop with wallet balance
   | 'admin_adjust';
 
 export type TransactionStatus = 'pending' | 'completed' | 'failed';

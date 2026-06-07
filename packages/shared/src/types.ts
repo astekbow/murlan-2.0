@@ -283,8 +283,7 @@ export type VipTierKey = 'standard' | 'bronze' | 'silver' | 'gold' | 'diamond';
 export interface VipTierInfo {
   key: VipTierKey;
   name: string;        // Albanian, player-facing
-  minStakedCents: number; // lifetime staked volume to reach this tier
-  rakebackBps: number; // perk rate (basis points) — cashout deferred until payments
+  minStakedCents: number; // lifetime staked volume to reach this tier (the level)
   color: string;
 }
 

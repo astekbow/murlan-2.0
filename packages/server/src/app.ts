@@ -379,9 +379,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const ranked = new RankedService(seasonsRepo, repo);
   const matchmaking = new MatchmakingService();
   const friends = new FriendsService(repo, friendsRepo, presence);
-  const rewards = new RewardsService(repo, config.rewardsEnabled);
 
   const wallet = new WalletService(repo, ledger, uow);
+  const rewards = new RewardsService(repo, config.rewardsEnabled, wallet);
   const money = new MoneyService(wallet, matchesRepo, uow);
   const withdrawals = new WithdrawalService(wallet, withdrawalsRepo);
   const intents = intentsRepo;

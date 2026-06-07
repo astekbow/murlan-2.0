@@ -1,21 +1,27 @@
 // ============================================================================
 // MURLAN — Engagement rewards (Phase 6, §2.6)
 // ----------------------------------------------------------------------------
-// Daily login, challenges, and a cosmetic shop. STRICTLY XP + cosmetics — never
-// touches the $ balance / ledger, so it cannot be a cashable bonus. Gated by the
-// `enabled` flag (per-jurisdiction off switch). Challenges are computed from the
-// player's existing stats; nothing here can affect money or the rules engine.
+// Daily login + challenges grant XP (never cashable). The cosmetic SHOP is bought
+// with the real wallet balance (a 'purchase' ledger debit) — `cost` is a price in
+// CENTS. Cosmetics are owned flags only, never refundable to cash, so this stays
+// clean. Gated by the `enabled` flag (per-jurisdiction off switch).
 // ============================================================================
 
 import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo } from '../profile/level.ts';
+import { InsufficientFundsError } from '../money/walletService.ts';
+
+/** Just the wallet capability the shop needs (debit), to avoid a hard dependency. */
+export interface PurchaseWallet {
+  debit(userId: string, amountCents: number, opts: { type: 'purchase'; reason?: string }): Promise<unknown>;
+}
 
 export type CosmeticType = 'cardBack' | 'tableFelt';
 export interface Cosmetic {
   id: string;
   name: string;
   type: CosmeticType;
-  cost: number; // XP cost; 0 = free/default (always owned)
+  cost: number; // PRICE IN CENTS (wallet money); 0 = free/default (always owned)
 }
 
 export const COSMETICS: Cosmetic[] = [
@@ -72,7 +78,11 @@ export interface RewardsStatus {
 }
 
 export class RewardsService {
-  constructor(private readonly users: UserRepository, public readonly enabled: boolean) {}
+  constructor(
+    private readonly users: UserRepository,
+    public readonly enabled: boolean,
+    private readonly wallet: PurchaseWallet,
+  ) {}
 
   private owns(u: User, c: Cosmetic): boolean {
     return c.cost === 0 || u.cosmetics.includes(c.id);
@@ -125,13 +135,24 @@ export class RewardsService {
     return { rewardXp: def.rewardXp };
   }
 
-  /** Buy a cosmetic with XP (never $). Atomic: the deduct + grant happen in one
-   *  operation, so concurrent buys can't double-spend XP or duplicate the grant. */
+  /** Buy a cosmetic with the wallet balance (real money). Debits the ledger, then
+   *  grants the cosmetic. Cosmetics are non-refundable owned flags. */
   async buy(userId: string, cosmeticId: string): Promise<{ ok: boolean; code?: string }> {
     const c = COSMETICS.find((x) => x.id === cosmeticId);
     if (!c) return { ok: false, code: 'not_found' };
     if (c.cost === 0) return { ok: false, code: 'owned' }; // free/default — always owned
-    return this.users.purchaseCosmetic(userId, cosmeticId, c.cost);
+    const u = await this.users.findById(userId);
+    if (!u) return { ok: false, code: 'not_found' };
+    if (u.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
+    // Charge the wallet first (money is the critical step); insufficient → typed error.
+    try {
+      await this.wallet.debit(userId, c.cost, { type: 'purchase', reason: `cosmetic:${cosmeticId}` });
+    } catch (e) {
+      if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
+      throw e;
+    }
+    // Grant the cosmetic (cost 0 → no XP spent, just the ownership flag).
+    return this.users.purchaseCosmetic(userId, cosmeticId, 0);
   }
 
   /** Equip an owned cosmetic into its slot. */

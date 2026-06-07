@@ -38,6 +38,7 @@ enum TransactionType {
   bet
   payout
   rake
+  purchase
   admin_adjust
 }
 
