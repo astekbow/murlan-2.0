@@ -913,8 +913,11 @@ export class GameGateway {
       }
     }
 
+    // Practice (zero-stake vs BOTS) never touches money: bots aren't real users, so
+    // persisting a match row + match_players would violate the users FK on Postgres
+    // (this is why practice failed to start on the live DB but worked in-memory).
     let escrowed = false;
-    if (this.money) {
+    if (this.money && !room.practice) {
       const players = room.seats
         .map((s, seat) => ({ seat, userId: s.userId }))
         .filter((p): p is { seat: number; userId: string } => p.userId !== null);
