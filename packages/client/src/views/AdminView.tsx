@@ -7,7 +7,7 @@ import { useT } from '../lib/i18n.ts';
 
 function UserRow({ user }: { user: AdminUser }) {
   const t = useT();
-  const { adjust, setKyc } = useAdminStore();
+  const { adjust, setKyc, setRole } = useAdminStore();
   const [delta, setDelta] = useState('10');
   const [reason, setReason] = useState('manual');
 
@@ -42,6 +42,12 @@ function UserRow({ user }: { user: AdminUser }) {
             </button>
           ))}
         </div>
+        <button
+          onClick={() => void setRole(user.id, user.role === 'admin' ? 'user' : 'admin')}
+          className={`btn ml-auto ${user.role === 'admin' ? 'btn-danger' : 'btn-ghost'}`}
+        >
+          {user.role === 'admin' ? t('admin.removeAdmin') : t('admin.makeAdmin')}
+        </button>
       </div>
 
       <div className="flex items-end gap-2 flex-wrap">
@@ -73,7 +79,7 @@ function UserRow({ user }: { user: AdminUser }) {
 
 export function AdminView() {
   const t = useT();
-  const { users, withdrawals, matches, error, notice, refresh, approve, reject } = useAdminStore();
+  const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
   const [userQuery, setUserQuery] = useState('');
 
@@ -93,6 +99,20 @@ export function AdminView() {
         <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
         <button onClick={() => void refresh()} className="btn btn-ghost">{t('common.refresh')}</button>
       </div>
+
+      {/* Revenue: the accumulated house rake (your 10% cut). */}
+      <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
+        <div>
+          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('admin.revenueEyebrow')}</div>
+          <h2 className="gold-text font-display font-bold text-2xl tracking-wide leading-none">{t('admin.revenueTitle')}</h2>
+          <p className="text-[11px] text-muted/70 mt-1">{t('admin.revenueNote')}</p>
+        </div>
+        <div className="text-right">
+          <div className="font-display font-semibold tracking-wide text-gold-hi text-3xl leading-none">
+            {revenueCents == null ? '—' : dollars(revenueCents)}
+          </div>
+        </div>
+      </section>
 
       {(error || notice) && (
         <div

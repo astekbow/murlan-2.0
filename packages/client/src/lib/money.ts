@@ -18,6 +18,7 @@ const TX_KEY: Record<string, string> = {
   bet: 'tx.bet',
   payout: 'tx.payout',
   rake: 'tx.rake',
+  purchase: 'tx.purchase',
   admin_adjust: 'tx.adminAdjust',
 };
 

@@ -3,7 +3,7 @@
 // control: every privileged money/identity change records WHO did it, to WHOM,
 // for HOW MUCH, and WHY. Never updated or deleted.
 
-export type AdminActionType = 'balance_adjust' | 'kyc_set' | 'withdrawal_approve' | 'withdrawal_reject' | 'profile_self_update' | 'support_resolve' | 'account_state_set' | 'chat_moderation';
+export type AdminActionType = 'balance_adjust' | 'kyc_set' | 'role_set' | 'withdrawal_approve' | 'withdrawal_reject' | 'profile_self_update' | 'support_resolve' | 'account_state_set' | 'chat_moderation';
 
 export interface AdminActionRecord {
   id: string;

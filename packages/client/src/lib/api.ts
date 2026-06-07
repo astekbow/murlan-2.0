@@ -242,7 +242,7 @@ export type { ReplayDTO, ReplayActionDTO, ReplayGameDTO };
 
 // ---------- Wallet & account ------------------------------------------------
 
-export type TransactionType = 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'rake' | 'admin_adjust';
+export type TransactionType = 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'rake' | 'purchase' | 'admin_adjust';
 
 export interface Transaction {
   id: string;
@@ -383,6 +383,9 @@ export const adminApi = {
     request<{ user: AdminUser }>(`/admin/users/${id}/kyc`, { method: 'POST', token, body: { status } }),
   approveWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/approve`, { method: 'POST', token }),
   rejectWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/reject`, { method: 'POST', token }),
+  setRole: (token: string, id: string, role: 'user' | 'admin') =>
+    request<{ user: AdminUser }>(`/admin/users/${id}/role`, { method: 'POST', token, body: { role } }),
+  revenue: (token: string) => request<{ totalRakeCents: number; rakeCount: number }>('/admin/revenue', { token }),
 };
 
 // Re-export so the lobby create form can type its stake/room-type field.

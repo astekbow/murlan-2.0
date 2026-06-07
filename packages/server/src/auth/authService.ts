@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { type UserRepository, type User, type ComplianceUpdate, type AccountStatePatch, DuplicateUserError } from './userRepository.ts';
+import { type UserRepository, type User, type UserRole, type ComplianceUpdate, type AccountStatePatch, DuplicateUserError } from './userRepository.ts';
 import { AccountStateService, type AccountStatus, type AccountCheck } from './accountStateService.ts';
 import { hashPassword, verifyPassword } from './password.ts';
 import { TokenService, type TokenPair } from './tokens.ts';
@@ -315,6 +315,13 @@ export class AuthService {
   /** All users for the admin panel (includes KYC + account state). */
   async listUsers(): Promise<Array<PublicUser & { kycStatus: string; accountState: string }>> {
     return (await this.users.list()).map((u) => ({ ...toPublicUser(u), kycStatus: u.kycStatus, accountState: u.accountState }));
+  }
+
+  /** Set a user's platform role (admin promote/demote). Returns the updated user. */
+  async setRole(userId: string, role: UserRole): Promise<PublicUser | null> {
+    await this.users.setRole(userId, role);
+    const u = await this.users.findById(userId);
+    return u ? toPublicUser(u) : null;
   }
 
   /** The lifecycle status of a user (for gates / admin display). */

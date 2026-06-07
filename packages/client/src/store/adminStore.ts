@@ -13,6 +13,7 @@ interface AdminStore {
   users: AdminUser[];
   withdrawals: AdminWithdrawal[];
   matches: AdminMatch[];
+  revenueCents: number | null; // total house rake collected
   loading: boolean;
   error: string | null;
   notice: string | null;
@@ -20,6 +21,7 @@ interface AdminStore {
   refresh: () => Promise<void>;
   adjust: (id: string, deltaCents: number, reason: string) => Promise<void>;
   setKyc: (id: string, status: 'none' | 'pending' | 'verified') => Promise<void>;
+  setRole: (id: string, role: 'user' | 'admin') => Promise<void>;
   approve: (id: string) => Promise<void>;
   reject: (id: string) => Promise<void>;
 }
@@ -33,6 +35,7 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   users: [],
   withdrawals: [],
   matches: [],
+  revenueCents: null,
   loading: false,
   error: null,
   notice: null,
@@ -42,8 +45,8 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     if (!t) return;
     set({ loading: true, error: null });
     try {
-      const [u, w, m] = await Promise.all([adminApi.users(t), adminApi.withdrawals(t), adminApi.matches(t)]);
-      set({ users: u.users, withdrawals: w.withdrawals, matches: m.matches, loading: false });
+      const [u, w, m, r] = await Promise.all([adminApi.users(t), adminApi.withdrawals(t), adminApi.matches(t), adminApi.revenue(t)]);
+      set({ users: u.users, withdrawals: w.withdrawals, matches: m.matches, revenueCents: r.totalRakeCents, loading: false });
     } catch (e) {
       set({ loading: false, error: err(e, 'err.adminPanelLoadFailed') });
     }
@@ -70,6 +73,18 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       await get().refresh();
     } catch (e) {
       set({ error: err(e, 'err.kycUpdateFailed') });
+    }
+  },
+
+  async setRole(id, role) {
+    const t = token();
+    if (!t) return;
+    try {
+      await adminApi.setRole(t, id, role);
+      set({ notice: tr('msg.roleUpdated') });
+      await get().refresh();
+    } catch (e) {
+      set({ error: err(e, 'err.roleUpdateFailed') });
     }
   },
 

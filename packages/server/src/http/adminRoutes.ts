@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAdmin } from './authRoutes.ts';
 import type { WalletService } from '../money/walletService.ts';
-import { InsufficientFundsError } from '../money/walletService.ts';
+import { InsufficientFundsError, HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
 import type { RoomManager } from '../room/roomManager.ts';
@@ -110,6 +110,32 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
       detail: `${parsed.data.state}${parsed.data.reason ? ': ' + parsed.data.reason : ''}`,
     });
     return reply.send({ user: res.user, accountState: res.status });
+  });
+
+  // Promote / demote an admin. Guards against removing your OWN admin (locking out).
+  app.post('/api/admin/users/:id/role', async (req, reply) => {
+    const caller = await admin(req, reply);
+    if (!caller) return;
+    const role = (req.body as { role?: unknown } | undefined)?.role;
+    if (role !== 'user' && role !== 'admin') return reply.code(400).send({ error: { code: 'validation', message: 'Rol i pavlefshëm.' } });
+    const userId = (req.params as { id: string }).id;
+    if (userId === caller.userId && role === 'user') {
+      return reply.code(400).send({ error: { code: 'self_demote', message: 'Nuk mund të heqësh vetes rolin e adminit.' } });
+    }
+    const user = await auth.setRole(userId, role);
+    if (!user) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    await audit.record({ adminId: caller.userId, action: 'role_set', targetUserId: userId, detail: role });
+    return reply.send({ user });
+  });
+
+  // House revenue = the accumulated 10% rake (booked to the synthetic house account).
+  app.get('/api/admin/revenue', async (req, reply) => {
+    const caller = await admin(req, reply);
+    if (!caller) return;
+    const txs = await wallet.listTransactions(HOUSE_ACCOUNT_ID);
+    const rake = txs.filter((t) => t.type === 'rake');
+    const totalRakeCents = rake.reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
+    return reply.send({ totalRakeCents, rakeCount: rake.length });
   });
 
   app.get('/api/admin/withdrawals', async (req, reply) => {
