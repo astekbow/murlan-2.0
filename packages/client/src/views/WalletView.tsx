@@ -11,7 +11,7 @@ const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 // Minimum deposit (USD cents) — keep in sync with the server (walletRoutes). Below
 // this, most crypto is under the provider's per-coin minimum (the "unavailable" trap).
-const MIN_DEPOSIT_CENTS = 1_000; // $10
+const MIN_DEPOSIT_CENTS = 1_500; // $15
 
 export function WalletView() {
   const {
@@ -21,7 +21,7 @@ export function WalletView() {
   const setView = useUiStore((s) => s.setView);
   const t = useT();
 
-  const [depositAmt, setDepositAmt] = useState('10');
+  const [depositAmt, setDepositAmt] = useState('15');
   const [withdrawAmt, setWithdrawAmt] = useState('5');
   const [destination, setDestination] = useState('');
   const [dob, setDob] = useState(profile?.dateOfBirth ?? '');
@@ -109,7 +109,7 @@ export function WalletView() {
         <div className="flex flex-wrap gap-3 items-end">
           <label className="flex-1">
             <span className="field-label">{t('wallet.amountUsd')}</span>
-            <input type="number" min="10" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
+            <input type="number" min="15" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
           </label>
           <button onClick={() => void onDeposit()} disabled={depositing} className="btn btn-gold w-full sm:w-auto">
             {depositing ? t('wallet.sending') : t('wallet.depositCrypto')}

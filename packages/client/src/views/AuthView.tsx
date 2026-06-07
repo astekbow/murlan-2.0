@@ -60,8 +60,7 @@ export function AuthView() {
       <form onSubmit={submit} className="panel-solid w-full max-w-sm p-7 space-y-5 animate-rise">
         <div className="text-center">
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">CARD CLUB</div>
-          <h1 className="gold-text font-display font-bold text-5xl tracking-wide leading-none">MURLAN</h1>
-          <p className="text-sm text-muted mt-2">{t('auth.tagline')}</p>
+          <h1 className="gold-text font-display font-bold text-4xl tracking-wide leading-none">CRYPTO-MURLAN</h1>
         </div>
 
         <div className="seg grid grid-cols-2 w-full">
