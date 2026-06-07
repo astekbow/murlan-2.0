@@ -61,8 +61,18 @@ function OfflineSplash({ onRetry }: { onRetry: () => void }) {
 
 /** Lobby-area chrome: centered column with the global top bar on top. */
 function Shell({ children }: { children: ReactNode }) {
+  // Respect the iPhone notch / Dynamic Island + home indicator (viewport-fit=cover
+  // lets content go edge-to-edge, so we must inset it ourselves).
   return (
-    <div className="relative z-10 mx-auto w-full max-w-[1180px] px-4 pt-4 pb-14">
+    <div
+      className="relative z-10 mx-auto w-full max-w-[1180px]"
+      style={{
+        paddingTop: 'calc(1rem + env(safe-area-inset-top))',
+        paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+      }}
+    >
       <TopBar />
       <main>{children}</main>
     </div>

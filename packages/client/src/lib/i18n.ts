@@ -225,7 +225,7 @@ const STRINGS: Record<string, Entry> = {
   'room.team': { sq: 'Ekipi {n}', en: 'Team {n}' },
   'room.waiting': { sq: 'Duke pritur…', en: 'Waiting…' },
   'room.ready': { sq: 'Gati', en: 'Ready' },
-  'room.notReady': { sq: 'Pa gati', en: 'Not ready' },
+  'room.notReady': { sq: 'S’jam gati', en: 'I’m not ready' },
   'room.inviteFriends': { sq: 'FTO MIQ', en: 'INVITE FRIENDS' },
   'room.loadingFriends': { sq: 'Po ngarkohen miqtë…', en: 'Loading friends…' },
   'room.noFriends': { sq: 'S’ke miq ende — shtoji te 👥 Miqtë.', en: 'No friends yet — add them in 👥 Friends.' },

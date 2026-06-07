@@ -357,7 +357,7 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
         <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
           {busy ? t('lobby.searching') : t('lobby.quickCta')}
         </button>
-        <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => void practice()}>
+        <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void practice()}>
           {t('lobby.practice')}
         </button>
       </div>
