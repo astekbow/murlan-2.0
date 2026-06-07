@@ -56,6 +56,8 @@ services:
       # test sender (delivers ONLY to your own Resend account email).
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # This account is auto-promoted to admin on boot (reach the admin panel).
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       REDIS_URL: redis://redis:6379
       # Persistence ON by default → the bundled Postgres, so accounts/wallets SURVIVE
       # restarts & redeploys (in-memory wiped them). Migrations auto-apply on boot

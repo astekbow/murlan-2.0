@@ -75,10 +75,16 @@ export function AdminView() {
   const t = useT();
   const { users, withdrawals, matches, error, notice, refresh, approve, reject } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
+  const [userQuery, setUserQuery] = useState('');
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const q = userQuery.trim().toLowerCase();
+  const shownUsers = q
+    ? users.filter((u) => u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+    : users;
 
   return (
     <div className="space-y-5">
@@ -149,9 +155,20 @@ export function AdminView() {
 
       {/* Users */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.16s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.users', { n: users.length })}</h2>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('admin.users', { n: users.length })}</h2>
+          <input
+            value={userQuery}
+            onChange={(e) => setUserQuery(e.target.value)}
+            placeholder={t('admin.searchUsers')}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            className="field max-w-[220px]"
+          />
+        </div>
         <ul className="space-y-2.5">
-          {users.map((u) => <UserRow key={u.id} user={u} />)}
+          {shownUsers.map((u) => <UserRow key={u.id} user={u} />)}
         </ul>
       </section>
     </div>

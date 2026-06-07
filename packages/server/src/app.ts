@@ -356,6 +356,23 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     appUrl: config.clientOrigin,
     email,
   });
+
+  // Admin bootstrap: promote the configured ADMIN_EMAIL to admin on boot (if that
+  // account exists). Idempotent — a no-op once they're already admin. Lets the
+  // owner reach the admin panel without manual DB surgery.
+  if (config.adminEmail) {
+    void repo.findByEmail(config.adminEmail).then(async (u) => {
+      if (u && u.role !== 'admin') {
+        await repo.setRole(u.id, 'admin');
+        // eslint-disable-next-line no-console
+        console.log(`[admin] promoted ${config.adminEmail} to admin`);
+      }
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error('[admin] bootstrap promote failed:', e);
+    });
+  }
+
   const rooms = new RoomManager({ startTarget: 21 });
   const presence = new Presence();
   const profiles = new ProfileService(repo);

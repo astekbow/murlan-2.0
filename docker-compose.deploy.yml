@@ -29,6 +29,28 @@ services:
   client:
     restart: unless-stopped
 
+  # Automatic Postgres backups: a scheduled pg_dump with retention, written to
+  # ./backups on the host. Daily by default; keeps 7 daily / 4 weekly / 6 monthly.
+  # Restore later with: gunzip -c backups/daily/<file>.sql.gz | docker compose exec -T postgres psql -U murlan -d murlan
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: murlan
+      POSTGRES_USER: murlan
+      POSTGRES_PASSWORD: murlan
+      SCHEDULE: '@daily'
+      BACKUP_KEEP_DAYS: '7'
+      BACKUP_KEEP_WEEKS: '4'
+      BACKUP_KEEP_MONTHS: '6'
+      HEALTHCHECK_PORT: '8080'
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   caddy_data:
   caddy_config:

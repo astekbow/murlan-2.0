@@ -10,7 +10,7 @@
 // ============================================================================
 
 import type { PrismaClient } from '@prisma/client';
-import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, DuplicateUserError } from '../auth/userRepository.ts';
+import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, type UserRole, DuplicateUserError } from '../auth/userRepository.ts';
 import {
   type LedgerRepository, type Transaction, type NewTransaction, type TransactionType, type TransactionStatus,
   DuplicateProviderRefError,
@@ -231,6 +231,9 @@ export class PrismaUserRepository implements UserRepository {
   }
   async setPassword(id: string, passwordHash: string): Promise<void> {
     await this.db.user.update({ where: { id }, data: { passwordHash } }).catch(() => undefined);
+  }
+  async setRole(id: string, role: UserRole): Promise<void> {
+    await this.db.user.update({ where: { id }, data: { role } }).catch(() => undefined);
   }
 }
 

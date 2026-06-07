@@ -151,6 +151,8 @@ export interface UserRepository {
   setEmailVerified(id: string, verified: boolean): Promise<void>;
   /** Replace the password hash (password reset). */
   setPassword(id: string, passwordHash: string): Promise<void>;
+  /** Set a user's platform role (admin bootstrap). */
+  setRole(id: string, role: UserRole): Promise<void>;
 }
 
 /** In-memory repository for tests and single-instance local dev. */
@@ -338,6 +340,11 @@ export class InMemoryUserRepository implements UserRepository {
   async setPassword(id: string, passwordHash: string): Promise<void> {
     const user = this.byId.get(id);
     if (user) user.passwordHash = passwordHash;
+  }
+
+  async setRole(id: string, role: UserRole): Promise<void> {
+    const user = this.byId.get(id);
+    if (user) user.role = role;
   }
 }
 

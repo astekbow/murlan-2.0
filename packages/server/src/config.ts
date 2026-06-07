@@ -33,6 +33,7 @@ const schema = z.object({
   NOWPAYMENTS_SANDBOX: z.string().optional(), // 'true' → use the NOWPayments sandbox API (test payments)
   RESEND_API_KEY: z.string().optional(),       // set to send real reset/verification emails via Resend
   EMAIL_FROM: z.string().optional(),           // sender, e.g. "Murlan <noreply@yourdomain.com>"
+  ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -67,6 +68,7 @@ export interface AppConfig {
   nowPaymentsSandbox: boolean;
   resendApiKey: string | null;
   emailFrom: string;
+  adminEmail: string | null;
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -142,6 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nowPaymentsSandbox: isTrue(parsed.NOWPAYMENTS_SANDBOX),
     resendApiKey: parsed.RESEND_API_KEY || null,
     emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
+    adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,

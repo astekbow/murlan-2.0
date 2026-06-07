@@ -369,6 +369,7 @@ const STRINGS: Record<string, Entry> = {
   'admin.noActiveMatches': { sq: 'Asnjë ndeshje aktive.', en: 'No active matches.' },
   'admin.target': { sq: 'objektivi', en: 'target' },
   'admin.users': { sq: 'PËRDORUESIT ({n})', en: 'USERS ({n})' },
+  'admin.searchUsers': { sq: 'Kërko (emër ose email)…', en: 'Search (name or email)…' },
   'reset.errMinLength': { sq: 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.', en: 'The password must be at least 8 characters.' },
   'reset.errMismatch': { sq: 'Fjalëkalimet nuk përputhen.', en: 'The passwords do not match.' },
   'reset.errFailed': { sq: 'Rivendosja dështoi.', en: 'The reset failed.' },

@@ -16,5 +16,8 @@ export default defineConfig({
       '/socket.io': { target: apiTarget, ws: true, changeOrigin: true },
     },
   },
-  build: { sourcemap: true },
+  // NO source maps in the production bundle: shipping them lets anyone open
+  // DevTools → Sources and read the ENTIRE original TypeScript (engine rules,
+  // comments, file structure). Off → only the minified/mangled bundle is visible.
+  build: { sourcemap: false },
 });
