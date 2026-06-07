@@ -107,6 +107,7 @@ export interface ServerToClientEvents {
   'emote': (dto: { seat: Seat; emote: string }) => void;
   'chat': (dto: { seat: Seat; username: string; text: string }) => void;
   'invited': (dto: { roomId: string; fromUsername: string; type: MatchType; stakeCents: number }) => void;
+  'friend:request': (dto: { fromUsername: string }) => void; // someone sent you a friend request
   'club:chat': (dto: ChatMessageDTO) => void; // a new message in your club channel
 }
 

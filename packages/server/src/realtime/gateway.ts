@@ -150,6 +150,11 @@ export class GameGateway {
     this.ranked = opts.ranked ?? null;
     this.antiCheat = opts.antiCheat ?? null;
     this.friends = opts.friends ?? null;
+    // Real-time friend-request pings: push to the recipient's personal room so the
+    // client can pop a 🔔 notification (best-effort — no-op if they're offline).
+    this.friends?.setNotifier((targetUserId, fromUsername) => {
+      this.io.to(personalRoom(targetUserId)).emit('friend:request', { fromUsername });
+    });
     this.presence = opts.presence ?? null;
     this.games = opts.games ?? null;
     this.matchLog = opts.matchLog ?? null;

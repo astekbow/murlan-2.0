@@ -26,11 +26,19 @@ export interface FriendEntry {
 }
 
 export class FriendsService {
+  /** Optional real-time hook: notify a user that they received a friend request.
+   *  Wired by the gateway (which has the socket io) so this stays io-agnostic. */
+  private notifier: ((targetUserId: string, fromUsername: string) => void) | null = null;
+
   constructor(
     private readonly users: UserRepository,
     private readonly friends: FriendsRepository,
     private readonly presence: Presence,
   ) {}
+
+  setNotifier(fn: (targetUserId: string, fromUsername: string) => void): void {
+    this.notifier = fn;
+  }
 
   async requestByUsername(requesterId: string, username: string): Promise<Friendship> {
     const target = await this.users.findByUsername(username.trim());
@@ -40,7 +48,13 @@ export class FriendsService {
     // so it doesn't reveal who blocked whom).
     const edge = await this.friends.findBetween(requesterId, target.id);
     if (edge?.status === 'blocked') throw new FriendsError('blocked', 'Nuk mund të dërgosh kërkesë te ky përdorues.');
-    return this.friends.request(requesterId, target.id);
+    const row = await this.friends.request(requesterId, target.id);
+    // Real-time ping to the recipient (best-effort; ignore if they're offline).
+    if (this.notifier) {
+      const me = await this.users.findById(requesterId);
+      if (me) this.notifier(target.id, me.username);
+    }
+    return row;
   }
 
   /** respond returns the row (or null when not actionable by this user). */

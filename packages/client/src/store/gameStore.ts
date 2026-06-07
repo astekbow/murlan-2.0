@@ -287,6 +287,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       useNotifications.getState().push(`📨 ${tg('msg.invitedToGame', { name: dto.fromUsername })}`, 'invite');
       set({ invite: dto, toast: tg('msg.invitedToGame', { name: dto.fromUsername }), toastKind: 'info' });
     });
+    socket.on('friend:request', (dto) => {
+      useNotifications.getState().push(`👥 ${tg('msg.friendRequestFrom', { name: dto.fromUsername })}`, 'invite');
+    });
     socket.on('club:chat', (dto) => {
       // Append live; dedup by id (the sender also receives their own message).
       set((s) => (s.clubChat.some((m) => m.id === dto.id) ? s : { clubChat: [...s.clubChat, dto].slice(-100) }));

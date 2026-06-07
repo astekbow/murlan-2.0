@@ -654,6 +654,7 @@ const STRINGS: Record<string, Entry> = {
   'msg.matchWon': { sq: '🏆 Fitove ndeshjen!', en: '🏆 You won the match!' },
   'msg.matchEnded': { sq: 'Ndeshja përfundoi.', en: 'The match ended.' },
   'msg.invitedToGame': { sq: '{name} të ftoi në një lojë!', en: '{name} invited you to a game!' },
+  'msg.friendRequestFrom': { sq: '{name} të dërgoi kërkesë miqësie.', en: '{name} sent you a friend request.' },
   'msg.inviteSent': { sq: 'Ftesa u dërgua.', en: 'The invite was sent.' },
   'msg.depositAddressCreated': { sq: 'Adresa e pagesës u krijua. Pagesa kreditohet automatikisht pas konfirmimit.', en: 'Payment address created. The payment is credited automatically after confirmation.' },
   'msg.withdrawRequested': { sq: 'Kërkesa për tërheqje u dërgua dhe pret aprovim.', en: 'The withdrawal request was sent and awaits approval.' },
