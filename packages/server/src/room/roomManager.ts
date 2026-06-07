@@ -31,6 +31,16 @@ export interface ManagerResult {
 }
 export interface CreateResult extends ManagerResult {
   roomId?: string;
+  joinCode?: string; // present for a private room — share it so friends can join
+}
+
+// Unambiguous code alphabet (no 0/O/1/I/L) for shareable private-room codes.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function genJoinCode(): string {
+  const b = randomBytes(6);
+  let s = '';
+  for (let i = 0; i < 6; i++) s += CODE_ALPHABET[b[i]! % CODE_ALPHABET.length];
+  return s;
 }
 
 interface InternalSeat {
@@ -54,6 +64,8 @@ interface Room {
   createdAt: number;
   ranked: boolean; // auto-formed by matchmaking; hidden from the public lobby
   practice: boolean; // vs-bot practice room; zero-stake, hidden from lobby + spectators
+  private: boolean; // invite/code-only; hidden from the public lobby
+  joinCode: string | null; // share code for a private room (null otherwise)
 }
 
 const err = (code: string, message: string): ManagerResult => ({ ok: false, error: { code, message } });
@@ -100,7 +112,7 @@ export class RoomManager {
     // Ranked rooms are auto-formed by matchmaking and auto-start — never list
     // them publicly (no one can join, and they're meant for the matched players).
     const rooms = all
-      .filter((r) => !r.ranked && !r.practice && (r.status === 'waiting' || r.status === 'ready'))
+      .filter((r) => !r.ranked && !r.practice && !r.private && (r.status === 'waiting' || r.status === 'ready'))
       .map((r) => ({
         id: r.id,
         type: r.type,
@@ -112,7 +124,7 @@ export class RoomManager {
       }));
     // Live (in-match) rooms anyone can spectate — usernames + seats only, no cards.
     const live = all
-      .filter((r) => !r.ranked && !r.practice && r.status === 'inMatch')
+      .filter((r) => !r.ranked && !r.practice && !r.private && r.status === 'inMatch')
       .map((r) => ({
         roomId: r.id,
         type: r.type,
@@ -124,7 +136,7 @@ export class RoomManager {
 
   // ---------- Room lifecycle --------------------------------------------------
 
-  createRoom(user: ActingUser, payload: { type: MatchType; stakeCents: number; team?: 0 | 1; ranked?: boolean; practice?: boolean }): CreateResult {
+  createRoom(user: ActingUser, payload: { type: MatchType; stakeCents: number; team?: 0 | 1; ranked?: boolean; practice?: boolean; private?: boolean }): CreateResult {
     if (this.userRoom.has(user.userId)) {
       return err('already_in_room', 'Je tashmë në një dhomë.');
     }
@@ -137,6 +149,7 @@ export class RoomManager {
     // second line so direct/test callers are safe too.)
     const n = PLAYERS_PER_TYPE[payload.type];
     if (!n) return err('bad_type', 'Lloji i ndeshjes është i pavlefshëm.');
+    const isPrivate = !!payload.private;
     const room: Room = {
       id: this.newId(),
       type: payload.type,
@@ -150,13 +163,23 @@ export class RoomManager {
       createdAt: Date.now(),
       ranked: !!payload.ranked,
       practice: !!payload.practice,
+      private: isPrivate,
+      joinCode: isPrivate ? genJoinCode() : null,
     };
     this.rooms.set(room.id, room);
     if (!this.seat(room, user, payload.team)) {
       this.rooms.delete(room.id); // never leave a seat-less zombie room behind
       return err('seat_failed', 'Nuk u ul dot në dhomë.');
     }
-    return { ok: true, roomId: room.id };
+    return { ok: true, roomId: room.id, joinCode: room.joinCode ?? undefined };
+  }
+
+  /** Resolve a private-room share code → its room id (case-insensitive). */
+  roomIdForCode(code: string): string | null {
+    const c = code.trim().toUpperCase();
+    if (!c) return null;
+    for (const r of this.rooms.values()) if (r.private && r.joinCode === c) return r.id;
+    return null;
   }
 
   joinRoom(user: ActingUser, roomId: string, team?: 0 | 1): ManagerResult {
@@ -377,6 +400,8 @@ export class RoomManager {
       seats,
       target: room.target,
       countdownMs: null, // filled by the gateway during the ready countdown
+      private: room.private,
+      joinCode: room.joinCode, // members see it so they can share/invite
     };
   }
 

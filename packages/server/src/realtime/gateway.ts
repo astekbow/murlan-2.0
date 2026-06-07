@@ -214,6 +214,7 @@ export class GameGateway {
     socket.on('lobby:list', (ack) => ack(this.rooms.listLobby()));
     socket.on('room:create', (payload, ack) => this.onCreate(socket, payload, ack));
     socket.on('room:join', (payload, ack) => this.onJoin(socket, payload, ack));
+    socket.on('room:joinByCode', (payload, ack) => this.onJoinByCode(socket, payload, ack));
     socket.on('room:leave', (ack) => void this.onLeave(socket, ack));
     socket.on('room:ready', (ready, ack) => this.onReady(socket, ready, ack));
     socket.on('game:play', (payload, ack) => this.onPlay(socket, payload, ack));
@@ -334,11 +335,39 @@ export class GameGateway {
       socket.data.roomId = res.roomId;
       socket.data.seat = this.rooms.seatOf(res.roomId, socket.data.userId);
       void socket.join(res.roomId);
-      reply({ ok: true, roomId: res.roomId });
+      reply({ ok: true, roomId: res.roomId, joinCode: res.joinCode });
       this.broadcastRoomState(res.roomId);
       this.broadcastLobby();
     } catch (e) {
       console.error('[gateway] onCreate failed', e);
+      reply(ackError('server_error', 'Gabim i brendshëm.'));
+    }
+  }
+
+  /** Join a PRIVATE room by its share code (the room isn't in the public lobby). */
+  private onJoinByCode(socket: IOSocket, payload: { code?: unknown }, ack: (res: Ack) => void): void {
+    const reply = safeAck(ack);
+    if (!this.rateOk(socket, reply)) return;
+    if (this.rejectIfDraining(reply)) return;
+    const code = typeof payload?.code === 'string' ? payload.code : '';
+    const roomId = this.rooms.roomIdForCode(code);
+    if (!roomId) return reply(ackError('not_found', 'Kodi i dhomës nuk u gjet.'));
+    if (this.ownership?.isForeign(roomId)) {
+      return reply(ackError('wrong_instance', 'Po të rilidhim me serverin e ndeshjes — provo sërish.'));
+    }
+    try {
+      const res = this.rooms.joinRoom(actor(socket), roomId);
+      if (!res.ok) return reply({ ok: false, error: res.error });
+      this.matchmaking?.remove(socket.data.userId);
+      socket.data.roomId = roomId;
+      socket.data.seat = this.rooms.seatOf(roomId, socket.data.userId);
+      void socket.join(roomId);
+      reply({ ok: true, roomId });
+      this.broadcastRoomState(roomId);
+      this.broadcastLobby();
+      this.maybeStartCountdown(roomId);
+    } catch (e) {
+      console.error('[gateway] onJoinByCode failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }

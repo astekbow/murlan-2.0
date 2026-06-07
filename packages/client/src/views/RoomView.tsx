@@ -85,6 +85,20 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
         </div>
       </section>
 
+      {/* Private room: the shareable join code (tap to copy). */}
+      {room.private && room.joinCode && (
+        <section className="panel p-4 text-center animate-rise" style={{ animationDelay: '.04s' }}>
+          <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-1">{t('room.shareCode')}</div>
+          <button
+            onClick={() => { void navigator.clipboard?.writeText(room.joinCode!).catch(() => {}); useGameStore.setState({ toast: tr('room.codeCopied'), toastKind: 'success' }); }}
+            className="font-mono text-3xl tracking-[0.35em] gold-text font-bold"
+          >
+            {room.joinCode}
+          </button>
+          <p className="text-[11px] text-muted/70 mt-1">{t('room.shareCodeHint')}</p>
+        </section>
+      )}
+
       {/* Seats filling in */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
         <div className="flex items-center justify-between mb-4">

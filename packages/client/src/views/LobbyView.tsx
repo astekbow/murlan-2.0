@@ -60,13 +60,21 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
 }
 
 export function LobbyView() {
-  const { lobby, live, createRoom, joinRoom, refreshLobby, findRanked, spectate } = useGameStore();
+  const { lobby, live, createRoom, joinRoom, joinByCode, refreshLobby, findRanked, spectate } = useGameStore();
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
   const t = useT();
 
   const [quickOpen, setQuickOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [rankedOpen, setRankedOpen] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
+
+  const onJoinByCode = async () => {
+    const c = codeInput.trim();
+    if (c.length < 4) return;
+    const ok = await joinByCode(c);
+    if (ok) setCodeInput('');
+  };
 
   // Refresh the authoritative balance on entry so the join affordability gate
   // ("Pa fonde") reflects any deposit made since login.
@@ -134,6 +142,22 @@ export function LobbyView() {
             <button onClick={refreshLobby} className="text-xs text-gold-hi border-b border-dashed border-gold/50">{t('lobby.refresh')}</button>
             <button onClick={() => setCreateOpen(true)} className="btn btn-gold">{t('lobby.createRoom')}</button>
           </div>
+        </div>
+
+        {/* Join a PRIVATE room by its share code (not listed publicly). */}
+        <div className="flex items-center gap-2 mb-3">
+          <input
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === 'Enter') void onJoinByCode(); }}
+            placeholder={t('lobby.joinCodePlaceholder')}
+            maxLength={6}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className="field flex-1 tracking-[0.3em] font-mono uppercase"
+          />
+          <button onClick={() => void onJoinByCode()} disabled={codeInput.trim().length < 4} className="btn btn-ghost shrink-0">{t('lobby.joinByCode')}</button>
         </div>
 
         {lobby.length === 0 ? (
@@ -346,19 +370,20 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
 
 interface CreateProps {
   onClose: () => void;
-  onCreate: (type: MatchType, cents: number, team?: 0 | 1) => Promise<string | null>;
+  onCreate: (type: MatchType, cents: number, team?: 0 | 1, priv?: boolean) => Promise<string | null>;
 }
 function CreateRoomModal({ onClose, onCreate }: CreateProps) {
   const t = useT();
   const [type, setType] = useState<MatchType>('1v1');
   const [stake, setStake] = useState('5');
   const [team, setTeam] = useState<0 | 1>(0);
+  const [priv, setPriv] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function create() {
     if (busy) return;
     setBusy(true);
-    await onCreate(type, toCents(stake), type === '2v2' ? team : undefined);
+    await onCreate(type, toCents(stake), type === '2v2' ? team : undefined, priv);
     onClose();
   }
 
@@ -370,6 +395,11 @@ function CreateRoomModal({ onClose, onCreate }: CreateProps) {
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
         <StakeField value={stake} onChange={setStake} />
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="w-4 h-4 accent-gold" />
+          <span className="text-sm text-txt">{t('lobby.privateRoom')}</span>
+          <span className="text-[11px] text-muted/70">{t('lobby.privateHint')}</span>
+        </label>
         {type === '2v2' && (
           <label className="block">
             <span className="field-label">{t('lobby.team')}</span>

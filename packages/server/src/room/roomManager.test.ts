@@ -40,6 +40,24 @@ test('createRoom seats the creator and lists the room in the lobby', () => {
   assert.equal(state.status, 'waiting');
 });
 
+test('a private room is hidden from the lobby, gets a code, and is reachable by code', () => {
+  const m = mgr();
+  const r = m.createRoom(U(1), { type: '1v1', stakeCents: 1000, private: true });
+  assert.ok(r.ok);
+  assert.ok(r.joinCode && r.joinCode.length === 6, 'returns a 6-char join code');
+  assert.equal(m.listLobby().rooms.length, 0, 'private room is NOT listed publicly');
+
+  const state = m.roomStateDTO(r.roomId!)!;
+  assert.equal(state.private, true);
+  assert.equal(state.joinCode, r.joinCode);
+
+  assert.equal(m.roomIdForCode(r.joinCode!.toLowerCase()), r.roomId, 'resolves case-insensitively');
+  assert.equal(m.roomIdForCode('ZZZZZZ'), null, 'unknown code → null');
+
+  const join = m.joinRoom(U(2), m.roomIdForCode(r.joinCode!)!);
+  assert.ok(join.ok, 'a second player joins via the code-resolved id');
+});
+
 test('a user cannot be in two rooms at once', () => {
   const m = mgr();
   m.createRoom(U(1), { type: '1v1', stakeCents: 100 });

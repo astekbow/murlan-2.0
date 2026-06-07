@@ -99,8 +99,9 @@ interface GameStore {
   connect: (getToken: () => string | null, userId: string) => void;
   disconnect: () => void;
   refreshLobby: () => void;
-  createRoom: (type: MatchType, stakeCents: number, team?: 0 | 1) => Promise<string | null>;
+  createRoom: (type: MatchType, stakeCents: number, team?: 0 | 1, priv?: boolean) => Promise<string | null>;
   joinRoom: (roomId: string, team?: 0 | 1) => Promise<boolean>;
+  joinByCode: (code: string) => Promise<boolean>;
   rematch: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   setReady: (ready: boolean) => Promise<void>;
@@ -303,10 +304,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     void request<LobbyStateDTO>(socket, 'lobby:list').then((state) => set({ lobby: state?.rooms ?? [], live: state?.live ?? [] }));
   },
 
-  async createRoom(type, stakeCents, team) {
+  async createRoom(type, stakeCents, team, priv) {
     const socket = get().socket;
     if (!socket) return null;
-    const res = await request<Ack>(socket, 'room:create', { type, stakeCents, team });
+    const res = await request<Ack>(socket, 'room:create', { type, stakeCents, team, private: priv });
     if (!res.ok) {
       set({ toast: ackText(res.error, 'err.createRoomFailed'), toastKind: 'error' });
       return null;
@@ -318,6 +319,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = get().socket;
     if (!socket) return false;
     const res = await request<Ack>(socket, 'room:join', { roomId, team });
+    if (!res.ok) set({ toast: ackText(res.error, 'err.joinRoomFailed'), toastKind: 'error' });
+    return res.ok;
+  },
+
+  async joinByCode(code) {
+    const socket = get().socket;
+    if (!socket) return false;
+    const res = await request<Ack>(socket, 'room:joinByCode', { code: code.trim().toUpperCase() });
     if (!res.ok) set({ toast: ackText(res.error, 'err.joinRoomFailed'), toastKind: 'error' });
     return res.ok;
   },

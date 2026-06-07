@@ -19,10 +19,14 @@ export interface RoomCreatePayload {
   type: MatchType;
   stakeCents: number;
   team?: 0 | 1; // 2v2 preferred team (optional; auto-assigned otherwise)
+  private?: boolean; // hidden from the public lobby; join by code/invite only
 }
 export interface RoomJoinPayload {
   roomId: string;
   team?: 0 | 1;
+}
+export interface RoomJoinByCodePayload {
+  code: string; // a private room's share code
 }
 export interface GamePlayPayload {
   cards: Card[];
@@ -36,6 +40,7 @@ export interface Ack {
   ok: boolean;
   error?: ErrorDTO;
   roomId?: string;
+  joinCode?: string; // returned when creating a private room (share it with friends)
 }
 
 /** Ranked matchmaking queue status pushed to a waiting player. */
@@ -52,6 +57,7 @@ export interface ClientToServerEvents {
   'lobby:list': (ack: (state: LobbyStateDTO) => void) => void;
   'room:create': (payload: RoomCreatePayload, ack: (res: Ack) => void) => void;
   'room:join': (payload: RoomJoinPayload, ack: (res: Ack) => void) => void;
+  'room:joinByCode': (payload: RoomJoinByCodePayload, ack: (res: Ack) => void) => void;
   'room:leave': (ack: (res: Ack) => void) => void;
   'room:ready': (ready: boolean, ack: (res: Ack) => void) => void;
   'game:play': (payload: GamePlayPayload, ack: (res: Ack) => void) => void;

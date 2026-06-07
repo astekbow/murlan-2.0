@@ -72,6 +72,8 @@ export interface RoomStateDTO {
   seats: SeatInfo[];
   target: number;          // current match target T
   countdownMs: number | null; // ready-check countdown remaining, if any
+  private?: boolean;       // private rooms are hidden from the public lobby
+  joinCode?: string | null; // share code for a private room (members only)
 }
 
 // ---------- Game (public, broadcast-safe) ------------------------------------
