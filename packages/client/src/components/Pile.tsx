@@ -1,6 +1,6 @@
 import type { Combo } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
-import { cardKey } from '../lib/cards.ts';
+import { cardKey, sortComboForDisplay } from '../lib/cards.ts';
 import { useT } from '../lib/i18n.ts';
 
 const COMBO_LABEL_KEY: Record<Combo['type'], string> = {
@@ -27,7 +27,7 @@ export function Pile({ pile }: { pile: Combo | null }) {
     <div className="flex flex-col items-center gap-2 animate-pop">
       <div className="font-display text-[11px] uppercase tracking-wide text-gold-hi/90">{t(COMBO_LABEL_KEY[pile.type])}</div>
       <div className="pile-cards">
-        {pile.cards.map((card) => (
+        {sortComboForDisplay(pile).map((card) => (
           <CardView key={cardKey(card)} card={card} />
         ))}
       </div>

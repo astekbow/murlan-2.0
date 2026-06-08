@@ -79,6 +79,23 @@ test('hard leads its strongest single against a nearly-finished opponent', () =>
   assert.deepEqual(decideBotMove(lead, 'medium').action === 'play' && (decideBotMove(lead, 'medium') as { cards: Card[] }).cards, [c('3', 'S')]);
 });
 
+test('medium leads its weakest isolated card and does NOT fracture a pair', () => {
+  const hand = [c('3', 'S'), c('9', 'S'), c('9', 'H')]; // an isolated 3 + a pair of 9s
+  const view: BotView = { hand, pile: null, canPass: false, opponentCounts: [6] };
+  const move = decideBotMove(view, 'medium');
+  assert.deepEqual(move, { action: 'play', cards: [c('3', 'S')] }); // throws the 3, keeps the pair
+});
+
+test('hard spends a trump to stop an opponent about to win; medium hoards it (and loses)', () => {
+  const hand = [c('4', 'S'), c('4', 'H'), c('4', 'D'), c('4', 'C'), c('7', 'S')]; // bomb + a low 7
+  const view: BotView = { hand, pile: combo([c('K', 'S')]), canPass: true, opponentCounts: [1] };
+  // Only the bomb beats a King; an opponent is one card from winning.
+  assert.deepEqual(decideBotMove(view, 'medium'), { action: 'pass' });        // naive: hoards the bomb
+  const hard = decideBotMove(view, 'hard');                                    // spends it to deny the win
+  assert.equal(hard.action, 'play');
+  if (hard.action === 'play') assert.equal(hard.cards.length, 4);              // the 4-card bomb
+});
+
 test('enumerateLegalPlays finds straights and trumps, and filters by the pile', () => {
   const hand = [c('5', 'S'), c('6', 'S'), c('7', 'S'), c('8', 'S'), c('9', 'S')]; // a flush
   const leads = enumerateLegalPlays(hand, null);

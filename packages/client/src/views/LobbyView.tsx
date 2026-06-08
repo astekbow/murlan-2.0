@@ -315,6 +315,7 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
   const t = useT();
   const [type, setType] = useState<MatchType>('1v1');
   const [stake, setStake] = useState('5');
+  const [tier, setTier] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [busy, setBusy] = useState(false);
 
   // Quick-match = find an open room that matches, else create one and wait.
@@ -340,7 +341,7 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
   async function practice() {
     if (busy) return;
     setBusy(true);
-    const ok = await useGameStore.getState().startPractice(type);
+    const ok = await useGameStore.getState().startPractice(type, tier);
     if (ok) onClose();
     else setBusy(false);
   }
@@ -357,6 +358,23 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
         <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
           {busy ? t('lobby.searching') : t('lobby.quickCta')}
         </button>
+        {/* Bot difficulty applies to the practice game below. */}
+        <div>
+          <span className="field-label">{t('lobby.botDifficulty')}</span>
+          <div className="mt-1 grid grid-cols-3 gap-1.5">
+            {(['easy', 'medium', 'hard'] as const).map((lv) => (
+              <button
+                key={lv}
+                type="button"
+                aria-pressed={tier === lv}
+                onClick={() => setTier(lv)}
+                className={`btn btn-sm ${tier === lv ? 'btn-gold' : 'btn-ghost'}`}
+              >
+                {t(lv === 'easy' ? 'lobby.botEasy' : lv === 'medium' ? 'lobby.botMedium' : 'lobby.botHard')}
+              </button>
+            ))}
+          </div>
+        </div>
         <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void practice()}>
           {t('lobby.practice')}
         </button>

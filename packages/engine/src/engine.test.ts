@@ -57,7 +57,10 @@ check('A2345 is the lowest kolor', identifyCombo(kA_5)?.type === 'kolor');
 check('3->7 beats A2345', B(k3_7, kA_5));
 check('10JQKA is a valid kolor (Ace high)', identifyCombo(k10_A)?.type === 'kolor');
 check('no same-length kolor beats 10JQKA', !B(k4_8, k10_A) && !B(k3_7, k10_A));
-check('length-6 kolor beats length-5 kolor', B(k3_8, k10_A));
+// RUN LENGTH RULE: a run is beaten ONLY by a same-length run with a higher top.
+check('a LONGER kolor does NOT beat a shorter one (same length only)', !B(k3_8, k10_A));
+check('a SHORTER kolor does NOT beat a longer one', !B(k10_A, k3_8));
+check('a same-length higher kolor still beats (6 vs 6)', B([c('4','S'),c('5','H'),c('6','D'),c('7','C'),c('8','S'),c('9','H')], k3_8));
 check('JQKA2 is NOT a valid straight', identifyCombo([c('J','S'),c('Q','H'),c('K','D'),c('A','C'),c('2','S')]) === null);
 check('bomb beats a kolor', B(bomb6, k3_7));
 check('kolor cannot beat a bomb', !B(k4_8, bomb5));
@@ -72,7 +75,9 @@ check('flush beats a bomb (always)', B(f3_7, bomb6));
 check('even the smallest flush beats the biggest bomb', B(f3_7, [c('2','S'),c('2','H'),c('2','D'),c('2','C')]));
 check('flush beats a kolor', B(f3_7, k10_A));
 check('bomb does NOT beat a flush', !B(bomb6, f3_7));
-check('longer flush beats shorter flush', B(f3_8, f4_8));
+// Same-length rule applies flush-vs-flush too: a longer flush can NOT beat a shorter one.
+check('a longer flush does NOT beat a shorter flush (same length only)', !B(f3_8, f4_8));
+check('a shorter flush does NOT beat a longer flush', !B(f4_8, f3_8));
 check('flush beats red joker', B(f3_7, [RJ]));
 
 console.log('\n— validatePlay (leading vs responding) —');

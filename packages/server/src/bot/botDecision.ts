@@ -141,50 +141,95 @@ function playCost(c: Combo): number {
 const goesOut = (c: Combo, handSize: number) => c.cards.length === handSize;
 const pick = <T>(arr: T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)]!;
 
+const rankOf = (c: Card): Rank | null => (c.kind === 'standard' ? c.rank : null);
+function countRank(hand: Card[], rank: Rank): number {
+  return hand.reduce((n, card) => (card.kind === 'standard' && card.rank === rank ? n + 1 : n), 0);
+}
+
+/**
+ * Leading score (LOWER = a better lead): get rid of cheap cards first, thin the
+ * hand (prefer plays that shed more cards), keep bombs/flushes in reserve, and
+ * don't fracture a pair/triple just to throw one of its cards as a single.
+ */
+function leadScore(c: Combo, hand: Card[]): number {
+  let s = playCost(c) - c.cards.length * 0.5; // cheaper + thins the hand
+  if (isTrump(c)) s += 1000;                  // hoard trumps when leading
+  if (c.type === 'single') {
+    const r = rankOf(c.cards[0]!);
+    if (r && countRank(hand, r) > 1) s += 40; // breaking a group for a single is wasteful
+  }
+  return s;
+}
+
+/** The best non-trump lead under leadScore, or undefined if only trumps remain. */
+function bestLead(plays: Combo[], hand: Card[]): Combo | undefined {
+  const opts = plays.filter((c) => !isTrump(c));
+  if (opts.length === 0) return undefined;
+  return opts.reduce((a, b) => (leadScore(b, hand) < leadScore(a, hand) ? b : a));
+}
+
 /**
  * Choose a move for the given tier. A leader (canPass=false) always plays — when
  * leading there is always at least one legal play (any single). A responder may
  * pass. Pure: identical (view, tier, rng) ⇒ identical move.
+ *
+ * The three tiers are deliberately distinct:
+ *   easy   — erratic + wasteful: misses guaranteed wins, dumps its best cards
+ *            early, and passes when it shouldn't. Made to be beaten.
+ *   medium — efficient: always takes a go-out, leads its weakest cards (without
+ *            fracturing combos), responds with the cheapest winning play, and
+ *            hoards bombs/flushes.
+ *   hard   — medium + endgame awareness: denies a nearly-finished opponent an
+ *            easy lead by leading its strongest single, and spends a trump to
+ *            stop an opponent about to win rather than hoarding into a loss.
  */
 export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = Math.random): BotMove {
   const plays = enumerateLegalPlays(view.hand, view.pile, view.mustInclude);
   const canPass = view.canPass && view.pile !== null;
   if (plays.length === 0) return { action: 'pass' }; // only reachable when responding
 
-  // Always take a guaranteed win: a play that empties the hand ends the game.
+  // Medium/Hard never miss a guaranteed win (a play that empties the hand). Easy
+  // does — that's part of what makes it easy.
   if (tier !== 'easy') {
     const out = plays.find((c) => goesOut(c, view.hand.length));
     if (out) return { action: 'play', cards: out.cards };
   }
 
-  if (tier === 'easy') {
-    // Weak + erratic: sometimes pass even when able; otherwise a random legal play.
-    if (canPass && rng() < 0.35) return { action: 'pass' };
-    return { action: 'play', cards: pick(plays, rng).cards };
-  }
-
   const sorted = [...plays].sort((a, b) => playCost(a) - playCost(b));
   const cheapestNonTrump = sorted.find((c) => !isTrump(c));
+  const oppClose = view.opponentCounts.length > 0 && Math.min(...view.opponentCounts) <= 2;
 
+  // ----- EASY ---------------------------------------------------------------
+  if (tier === 'easy') {
+    if (canPass && rng() < 0.4) return { action: 'pass' };                       // passes when it shouldn't
+    if (rng() < 0.5) return { action: 'play', cards: pick(plays, rng).cards };   // random legal play
+    return { action: 'play', cards: sorted[sorted.length - 1]!.cards };          // or wastes its strongest
+  }
+
+  // ----- MEDIUM -------------------------------------------------------------
   if (tier === 'medium') {
+    if (!view.pile) return { action: 'play', cards: (bestLead(plays, view.hand) ?? sorted[0]!).cards };
     if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };
-    // Only trumps remain: hoard them when merely responding; spend when leading.
-    if (canPass) return { action: 'pass' };
+    if (canPass) return { action: 'pass' };               // only trumps beat it → hoard while responding
     return { action: 'play', cards: sorted[0]!.cards };
   }
 
-  // hard: lowest-winning + light card-counting. Hoards trumps like medium, but
-  // when leading against a nearly-finished opponent it leads its STRONGEST single
-  // to make the trick hard to take, denying them an easy go-out.
-  const oppLow = view.opponentCounts.length > 0 && Math.min(...view.opponentCounts) <= 2;
-  if (!view.pile && oppLow) {
-    const singles = plays.filter((c) => c.type === 'single' && !isTrump(c));
-    if (singles.length > 0) {
-      const strongest = singles.reduce((a, b) => (playCost(b) > playCost(a) ? b : a));
-      return { action: 'play', cards: strongest.cards };
+  // ----- HARD ---------------------------------------------------------------
+  if (!view.pile) {
+    // Deny a nearly-finished opponent an easy take: lead the STRONGEST non-trump
+    // single so they can't cheaply grab the lead and go out.
+    if (oppClose) {
+      const singles = plays.filter((c) => c.type === 'single' && !isTrump(c));
+      if (singles.length > 0) {
+        const strongest = singles.reduce((a, b) => (playCost(b) > playCost(a) ? b : a));
+        return { action: 'play', cards: strongest.cards };
+      }
     }
+    return { action: 'play', cards: (bestLead(plays, view.hand) ?? sorted[0]!).cards };
   }
   if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };
+  // Only trumps beat the pile: spend one to stop an opponent about to win, else hoard.
+  if (oppClose) return { action: 'play', cards: sorted[0]!.cards };
   if (canPass) return { action: 'pass' };
   return { action: 'play', cards: sorted[0]!.cards };
 }
