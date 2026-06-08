@@ -96,6 +96,25 @@ test('hard spends a trump to stop an opponent about to win; medium hoards it (an
   if (hard.action === 'play') assert.equal(hard.cards.length, 4);              // the 4-card bomb
 });
 
+test('hard unloads a whole run when leading; medium just dribbles its lowest single', () => {
+  const hand = [c('4', 'S'), c('5', 'H'), c('6', 'D'), c('7', 'C'), c('8', 'S'), c('K', 'H')]; // a 4-8 kolor + a K
+  const view: BotView = { hand, pile: null, canPass: false, opponentCounts: [9] };
+  const hard = decideBotMove(view, 'hard');
+  assert.equal(hard.action, 'play');
+  if (hard.action === 'play') assert.equal(hard.cards.length, 5); // sheds the whole 5-card run
+  const med = decideBotMove(view, 'medium');
+  assert.equal(med.action, 'play');
+  if (med.action === 'play') assert.equal(med.cards.length, 1); // throws a single
+});
+
+test('hard uses card memory to lead a lock single (both jokers already played)', () => {
+  const hand = [c('2', 'S'), c('3', 'H')]; // the 2 is the top non-joker single
+  const seen: Card[] = [{ kind: 'joker', color: 'red' }, { kind: 'joker', color: 'black' }];
+  const view: BotView = { hand, pile: null, canPass: false, opponentCounts: [5], seen };
+  // Nothing unseen out-ranks a 2 as a single (both jokers are gone) → lead it to keep the lead.
+  assert.deepEqual(decideBotMove(view, 'hard'), { action: 'play', cards: [c('2', 'S')] });
+});
+
 test('enumerateLegalPlays finds straights and trumps, and filters by the pile', () => {
   const hand = [c('5', 'S'), c('6', 'S'), c('7', 'S'), c('8', 'S'), c('9', 'S')]; // a flush
   const leads = enumerateLegalPlays(hand, null);

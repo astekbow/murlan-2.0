@@ -18,7 +18,7 @@
 
 import {
   type Card, type Combo, type Rank,
-  identifyCombo, beats, singlePower, cardId,
+  identifyCombo, beats, singlePower, cardId, buildDeck,
 } from '@murlan/engine';
 
 export type BotTier = 'easy' | 'medium' | 'hard';
@@ -36,6 +36,9 @@ export interface BotView {
   opponentCounts: number[];
   /** If set, the chosen play MUST contain this card (game-1 opening 3♠ rule). */
   mustInclude?: Card;
+  /** Every card already PLAYED this game (all seats). The Hard tier counts cards
+   *  from this to know what's still out there. Omitted ⇒ no card memory. */
+  seen?: Card[];
 }
 
 // SEQ value for straights: Ace is flexible (1 or 14), 2 is only low. Mirrors the
@@ -168,6 +171,46 @@ function bestLead(plays: Combo[], hand: Card[]): Combo | undefined {
   return opts.reduce((a, b) => (leadScore(b, hand) < leadScore(a, hand) ? b : a));
 }
 
+/** Cards NOT yet seen by the bot: the full deck minus its own hand minus everything
+ *  played so far. In 3/4-player games these are exactly the opponents' cards; in a
+ *  2-player game some are dead (undealt), so counting stays conservative — it never
+ *  over-claims a card is safe. */
+function unseenCards(hand: Card[], seen: Card[]): Card[] {
+  const known = new Set([...hand, ...seen].map(cardId));
+  return buildDeck().filter((c) => !known.has(cardId(c)));
+}
+
+/** Higher = a better UNLOAD lead: shed as many cards as possible (a 5-run beats a
+ *  triple beats a pair beats a single), break ties toward the LOWEST cards, and
+ *  never fracture a pair/triple just to throw one of its cards as a single. */
+function unloadScore(c: Combo, hand: Card[]): number {
+  let s = c.cards.length * 100 - playCost(c); // shed many cards, cheaply
+  if (c.type === 'single') {
+    const r = rankOf(c.cards[0]!);
+    if (r && countRank(hand, r) > 1) s -= 50; // keep groups intact
+  }
+  return s;
+}
+
+/** The biggest cheap non-trump combo to unload (or a trump if that's all that remains). */
+function bestUnload(plays: Combo[], hand: Card[]): Combo {
+  const nonTrump = plays.filter((c) => !isTrump(c));
+  const pool = nonTrump.length ? nonTrump : plays;
+  return pool.reduce((a, b) => (unloadScore(b, hand) > unloadScore(a, hand) ? b : a));
+}
+
+/** The LOWEST single the bot can lead that no still-unseen single can out-rank — so
+ *  leading it very likely keeps the lead (an opponent could only burn a bomb/flush
+ *  on it). undefined if no such lock exists. */
+function lockSingle(plays: Combo[], hand: Card[], seen: Card[]): Combo | undefined {
+  const unseen = unseenCards(hand, seen);
+  const safe = plays.filter(
+    (c) => c.type === 'single' && !unseen.some((u) => singlePower(u) > singlePower(c.cards[0]!)),
+  );
+  if (safe.length === 0) return undefined;
+  return safe.reduce((a, b) => (singlePower(a.cards[0]!) < singlePower(b.cards[0]!) ? a : b));
+}
+
 /**
  * Choose a move for the given tier. A leader (canPass=false) always plays — when
  * leading there is always at least one legal play (any single). A responder may
@@ -214,7 +257,7 @@ export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = 
     return { action: 'play', cards: sorted[0]!.cards };
   }
 
-  // ----- HARD ---------------------------------------------------------------
+  // ----- HARD: unload in bulk, count cards, control the endgame -------------
   if (!view.pile) {
     // Deny a nearly-finished opponent an easy take: lead the STRONGEST non-trump
     // single so they can't cheaply grab the lead and go out.
@@ -225,10 +268,18 @@ export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = 
         return { action: 'play', cards: strongest.cards };
       }
     }
-    return { action: 'play', cards: (bestLead(plays, view.hand) ?? sorted[0]!).cards };
+    // Late game: if card-counting shows we hold a single nobody left can out-rank,
+    // lead it to KEEP the lead — next turn is a free lead to dump on.
+    if (view.seen && view.hand.length <= 8 && view.hand.length > 1) {
+      const lock = lockSingle(plays, view.hand, view.seen);
+      if (lock) return { action: 'play', cards: lock.cards };
+    }
+    // Otherwise UNLOAD: shed as many cards as possible — runs/groups before singles.
+    return { action: 'play', cards: bestUnload(plays, view.hand).cards };
   }
+  // Responding: win the trick as cheaply as possible to seize tempo.
   if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };
-  // Only trumps beat the pile: spend one to stop an opponent about to win, else hoard.
+  // Only a trump beats the pile: spend it to stop an opponent about to win, else hoard.
   if (oppClose) return { action: 'play', cards: sorted[0]!.cards };
   if (canPass) return { action: 'pass' };
   return { action: 'play', cards: sorted[0]!.cards };

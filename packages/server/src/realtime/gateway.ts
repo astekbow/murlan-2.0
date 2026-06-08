@@ -125,6 +125,7 @@ export class GameGateway {
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
   private botTiers = new Map<string, BotTier>(); // practice roomId -> bot difficulty
   private botTimers = new Map<string, ReturnType<typeof setTimeout>>(); // practice roomId -> pending bot-move timer
+  private seenCards = new Map<string, Card[]>(); // practice roomId -> cards played this game (bot card-counting)
   private finalizedMatches = new Set<string>(); // matchIds whose match:end has been emitted (exactly-once finalize)
   private fairByRoom = new Map<string, FairShuffle>(); // provably-fair shuffle per active match
   private pendingServerSeeds = new Map<string, string>(); // roomId -> serverSeed committed at countdown start
@@ -779,7 +780,11 @@ export class GameGateway {
     const three = hand.find((c) => c.kind === 'standard' && c.rank === '3' && c.suit === 'S');
     const mustInclude = snap.gameIndex === 0 && pub.pile == null && three ? three : undefined;
     const move = decideBotMove(
-      { hand: [...hand], pile: pub.pile, canPass: pub.pile != null, opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude },
+      {
+        hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
+        opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude,
+        seen: this.seenCards.get(roomId) ?? [],
+      },
       tier,
     );
     const res = move.action === 'play' ? this.rooms.play(botUserId, move.cards) : this.rooms.pass(botUserId);
@@ -808,6 +813,7 @@ export class GameGateway {
   private teardownPractice(roomId: string): void {
     this.clearBotTimer(roomId);
     this.botTiers.delete(roomId);
+    this.seenCards.delete(roomId);
     this.ownership?.release(roomId);
     const room = this.rooms.getRoom(roomId);
     if (room) for (const s of room.seats) if (isBot(s.userId)) this.rooms.leaveRoom(s.userId!);
@@ -1023,8 +1029,18 @@ export class GameGateway {
   // ---------- Result -> emissions --------------------------------------------
 
   private applyResult(roomId: string, res: MatchActionResult): void {
+    // Card memory for practice bots: remember every committed play this game so the
+    // Hard tier can count what's still out. Only tracked for practice (the only
+    // rooms with bots) to keep real-money games' hot path untouched.
+    const trackSeen = this.rooms.getRoom(roomId)?.practice ?? false;
     for (const ev of res.gameEvents) {
-      if (ev.kind === 'trickWon') this.io.to(roomId).emit('game:trickWon', { winner: ev.winner, leadsNext: ev.leadsNext });
+      if (ev.kind === 'played') {
+        if (trackSeen) {
+          const arr = this.seenCards.get(roomId) ?? [];
+          arr.push(...ev.combo.cards);
+          this.seenCards.set(roomId, arr);
+        }
+      } else if (ev.kind === 'trickWon') this.io.to(roomId).emit('game:trickWon', { winner: ev.winner, leadsNext: ev.leadsNext });
       else if (ev.kind === 'playerFinished') this.io.to(roomId).emit('game:playerFinished', { seat: ev.seat, place: ev.place });
     }
 
@@ -1095,6 +1111,8 @@ export class GameGateway {
   /** Deal-time broadcast: each player gets their own hand; everyone gets counts. */
   private startNewGameBroadcast(roomId: string): void {
     const room = this.rooms.getRoom(roomId);
+    // Fresh deal ⇒ no cards seen yet this game (resets the bot's card memory).
+    if (room?.practice) this.seenCards.set(roomId, []);
     // Arm the turn timer FIRST so the dealt state carries a live deadline.
     this.armTurnTimer(roomId);
     const pub = this.rooms.publicGameDTO(roomId, this.deadlineFor(roomId));
