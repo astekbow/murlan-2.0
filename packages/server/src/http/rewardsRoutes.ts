@@ -6,11 +6,16 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth/authService.ts';
 import type { RewardsService } from '../rewards/rewardsService.ts';
+import type { ComplianceService } from '../compliance/complianceService.ts';
+import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
+import { checkRealMoneyAccess } from '../compliance/realMoneyGate.ts';
 import { requireAuth } from './authRoutes.ts';
 
 export interface RewardsRoutesDeps {
   auth: AuthService;
   rewards: RewardsService;
+  compliance?: ComplianceService;
+  rg?: ResponsibleGamingService;
 }
 
 export async function rewardsRoutes(app: FastifyInstance, deps: RewardsRoutesDeps): Promise<void> {
@@ -51,8 +56,16 @@ export async function rewardsRoutes(app: FastifyInstance, deps: RewardsRoutesDep
     if (!caller) return;
     if (!rewards.enabled) return disabled(reply);
     const { id } = (req.body ?? {}) as { id?: string };
+    // The shop spends real wallet money, so it's a real-money entry point: enforce
+    // the account-state + compliance gates (a banned/frozen/self-excluded account
+    // can't spend). No loss-cap — a cosmetic purchase isn't a gambling wager.
+    const gate = await checkRealMoneyAccess({ auth, compliance: deps.compliance, rg: deps.rg }, caller.userId);
+    if (!gate.allowed) return reply.code(403).send({ error: { code: gate.code ?? 'blocked', message: gate.message ?? 'Bllokuar.' } });
     const res = await rewards.buy(caller.userId, String(id));
-    if (!res.ok) return reply.code(400).send({ error: { code: res.code ?? 'failed', message: res.code === 'insufficient_xp' ? 'XP i pamjaftueshëm.' : 'Blerja dështoi.' } });
+    if (!res.ok) {
+      if (res.code === 'insufficient_funds') return reply.code(402).send({ error: { code: 'insufficient_funds', message: 'Fonde të pamjaftueshme.' } });
+      return reply.code(400).send({ error: { code: res.code ?? 'failed', message: 'Blerja dështoi.' } });
+    }
     return { ok: true };
   });
 

@@ -242,7 +242,18 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   }, [matchResult, iWon]);
 
   return (
-    <div className={`relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px] px-3 pb-4${shake ? ' shake-fx' : ''}`}>
+    // Safe-area insets: this is the main gameplay screen and renders OUTSIDE the
+    // lobby Shell, so it must inset itself or the top controls sit under the iPhone
+    // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
+    <div
+      className={`relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${shake ? ' shake-fx' : ''}`}
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))',
+        paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+      }}
+    >
       <h1 className="sr-only">{t('table.title')}</h1>
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="flex items-center justify-between gap-2 pt-3 pb-1">

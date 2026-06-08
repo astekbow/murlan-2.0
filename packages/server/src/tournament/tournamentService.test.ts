@@ -99,3 +99,36 @@ test('cancel refunds every escrowed buy-in', async () => {
   assert.equal(cur.prizePoolCents, 0);
   assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1500 }, { userId: 'b', cents: 1500 }]); // both refunded
 });
+
+test('cancel force-voids a RUNNING tournament and refunds all buy-ins (no champion paid)', async () => {
+  const { s, wallet } = svc();
+  const t = await s.create('Cup', 2000, 2);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b'); // fills → running
+  assert.equal((await s.get(t.id))!.status, 'running');
+  const cur = await s.cancel(t.id); // admin force-void of an abandoned bracket
+  assert.equal(cur.status, 'cancelled');
+  assert.equal(cur.prizePoolCents, 0);
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 2000 }, { userId: 'b', cents: 2000 }]);
+  // A finished tournament can't be cancelled.
+  const t2 = await s.create('Cup2', 0, 2);
+  await s.register(t2.id, 'x');
+  await s.register(t2.id, 'y');
+  await s.reportResult(t2.id, 0, 0, 'x'); // finishes
+  await assert.rejects(s.cancel(t2.id), (e: unknown) => e instanceof TournamentError && e.code === 'not_cancellable');
+});
+
+test('sweepStale voids + refunds abandoned tournaments past the TTL, leaves fresh ones alone', async () => {
+  const { s, wallet } = svc(); // now() fixed at 1000, createdAt = 1000
+  const t = await s.create('Cup', 1200, 4);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b'); // registering (not full)
+  // TTL larger than the tournament's age → nothing swept.
+  assert.deepEqual(await s.sweepStale(1_000_000), []);
+  assert.equal((await s.get(t.id))!.status, 'registering');
+  // TTL of 0 → createdAt is at/under the cutoff → voided + refunded.
+  const voided = await s.sweepStale(0);
+  assert.deepEqual(voided, [t.id]);
+  assert.equal((await s.get(t.id))!.status, 'cancelled');
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1200 }, { userId: 'b', cents: 1200 }]);
+});

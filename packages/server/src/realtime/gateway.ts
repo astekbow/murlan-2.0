@@ -975,7 +975,10 @@ export class GameGateway {
       ? (): Card[][] => {
           const hands = fair!.deal();
           const index = fair!.games.length - 1; // the game just dealt
-          if (this.games) {
+          // Practice (vs bots) never creates a `matches` row (no escrow), and the
+          // games table FKs matchId → matches, so persisting practice seeds would
+          // always FK-violate. Practice is unrated + unverifiable anyway, so skip it.
+          if (this.games && !room.practice) {
             void this.games
               .recordGame({ matchId: matchIdForFair, index, serverSeed: fair!.serverSeed, serverSeedHash: fair!.serverSeedHash, clientSeed: fair!.clientSeed, nonce: index })
               .catch((err) => console.error('[fair] failed to persist game seeds', err));

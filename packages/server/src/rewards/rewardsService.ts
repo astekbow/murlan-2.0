@@ -11,9 +11,11 @@ import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo } from '../profile/level.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
 
-/** Just the wallet capability the shop needs (debit), to avoid a hard dependency. */
+/** The wallet capability the shop needs: debit to charge, credit to REFUND a charge
+ *  whose cosmetic grant then failed (so a player is never charged for nothing). */
 export interface PurchaseWallet {
   debit(userId: string, amountCents: number, opts: { type: 'purchase'; reason?: string }): Promise<unknown>;
+  credit(userId: string, amountCents: number, opts: { type: 'purchase'; reason?: string }): Promise<unknown>;
 }
 
 export type CosmeticType = 'cardBack' | 'tableFelt';
@@ -151,8 +153,23 @@ export class RewardsService {
       if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
       throw e;
     }
-    // Grant the cosmetic (cost 0 → no XP spent, just the ownership flag).
-    return this.users.purchaseCosmetic(userId, cosmeticId, 0);
+    // Grant the cosmetic (cost 0 → no XP spent, just the ownership flag). If the
+    // grant THROWS or is REJECTED (e.g. a concurrent buy already granted it), REFUND
+    // the charge — a player must never be debited for a cosmetic they didn't get.
+    let granted: { ok: boolean; code?: string };
+    try {
+      granted = await this.users.purchaseCosmetic(userId, cosmeticId, 0);
+    } catch (e) {
+      await this.refundPurchase(userId, c.cost, cosmeticId);
+      throw e;
+    }
+    if (!granted.ok) await this.refundPurchase(userId, c.cost, cosmeticId);
+    return granted;
+  }
+
+  /** Best-effort compensating credit for a charge whose grant failed. */
+  private async refundPurchase(userId: string, cents: number, cosmeticId: string): Promise<void> {
+    await this.wallet.credit(userId, cents, { type: 'purchase', reason: `cosmetic-refund:${cosmeticId}` }).catch(() => undefined);
   }
 
   /** Equip an owned cosmetic into its slot. */

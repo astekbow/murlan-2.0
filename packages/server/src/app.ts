@@ -181,7 +181,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await socialRoutes(app, { auth: deps.auth, profiles: deps.profiles, friends: deps.friends });
   }
   if (deps.rewards) {
-    await rewardsRoutes(app, { auth: deps.auth, rewards: deps.rewards });
+    await rewardsRoutes(app, { auth: deps.auth, rewards: deps.rewards, compliance: deps.compliance, rg: deps.rg });
   }
   if (deps.ranked) {
     await rankedRoutes(app, { auth: deps.auth, ranked: deps.ranked });
@@ -196,7 +196,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
   }
   if (deps.tournaments) {
-    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments });
+    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit });
   }
   if (deps.antiCheat) {
     // Admin-only review list of anti-collusion/anti-bot heuristic flags (never auto-action).
@@ -285,6 +285,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     const { getPrisma } = await import('./db/prismaClient.ts');
     const { createPrismaStores } = await import('./db/prismaRepositories.ts');
     const prisma = getPrisma(config.databaseUrl);
+    // Boot-time provenance log (audit 2026-06-08, finding C2): print WHICH database
+    // host + env the live process is actually using — WITHOUT secrets — so a misconfig
+    // (e.g. still pointing at an external DB, or NODE_ENV=development in prod) is
+    // visible in `docker compose logs server` without exec'ing into the container.
+    const dbHost = (() => { try { return new URL(config.databaseUrl!).host; } catch { return 'unparseable'; } })();
+    // eslint-disable-next-line no-console
+    console.log(`[db] store=postgres host=${dbHost} env=${config.isProd ? 'production' : 'development'}`);
     dbPing = async () => {
       try {
         await prisma.$queryRaw`SELECT 1`;
@@ -314,6 +321,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     verificationTokensRepo = stores.verificationTokens;
     uow = stores.uow; // Postgres: credit/debit run in one $transaction
   } else {
+    if (config.isProd && !opts.userRepository) {
+      // eslint-disable-next-line no-console
+      console.warn('[db] store=IN-MEMORY (no DATABASE_URL) — DATA WILL NOT PERSIST across restarts. Set DATABASE_URL for a real-money deploy.');
+    }
     repo = opts.userRepository ?? new InMemoryUserRepository();
     ledger = new InMemoryLedger();
     matchesRepo = new InMemoryMatchesRepository();
@@ -491,6 +502,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Periodic safety net: refund matches no live room owns + verify the money
   // conservation invariant, paging the operator on any drift.
   const RECONCILE_MS = 5 * 60 * 1000;
+  // Abandoned tournaments (admin-advanced, no realtime auto-run) get refunded +
+  // voided once this old, so escrowed buy-ins can't be stranded forever (C4).
+  const TOURNAMENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
   const sweepTimer = setInterval(() => {
     void (async () => {
       try {
@@ -498,6 +512,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         if (refunded.length) {
           app.log.warn({ matchIds: refunded }, 'refunded orphaned matches (periodic sweep)');
           orphanedMatchesRefunded.inc(refunded.length);
+        }
+        const voidedTournaments = await tournaments.sweepStale(TOURNAMENT_MAX_AGE_MS);
+        if (voidedTournaments.length) {
+          app.log.warn({ tournamentIds: voidedTournaments }, 'voided + refunded abandoned tournaments (periodic sweep)');
         }
         const rec = await wallet.reconcile();
         if (!rec.ok) {

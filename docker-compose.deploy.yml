@@ -23,7 +23,14 @@ services:
       - caddy_config:/config
     depends_on: ['client']
 
-  # Keep the stack restarting across reboots/crashes in a real deploy.
+  # Keep the stack restarting across reboots/crashes in a real deploy. Postgres +
+  # Redis MUST be here too: without a restart policy they don't come back after a
+  # VPS reboot / OOM-kill, and the server then crash-loops on `migrate deploy`
+  # because it can't reach the DB (audit 2026-06-08, finding C3).
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
   server:
     restart: unless-stopped
   client:
