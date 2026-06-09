@@ -784,6 +784,14 @@ export class GameGateway {
         hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
         opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude,
         seen: this.seenCards.get(roomId) ?? [],
+        // Full public state so the Hard tier can run its look-ahead search.
+        mySeat: seat,
+        numPlayers: pub.handCounts.length,
+        pileOwner: pub.pileOwner,
+        passed: pub.passed,
+        active: pub.active,
+        handCounts: pub.handCounts,
+        finishingOrder: pub.finishingOrder,
       },
       tier,
     );

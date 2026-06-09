@@ -20,6 +20,7 @@ import {
   type Card, type Combo, type Rank,
   identifyCombo, beats, singlePower, cardId, buildDeck,
 } from '@murlan/engine';
+import { chooseBestMove } from './botSearch.ts';
 
 export type BotTier = 'easy' | 'medium' | 'hard';
 
@@ -39,6 +40,24 @@ export interface BotView {
   /** Every card already PLAYED this game (all seats). The Hard tier counts cards
    *  from this to know what's still out there. Omitted ⇒ no card memory. */
   seen?: Card[];
+
+  // --- Full public game state (from the SingleGame snapshot). When present, the
+  // Hard tier runs a determinized Monte-Carlo SEARCH instead of pure heuristics;
+  // omitted ⇒ Hard uses its heuristic policy (e.g. in unit tests). ---
+  /** This bot's seat index. */
+  mySeat?: number;
+  /** Number of seats in the game. */
+  numPlayers?: number;
+  /** Seat that owns the current pile (last to play), or null. */
+  pileOwner?: number | null;
+  /** Seats that have passed in the current trick. */
+  passed?: number[];
+  /** Seats still holding cards. */
+  active?: boolean[];
+  /** Cards remaining per seat (index = seat). */
+  handCounts?: number[];
+  /** Seats already finished this game, in finishing order. */
+  finishingOrder?: number[];
 }
 
 // SEQ value for straights: Ace is flexible (1 or 14), 2 is only low. Mirrors the
@@ -257,7 +276,16 @@ export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = 
     return { action: 'play', cards: sorted[0]!.cards };
   }
 
-  // ----- HARD: unload in bulk, count cards, control the endgame -------------
+  // ----- HARD ----------------------------------------------------------------
+  // With full public state, THINK AHEAD: determinized Monte-Carlo search picks the
+  // move that finishes first across many sampled opponent hands. Falls back to the
+  // heuristic below when the rich context isn't available (e.g. in unit tests).
+  if (view.mySeat != null && view.numPlayers != null) {
+    const searched = chooseBestMove(view, rng);
+    if (searched) return searched;
+  }
+
+  // Heuristic Hard (fallback): unload in bulk, count cards, control the endgame.
   if (!view.pile) {
     // Deny a nearly-finished opponent an easy take: lead the STRONGEST non-trump
     // single so they can't cheaply grab the lead and go out.
