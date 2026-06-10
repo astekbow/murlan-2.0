@@ -81,6 +81,9 @@ interface GameStore {
    *  the next game starts, so non-winners show "opponent is choosing" instead of
    *  the shuffle splash. */
   switchPending: boolean;
+  /** Transient: the previous loser held both jokers → no card switch this game and
+   *  the winner leads. Drives the "no swap" banner; auto-clears after a few seconds. */
+  noSwapNotice: boolean;
   matchResult: MatchEndDTO | null;
   fairCommit: FairCommitDTO | null;
   fairReveal: FairRevealDTO | null;
@@ -142,6 +145,7 @@ const emptyRoomState = {
   scoreboard: null,
   switchPrompt: null,
   switchPending: false,
+  noSwapNotice: false,
   matchResult: null,
   fairCommit: null,
   fairReveal: null,
@@ -245,6 +249,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     });
 
+    socket.on('match:noSwap', (dto) => {
+      // Loser held both jokers → no switch this game, winner leads. Flash a banner.
+      set((s) => ({ noSwapNotice: true, log: appendLog(s.log, tg('log.noSwap', { loser: dto.loser + 1, winner: dto.winner + 1 })) }));
+      setTimeout(() => set({ noSwapNotice: false }), 4000);
+    });
+
     socket.on('fair:commit', (dto) => {
       // Contribute fresh entropy AFTER the commitment — this is what makes the
       // deal un-grindable (the server fixed serverSeed before seeing this seed).
@@ -266,6 +276,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         game: null, // stop the turn timer & clear the board behind the result overlay
         switchPrompt: null,
         switchPending: false,
+        noSwapNotice: false,
         log: appendLog(s.log, tg('log.matchEnded')),
       }));
     });

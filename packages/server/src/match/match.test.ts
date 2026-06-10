@@ -39,6 +39,44 @@ test('construction: the 3♠ holder leads game 1 and must open with the 3♠', (
   assert.equal(m.snapshot().game?.turn, 0);          // advanced to opponent
 });
 
+test('game 1 with NO 3♠ dealt (1v1): the lowest start-suit card present opens', () => {
+  const m = new Match({
+    type: '1v1',
+    startTarget: 100,
+    deal: dealer([[[c('7', 'S'), c('9', 'H')], [c('4', 'S'), c('8', 'D')]]]), // no 3♠ anywhere; 4♠ is the lowest spade (seat1)
+  });
+  const s = m.snapshot();
+  assert.equal(s.game?.turn, 1);                      // seat1 leads — holds the 4♠
+  assert.equal(m.play(1, [c('8', 'D')]).ok, false);   // the opening must include the 4♠
+  assert.ok(m.play(1, [c('4', 'S')]).ok);             // valid opening with the 4♠
+});
+
+test('no-swap: a previous loser dealt BOTH jokers keeps them; no switch, and the WINNER leads', () => {
+  const BJ: Card = { kind: 'joker', color: 'black' };
+  const RJ: Card = { kind: 'joker', color: 'red' };
+  const m = new Match({
+    type: '1v1',
+    startTarget: 100,
+    deal: dealer([
+      [[c('3', 'S')], [c('4', 'S')]],            // game1: seat0 wins, seat1 loses
+      [[c('5', 'S'), c('6', 'S')], [BJ, RJ]],    // game2: the loser (seat1) gets BOTH jokers
+    ]),
+  });
+  const r1 = m.play(0, [c('3', 'S')]); // finish game1 → prepare game2
+  const noSwap = find(r1.matchEvents, 'noSwap');
+  assert.ok(noSwap, 'noSwap emitted');
+  assert.equal(noSwap.winner, 0);
+  assert.equal(noSwap.loser, 1);
+  assert.equal(find(r1.matchEvents, 'cardSwitchAuto'), undefined); // no auto-give happened
+  assert.equal(find(r1.matchEvents, 'gameStarted').leader, 0);     // the WINNER leads, not the loser
+
+  const s = m.snapshot();
+  assert.equal(s.state, 'playing');
+  assert.equal(s.game?.turn, 0);
+  assert.deepEqual(idset(m.handOf(1)), idset([BJ, RJ]));                 // loser KEEPS both jokers
+  assert.deepEqual(idset(m.handOf(0)), idset([c('5', 'S'), c('6', 'S')])); // winner's hand unchanged
+});
+
 test('1v1: a finished game is scored and the match ends at target', () => {
   const m = new Match({
     type: '1v1',
@@ -171,12 +209,12 @@ test('2v2: team scoring decides the match (seats 0&2 vs 1&3)', () => {
   assert.deepEqual(m.snapshot().teamCumulative, [4, 2]);
 });
 
-test('1v1 fallback: when the 3♠ is undealt, seat 0 leads with a free opening', () => {
+test('1v1 fallback: when NO start-suit card is dealt at all, seat 0 leads with a free opening', () => {
   const m = new Match({
     type: '1v1',
     startTarget: 100,
-    deal: dealer([[[c('5', 'S'), c('9', 'S')], [c('4', 'S')]]]), // no 3♠ anywhere
+    deal: dealer([[[c('5', 'H'), c('9', 'D')], [c('4', 'C')]]]), // no ♠ anywhere → nothing to require
   });
   assert.equal(m.snapshot().game?.turn, 0);     // seat0 leads by fallback
-  assert.ok(m.play(0, [c('5', 'S')]).ok);        // opening is free (no 3♠ required)
+  assert.ok(m.play(0, [c('5', 'H')]).ok);        // opening is free (no start-suit card exists)
 });

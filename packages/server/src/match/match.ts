@@ -9,7 +9,7 @@
 // public snapshot; per-seat hands are exposed only for private delivery.
 // ============================================================================
 
-import type { Card, Suit } from '@murlan/engine';
+import type { Card, Rank, Suit } from '@murlan/engine';
 import { cardId } from '@murlan/engine';
 import {
   SingleGame, type Seat, type GameEvent, type GameSnapshot,
@@ -44,6 +44,7 @@ export type MatchEvent =
   | { kind: 'cardSwitchAuto'; loser: Seat; winner: Seat; card: Card }   // loser's strongest -> winner
   | { kind: 'awaitingSwitch'; winner: Seat; loser: Seat }               // winner must return a 3–10 card
   | { kind: 'cardSwitchReturn'; winner: Seat; loser: Seat; card: Card | null } // winner's 3–10 -> loser (null if none)
+  | { kind: 'noSwap'; winner: Seat; loser: Seat }                       // loser holds BOTH jokers → no switch, winner leads
   | { kind: 'matchEnded'; winnerSide: number; winnerSeats: Seat[]; finalSideScores: number[] };
 
 export interface MatchActionResult {
@@ -201,7 +202,7 @@ export class Match {
     const matchEvents: MatchEvent[] = [
       { kind: 'cardSwitchReturn', winner: this.pendingWinner, loser: this.pendingLoser, card: returned },
     ];
-    matchEvents.push(this.beginPendingGame());
+    matchEvents.push(this.beginPendingGame(this.pendingLoser)); // the loser leads the next game
     return ok([], matchEvents);
   }
 
@@ -211,16 +212,7 @@ export class Match {
     const hands = this.dealHands();
     this.assertHandCount(hands);
 
-    // First game: the holder of the start "3" (♠ by default) leads AND must open
-    // with it. In 1v1 only 36/54 cards are dealt, so the 3♠ may be undealt — in
-    // that case we fall back to seat 0 leading with a free opening.
-    const holder = hands.findIndex(
-      (h) => h.some((c) => c.kind === 'standard' && c.rank === '3' && c.suit === this.startSuit),
-    );
-    const leader = holder >= 0 ? holder : 0;
-    const openingCard: Card | undefined =
-      holder >= 0 ? { kind: 'standard', rank: '3', suit: this.startSuit } : undefined;
-
+    const { leader, openingCard } = this.firstGameOpening(hands);
     this.game = new SingleGame({
       numPlayers: this.numPlayers as 2 | 3 | 4,
       hands,
@@ -229,6 +221,25 @@ export class Match {
     });
     this.state = 'playing';
     this.gameIndex = 0;
+  }
+
+  /**
+   * Game-1 opener: the holder of the LOWEST start-suit card present leads AND must
+   * open with it — normally the 3♠. But in 1v1 only 36/54 cards are dealt, so the
+   * 3♠ may be undealt; then the 4♠ opens, else the 5♠, and so on UP the ranks.
+   * (Applies to the FIRST game only — from game 2 the loser leads with no opening
+   * constraint.) If no start-suit card was dealt at all (vanishingly rare), seat 0
+   * opens freely.
+   */
+  private firstGameOpening(hands: Card[][]): { leader: Seat; openingCard?: Card } {
+    const RANKS: Rank[] = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
+    for (const rank of RANKS) {
+      const holder = hands.findIndex(
+        (h) => h.some((c) => c.kind === 'standard' && c.rank === rank && c.suit === this.startSuit),
+      );
+      if (holder >= 0) return { leader: holder, openingCard: { kind: 'standard', rank, suit: this.startSuit } };
+    }
+    return { leader: 0 };
   }
 
   /** Score the just-finished game, then either end the match or prepare the next. */
@@ -285,6 +296,22 @@ export class Match {
     const hands = this.dealHands();
     this.assertHandCount(hands);
 
+    this.pendingHands = hands;
+    this.pendingWinner = winner;
+    this.pendingLoser = loser;
+    this.pendingReceivedId = null;
+    this.gameIndex += 1;
+
+    // NO-SWAP rule: if the loser was dealt BOTH jokers, the switch is cancelled
+    // (they keep both jokers) and the WINNER leads the next game instead of the
+    // loser. Surfaced to clients as a "no swap" banner.
+    const loserJokers = hands[loser]!.filter((c) => c.kind === 'joker').length;
+    if (loserJokers >= 2) {
+      events.push({ kind: 'noSwap', winner, loser });
+      events.push(this.beginPendingGame(winner)); // winner leads, no give/return
+      return;
+    }
+
     // Step 1 (automatic): the loser gives their single strongest card (POWER
     // order — possibly the red joker) to the winner.
     const loserHand = hands[loser]!;
@@ -292,29 +319,24 @@ export class Match {
     const strongest = loserHand.splice(strongIdx, 1)[0]!;
     hands[winner]!.push(strongest);
     events.push({ kind: 'cardSwitchAuto', loser, winner, card: strongest });
-
-    this.pendingHands = hands;
-    this.pendingWinner = winner;
-    this.pendingLoser = loser;
     this.pendingReceivedId = cardId(strongest); // can't be returned to the loser
-    this.gameIndex += 1;
 
     // Step 2: the winner chooses a rank-3–10 card to return — but NOT the card
     // just received. If they have no OTHER eligible card, skip the return.
     const eligible = eligibleReturnCards(hands[winner]!).filter((c) => cardId(c) !== this.pendingReceivedId);
     if (eligible.length === 0) {
       events.push({ kind: 'cardSwitchReturn', winner, loser, card: null });
-      events.push(this.beginPendingGame());
+      events.push(this.beginPendingGame(loser)); // the loser leads (normal)
     } else {
       this.state = 'awaitingSwitch';
       events.push({ kind: 'awaitingSwitch', winner, loser });
     }
   }
 
-  /** Start the prepared game; the loser (last place) of the previous game leads. */
-  private beginPendingGame(): MatchEvent {
+  /** Start the prepared game. `leader` is the loser after a normal switch, or the
+   *  WINNER after a no-swap (loser held both jokers). */
+  private beginPendingGame(leader: Seat): MatchEvent {
     const hands = this.pendingHands as Card[][];
-    const leader = this.pendingLoser as Seat;
     this.game = new SingleGame({
       numPlayers: this.numPlayers as 2 | 3 | 4,
       hands,

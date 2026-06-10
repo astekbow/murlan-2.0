@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { RoomStateDTO } from '@murlan/shared';
+import type { Card } from '@murlan/engine';
 import { PLAYERS_PER_TYPE, isReturnEligible } from '@murlan/shared';
 import { useGameStore, type Bubble } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { selectedCards } from '../lib/selection.ts';
-import { cardKey } from '../lib/cards.ts';
+import { cardKey, cardLabel } from '../lib/cards.ts';
 import { seatPosition, type SeatPosition } from '../lib/layout.ts';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
@@ -89,13 +90,13 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
-    game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, matchResult,
+    game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, matchResult,
     fairCommit, fairReveal, bubbles,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
-      scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, matchResult: s.matchResult,
+      scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, matchResult: s.matchResult,
       fairCommit: s.fairCommit, fairReveal: s.fairReveal, bubbles: s.bubbles,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
       giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch,
@@ -146,16 +147,21 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // ON the real hand (no blurring modal) — tap an eligible card to give it.
   const switching = !!switchPrompt && switchPrompt.winner === mySeat;
   const eligibleSwitchIds = switching ? new Set(myHand.filter(isReturnEligible).map(cardKey)) : null;
+  // The card the winner has PICKED to return — held until they confirm, so an
+  // accidental tap never sends a card. Cleared once the switch is over.
+  const [switchPick, setSwitchPick] = useState<Card | null>(null);
+  useEffect(() => { if (!switching) setSwitchPick(null); }, [switching]);
   const onCardTap = (id: string) => {
     if (switching) {
       const card = myHand.find((c) => cardKey(c) === id);
-      if (card && isReturnEligible(card)) { sound.play('card'); void giveSwitch(card); }
+      if (card && isReturnEligible(card)) { sound.play('select'); setSwitchPick(card); } // pick → confirm (no instant send)
       else useGameStore.setState({ toast: t('table.switchHint'), toastKind: 'info' });
       return;
     }
     sound.play('select');
     toggleCardSel(id);
   };
+  const confirmSwitch = () => { if (switchPick) { sound.play('card'); void giveSwitch(switchPick); setSwitchPick(null); } };
 
   const opponents = room.seats.filter((s) => s.seat !== mySeat);
 
@@ -332,9 +338,17 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       <div className="pt-1">
         {switching ? (
           <div className="text-center pb-1.5">
-            <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-1.5 gold-text font-display font-semibold tracking-wide text-sm">
-              {t('table.youWinSwitch')}
-            </span>
+            {switchPick ? (
+              <div className="flex items-center justify-center gap-2 flex-wrap animate-pop">
+                <span className="text-sm text-txt">{t('table.switchConfirmQ', { card: cardLabel(switchPick) })}</span>
+                <button className="btn btn-gold btn-sm" onClick={confirmSwitch}>{t('table.switchConfirm')}</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setSwitchPick(null)}>{t('table.switchCancel')}</button>
+              </div>
+            ) : (
+              <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-1.5 gold-text font-display font-semibold tracking-wide text-sm">
+                {t('table.youWinSwitch')}
+              </span>
+            )}
           </div>
         ) : (
           <>
@@ -354,7 +368,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             )}
           </>
         )}
-        <Hand cards={myHand} selected={switching ? [] : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate />
+        <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate />
         {!switching && (
           <Controls
             selectedCards={selectedCards(myHand, selected)}
@@ -381,6 +395,16 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             ))}
           </div>
           <div className="gold-text font-display font-semibold tracking-wide">{t('table.shuffling')}</div>
+        </div>
+      )}
+
+      {/* "No swap" banner: the previous loser held both jokers, so no card switch
+          happened this game and the winner leads. Flashed for a few seconds. */}
+      {noSwapNotice && !matchResult && (
+        <div className="fixed left-1/2 top-20 -translate-x-1/2 z-50 pointer-events-none" role="status" aria-live="polite">
+          <span className="inline-block panel-solid rounded-xl px-5 py-2.5 gold-text font-display font-bold tracking-[0.2em] text-base animate-pop ring-1 ring-gold-hi/40">
+            {t('table.noSwap')}
+          </span>
         </div>
       )}
 

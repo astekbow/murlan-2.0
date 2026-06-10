@@ -1090,6 +1090,11 @@ export class GameGateway {
         case 'cardSwitchReturn':
           this.emitCardSwitch(roomId, { winner: ev.winner, loser: ev.loser, given: null, returned: ev.card, awaitingReturn: false });
           break;
+        case 'noSwap':
+          // Loser holds both jokers → no switch this game; the winner leads. Tell
+          // clients so they can show the "no swap" banner.
+          this.io.to(roomId).emit('match:noSwap', { winner: ev.winner, loser: ev.loser });
+          break;
         case 'gameStarted':
           this.startNewGameBroadcast(roomId);
           break;

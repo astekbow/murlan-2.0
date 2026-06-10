@@ -97,6 +97,9 @@ export interface ServerToClientEvents {
   'game:playerFinished': (dto: PlayerFinishedDTO) => void;
   'game:end': (dto: GameEndDTO) => void;
   'card:switch': (dto: CardSwitchDTO) => void;
+  // The previous loser was dealt BOTH jokers → the card switch is skipped and the
+  // winner leads. Clients show a "no swap" banner.
+  'match:noSwap': (dto: { winner: Seat; loser: Seat }) => void;
   'match:scoreboard': (dto: ScoreboardDTO) => void;
   'match:end': (dto: MatchEndDTO) => void;
   'ranked:queue:update': (dto: RankedQueueDTO) => void; // matchmaking status while waiting
