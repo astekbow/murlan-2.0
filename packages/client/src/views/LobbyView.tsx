@@ -86,8 +86,9 @@ export function LobbyView() {
       <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
         <RailNav items={RAIL_LEFT} side="left" />
 
-        {/* Hero mode cards */}
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 order-1 md:order-2">
+        {/* Center column: mode cards, then Ranked + Open rooms directly under them. */}
+        <div className="order-1 md:order-2 space-y-3 sm:space-y-4 min-w-0">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <button className="mode casual animate-rise text-inherit" style={{ animationDelay: '.1s' }} onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
             <div className="art" />
             <span className="micon" aria-hidden>🎴</span>
@@ -103,13 +104,10 @@ export function LobbyView() {
             <div className="mdesc">{t('lobby.tournDesc')}</div>
             <div className="mcta">{t('lobby.tournCta')}</div>
           </button>
-        </div>
+          </div>
 
-        <RailNav items={RAIL_RIGHT} side="right" />
-      </div>
-
-      {/* Ranked + open rooms fill the space below the mode cards (side by side). */}
-      <div className="grid sm:grid-cols-2 gap-3 sm:gap-4 items-start">
+          {/* Ranked + open rooms — directly under the mode cards (side by side). */}
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 items-stretch">
         {/* Ranked matchmaking — skill-matched, feeds the MMR ladder */}
         <button
           onClick={() => { sound.play('button'); haptics.tap(); setRankedOpen(true); }}
@@ -185,6 +183,10 @@ export function LobbyView() {
             </ul>
           )}
         </section>
+          </div>
+        </div>
+
+        <RailNav items={RAIL_RIGHT} side="right" />
       </div>
 
       {/* Live matches — spectate a game in progress */}
