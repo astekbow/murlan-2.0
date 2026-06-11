@@ -39,6 +39,26 @@ test('construction: the 3♠ holder leads game 1 and must open with the 3♠', (
   assert.equal(m.snapshot().game?.turn, 0);          // advanced to opponent
 });
 
+test('game 1 opener may be ANY valid combo containing the 3♠ (pair of threes / kolor)', () => {
+  // A PAIR of threes, one being the 3♠, opens.
+  const mPair = new Match({
+    type: '1v1',
+    startTarget: 100,
+    deal: dealer([[[c('3', 'S'), c('3', 'H'), c('9', 'D')], [c('4', 'S')]]]),
+  });
+  assert.equal(mPair.snapshot().game?.turn, 0);                 // seat0 holds the 3♠ → leads
+  assert.equal(mPair.play(0, [c('9', 'D')]).ok, false);         // a combo WITHOUT the 3♠ is rejected
+  assert.ok(mPair.play(0, [c('3', 'S'), c('3', 'H')]).ok);      // pair of threes incl. 3♠ opens
+
+  // A KOLOR (run) that contains the 3♠ opens.
+  const mKolor = new Match({
+    type: '1v1',
+    startTarget: 100,
+    deal: dealer([[[c('3', 'S'), c('4', 'H'), c('5', 'D'), c('6', 'C'), c('7', 'S')], [c('8', 'S'), c('9', 'S')]]]),
+  });
+  assert.ok(mKolor.play(0, [c('3', 'S'), c('4', 'H'), c('5', 'D'), c('6', 'C'), c('7', 'S')]).ok); // kolor incl. 3♠ opens
+});
+
 test('game 1 with NO 3♠ dealt (1v1): the lowest start-suit card present opens', () => {
   const m = new Match({
     type: '1v1',
