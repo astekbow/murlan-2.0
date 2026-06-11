@@ -8,6 +8,7 @@ import { useGameStore } from '../store/gameStore.ts';
 import { Pile } from '../components/Pile.tsx';
 import { sound } from '../lib/sound.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
+import { useForceLandscape } from '../lib/useForceLandscape.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
@@ -15,6 +16,7 @@ const TYPE_LABEL: Record<string, string> = { '1v1': tr('spectate.type1v1'), '1v1
 
 export function SpectateView({ room }: { room: RoomStateDTO }) {
   const t = useT();
+  const { forced } = useForceLandscape(); // landscape-only: rotate if held portrait
   const { game, scoreboard, matchResult, stopSpectate } = useGameStore(
     useShallow((s) => ({ game: s.game, scoreboard: s.scoreboard, matchResult: s.matchResult, stopSpectate: s.stopSpectate })),
   );
@@ -27,7 +29,7 @@ export function SpectateView({ room }: { room: RoomStateDTO }) {
   return (
     // Renders outside the lobby Shell → inset for the iPhone notch (audit finding H10).
     <div
-      className="relative z-10 mx-auto w-full max-w-[680px] pb-6 space-y-4"
+      className={`relative z-10 mx-auto w-full max-w-[680px] pb-6 space-y-4${forced ? ' force-rotate' : ''}`}
       style={{
         paddingTop: 'calc(0.75rem + env(safe-area-inset-top))',
         paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
