@@ -5,10 +5,12 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
+import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
 export function FriendsView() {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const setView = useUiStore((s) => s.setView);
 
   const [friends, setFriends] = useState<FriendEntry[]>([]);
@@ -84,6 +86,7 @@ export function FriendsView() {
   const block = async (userId: string) => {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
+    if (!(await confirm({ title: t('friends.block'), message: t('friends.confirmBlockM'), danger: true, confirmLabel: t('friends.block') }))) return;
     try {
       await friendsApi.block(token, userId);
       useGameStore.setState({ toast: t('friends.userBlocked'), toastKind: 'success' });
@@ -117,6 +120,7 @@ export function FriendsView() {
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
         {t('common.backToLobby')}
       </button>
+      {dialog}
 
       {/* Header */}
       <section className="panel p-5 animate-rise">

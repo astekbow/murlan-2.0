@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
+import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (k: string) => translate(k, useLangStore.getState().lang);
@@ -14,6 +15,7 @@ const tk = () => useAuthStore.getState().accessToken;
 
 export function TournamentsView() {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const setView = useUiStore((s) => s.setView);
   const me = useAuthStore((s) => s.user);
   const isAdmin = me?.role === 'admin';
@@ -46,6 +48,7 @@ export function TournamentsView() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
+        {dialog}
         <button onClick={() => void load()} className="btn btn-ghost">{t('common.refresh')}</button>
       </div>
       <section className="panel p-5 animate-rise text-center">
@@ -91,7 +94,7 @@ export function TournamentsView() {
 
               {canRegister && <button disabled={busy} onClick={() => void act(() => tournamentsApi.register(tk()!, tn.id))} className="btn btn-gold btn-block">{t('tourn.register')} · {dollars(tn.buyInCents)}</button>}
               {joined && tn.status === 'registering' && <p className="text-xs text-emerald-300 text-center">{t('tourn.registered')}</p>}
-              {isAdmin && tn.status === 'registering' && <button disabled={busy} onClick={() => void act(() => tournamentsApi.cancel(tk()!, tn.id))} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>}
+              {isAdmin && tn.status === 'registering' && <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.cancelRefund'), message: t('tourn.confirmCancelM'), danger: true, confirmLabel: t('tourn.cancelRefund') })) void act(() => tournamentsApi.cancel(tk()!, tn.id)); }} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>}
               {tn.winnerId && <p className="text-sm text-center text-gold-hi">🏆 {t('tourn.champion')}: {label(tn.winnerId)}</p>}
 
               {rounds.length > 0 && (

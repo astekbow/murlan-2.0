@@ -6,6 +6,7 @@ import { accountApi, type RgLimits } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
+import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
@@ -22,6 +23,7 @@ export function WalletView() {
   } = useWalletStore();
   const setView = useUiStore((s) => s.setView);
   const t = useT();
+  const { confirm, dialog } = useConfirm();
 
   const [depositAmt, setDepositAmt] = useState('15');
   const [withdrawAmt, setWithdrawAmt] = useState('5');
@@ -89,8 +91,25 @@ export function WalletView() {
       useWalletStore.setState({ error: tr('wallet.errDestMin') });
       return;
     }
+    if (!(await confirm({
+      title: t('wallet.confirmWithdrawT'),
+      message: t('wallet.confirmWithdrawM', { amount: dollars(cents), dest: destination.trim() }),
+      confirmLabel: t('wallet.requestWithdraw'),
+    }))) return;
     setWithdrawing(true);
     try { await withdraw(cents, destination.trim()); } finally { setWithdrawing(false); }
+  };
+
+  const onSelfExclude = async () => {
+    const days = Number(exclDays) || 0;
+    if (days <= 0) return;
+    if (!(await confirm({
+      title: t('wallet.confirmExcludeT'),
+      message: t('wallet.confirmExcludeM', { days }),
+      danger: true,
+      confirmLabel: t('wallet.selfExclude'),
+    }))) return;
+    void selfExclude(days);
   };
 
   return (
@@ -122,6 +141,7 @@ export function WalletView() {
         )}
       </section>
       {celebrate && <Confetti />}
+      {dialog}
 
       {(error || notice) && (
         <div
@@ -202,7 +222,7 @@ export function WalletView() {
             <input type="number" min="1" value={exclDays} onChange={(e) => setExclDays(e.target.value)}
               className="field w-28" />
           </label>
-          <button onClick={() => void selfExclude(Number(exclDays) || 0)} className="btn btn-danger w-full sm:w-auto">
+          <button onClick={() => void onSelfExclude()} className="btn btn-danger w-full sm:w-auto">
             {t('wallet.selfExclude')}
           </button>
         </div>

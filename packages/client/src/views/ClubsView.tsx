@@ -7,10 +7,12 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
+import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
 export function ClubsView() {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const setView = useUiStore((s) => s.setView);
   const [mine, setMine] = useState<ClubDetailDTO | null>(null);
   const [list, setList] = useState<ClubSummaryDTO[]>([]);
@@ -51,6 +53,7 @@ export function ClubsView() {
   return (
     <div className="space-y-5">
       <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
+      {dialog}
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
         <div>
@@ -66,7 +69,7 @@ export function ClubsView() {
         <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.05s' }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-lg">[{mine.tag}] {mine.name}</h2>
-            <button disabled={busy} onClick={() => void act(() => clubsApi.leave(token()!))} className="btn btn-danger">{t('clubs.leaveClub')}</button>
+            <button disabled={busy} onClick={async () => { if (await confirm({ title: t('clubs.leaveClub'), message: t('clubs.confirmLeaveM'), danger: true, confirmLabel: t('clubs.leaveClub') })) void act(() => clubsApi.leave(token()!)); }} className="btn btn-danger">{t('clubs.leaveClub')}</button>
           </div>
           <div className="text-xs text-muted">{t('clubs.memberCount', { n: mine.memberCount })}</div>
           {mine.private && mine.joinCode && (
