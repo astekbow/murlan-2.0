@@ -23,7 +23,7 @@ export function Toast({ message, kind = 'error', onDismiss }: ToastProps) {
 
   if (!message) return null;
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[90%]">
+    <div className="fixed left-1/2 -translate-x-1/2 z-40 max-w-[90%]" style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
       <div
         className={`rounded-lg ${KIND_CLASS[kind]} px-4 py-2 text-sm font-medium shadow-lg animate-pop`}
         role={kind === 'error' ? 'alert' : 'status'}

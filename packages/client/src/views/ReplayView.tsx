@@ -101,7 +101,15 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
   }, [dto, byGame]);
 
   return (
-    <div className="relative z-10 mx-auto w-full max-w-[900px] px-4 pt-4 pb-14 space-y-5">
+    <div
+      className="relative z-10 mx-auto w-full max-w-[900px] space-y-5"
+      style={{
+        paddingTop: 'max(1rem, env(safe-area-inset-top))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+      }}
+    >
       <button onClick={onClose} className="btn btn-ghost">{t('replay.back')}</button>
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">

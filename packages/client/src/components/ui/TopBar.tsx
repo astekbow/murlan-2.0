@@ -131,7 +131,7 @@ export function TopBar() {
           {menuOpen && createPortal(
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div role="menu" aria-label={t('topbar.settings')} className="fixed right-3 top-16 w-44 z-[91] panel-solid p-1.5 animate-pop">
+              <div role="menu" aria-label={t('topbar.settings')} className="fixed top-16 w-44 z-[91] panel-solid p-1.5 animate-pop" style={{ right: 'max(0.75rem, env(safe-area-inset-right))' }}>
                 {user.role === 'admin' && (
                   <button
                     role="menuitem"

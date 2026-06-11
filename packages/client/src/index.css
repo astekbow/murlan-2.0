@@ -282,7 +282,7 @@ select:focus-visible,
   }
 
   /* ---- Modal ------------------------------------------------------------- */
-  .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(6, 5, 9, 0.74); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); display: grid; place-items: center; padding: 16px; }
+  .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(6, 5, 9, 0.74); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 
   /* ---- Waiting-screen crest --------------------------------------------- */
   .crest { font-family: 'Cinzel', serif; font-weight: 900; letter-spacing: 6px; }
@@ -573,8 +573,10 @@ select:focus-visible,
   }
   .tv-top { padding-top: 4px !important; padding-bottom: 0 !important; }
   .tv-score { margin: 2px 0 !important; }
-  /* Top padding gives the opponent seat (which sits ABOVE the felt) room. */
-  .tv-table { padding: 18px 0 0 !important; }
+  /* Top padding gives the opponent seat (which sits ABOVE the felt) room; the
+     left/right safe-area insets shift the felt (and its side seat badges) clear of
+     the Dynamic Island, which sits on a SIDE edge in landscape. */
+  .tv-table { padding: 18px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
   /* Felt fills the WIDTH (no 640px cap) so the table isn't a narrow strip. */
   .tv-felt { padding: 2px 8px !important; max-width: none !important; }
   /* Hand drops to the very bottom, centered, leaving room for the side buttons. */

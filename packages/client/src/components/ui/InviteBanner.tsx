@@ -15,7 +15,14 @@ export function InviteBanner() {
   if (!invite) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-4 z-[55] flex justify-center px-4 pointer-events-none">
+    <div
+      className="fixed inset-x-0 z-[55] flex justify-center pointer-events-none"
+      style={{
+        bottom: 'calc(1rem + env(safe-area-inset-bottom))', // clear the home indicator
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+      }}
+    >
       <div className="panel-solid pointer-events-auto flex items-center gap-3 px-4 py-3 max-w-md w-full animate-pop">
         <div className="text-2xl">📨</div>
         <div className="flex-1 min-w-0 text-sm">

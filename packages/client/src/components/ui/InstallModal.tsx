@@ -29,6 +29,7 @@ export function InstallModal() {
   return createPortal(
     <div
       className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/60 p-3 sm:p-4"
+      style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
       role="dialog"
       aria-modal="true"
       aria-label={t('install.title')}

@@ -7,8 +7,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#160407",
-  "theme_color": "#160407",
+  "background_color": "#0b0a0e",
+  "theme_color": "#0b0a0e",
   "categories": ["games", "card"],
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
