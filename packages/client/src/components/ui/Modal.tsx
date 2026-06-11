@@ -6,6 +6,7 @@ import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useFocusTrap } from './useFocusTrap.ts';
 import { haptics } from '../../lib/haptics.ts';
+import { useT } from '../../lib/i18n.ts';
 
 interface ModalProps {
   title: string;
@@ -15,6 +16,7 @@ interface ModalProps {
 }
 
 export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) {
+  const t = useT();
   const trapRef = useFocusTrap<HTMLDivElement>();
   useEffect(() => {
     haptics.tap(); // a light buzz when any modal opens (no-op on desktop / reduced-motion)
@@ -34,7 +36,7 @@ export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) 
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="gold-text font-display font-semibold tracking-wide text-xl">{title}</h2>
-          <button className="iconbtn" onClick={onClose} aria-label="Mbyll" title="Mbyll">✕</button>
+          <button className="iconbtn" onClick={onClose} aria-label={t('common.close')} title={t('common.close')}>✕</button>
         </div>
         {children}
       </div>
