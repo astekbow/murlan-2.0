@@ -21,6 +21,7 @@ import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
 import { useForceLandscape } from '../lib/useForceLandscape.ts';
+import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
@@ -253,8 +254,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     // Safe-area insets: this is the main gameplay screen and renders OUTSIDE the
     // lobby Shell, so it must inset itself or the top controls sit under the iPhone
     // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
-    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${forced ? ' tv-forced' : ''}${shake ? ' shake-fx' : ''}`}>
+    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${shake ? ' shake-fx' : ''}`}>
       <h1 className="sr-only">{t('table.title')}</h1>
+      {forced && <RotateOverlay />}
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
         <button
