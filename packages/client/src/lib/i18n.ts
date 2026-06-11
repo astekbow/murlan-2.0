@@ -57,6 +57,10 @@ const STRINGS: Record<string, Entry> = {
   'settings.savedOnDevice': { sq: 'Cilësimet ruhen në këtë pajisje.', en: 'Settings are saved on this device.' },
 
   // Lobby nav rail
+  'nav.home': { sq: 'KRYESORE', en: 'HOME' },
+  'nav.wallet': { sq: 'PORTOFOLI', en: 'WALLET' },
+  'nav.more': { sq: 'MË SHUMË', en: 'MORE' },
+  'nav.tournaments': { sq: 'TURNETE', en: 'TOURNAMENTS' },
   'nav.leaderboard': { sq: 'KLASIFIKIMI', en: 'LEADERBOARD' },
   'nav.friends': { sq: 'MIQTË', en: 'FRIENDS' },
   'nav.clubs': { sq: 'KLUBET', en: 'CLUBS' },

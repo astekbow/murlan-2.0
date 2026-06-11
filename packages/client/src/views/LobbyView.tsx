@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
 import { sound } from '../lib/sound.ts';
+import { haptics } from '../lib/haptics.ts';
 import { Modal } from '../components/ui/Modal.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -41,7 +42,7 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
         <button
           key={r.labelKey}
           className="rail-item"
-          onClick={() => { sound.play('button'); if (r.to) setView(r.to); }}
+          onClick={() => { sound.play('button'); haptics.tap(); if (r.to) setView(r.to); }}
         >
           <span className="rail-ic">
             {r.icon}

@@ -14,6 +14,8 @@ import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
 import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
+import { BottomNav } from './components/ui/BottomNav.tsx';
+import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
 import { useCosmeticsStore } from './store/cosmeticsStore.ts';
@@ -62,20 +64,15 @@ function OfflineSplash({ onRetry }: { onRetry: () => void }) {
 
 /** Lobby-area chrome: centered column with the global top bar on top. */
 function Shell({ children }: { children: ReactNode }) {
-  // Respect the iPhone notch / Dynamic Island + home indicator (viewport-fit=cover
-  // lets content go edge-to-edge, so we must inset it ourselves).
+  // Safe-area insets (notch / Dynamic Island / home indicator) + room for the
+  // mobile bottom nav live in the `.app-shell` class (index.css) so a media query
+  // can drop the extra bottom space on desktop. The page content fades on each
+  // lobby-view switch via ViewTransition (TopBar persists).
+  const view = useUiStore((s) => s.view);
   return (
-    <div
-      className="relative z-10 mx-auto w-full max-w-[1180px]"
-      style={{
-        paddingTop: 'calc(1rem + env(safe-area-inset-top))',
-        paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
-        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-        paddingRight: 'max(1rem, env(safe-area-inset-right))',
-      }}
-    >
+    <div className="app-shell relative z-10 mx-auto w-full max-w-[1180px]">
       <TopBar />
-      <main>{children}</main>
+      <main><ViewTransition viewKey={view}>{children}</ViewTransition></main>
     </div>
   );
 }
@@ -170,6 +167,7 @@ export function App() {
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
       {status === 'authed' && <InviteBanner />}
+      {status === 'authed' && !room && !spectating && <BottomNav />}
       {status === 'authed' && !room && !spectating && <InstallModal />}
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <RealityCheckModal />}
