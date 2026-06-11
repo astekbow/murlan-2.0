@@ -3,17 +3,35 @@ import { useAdminStore } from '../store/adminStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
 import type { AdminUser } from '../lib/api.ts';
+import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
 function UserRow({ user }: { user: AdminUser }) {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const { adjust, setKyc, setRole } = useAdminStore();
   const [delta, setDelta] = useState('10');
   const [reason, setReason] = useState('manual');
 
-  const onAdjust = (sign: 1 | -1) => {
+  const onAdjust = async (sign: 1 | -1) => {
     const cents = Math.round((parseFloat(delta) || 0) * 100) * sign;
-    if (cents !== 0) void adjust(user.id, cents, reason || 'manual');
+    if (cents === 0) return;
+    if (!(await confirm({
+      title: sign > 0 ? t('admin.credit') : t('admin.debit'),
+      message: t('admin.confirmAdjustM', { amount: dollars(Math.abs(cents)), user: user.username }),
+      danger: sign < 0,
+    }))) return;
+    void adjust(user.id, cents, reason || 'manual');
+  };
+
+  const onToggleRole = async () => {
+    const makeAdmin = user.role !== 'admin';
+    if (!(await confirm({
+      title: makeAdmin ? t('admin.makeAdmin') : t('admin.removeAdmin'),
+      message: t('admin.confirmRoleM', { user: user.username }),
+      danger: !makeAdmin,
+    }))) return;
+    void setRole(user.id, makeAdmin ? 'admin' : 'user');
   };
 
   return (
@@ -43,7 +61,7 @@ function UserRow({ user }: { user: AdminUser }) {
           ))}
         </div>
         <button
-          onClick={() => void setRole(user.id, user.role === 'admin' ? 'user' : 'admin')}
+          onClick={() => void onToggleRole()}
           className={`btn ml-auto ${user.role === 'admin' ? 'btn-danger' : 'btn-ghost'}`}
         >
           {user.role === 'admin' ? t('admin.removeAdmin') : t('admin.makeAdmin')}
@@ -55,6 +73,9 @@ function UserRow({ user }: { user: AdminUser }) {
           <span className="field-label">USD</span>
           <input
             type="number"
+            min="0"
+            max="50000"
+            step="1"
             value={delta}
             onChange={(e) => setDelta(e.target.value)}
             className="field w-24"
@@ -70,15 +91,17 @@ function UserRow({ user }: { user: AdminUser }) {
             className="field"
           />
         </label>
-        <button onClick={() => onAdjust(1)} className="btn btn-green">{t('admin.credit')}</button>
-        <button onClick={() => onAdjust(-1)} className="btn btn-danger">{t('admin.debit')}</button>
+        <button onClick={() => void onAdjust(1)} className="btn btn-green">{t('admin.credit')}</button>
+        <button onClick={() => void onAdjust(-1)} className="btn btn-danger">{t('admin.debit')}</button>
       </div>
+      {dialog}
     </li>
   );
 }
 
 export function AdminView() {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
   const [userQuery, setUserQuery] = useState('');
@@ -99,6 +122,7 @@ export function AdminView() {
         <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
         <button onClick={() => void refresh()} className="btn btn-ghost">{t('common.refresh')}</button>
       </div>
+      {dialog}
 
       {/* Revenue: the accumulated house rake (your 10% cut). */}
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
@@ -144,8 +168,8 @@ export function AdminView() {
                   <span className="text-muted"> → {w.destination}</span>
                 </span>
                 <span className="flex gap-2">
-                  <button onClick={() => void approve(w.id)} className="btn btn-green">{t('admin.approve')}</button>
-                  <button onClick={() => void reject(w.id)} className="btn btn-danger">{t('admin.reject')}</button>
+                  <button onClick={async () => { if (await confirm({ title: t('admin.approve'), message: t('admin.confirmApproveM', { amount: dollars(w.amountCents), dest: w.destination }) })) void approve(w.id); }} className="btn btn-green">{t('admin.approve')}</button>
+                  <button onClick={async () => { if (await confirm({ title: t('admin.reject'), message: t('admin.confirmRejectM', { amount: dollars(w.amountCents) }), danger: true })) void reject(w.id); }} className="btn btn-danger">{t('admin.reject')}</button>
                 </span>
               </li>
             ))}
