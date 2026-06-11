@@ -261,6 +261,8 @@ const STRINGS: Record<string, Entry> = {
   'table.history': { sq: 'HISTORIKU', en: 'HISTORY' },
   'table.historyTitle': { sq: 'Historiku', en: 'History' },
   'table.leaveArrow': { sq: '← Largohu', en: '← Leave' },
+  'table.rotateTitle': { sq: 'Rrotullo telefonin', en: 'Rotate your phone' },
+  'table.rotateHint': { sq: 'Loja luhet horizontalisht — ktheje telefonin anash për ta luajtur.', en: 'The game is played in landscape — turn your phone sideways to play.' },
   'table.chat': { sq: 'Bisedë', en: 'Chat' },
   'table.emote': { sq: 'Emote', en: 'Emote' },
   'table.viewProfile': { sq: 'Shiko profilin', en: 'View profile' },

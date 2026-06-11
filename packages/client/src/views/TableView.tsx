@@ -20,6 +20,7 @@ import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
+import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
@@ -253,6 +254,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
     <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${shake ? ' shake-fx' : ''}`}>
       <h1 className="sr-only">{t('table.title')}</h1>
+      <RotateOverlay />
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
         <button

@@ -8,6 +8,7 @@ import { useGameStore } from '../store/gameStore.ts';
 import { Pile } from '../components/Pile.tsx';
 import { sound } from '../lib/sound.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
+import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
@@ -35,6 +36,7 @@ export function SpectateView({ room }: { room: RoomStateDTO }) {
       }}
     >
       <h1 className="sr-only">{t('spectate.srWatchingLive')}</h1>
+      <RotateOverlay />
       <div className="flex items-center justify-between gap-3 animate-rise">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-2xl">👁</span>
