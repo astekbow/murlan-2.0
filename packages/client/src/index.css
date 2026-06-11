@@ -270,6 +270,8 @@ select:focus-visible,
   .mode .art { position: absolute; inset: 0; z-index: 0; }
   .mode.casual .art { background: radial-gradient(120% 90% at 50% 25%, #234a6e, #122336 68%, #0b1622); }
   .mode.tourn .art { background: radial-gradient(120% 90% at 50% 25%, #245a3c, #123524 68%, #0b1f15); }
+  .mode.ranked .art { background: radial-gradient(120% 90% at 50% 25%, #4a2a6e, #281640 68%, #170e28); }
+  .mode.rooms .art { background: radial-gradient(120% 90% at 50% 25%, #1f5a5e, #123a3c 68%, #0b2422); }
   .mode .art::after { content: ''; position: absolute; inset: 0; background: radial-gradient(70% 55% at 50% 22%, rgba(255, 235, 175, 0.16), transparent 62%); }
   .mode .micon { position: relative; z-index: 1; font-size: 40px; line-height: 1; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.55)); }
   .mode .mname { position: relative; z-index: 1; font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.8px; text-transform: uppercase; }
