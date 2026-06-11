@@ -21,7 +21,9 @@ export function useForceLandscape(): LandscapeState {
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
     const realLandscape = window.matchMedia('(orientation: landscape) and (max-height: 560px)');
-    const phonePortrait = window.matchMedia('(orientation: portrait) and (max-width: 932px) and (pointer: coarse)');
+    // Portrait phone → force-rotate. NOTE: no `(pointer: coarse)` clause — some phones
+    // and device emulators don't report it, which silently disabled the rotation.
+    const phonePortrait = window.matchMedia('(orientation: portrait) and (max-width: 932px)');
     const update = () => setState({ ls: realLandscape.matches || phonePortrait.matches, forced: phonePortrait.matches });
     update();
     realLandscape.addEventListener('change', update);

@@ -265,15 +265,21 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         </button>
         <div className="flex items-center gap-1.5 sm:gap-2">
           {scoreboard && (
-            <span className="text-[11px] text-txt-lo border border-white/10 rounded-full px-2.5 py-1 whitespace-nowrap leading-none" title={t('scoreboard.result')}>
-              {scoreboard.type === '2v2' && scoreboard.teamTotals ? (
-                <><b className="text-gold-hi">{scoreboard.teamTotals[0]}</b><span className="opacity-40 mx-0.5">–</span><b className="text-[#9bd0f5]">{scoreboard.teamTotals[1]}</b></>
-              ) : (
-                scoreboard.cumulative.map((p, i) => (
-                  <span key={i}>{i > 0 && <span className="opacity-40 mx-0.5">·</span>}<b className="text-gold-hi">{p}</b></span>
-                ))
-              )}
-              <span className="opacity-50"> /{scoreboard.target}</span>
+            <span
+              className="inline-flex items-center gap-1.5 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2.5 py-1 leading-none whitespace-nowrap"
+              title={t('scoreboard.result')}
+            >
+              {(scoreboard.type === '2v2' && scoreboard.teamTotals
+                ? scoreboard.teamTotals.map((v, i) => ({ label: `T${i + 1}`, val: v }))
+                : scoreboard.cumulative.map((v, i) => ({ label: (nameOf(i) || String(i + 1)).slice(0, 3), val: v }))
+              ).map((s, i) => (
+                <span key={i} className="inline-flex items-center gap-1">
+                  {i > 0 && <span className="opacity-30">·</span>}
+                  <span className="text-muted">{s.label}</span>
+                  <b className="text-gold-hi tabular-nums">{s.val}</b>
+                </span>
+              ))}
+              <span className="opacity-50 ml-0.5">→ {scoreboard.target}</span>
             </span>
           )}
           <TurnTimer deadline={game?.turnDeadline ?? null} />
