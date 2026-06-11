@@ -501,13 +501,15 @@ select:focus-visible,
     min-height: 0 !important;
     height: 100dvh;
     overflow: hidden;                 /* no scroll — ever */
+    max-width: 96vw !important;       /* use most of the wide landscape screen */
     padding-bottom: env(safe-area-inset-bottom) !important;
   }
   .tv-top { padding-top: 4px !important; padding-bottom: 0 !important; }
-  .tv-score { margin: 3px 0 !important; }
-  .tv-table { padding-top: 0 !important; padding-bottom: 0 !important; }
+  .tv-score { margin: 2px 0 !important; }
+  .tv-table { padding: 0 !important; }
   .tv-felt { padding: 2px 6px !important; }
-  .tv-bottom { padding-top: 0 !important; }
+  /* Hand drops to the very bottom, centered, leaving room for the side buttons. */
+  .tv-bottom { padding: 0 96px !important; }
 
   /* Felt: wide + short, with a small floor so it shrinks into the leftover space. */
   .rail-outer { padding: 5px; border-radius: 70px / 22%; }
@@ -522,6 +524,20 @@ select:focus-visible,
   .hand-fan .gcard .gc-r, .hand-fan .gcard .gc-br { font-size: 12px; }
   .hand-fan .gcard .gc-big { font-size: 20px; }
   .hand-fan .gcard .gc-s { top: 16px; font-size: 9px; }
+
+  /* Controls → just TWO round buttons in the bottom corners (Pass left, Play
+     right). Clear + the hint text are hidden; the row collapses out of flow. */
+  .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
+  .ctrl-hint, .ctrl-clear { display: none !important; }
+  .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
+  .ctrl-pass, .ctrl-play {
+    position: absolute; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 25;
+    flex: none !important; padding: 0 !important; border-radius: 9999px !important;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
+    font-weight: 700; box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
+  }
+  .ctrl-pass { left: max(14px, env(safe-area-inset-left)); width: 66px; height: 66px; }
+  .ctrl-play { right: max(14px, env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 15px; }
 }
 
 /* Touch devices have no hover: press affordance + ≥44px tap targets (WCAG). */

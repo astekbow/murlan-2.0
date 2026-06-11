@@ -50,16 +50,16 @@ export function Controls({ selectedCards, pile, isMyTurn, canPass, requireThreeS
   else if (evalResult.reason) hint = evalResult.reason;
 
   return (
-    <div className="flex flex-col items-center gap-2.5 px-3 pb-4">
-      <div className={`text-xs h-4 ${playable ? 'text-gold-hi' : 'text-muted'}`}>{hint}</div>
-      <div className="flex gap-3 w-full max-w-sm">
-        <button type="button" onClick={onClear} disabled={selectedCards.length === 0} className="btn btn-ghost">
+    <div className="ctrl-wrap flex flex-col items-center gap-2.5 px-3 pb-4">
+      <div className={`ctrl-hint text-xs h-4 ${playable ? 'text-gold-hi' : 'text-muted'}`}>{hint}</div>
+      <div className="ctrl-row flex gap-3 w-full max-w-sm">
+        <button type="button" onClick={onClear} disabled={selectedCards.length === 0} className="ctrl-clear btn btn-ghost">
           {t('controls.clear')}
         </button>
-        <button type="button" onClick={() => guard(onPass)} disabled={!isMyTurn || !canPass || submitting} className="btn btn-ghost flex-1">
+        <button type="button" onClick={() => guard(onPass)} disabled={!isMyTurn || !canPass || submitting} className="ctrl-pass btn btn-ghost flex-1">
           {t('controls.pass')}
         </button>
-        <button type="button" onClick={() => guard(onPlay)} disabled={!playable} className="btn btn-gold flex-1 btn-lg">
+        <button type="button" onClick={() => guard(onPlay)} disabled={!playable} className="ctrl-play btn btn-gold flex-1 btn-lg">
           {t('controls.play')}
         </button>
       </div>
