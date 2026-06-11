@@ -80,14 +80,14 @@ export function LobbyView() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <h1 className="sr-only">{t('lobby.srTitle')}</h1>
       {/* Menu: 3 nav icons left · hero · 3 nav icons right (desktop). */}
-      <div className="grid gap-5 md:grid-cols-[64px_1fr_64px] items-start">
+      <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
         <RailNav items={RAIL_LEFT} side="left" />
 
         {/* Hero mode cards */}
-        <div className="grid sm:grid-cols-2 gap-5 order-1 md:order-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 order-1 md:order-2">
           <button className="mode casual animate-rise text-inherit" style={{ animationDelay: '.1s' }} onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
             <div className="art" />
             <span className="micon" aria-hidden>🎴</span>
@@ -108,87 +108,84 @@ export function LobbyView() {
         <RailNav items={RAIL_RIGHT} side="right" />
       </div>
 
-      {/* Ranked matchmaking — skill-matched, feeds the MMR ladder */}
-      <button
-        onClick={() => { sound.play('button'); setRankedOpen(true); }}
-        className="w-full panel p-4 flex items-center justify-between gap-4 hover:border-gold transition-all animate-rise text-left"
-        style={{ animationDelay: '.18s' }}
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-3xl shrink-0">⚔️</span>
-          <div className="min-w-0">
-            <div className="font-display font-bold gold-text tracking-wide">{t('lobby.rankedTitle')}</div>
-            <div className="text-xs text-muted truncate">{t('lobby.rankedDesc')}</div>
+      {/* Ranked + open rooms fill the space below the mode cards (side by side). */}
+      <div className="grid sm:grid-cols-2 gap-3 sm:gap-4 items-start">
+        {/* Ranked matchmaking — skill-matched, feeds the MMR ladder */}
+        <button
+          onClick={() => { sound.play('button'); haptics.tap(); setRankedOpen(true); }}
+          className="panel p-4 flex flex-col items-start gap-1.5 hover:border-gold transition-all animate-rise text-left h-full"
+          style={{ animationDelay: '.18s' }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-2xl shrink-0">⚔️</span>
+            <span className="font-display font-bold gold-text tracking-wide">{t('lobby.rankedTitle')}</span>
           </div>
-        </div>
-        <span className="btn btn-gold shrink-0">{t('lobby.findMatch')}</span>
-      </button>
+          <div className="text-xs text-muted">{t('lobby.rankedDesc')}</div>
+          <span className="btn btn-gold btn-sm mt-auto">{t('lobby.findMatch')}</span>
+        </button>
 
-      {/* Open rooms */}
-      <section id="rooms" className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
-        <div className="flex items-center justify-between mb-3 gap-2">
-          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('lobby.openRooms')}</h2>
-          <div className="flex items-center gap-3">
-            <button onClick={refreshLobby} className="text-xs text-gold-hi border-b border-dashed border-gold/50">{t('lobby.refresh')}</button>
-            <button onClick={() => setCreateOpen(true)} className="btn btn-gold">{t('lobby.createRoom')}</button>
+        {/* Open rooms */}
+        <section id="rooms" className="panel p-4 animate-rise flex flex-col min-w-0" style={{ animationDelay: '.2s' }}>
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('lobby.openRooms')}</h2>
+            <div className="flex items-center gap-2 shrink-0">
+              <button onClick={refreshLobby} className="btn btn-ghost btn-icon btn-sm" title={t('lobby.refresh')} aria-label={t('lobby.refresh')}>↻</button>
+              <button onClick={() => setCreateOpen(true)} className="btn btn-gold btn-sm">{t('lobby.createRoom')}</button>
+            </div>
           </div>
-        </div>
 
-        {/* Join a PRIVATE room by its share code (not listed publicly). */}
-        <div className="flex items-center gap-2 mb-3">
-          <input
-            value={codeInput}
-            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
-            onKeyDown={(e) => { if (e.key === 'Enter') void onJoinByCode(); }}
-            placeholder={t('lobby.joinCodePlaceholder')}
-            maxLength={6}
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-            className="field flex-1 tracking-[0.3em] font-mono uppercase"
-          />
-          <button onClick={() => void onJoinByCode()} disabled={codeInput.trim().length < 4} className="btn btn-ghost shrink-0">{t('lobby.joinByCode')}</button>
-        </div>
-
-        {lobby.length === 0 ? (
-          <div className="text-center py-10">
-            <div className="text-4xl mb-2 opacity-60">🃏</div>
-            <p className="text-sm text-muted">{t('lobby.noRooms')}</p>
-            <p className="text-xs text-muted/70 mt-1">{t('lobby.noRoomsHint')}</p>
+          {/* Join a PRIVATE room by its numeric share code. */}
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={(e) => { if (e.key === 'Enter') void onJoinByCode(); }}
+              placeholder={t('lobby.joinCodePlaceholder')}
+              maxLength={6}
+              inputMode="numeric"
+              className="field flex-1 tracking-[0.25em] font-mono text-center text-sm"
+            />
+            <button onClick={() => void onJoinByCode()} disabled={codeInput.trim().length < 4} className="btn btn-ghost btn-sm shrink-0">{t('lobby.joinByCode')}</button>
           </div>
-        ) : (
-          <ul className="space-y-2.5">
-            {lobby.map((r, i) => {
-              const open = r.status === 'waiting';
-              const full = r.seatsFilled >= r.seatsTotal;
-              const canAfford = balanceCents >= r.stakeCents;
-              const joinable = open && !full && canAfford;
-              return (
-                <li
-                  key={r.id}
-                  className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold hover:translate-x-0.5 transition-all animate-rise"
-                  style={{ animationDelay: `${i * 0.06}s` }}
-                >
-                  <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{t(TYPE_LABEL[r.type])}</div>
-                  <div className="flex flex-wrap gap-4 text-sm text-muted flex-1">
-                    <span>{t('lobby.stake')} <b className="text-txt">{dollars(r.stakeCents)}</b></span>
-                    <span><b className="text-txt">{r.seatsFilled}/{r.seatsTotal}</b> {t('lobby.playersSuffix')}</span>
-                  </div>
-                  {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
-                  <button
-                    onClick={() => void joinRoom(r.id)}
-                    disabled={!joinable}
-                    title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
-                    className={`btn w-full sm:w-auto ${joinable ? 'btn-gold' : 'btn-ghost'}`}
+
+          {lobby.length === 0 ? (
+            <div className="text-center py-6">
+              <div className="text-3xl mb-1 opacity-60">🃏</div>
+              <p className="text-sm text-muted">{t('lobby.noRooms')}</p>
+              <p className="text-xs text-muted/70 mt-0.5">{t('lobby.noRoomsHint')}</p>
+            </div>
+          ) : (
+            <ul className="space-y-2 overflow-y-auto max-h-[42vh] -mr-1 pr-1">
+              {lobby.map((r, i) => {
+                const open = r.status === 'waiting';
+                const full = r.seatsFilled >= r.seatsTotal;
+                const canAfford = balanceCents >= r.stakeCents;
+                const joinable = open && !full && canAfford;
+                return (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 border border-white/10 bg-white/[.03] animate-rise"
+                    style={{ animationDelay: `${i * 0.05}s` }}
                   >
-                    {!open ? t('lobby.playing') : full ? t('lobby.full') : canAfford ? t('lobby.enter') : t('lobby.noFunds')}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                    <div className="min-w-0">
+                      <div className="font-display font-semibold tracking-wide text-sm truncate">{t(TYPE_LABEL[r.type])}</div>
+                      <div className="text-xs text-muted">{dollars(r.stakeCents)} · {r.seatsFilled}/{r.seatsTotal}{!open && <span className="text-[#ff7a4d]"> · live</span>}</div>
+                    </div>
+                    <button
+                      onClick={() => void joinRoom(r.id)}
+                      disabled={!joinable}
+                      title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
+                      className={`btn btn-sm shrink-0 ${joinable ? 'btn-gold' : 'btn-ghost'}`}
+                    >
+                      {!open ? t('lobby.playing') : full ? t('lobby.full') : canAfford ? t('lobby.enter') : t('lobby.noFunds')}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </div>
 
       {/* Live matches — spectate a game in progress */}
       {live.length > 0 && (
