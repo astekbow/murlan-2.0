@@ -84,6 +84,9 @@ interface GameStore {
   /** Transient: the previous loser held both jokers → no card switch this game and
    *  the winner leads. Drives the "no swap" banner; auto-clears after a few seconds. */
   noSwapNotice: boolean;
+  /** The two cards exchanged in the current switch (only revealed to the winner +
+   *  loser), shown on the table. Cleared shortly after the switch completes. */
+  switchCards: { given: Card | null; returned: Card | null } | null;
   matchResult: MatchEndDTO | null;
   fairCommit: FairCommitDTO | null;
   fairReveal: FairRevealDTO | null;
@@ -146,6 +149,7 @@ const emptyRoomState = {
   switchPrompt: null,
   switchPending: false,
   noSwapNotice: false,
+  switchCards: null,
   matchResult: null,
   fairCommit: null,
   fairReveal: null,
@@ -232,6 +236,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     socket.on('card:switch', (dto) => {
       const mySeat = get().mySeat;
+      // Track the exchanged cards (revealed only to the winner+loser) so both can
+      // be shown on the table. `given` arrives first (loser→winner), `returned` next.
+      if (dto.given || dto.returned) {
+        set((s) => {
+          const base = dto.given ? { given: dto.given, returned: null } : (s.switchCards ?? { given: null, returned: null });
+          return { switchCards: { given: dto.given ?? base.given, returned: dto.returned ?? base.returned } };
+        });
+        // Once the return lands, keep the reveal on screen briefly, then clear it.
+        if (dto.returned) setTimeout(() => set({ switchCards: null }), 2600);
+      }
       if (dto.awaitingReturn && dto.given === null && dto.winner === mySeat) {
         // I am the winner: choose a 3–10 card to return to the loser.
         set({ switchPrompt: { winner: dto.winner, loser: dto.loser }, switchPending: true });
@@ -277,6 +291,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         switchPrompt: null,
         switchPending: false,
         noSwapNotice: false,
+        switchCards: null,
         log: appendLog(s.log, tg('log.matchEnded')),
       }));
     });

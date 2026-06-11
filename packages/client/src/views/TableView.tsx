@@ -16,6 +16,7 @@ import { wentOutSeat } from '../lib/finish.ts';
 import { Hand } from '../components/Hand.tsx';
 import { PlayLog } from '../components/PlayLog.tsx';
 import { Pile } from '../components/Pile.tsx';
+import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
 import { Scoreboard } from '../components/Scoreboard.tsx';
@@ -90,13 +91,13 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
-    game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, matchResult,
+    game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
     fairCommit, fairReveal, bubbles,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
-      scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, matchResult: s.matchResult,
+      scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult,
       fairCommit: s.fairCommit, fairReveal: s.fairReveal, bubbles: s.bubbles,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
       giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch,
@@ -345,7 +346,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 <button className="btn btn-ghost btn-sm" onClick={() => setSwitchPick(null)}>{t('table.switchCancel')}</button>
               </div>
             ) : (
-              <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-1.5 gold-text font-display font-semibold tracking-wide text-sm">
+              <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-2 text-gold-hi font-display font-semibold text-sm leading-snug max-w-[88vw]">
                 {t('table.youWinSwitch')}
               </span>
             )}
@@ -402,9 +403,31 @@ export function TableView({ room }: { room: RoomStateDTO }) {
           happened this game and the winner leads. Flashed for a few seconds. */}
       {noSwapNotice && !matchResult && (
         <div className="fixed left-1/2 top-20 -translate-x-1/2 z-50 pointer-events-none" role="status" aria-live="polite">
-          <span className="inline-block panel-solid rounded-xl px-5 py-2.5 gold-text font-display font-bold tracking-[0.2em] text-base animate-pop ring-1 ring-gold-hi/40">
+          <span className="inline-block panel-solid rounded-xl px-5 py-2.5 text-gold-hi font-display font-bold tracking-[0.2em] text-base animate-pop ring-1 ring-gold-hi/40">
             {t('table.noSwap')}
           </span>
+        </div>
+      )}
+
+      {/* Swap reveal: the two exchanged cards, shown on the table (only the winner
+          + loser receive their identities; other seats get a redacted notice). */}
+      {switchCards && (switchCards.given || switchCards.returned) && !matchResult && (
+        <div className="fixed left-1/2 top-16 -translate-x-1/2 z-50 pointer-events-none" role="status" aria-live="polite">
+          <div className="panel-solid rounded-2xl px-4 py-2.5 flex items-center gap-4 animate-pop ring-1 ring-gold-hi/30">
+            <span className="font-display text-xs text-gold-hi tracking-[0.2em] uppercase">{t('table.swapTitle')}</span>
+            {switchCards.given && (
+              <div className="flex flex-col items-center gap-1">
+                <CardView card={switchCards.given} small />
+                <span className="text-[9px] text-cream/80 whitespace-nowrap">{t('table.swapGave')}</span>
+              </div>
+            )}
+            {switchCards.returned && (
+              <div className="flex flex-col items-center gap-1">
+                <CardView card={switchCards.returned} small />
+                <span className="text-[9px] text-cream/80 whitespace-nowrap">{t('table.swapReturned')}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
