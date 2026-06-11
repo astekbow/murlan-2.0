@@ -28,7 +28,7 @@ export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) 
       <div
         ref={trapRef}
         tabIndex={-1}
-        className="panel-solid w-full p-6 animate-pop outline-none"
+        className="panel-solid w-full p-6 animate-pop outline-none max-h-[88dvh] overflow-y-auto overscroll-contain"
         style={{ maxWidth }}
         onClick={(e) => e.stopPropagation()}
       >

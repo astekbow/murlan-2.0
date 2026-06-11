@@ -19,7 +19,6 @@ import { Pile } from '../components/Pile.tsx';
 import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
-import { Scoreboard } from '../components/Scoreboard.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { CountUp } from '../components/ui/CountUp.tsx';
@@ -92,13 +91,13 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
     game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
-    fairCommit, fairReveal, bubbles,
+    fairReveal, bubbles,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
       scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult,
-      fairCommit: s.fairCommit, fairReveal: s.fairReveal, bubbles: s.bubbles,
+      fairReveal: s.fairReveal, bubbles: s.bubbles,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
       giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch,
     })),
@@ -263,12 +262,16 @@ export function TableView({ room }: { room: RoomStateDTO }) {
           {t('table.leaveArrow')}
         </button>
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {fairCommit && (
-            <span
-              className="text-[11px] text-emerald-300/90 border border-emerald-400/30 rounded-full px-2 py-0.5"
-              title={fairReveal ? `serverSeed: ${fairReveal.serverSeed}` : `commit: ${fairCommit.serverSeedHash}`}
-            >
-              {fairReveal ? '✓ fair' : '🔒 fair'}
+          {scoreboard && (
+            <span className="text-[11px] text-txt-lo border border-white/10 rounded-full px-2.5 py-1 whitespace-nowrap leading-none" title={t('scoreboard.result')}>
+              {scoreboard.type === '2v2' && scoreboard.teamTotals ? (
+                <><b className="text-gold-hi">{scoreboard.teamTotals[0]}</b><span className="opacity-40 mx-0.5">–</span><b className="text-[#9bd0f5]">{scoreboard.teamTotals[1]}</b></>
+              ) : (
+                scoreboard.cumulative.map((p, i) => (
+                  <span key={i}>{i > 0 && <span className="opacity-40 mx-0.5">·</span>}<b className="text-gold-hi">{p}</b></span>
+                ))
+              )}
+              <span className="opacity-50"> /{scoreboard.target}</span>
             </span>
           )}
           <TurnTimer deadline={game?.turnDeadline ?? null} />
@@ -278,12 +281,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         </div>
       </div>
 
-      {/* Scorebar */}
-      {scoreboard && (
-        <div className="tv-score my-2">
-          <Scoreboard scoreboard={scoreboard} names={nameOf} />
-        </div>
-      )}
+      {/* Score is now shown compactly in the top bar (above) — no separate bar. */}
 
       {/* Table — grows to fill the space between the scorebar and the hand */}
       <div className="tv-table flex-1 flex items-center justify-center min-h-0 py-1">
@@ -318,8 +316,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 );
               })}
 
-            {/* Centre pile (above the betting ring + logo) */}
-            <div className={`absolute inset-0 grid place-items-center z-[3]${finishFx ? ' finish-pop' : ''}`}>
+            {/* Centre pile (above the betting ring + logo). pointer-events:none so the
+                display never intercepts taps meant for the hand/controls below it
+                (in landscape the tall felt overlaps the bottom controls). */}
+            <div className={`absolute inset-0 grid place-items-center z-[3] pointer-events-none${finishFx ? ' finish-pop' : ''}`}>
               <Pile pile={game?.pile ?? null} />
             </div>
           </div>
@@ -327,8 +327,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         </div>
       </div>
 
-      {/* My hand + controls (no framing box — cards sit on the table surface) */}
-      <div className="tv-bottom pt-1">
+      {/* My hand + controls (no framing box — cards sit on the table surface).
+          relative z-20 keeps the hand + the switch-confirm bar ABOVE the felt's
+          centre overlay (which can overlap them on a short landscape screen). */}
+      <div className="tv-bottom pt-1 relative z-20">
         {switching ? (
           <div className="text-center pb-1.5">
             {switchPick ? (
