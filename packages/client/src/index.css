@@ -577,7 +577,14 @@ select:focus-visible,
    insets shift the felt (and its side seat badges) clear of the Dynamic Island. */
 .tv-ls .tv-table { padding: 18px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
 .tv-ls .tv-felt { padding: 2px 8px !important; max-width: none !important; }
-.tv-ls .tv-bottom { padding: 0 120px !important; } /* keep the hand clear of the side Play/Pass buttons */
+/* Keep the hand clear of the side Play/Pass buttons. The buttons sit at
+   max(14px, env(inset)) from each edge, so the hand padding must include the SAME
+   inset plus the button width + a gap — otherwise the notch inset pushes the buttons
+   inward onto the outer cards. */
+.tv-ls .tv-bottom {
+  padding-left: calc(env(safe-area-inset-left) + 112px) !important;
+  padding-right: calc(env(safe-area-inset-right) + 124px) !important;
+}
 .tv-ls .rail-outer { padding: 6px; border-radius: 120px / 30%; }
 .tv-ls .rail-inner { min-height: clamp(150px, 56vh, 240px); border-radius: 112px / 26%; }
 .tv-ls .felt-ring { inset: 14% 22%; }
