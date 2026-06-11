@@ -158,6 +158,31 @@ select:focus-visible,
   .btn-lg { padding: 13px 34px; font-size: 15px; border-radius: 14px; }
   .btn-block { display: block; width: 100%; text-align: center; }
 
+  /* ---- Button system (redesign) ----------------------------------------- */
+  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--r-sm); }
+  .btn-xs { padding: 3px 9px;  font-size: 12px; border-radius: var(--r-sm); }
+  .btn-outline { background: transparent; color: var(--gold-hi); border: 1px solid var(--gold-line); box-shadow: none; }
+  .btn-outline:hover:not(:disabled) { background: var(--gold-08); border-color: var(--gold); }
+  .btn-icon { padding: 0; width: 40px; height: 40px; display: inline-grid; place-items: center; }
+  .btn-icon.btn-sm { width: 32px; height: 32px; }
+  .btn-icon.btn-lg { width: 48px; height: 48px; }
+  .btn-loading { color: transparent !important; pointer-events: none; position: relative; }
+  .btn-loading::after {
+    content: ''; position: absolute; inset: 0; margin: auto; width: 1.05em; height: 1.05em;
+    border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent;
+    color: var(--ink); animation: spin360 .6s linear infinite;
+  }
+  .btn-ghost.btn-loading::after, .btn-outline.btn-loading::after { color: var(--gold-hi); }
+  .btn-group { display: inline-flex; }
+  .btn-group > .btn { border-radius: 0; }
+  .btn-group > .btn:first-child { border-top-left-radius: var(--r-md); border-bottom-left-radius: var(--r-md); }
+  .btn-group > .btn:last-child  { border-top-right-radius: var(--r-md); border-bottom-right-radius: var(--r-md); }
+  .btn-group > .btn + .btn { margin-left: -1px; }
+
+  /* Skeleton shimmer — replaces the emoji-pulse loaders. */
+  .skeleton { background: linear-gradient(90deg, var(--gold-04), var(--gold-08), var(--gold-04)); background-size: 200% 100%; animation: shimmer 1.3s ease-in-out infinite; border-radius: var(--r-sm); }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
   /* ---- Segmented tabs / pills ------------------------------------------- */
   .seg { display: inline-flex; gap: 4px; padding: 5px; border-radius: 14px; background: var(--panel); border: 1px solid var(--panel-line); }
   .seg-tab {
