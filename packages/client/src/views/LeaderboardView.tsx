@@ -3,7 +3,7 @@ import { profileApi, rankedApi, ApiError } from '../lib/api.ts';
 import type { LeaderboardRow, RankedLeaderboardRow, SeasonDTO } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
-import { avatarEmoji } from '../lib/avatars.ts';
+import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { TierBadge } from '../components/ui/TierBadge.tsx';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
@@ -167,7 +167,7 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
                 {rankLabel(r.rank)}
               </div>
               <div className="pfp shrink-0" style={{ width: 54, height: 54 }}>
-                <span className="text-2xl leading-none">{avatarEmoji(r.avatar)}</span>
+                <AvatarFace id={r.avatar} fill className="text-2xl leading-none" />
                 <span className="lvl">{t('lb.level', { n: r.level })}</span>
               </div>
               <div className="flex-1 min-w-0">
@@ -228,7 +228,7 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
                 {rankLabel(r.rank)}
               </div>
               <div className="pfp shrink-0" style={{ width: 54, height: 54 }}>
-                <span className="text-2xl leading-none">{avatarEmoji(r.avatar)}</span>
+                <AvatarFace id={r.avatar} fill className="text-2xl leading-none" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-display font-semibold tracking-wide text-txt truncate flex items-center gap-2">

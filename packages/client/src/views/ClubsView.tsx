@@ -5,7 +5,7 @@ import { clubsApi, ApiError, type ClubSummaryDTO, type ClubDetailDTO, type ChatM
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
-import { avatarEmoji } from '../lib/avatars.ts';
+import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useT } from '../lib/i18n.ts';
 
 export function ClubsView() {
@@ -83,7 +83,7 @@ export function ClubsView() {
           <ul className="space-y-2">
             {mine.members.map((m) => (
               <li key={m.userId} className="flex items-center gap-3 rounded-xl px-4 py-2.5 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
-                <span className="pfp shrink-0" style={{ width: 40, height: 40 }}><span className="text-lg leading-none">{avatarEmoji(m.avatar)}</span></span>
+                <span className="pfp shrink-0" style={{ width: 40, height: 40 }}><AvatarFace id={m.avatar} fill className="text-lg leading-none" /></span>
                 <span className="font-display font-semibold tracking-wide text-txt flex-1 truncate">{m.username}</span>
                 {m.role === 'founder' && <span className="tag tag-open">{t('clubs.founder')}</span>}
               </li>

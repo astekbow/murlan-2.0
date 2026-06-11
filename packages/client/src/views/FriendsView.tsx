@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { friendsApi, ApiError, type FriendEntry } from '../lib/api.ts';
-import { avatarEmoji } from '../lib/avatars.ts';
+import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
@@ -238,7 +238,7 @@ function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
   const { user, online } = entry;
   return (
     <li className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
-      <span className="text-3xl leading-none" aria-hidden>{avatarEmoji(user.avatar)}</span>
+      <AvatarFace id={user.avatar} size={40} className="text-3xl leading-none" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {showOnline && (
