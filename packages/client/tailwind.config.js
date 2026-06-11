@@ -6,22 +6,27 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      // "Obsidian & Gold" — mirrors the CSS vars in index.css :root (kept as hex so
+      // Tailwind's /opacity modifiers keep working). The game-table felt stays warm.
       colors: {
-        bg0: '#160407',
-        bg1: '#2a080c',
-        maroon: '#4d0c12',
-        // `light`/`dark` are on-theme aliases so table components not yet rebuilt
-        // (Phase 3) still render warm-red felt instead of a missing class.
+        bg0: '#0b0a0e',
+        bg1: '#131119',
+        maroon: '#3a0f16',
         felt: { DEFAULT: '#7c1620', hi: '#94202b', edge: '#330a0e', light: '#94202b', dark: '#330a0e' },
-        gold: { DEFAULT: '#e6c570', hi: '#fff1c4', deep: '#9a7528', line: '#c9a14d' },
+        gold: { DEFAULT: '#e8c879', hi: '#fff3cf', deep: '#a9842f', line: '#c9a14d' },
         bulb: '#ffe6a3',
         royal: '#3f6fd6', // player ring: idle
         emerald2: '#34c46a', // player ring: active / last-played
         cream: '#fbfaf5',
         ink: '#14110c',
         suit: '#c21f1f', // suit red on cards
-        txt: '#f0e7d4',
-        muted: '#c39a93',
+        txt: { DEFAULT: '#d9d2c6', hi: '#f6f1e8', lo: '#8f8a99' },
+        muted: '#8f8a99',
+        // Semantic (chrome).
+        success: '#34d39a',
+        danger: '#ff5d5d',
+        info: '#5b8cff',
+        live: '#ff7a4d',
         // Legacy aliases kept so untouched views still compile during the reskin.
         team1: '#3f6fd6',
         team2: '#c21f1f',
@@ -31,12 +36,23 @@ export default {
         serif: ['Cinzel', 'Georgia', 'serif'], // crests / headers
         sans: ['Outfit', 'system-ui', 'Segoe UI', 'sans-serif'], // body
       },
-      borderRadius: { table: '134px / 90px' },
-      boxShadow: {
-        panel: '0 26px 60px -24px #000, inset 0 1px 0 rgba(255,255,255,.12)',
-        gold: '0 8px 18px -8px rgba(230,197,112,.7)',
-        glow: '0 0 26px rgba(230,197,112,.3)',
+      borderRadius: {
+        table: '134px / 90px',
+        xs: 'var(--r-xs)', sm: 'var(--r-sm)', md: 'var(--r-md)', lg: 'var(--r-lg)',
+        xl: 'var(--r-xl)', '2xl': 'var(--r-2xl)', '3xl': 'var(--r-3xl)', pill: 'var(--r-pill)',
       },
+      boxShadow: {
+        panel: 'var(--e4)',
+        gold: '0 8px 18px -8px rgba(232,200,121,.7)',
+        glow: 'var(--glow-gold)',
+        e1: 'var(--e1)', e2: 'var(--e2)', e3: 'var(--e3)', e4: 'var(--e4)', e5: 'var(--e5)',
+      },
+      fontSize: {
+        'fluid-2xs': 'var(--fs-2xs)', 'fluid-xs': 'var(--fs-xs)', 'fluid-sm': 'var(--fs-sm)',
+        'fluid-base': 'var(--fs-base)', 'fluid-lg': 'var(--fs-lg)', 'fluid-xl': 'var(--fs-xl)',
+        'fluid-2xl': 'var(--fs-2xl)', 'fluid-display': 'var(--fs-display)',
+      },
+      zIndex: { content: '10', sticky: '20', overlay: '30', modal: '50', toast: '60', tooltip: '70' },
       keyframes: {
         rise: {
           '0%': { opacity: '0', transform: 'translateY(14px)' },

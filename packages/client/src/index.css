@@ -10,17 +10,60 @@
    ========================================================================== */
 :root {
   color-scheme: dark;
-  --bg-0: #160407; --bg-1: #2a080c;
-  --maroon: #4d0c12;
-  /* Classic poker-green felt (the table); themeable via cosmetics. */
+
+  /* ===== Palette — "Obsidian & Gold" (the modern CHROME). The game-table felt
+     vars further down are intentionally LEFT WARM so the table keeps its iconic
+     identity; only the app shell / lobby / pages move to the sleek dark look. === */
+  --bg-0: #0b0a0e; --bg-1: #131119;          /* base obsidian ramp */
+  --maroon: #3a0f16;                          /* warmth — used only as a subtle accent now */
+  --accent-wine: #3a0f16;
+  --surface: rgba(255, 255, 255, 0.04);       /* glass fill */
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-gold: rgba(232, 200, 121, 0.22);
+
+  /* Game-table felt (UNCHANGED — themeable via cosmetics). */
   --felt: #1c6b3e; --felt-hi: #2c9258; --felt-edge: #0a3a20;
-  --gold: #e6c570; --gold-hi: #fff1c4; --gold-deep: #9a7528; --gold-line: #c9a14d;
+
+  /* Gold — the signature accent. */
+  --gold: #e8c879; --gold-hi: #fff3cf; --gold-deep: #a9842f; --gold-line: #c9a14d;
+  --gold-04: rgba(232, 200, 121, 0.04); --gold-08: rgba(232, 200, 121, 0.08);
+  --gold-14: rgba(232, 200, 121, 0.14); --gold-28: rgba(232, 200, 121, 0.28);
   --bulb: #ffe6a3;
+
+  /* Card + seat colors (table identity — kept). */
   --blue: #3f6fd6; --green: #34c46a;
   --cream: #fbfaf5; --ink: #14110c; --red: #c21f1f;
-  --txt: #f0e7d4; --muted: #c39a93;
-  --panel: rgba(255, 235, 200, 0.05);
-  --panel-line: rgba(230, 197, 112, 0.28);
+
+  /* Text contrast ladder (cooler/cleaner than the old warm beige). */
+  --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #8f8a99; --txt-faint: rgba(143, 138, 153, 0.7);
+  --muted: #8f8a99;                           /* = --txt-lo (kept for back-compat) */
+
+  /* Semantic (chrome). */
+  --success: #34d39a; --danger: #ff5d5d; --info: #5b8cff; --live: #ff7a4d;
+
+  /* Surfaces. */
+  --panel: rgba(255, 255, 255, 0.04);
+  --panel-line: rgba(232, 200, 121, 0.22);
+
+  /* ===== Scales (name the values that already existed) ===== */
+  --r-xs: 6px; --r-sm: 8px; --r-md: 11px; --r-lg: 14px; --r-xl: 18px; --r-2xl: 20px; --r-3xl: 24px; --r-pill: 999px;
+  --e1: inset 0 1px 0 rgba(255,255,255,.06), 0 4px 10px -6px rgba(0,0,0,.6);
+  --e2: inset 0 1px 0 rgba(255,255,255,.08), 0 8px 18px -8px rgba(0,0,0,.65);
+  --e3: inset 0 1px 0 rgba(255,255,255,.06), 0 12px 26px -10px #000;
+  --e4: 0 26px 60px -24px #000, inset 0 1px 0 rgba(255,255,255,.10);
+  --e5: 0 52px 100px -34px #000, inset 0 2px 3px rgba(255,255,255,.10);
+  --glow-gold: 0 0 26px rgba(232,200,121,.28);
+  --glow-gold-strong: 0 0 36px rgba(232,200,121,.40);
+  --fs-2xs: clamp(.6875rem, .66rem + .2vw, .75rem);
+  --fs-xs:  clamp(.75rem, .72rem + .2vw, .8125rem);
+  --fs-sm:  clamp(.8125rem, .78rem + .25vw, .875rem);
+  --fs-base: clamp(.9375rem, .9rem + .3vw, 1rem);
+  --fs-lg:  clamp(1.0625rem, 1rem + .4vw, 1.25rem);
+  --fs-xl:  clamp(1.25rem, 1.1rem + .8vw, 1.5rem);
+  --fs-2xl: clamp(1.5rem, 1.2rem + 1.6vw, 1.875rem);
+  --fs-display: clamp(1.875rem, 1.4rem + 2.6vw, 2.75rem);
+  --z-content: 10; --z-sticky: 20; --z-overlay: 30; --z-modal: 50; --z-toast: 60; --z-tooltip: 70;
 }
 
 html,
@@ -36,9 +79,9 @@ body {
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
   background:
-    radial-gradient(110% 80% at 50% 25%, rgba(150, 30, 40, 0.55), transparent 55%),
-    radial-gradient(140% 120% at 50% 120%, rgba(230, 197, 112, 0.1), transparent 60%),
-    linear-gradient(180deg, var(--bg-1), var(--bg-0) 70%);
+    radial-gradient(120% 80% at 50% -8%, rgba(232, 200, 121, 0.07), transparent 55%),
+    radial-gradient(100% 90% at 50% 118%, rgba(58, 15, 22, 0.5), transparent 62%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0) 64%);
   /* No background-attachment:fixed — it forces full-page repaints on mobile
      scroll; the fixed .bgfx layer carries the pinned atmosphere instead. */
   background-color: var(--bg-0);
