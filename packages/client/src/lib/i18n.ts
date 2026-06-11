@@ -343,6 +343,8 @@ const STRINGS: Record<string, Entry> = {
   'shop.loginToOpen': { sq: 'Hyr për të hapur dyqanin.', en: 'Log in to open the shop.' },
   'shop.rewardsDisabled': { sq: 'Shpërblimet janë çaktivizuar.', en: 'Rewards are disabled.' },
   'shop.equipped': { sq: 'Veshur', en: 'Equipped' },
+  'shop.previewHint': { sq: 'Prek një artikull për ta parë në tavolinë', en: 'Tap an item to preview it on the table' },
+  'shop.previewThis': { sq: 'Shiko këtë', en: 'Preview this' },
   'shop.equipping': { sq: 'Po vishet…', en: 'Equipping…' },
   'shop.equip': { sq: 'Vish', en: 'Equip' },
   'shop.notEnoughXp': { sq: 'Nuk ke XP të mjaftueshme.', en: 'You don’t have enough XP.' },

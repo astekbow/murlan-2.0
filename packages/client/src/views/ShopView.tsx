@@ -27,6 +27,10 @@ export function ShopView() {
   const [status, setStatus] = useState<RewardsStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ tableFelt?: string; cardBack?: string }>({});
+  // The previewed cosmetics fall back to whatever is currently equipped.
+  const previewFelt = preview.tableFelt ?? status?.equipped.tableFelt ?? '';
+  const previewCb = preview.cardBack ?? status?.equipped.cardBack ?? '';
 
   const load = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
@@ -128,7 +132,19 @@ export function ShopView() {
           </div>
         </section>
       ) : (
-        GROUPS.map((group, gi) => {
+        <>
+          {/* Live preview — the selected felt + card-back on a mini table. */}
+          <section className="panel p-4 animate-rise" style={{ animationDelay: '.06s' }}>
+            <div className={`shop-preview ${previewFelt}`}>
+              <div className={`flex items-end ${previewCb}`}>
+                <span className="shop-cb" style={{ transform: 'rotate(-13deg)', marginRight: -14 }} />
+                <span className="shop-cb" style={{ zIndex: 1, transform: 'translateY(-6px)' }} />
+                <span className="shop-cb" style={{ transform: 'rotate(13deg)', marginLeft: -14 }} />
+              </div>
+            </div>
+            <p className="text-center text-xs text-muted mt-2">{t('shop.previewHint')}</p>
+          </section>
+          {GROUPS.map((group, gi) => {
           const items = status.shop.filter((it) => it.type === group.type);
           if (items.length === 0) return null;
           return (
@@ -156,10 +172,14 @@ export function ShopView() {
                           : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'
                       }`}
                     >
-                      {/* Visual preview rendered from the cosmetic's own theme vars. */}
-                      <span
-                        aria-hidden
-                        className={`cosmo-swatch ${item.type === 'cardBack' ? 'cardback' : 'felt'} ${item.id}`}
+                      {/* Tap the swatch to preview it on the mini table above. */}
+                      <button
+                        type="button"
+                        aria-label={t('shop.previewThis')}
+                        onClick={() => setPreview((p) => ({ ...p, [item.type]: item.id }))}
+                        className={`cosmo-swatch ${item.type === 'cardBack' ? 'cardback' : 'felt'} ${item.id} ${
+                          (item.type === 'tableFelt' ? previewFelt : previewCb) === item.id ? 'is-preview' : ''
+                        }`}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -201,7 +221,8 @@ export function ShopView() {
               </ul>
             </section>
           );
-        })
+        })}
+        </>
       )}
     </div>
   );
