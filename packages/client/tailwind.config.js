@@ -12,7 +12,7 @@ export default {
         bg0: '#0b0a0e',
         bg1: '#131119',
         maroon: '#3a0f16',
-        felt: { DEFAULT: '#7c1620', hi: '#94202b', edge: '#330a0e', light: '#94202b', dark: '#330a0e' },
+        felt: { DEFAULT: '#7c1620', hi: '#94202b', edge: '#330a0e' },
         gold: { DEFAULT: '#e8c879', hi: '#fff3cf', deep: '#a9842f', line: '#c9a14d' },
         bulb: '#ffe6a3',
         royal: '#3f6fd6', // player ring: idle
@@ -20,16 +20,13 @@ export default {
         cream: '#fbfaf5',
         ink: '#14110c',
         suit: '#c21f1f', // suit red on cards
-        txt: { DEFAULT: '#d9d2c6', hi: '#f6f1e8', lo: '#8f8a99' },
-        muted: '#8f8a99',
+        txt: { DEFAULT: '#d9d2c6', hi: '#f6f1e8', lo: '#9c96a6' },
+        muted: '#9c96a6', // secondary text — lightened for AA contrast on the dark base
         // Semantic (chrome).
         success: '#34d39a',
         danger: '#ff5d5d',
         info: '#5b8cff',
         live: '#ff7a4d',
-        // Legacy aliases kept so untouched views still compile during the reskin.
-        team1: '#3f6fd6',
-        team2: '#c21f1f',
       },
       fontFamily: {
         display: ['Oswald', 'system-ui', 'sans-serif'], // game titles / labels

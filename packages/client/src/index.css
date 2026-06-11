@@ -36,8 +36,8 @@
   --cream: #fbfaf5; --ink: #14110c; --red: #c21f1f;
 
   /* Text contrast ladder (cooler/cleaner than the old warm beige). */
-  --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #8f8a99; --txt-faint: rgba(143, 138, 153, 0.7);
-  --muted: #8f8a99;                           /* = --txt-lo (kept for back-compat) */
+  --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #9c96a6; --txt-faint: rgba(156, 150, 166, 0.72);
+  --muted: #9c96a6;                           /* = --txt-lo — lightened for AA contrast on dark */
 
   /* Semantic (chrome). */
   --success: #34d39a; --danger: #ff5d5d; --info: #5b8cff; --live: #ff7a4d;
@@ -661,6 +661,9 @@ select:focus-visible,
   .iconbtn { width: 44px; height: 44px; }
   .tcorner { width: 44px; height: 44px; }
   .btn { padding-top: 12px; padding-bottom: 12px; }
+  /* WCAG 2.5.5 — keep the smaller button variants tappable (>=44px) on touch. */
+  .btn-sm, .btn-xs { min-height: 44px; }
+  .btn-icon { min-width: 44px; min-height: 44px; }
   .seg-tab { padding-top: 11px; padding-bottom: 11px; }
 }
 

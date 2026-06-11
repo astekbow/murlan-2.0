@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-const COLORS = ['#e6c570', '#fff1c4', '#34c46a', '#fbfaf5', '#c9a14d'];
+const COLORS = ['#e8c879', '#fff3cf', '#34c46a', '#fbfaf5', '#c9a14d'];
 
 /** A one-shot gold/green confetti burst for celebrations. Decorative, fixed
  *  overlay, pointer-events-none; auto-fades via CSS. Skipped under reduced-motion. */

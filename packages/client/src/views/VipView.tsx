@@ -6,6 +6,7 @@ import { vipApi, ApiError, type VipStatusDTO, type VipTierInfo } from '../lib/ap
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
+import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useT } from '../lib/i18n.ts';
 
 function Badge({ tier, size = 'md' }: { tier: VipTierInfo; size?: 'sm' | 'md' }) {
@@ -55,7 +56,7 @@ export function VipView() {
       </section>
 
       {status === 'loading' ? (
-        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">♛</div><p className="text-sm text-muted">{t('vip.loading')}</p></div>
+        <section className="panel p-5 animate-rise"><SkeletonList count={4} /></section>
       ) : status === 'error' ? (
         <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300">{error}</p></div>
       ) : (

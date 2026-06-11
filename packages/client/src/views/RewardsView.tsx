@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useNotifications } from '../store/notificationsStore.ts';
+import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 // For use OUTSIDE render (callbacks/effects) — reads the live lang without making
@@ -94,10 +95,7 @@ export function RewardsView() {
 
       {loading ? (
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
-          <div className="text-center py-10">
-            <div className="text-4xl mb-2 opacity-60 animate-pulse">🎁</div>
-            <p className="text-sm text-muted">{t('rewards.loading')}</p>
-          </div>
+          <SkeletonList count={3} />
         </section>
       ) : error ? (
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>

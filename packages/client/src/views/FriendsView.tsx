@@ -4,6 +4,7 @@ import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
+import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useT } from '../lib/i18n.ts';
 
 export function FriendsView() {
@@ -145,10 +146,7 @@ export function FriendsView() {
 
       {loading ? (
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
-          <div className="text-center py-8">
-            <div className="text-4xl mb-2 opacity-60 animate-pulse">👥</div>
-            <p className="text-sm text-muted">{t('friends.loading')}</p>
-          </div>
+          <SkeletonList count={5} />
         </section>
       ) : (
         <>

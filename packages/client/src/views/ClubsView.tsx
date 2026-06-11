@@ -6,6 +6,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
+import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useT } from '../lib/i18n.ts';
 
 export function ClubsView() {
@@ -60,7 +61,7 @@ export function ClubsView() {
       </section>
 
       {status === 'loading' ? (
-        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">🛡️</div><p className="text-sm text-muted">{t('clubs.loading')}</p></div>
+        <section className="panel p-5 animate-rise"><SkeletonList count={4} /></section>
       ) : mine ? (
         <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.05s' }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
