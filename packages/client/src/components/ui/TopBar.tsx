@@ -6,8 +6,9 @@
 // NOTE: level/XP is cosmetic scaffolding for now; the progression DATA lands in
 // Phase 5. The `$` balance is the real wallet figure, untouched.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { avatarEmoji, isImageAvatar } from '../../lib/avatars.ts';
 import { useAuthStore } from '../../store/authStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { useGameStore } from '../../store/gameStore.ts';
@@ -42,16 +43,16 @@ export function TopBar() {
   // Fetch the signed-in user's real progression (level/XP) once when present.
   // On a null token or a failed fetch we leave `profile` null and fall back to
   // the cosmetic defaults below.
-  useEffect(() => {
-    if (!user) return;
+  const refetchProfile = useCallback(() => {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
-    let alive = true;
-    profileApi.me(token)
-      .then(({ profile: p }) => { if (alive) setProfile(p); })
-      .catch(() => { /* keep fallback */ });
-    return () => { alive = false; };
-  }, [user]);
+    profileApi.me(token).then(({ profile: p }) => setProfile(p)).catch(() => { /* keep fallback */ });
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    refetchProfile();
+  }, [user, refetchProfile]);
 
   // Close the bell/gear popovers on Escape (keyboard dismissal, not just click-out).
   useEffect(() => {
@@ -74,7 +75,13 @@ export function TopBar() {
         title={t('topbar.profile')}
       >
         <div className="pfp" style={{ width: 50, height: 50, fontSize: 16 }}>
-          {initials(user.username)}
+          {isImageAvatar(profile?.avatar) ? (
+            <img src={profile!.avatar!} alt="" className="pfp-img" />
+          ) : profile?.avatar ? (
+            avatarEmoji(profile.avatar)
+          ) : (
+            initials(user.username)
+          )}
           <span className="lvl">{profile ? profile.level : 1}</span>
         </div>
         <div className="hidden sm:block">
@@ -163,7 +170,7 @@ export function TopBar() {
       </div>
     </header>
     {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
-    {profileOpen && <ProfileModal userId={user.id} onClose={() => setProfileOpen(false)} />}
+    {profileOpen && <ProfileModal userId={user.id} onClose={() => setProfileOpen(false)} onProfileChange={refetchProfile} />}
     </>
   );
 }

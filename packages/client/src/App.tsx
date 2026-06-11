@@ -13,6 +13,7 @@ import { InviteBanner } from './components/ui/InviteBanner.tsx';
 import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
 import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
+import { InstallModal } from './components/ui/InstallModal.tsx';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
 import { useCosmeticsStore } from './store/cosmeticsStore.ts';
@@ -169,6 +170,7 @@ export function App() {
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
       {status === 'authed' && <InviteBanner />}
+      {status === 'authed' && !room && !spectating && <InstallModal />}
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <RealityCheckModal />}
       {status === 'authed' && <ReconnectOverlay />}

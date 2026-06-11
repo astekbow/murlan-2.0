@@ -6,7 +6,6 @@ import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts
 import { dollars } from '../lib/money.ts';
 import { sound } from '../lib/sound.ts';
 import { Modal } from '../components/ui/Modal.tsx';
-import { InstallBanner } from '../components/ui/InstallBanner.tsx';
 import { useT } from '../lib/i18n.ts';
 
 // Maps match type → catalog key, resolved with t() at each use site.
@@ -82,7 +81,6 @@ export function LobbyView() {
   return (
     <div className="space-y-6">
       <h1 className="sr-only">{t('lobby.srTitle')}</h1>
-      <InstallBanner />
       {/* Menu: 3 nav icons left · hero · 3 nav icons right (desktop). */}
       <div className="grid gap-5 md:grid-cols-[64px_1fr_64px] items-start">
         <RailNav items={RAIL_LEFT} side="left" />

@@ -543,6 +543,19 @@ select:focus-visible,
   .ctrl-play { right: max(14px, env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 15px; }
 }
 
+/* An uploaded avatar image fills the round profile picture (over the .pfp). */
+.pfp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+/* Lobby in LANDSCAPE on a phone: shrink the big hero "mode" cards so they fit on
+   screen instead of overflowing, and tighten the spacing. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .mode { min-height: 116px; padding: 10px 14px; border-radius: 16px; }
+  .mode .motif { top: 8px; transform: translate(-50%, 0) scale(0.5); transform-origin: top center; }
+  .mode .mname { font-size: 17px; letter-spacing: 0.5px; }
+  .mode .mdesc { font-size: 10.5px; margin-top: 2px; }
+  .mode .mcta { margin-top: 6px; font-size: 11px; }
+}
+
 /* Touch devices have no hover: press affordance + ≥44px tap targets (WCAG). */
 @media (hover: none) {
   .hand-fan .gcard:active { transform: translateY(-12px) scale(1.04) !important; z-index: 9; }

@@ -34,12 +34,13 @@ export interface CreateResult extends ManagerResult {
   joinCode?: string; // present for a private room — share it so friends can join
 }
 
-// Unambiguous code alphabet (no 0/O/1/I/L) for shareable private-room codes.
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+// Shareable private-room codes are DIGITS ONLY (easy to read out + type on a phone).
+const CODE_ALPHABET = '0123456789';
+const CODE_LEN = 6;
 function genJoinCode(): string {
-  const b = randomBytes(6);
+  const b = randomBytes(CODE_LEN);
   let s = '';
-  for (let i = 0; i < 6; i++) s += CODE_ALPHABET[b[i]! % CODE_ALPHABET.length];
+  for (let i = 0; i < CODE_LEN; i++) s += CODE_ALPHABET[b[i]! % CODE_ALPHABET.length];
   return s;
 }
 

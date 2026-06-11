@@ -16,6 +16,14 @@ export const AVATARS = [
 ] as const;
 export type AvatarId = (typeof AVATARS)[number];
 
+// An uploaded avatar is stored inline as a small data URL. The client resizes to a
+// tiny thumbnail first; this cap (~9KB) keeps profiles/leaderboards from bloating.
+const MAX_AVATAR_DATA_URL = 12_000;
+function isValidAvatar(avatar: string): boolean {
+  if ((AVATARS as readonly string[]).includes(avatar)) return true;
+  return avatar.length <= MAX_AVATAR_DATA_URL && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(avatar);
+}
+
 export interface PublicProfile {
   id: string;
   username: string;
@@ -67,9 +75,10 @@ export class ProfileService {
     return u ? toPublic(u) : null;
   }
 
-  /** Cosmetic avatar change. Rejects ids outside the preset set. */
+  /** Cosmetic avatar change. Accepts a preset id OR a small uploaded image stored
+   *  as a data URL (the client resizes to a tiny thumbnail before sending). */
   async setAvatar(userId: string, avatar: string): Promise<PublicProfile | null> {
-    if (!(AVATARS as readonly string[]).includes(avatar)) throw new Error('invalid avatar');
+    if (!isValidAvatar(avatar)) throw new Error('invalid avatar');
     const u = await this.users.setAvatar(userId, avatar);
     return u ? toPublic(u) : null;
   }

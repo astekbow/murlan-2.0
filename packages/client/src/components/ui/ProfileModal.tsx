@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal.tsx';
 import { profileApi, rankedApi, ApiError, type Profile, type RankedProfileDTO } from '../../lib/api.ts';
-import { avatarEmoji, AVATARS } from '../../lib/avatars.ts';
+import { avatarEmoji, isImageAvatar, imageToAvatarDataUrl, AVATARS } from '../../lib/avatars.ts';
 import { dollars } from '../../lib/money.ts';
 import { useAuthStore } from '../../store/authStore.ts';
 import { TierBadge } from './TierBadge.tsx';
@@ -15,9 +15,11 @@ import { useT } from '../../lib/i18n.ts';
 interface ProfileModalProps {
   userId: string;
   onClose: () => void;
+  /** Called after the signed-in user changes their avatar (so the top bar refreshes). */
+  onProfileChange?: () => void;
 }
 
-export function ProfileModal({ userId, onClose }: ProfileModalProps) {
+export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalProps) {
   const t = useT();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ranked, setRanked] = useState<RankedProfileDTO | null>(null);
@@ -59,10 +61,23 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
       await profileApi.setAvatar(token, avatar);
       await load();
       await useAuthStore.getState().refreshMe();
+      onProfileChange?.(); // refresh the top-bar avatar immediately
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t('profile.avatarSaveFailed'));
     } finally {
       setSavingAvatar(null);
+    }
+  }
+
+  /** Upload a custom photo: resize to a tiny square, then save it like any avatar. */
+  async function uploadAvatar(file: File) {
+    if (savingAvatar) return;
+    try {
+      const dataUrl = await imageToAvatarDataUrl(file, 64);
+      if (dataUrl.length > 12_000) { setError(t('profile.avatarTooBig')); return; }
+      await pickAvatar(dataUrl);
+    } catch {
+      setError(t('profile.avatarSaveFailed'));
     }
   }
 
@@ -83,7 +98,7 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
           {/* Identity: big avatar + level + XP */}
           <div className="flex items-center gap-4">
             <div className="pfp" style={{ width: 72, height: 72, fontSize: 34 }}>
-              {avatarEmoji(profile.avatar)}
+              {isImageAvatar(profile.avatar) ? <img src={profile.avatar} alt="" className="pfp-img" /> : avatarEmoji(profile.avatar)}
               <span className="lvl">{profile.level}</span>
             </div>
             <div className="min-w-0 flex-1">
@@ -152,9 +167,20 @@ export function ProfileModal({ userId, onClose }: ProfileModalProps) {
           {/* Avatar picker (only for the signed-in user) */}
           {isMe && (
             <div className="space-y-2.5">
-              <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
-                {t('profile.chooseAvatar')}
-              </h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
+                  {t('profile.chooseAvatar')}
+                </h3>
+                <label className={`btn btn-ghost btn-sm cursor-pointer ${savingAvatar ? 'opacity-50 pointer-events-none' : ''}`}>
+                  📷 {t('profile.uploadAvatar')}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAvatar(f); e.target.value = ''; }}
+                  />
+                </label>
+              </div>
               <div className="grid grid-cols-6 gap-2.5">
                 {AVATARS.map((a) => {
                   const active = profile.avatar === a;

@@ -1,0 +1,69 @@
+// "Install the app" prompt as a dismissible modal (bottom sheet on phones) shown
+// once at startup — with a close button and a "don't remind me again" that sticks
+// (localStorage). On Android/desktop Chrome it offers a one-tap install; on iOS it
+// shows the Share → Add to Home Screen hint. Never shown once installed.
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useCanInstall, isIos, isStandalone, promptInstall } from '../../lib/pwa.ts';
+import { sound } from '../../lib/sound.ts';
+import { useT } from '../../lib/i18n.ts';
+
+const DISMISS_KEY = 'murlan.installDismissed';
+
+export function InstallModal() {
+  const canInstall = useCanInstall();
+  const t = useT();
+  const [closed, setClosed] = useState(() => {
+    try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
+  });
+  const iosHint = isIos() && !isStandalone();
+
+  // Nothing to offer (already installed, or no install path), or the user dismissed it.
+  if (closed || isStandalone() || (!canInstall && !iosHint)) return null;
+
+  const dismiss = (forever: boolean) => {
+    if (forever) { try { localStorage.setItem(DISMISS_KEY, '1'); } catch { /* private mode */ } }
+    setClosed(true);
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/60 p-3 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('install.title')}
+      onClick={() => dismiss(false)}
+    >
+      <div
+        className="panel-solid rounded-2xl p-5 w-full max-w-sm animate-rise relative"
+        style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => dismiss(false)}
+          className="absolute top-3 right-3 w-9 h-9 grid place-items-center rounded-full hover:bg-white/10 text-muted text-lg"
+          aria-label={t('install.close')}
+        >
+          ✕
+        </button>
+        <div className="text-4xl mb-2">📲</div>
+        <div className="font-display font-bold text-gold-hi text-lg pr-8">{t('install.title')}</div>
+        <p className="text-sm text-muted mt-1">{canInstall ? t('install.subtitle') : t('install.iosHint')}</p>
+        {canInstall && (
+          <button
+            type="button"
+            className="btn btn-gold btn-lg btn-block mt-4"
+            onClick={() => { sound.play('button'); void promptInstall(); dismiss(false); }}
+          >
+            {t('install.cta')}
+          </button>
+        )}
+        <button type="button" className="btn btn-ghost btn-block mt-2 text-sm" onClick={() => dismiss(true)}>
+          {t('install.dontRemind')}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
