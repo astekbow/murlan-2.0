@@ -7,6 +7,7 @@ import { useCosmeticsStore } from '../store/cosmeticsStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 import { dollars } from '../lib/money.ts';
+import { CountUp } from '../components/ui/CountUp.tsx';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
@@ -103,9 +104,7 @@ export function ShopView() {
         {status && (
           <div className="text-right">
             <div className="text-[11px] uppercase tracking-wider text-muted/70">{t('shop.yourBalance')}</div>
-            <div className="font-display font-semibold tracking-wide text-gold-hi text-2xl leading-none">
-              {dollars(balanceCents)}
-            </div>
+            <CountUp valueCents={balanceCents} className="block font-display font-semibold tracking-wide text-gold-hi text-2xl leading-none" />
           </div>
         )}
       </section>
