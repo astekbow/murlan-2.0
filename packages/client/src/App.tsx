@@ -14,7 +14,6 @@ import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
 import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
-import { BottomNav } from './components/ui/BottomNav.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
@@ -167,7 +166,6 @@ export function App() {
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
       {status === 'authed' && <InviteBanner />}
-      {status === 'authed' && !room && !spectating && <BottomNav />}
       {status === 'authed' && !room && !spectating && <InstallModal />}
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <RealityCheckModal />}
