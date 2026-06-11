@@ -259,28 +259,24 @@ select:focus-visible,
 
   /* ---- Hero mode cards --------------------------------------------------- */
   .mode {
-    position: relative; border-radius: 24px; padding: 22px; min-height: 300px; cursor: pointer; overflow: hidden;
-    display: flex; flex-direction: column; justify-content: flex-end; border: 2px solid var(--gold-line);
-    box-shadow: 0 26px 60px -24px #000, inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 26px rgba(230, 197, 112, 0.18);
+    position: relative; border-radius: 20px; padding: 18px 16px; min-height: 164px; cursor: pointer; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; text-align: center;
+    border: 1px solid var(--gold-line);
+    box-shadow: var(--e4), 0 0 26px rgba(232, 200, 121, 0.12);
     transition: transform 0.18s ease, box-shadow 0.25s ease;
   }
-  .mode:hover { transform: translateY(-6px); box-shadow: 0 36px 70px -22px #000, 0 0 36px rgba(230, 197, 112, 0.4); }
+  .mode:hover { transform: translateY(-4px); box-shadow: var(--e5), 0 0 34px rgba(232, 200, 121, 0.3); }
   .mode:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 3px; }
   .mode .art { position: absolute; inset: 0; z-index: 0; }
-  .mode.casual .art { background: radial-gradient(120% 90% at 60% 30%, #1f4f86, #0c2746 70%, #08182e); }
-  .mode.tourn .art { background: radial-gradient(120% 90% at 40% 30%, #2c6a3e, #123b22 70%, #0a2415); }
-  .mode .art::after { content: ''; position: absolute; inset: 0; background: radial-gradient(60% 50% at 50% 38%, rgba(255, 230, 163, 0.25), transparent 60%); }
-  .mode .motif { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); display: flex; z-index: 1; filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.6)); }
-  .pcard { width: 80px; height: 112px; border-radius: 11px; background: linear-gradient(160deg, #fffef9, #f1ead6); position: relative; color: var(--ink); }
-  .pcard.two { transform: rotate(12deg) translateX(-24px); z-index: -1; }
-  .pcard.red { color: var(--red); }
-  .pcard .pr { position: absolute; top: 8px; left: 10px; font-weight: 800; font-size: 19px; }
-  .pcard .pb { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; }
-  .mode .mname { position: relative; z-index: 1; font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 28px; letter-spacing: 1px; text-align: center; text-transform: uppercase; }
-  .mode .mdesc { position: relative; z-index: 1; text-align: center; color: rgba(255, 245, 225, 0.8); font-size: 13px; margin-top: 4px; }
+  .mode.casual .art { background: radial-gradient(120% 90% at 50% 25%, #234a6e, #122336 68%, #0b1622); }
+  .mode.tourn .art { background: radial-gradient(120% 90% at 50% 25%, #245a3c, #123524 68%, #0b1f15); }
+  .mode .art::after { content: ''; position: absolute; inset: 0; background: radial-gradient(70% 55% at 50% 22%, rgba(255, 235, 175, 0.16), transparent 62%); }
+  .mode .micon { position: relative; z-index: 1; font-size: 40px; line-height: 1; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.55)); }
+  .mode .mname { position: relative; z-index: 1; font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.8px; text-transform: uppercase; }
+  .mode .mdesc { position: relative; z-index: 1; color: rgba(245, 240, 232, 0.78); font-size: 12px; margin-top: 1px; line-height: 1.3; max-width: 94%; }
   .mode .mcta {
-    position: relative; z-index: 1; align-self: center; margin-top: 14px; font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.6px; font-size: 13px;
-    padding: 9px 22px; border-radius: 999px; color: #1a1207; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 10px 22px -10px rgba(230, 197, 112, 0.7);
+    position: relative; z-index: 1; margin-top: 8px; font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.6px; font-size: 13px;
+    padding: 8px 22px; border-radius: 999px; color: #1a1207; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 10px 22px -10px rgba(232, 200, 121, 0.7);
   }
 
   /* ---- Modal ------------------------------------------------------------- */
@@ -547,8 +543,9 @@ select:focus-visible,
   /* 16px inputs stop iOS Safari from auto-zooming on focus (pinch-zoom is now allowed). */
   .field { font-size: 16px; }
   /* Lighter hero on phones so the open-rooms list is reachable with less scroll. */
-  .mode { min-height: 210px; padding: 16px; }
-  .mode .mname { font-size: 24px; }
+  .mode { min-height: 146px; padding: 14px; }
+  .mode .micon { font-size: 34px; }
+  .mode .mname { font-size: 19px; }
 }
 
 /* In-match table root: safe-area insets (the felt screen renders outside the lobby
@@ -617,11 +614,11 @@ select:focus-visible,
 /* Lobby in LANDSCAPE on a phone: shrink the big hero "mode" cards so they fit on
    screen instead of overflowing, and tighten the spacing. */
 @media (orientation: landscape) and (max-height: 560px) {
-  .mode { min-height: 116px; padding: 10px 14px; border-radius: 16px; }
-  .mode .motif { top: 8px; transform: translate(-50%, 0) scale(0.5); transform-origin: top center; }
-  .mode .mname { font-size: 17px; letter-spacing: 0.5px; }
-  .mode .mdesc { font-size: 10.5px; margin-top: 2px; }
-  .mode .mcta { margin-top: 6px; font-size: 11px; }
+  .mode { min-height: 102px; padding: 8px 12px; border-radius: 14px; gap: 2px; }
+  .mode .micon { font-size: 24px; }
+  .mode .mname { font-size: 15px; letter-spacing: 0.4px; }
+  .mode .mdesc { font-size: 10px; margin-top: 1px; }
+  .mode .mcta { margin-top: 5px; font-size: 10px; padding: 5px 14px; }
 }
 
 /* ===== App shell safe-area + page transitions (redesign) ===== */

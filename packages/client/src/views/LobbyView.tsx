@@ -88,23 +88,17 @@ export function LobbyView() {
 
         {/* Hero mode cards */}
         <div className="grid sm:grid-cols-2 gap-5 order-1 md:order-2">
-          <button className="mode casual animate-rise text-inherit" style={{ animationDelay: '.1s' }} onClick={() => { sound.play('button'); setQuickOpen(true); }}>
+          <button className="mode casual animate-rise text-inherit" style={{ animationDelay: '.1s' }} onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
             <div className="art" />
-            <div className="motif">
-              <div className="pcard"><span className="pr">A♠</span><span className="pb">♠</span></div>
-              <div className="pcard two red"><span className="pr">A♦</span><span className="pb">♦</span></div>
-            </div>
+            <span className="micon" aria-hidden>🎴</span>
             <div className="mname gold-text">{t('lobby.quickName')}</div>
             <div className="mdesc">{t('lobby.quickDesc')}</div>
             <div className="mcta">{t('lobby.quickCta')}</div>
           </button>
 
-          <button className="mode tourn animate-rise text-inherit" style={{ animationDelay: '.15s' }} onClick={() => { sound.play('button'); setView('tournaments'); }}>
+          <button className="mode tourn animate-rise text-inherit" style={{ animationDelay: '.15s' }} onClick={() => { sound.play('button'); haptics.tap(); setView('tournaments'); }}>
             <div className="art" />
-            <div className="motif">
-              <div className="pcard"><span className="pr">K♠</span><span className="pb">♠</span></div>
-              <div className="pcard two red"><span className="pr">Q♥</span><span className="pb">♥</span></div>
-            </div>
+            <span className="micon" aria-hidden>🏆</span>
             <div className="mname gold-text">{t('lobby.tournName')}</div>
             <div className="mdesc">{t('lobby.tournDesc')}</div>
             <div className="mcta">{t('lobby.tournCta')}</div>
