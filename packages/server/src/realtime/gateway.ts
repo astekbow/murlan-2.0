@@ -777,8 +777,16 @@ export class GameGateway {
     const pub = this.rooms.publicGameDTO(roomId, null);
     const hand = this.rooms.handOf(roomId, seat);
     if (!pub || pub.turn !== seat || !hand) return; // no longer the bot's turn
-    const three = hand.find((c) => c.kind === 'standard' && c.rank === '3' && c.suit === 'S');
-    const mustInclude = snap.gameIndex === 0 && pub.pile == null && three ? three : undefined;
+    // First-game opener: the engine requires the opening lead to include a SPECIFIC
+    // card — the lowest start-suit (♠) card actually dealt: the 3♠, or 4♠/5♠/… when
+    // the 3♠ wasn't dealt. Use the engine's real opening card (snapshot.game.openingCard,
+    // which is null once the game has opened), NOT a hardcoded 3♠ — otherwise, when the
+    // bot is the opener with a higher ♠, it leads illegally, the play is rejected, it
+    // can't pass an opening lead, and the match freezes on the bot's turn.
+    const opening = snap.game?.openingCard ?? null;
+    const mustInclude = opening && opening.kind === 'standard' && pub.pile == null
+      ? hand.find((c) => c.kind === 'standard' && c.rank === opening.rank && c.suit === opening.suit)
+      : undefined;
     const move = decideBotMove(
       {
         hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
