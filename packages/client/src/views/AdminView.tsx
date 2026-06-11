@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useAdminStore } from '../store/adminStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
+import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
-import type { AdminUser } from '../lib/api.ts';
+import { adminApi } from '../lib/api.ts';
+import type { AdminUser, SupportTicket, AdminActionRecord } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -105,10 +107,30 @@ export function AdminView() {
   const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
   const [userQuery, setUserQuery] = useState('');
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
+
+  const loadDepth = () => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    void adminApi.support(token).then((r) => setTickets(r.tickets)).catch(() => {});
+    void adminApi.audit(token).then((r) => setAuditLog(r.actions)).catch(() => {});
+  };
 
   useEffect(() => {
     void refresh();
+    loadDepth();
   }, [refresh]);
+
+  const resolveTicket = async (id: string) => {
+    if (!(await confirm({ title: t('admin.resolveTicket'), message: t('admin.confirmResolveM') }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    await adminApi.resolveTicket(token, id, 'resolved');
+    loadDepth();
+  };
+
+  const openTickets = tickets.filter((tk) => tk.status === 'open');
 
   const q = userQuery.trim().toLowerCase();
   const shownUsers = q
@@ -191,6 +213,52 @@ export function AdminView() {
               >
                 <span className="font-display font-semibold tracking-wide text-txt">{m.type}</span>
                 <span className="text-muted"> · {dollars(m.stakeCents)} · {t('admin.target')} {m.target} · {m.players.map((p) => p.username ?? `?${p.seat}`).join(', ')}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Support tickets — triage disputes / payment / account issues. */}
+      <section className="panel p-5 animate-rise" style={{ animationDelay: '.1s' }}>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3 flex items-center gap-2">
+          {t('admin.support')}
+          {openTickets.length > 0 && <span className="tag tag-live">{openTickets.length}</span>}
+        </h2>
+        {tickets.length === 0 ? (
+          <p className="text-sm text-muted italic">{t('admin.noTickets')}</p>
+        ) : (
+          <ul className="space-y-2.5">
+            {tickets.slice(0, 30).map((tk) => (
+              <li key={tk.id} className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-display font-semibold tracking-wide text-txt text-sm">{tk.subject}</span>
+                  <span className={`tag ${tk.status === 'open' ? 'tag-live' : 'tag-open'}`}>{tk.status}</span>
+                </div>
+                <p className="text-[11px] text-muted mt-1">{tk.category}{tk.matchId ? ` · ${tk.matchId}` : ''} · {new Date(tk.createdAt).toLocaleDateString()}</p>
+                <p className="text-sm text-txt mt-1.5 break-words">{tk.message}</p>
+                {tk.adminNote && <p className="text-xs text-gold-hi/80 mt-1">↳ {tk.adminNote}</p>}
+                {tk.status === 'open' && (
+                  <button onClick={() => void resolveTicket(tk.id)} className="btn btn-gold btn-sm mt-2">{t('admin.resolveTicket')}</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Audit log — immutable who-did-what (compliance). */}
+      <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.auditLog')}</h2>
+        {auditLog.length === 0 ? (
+          <p className="text-sm text-muted italic">{t('admin.noAudit')}</p>
+        ) : (
+          <ul className="space-y-1.5 max-h-[44vh] overflow-y-auto -mr-1 pr-1">
+            {auditLog.map((a) => (
+              <li key={a.id} className="text-xs flex items-center gap-2 rounded-lg px-3 py-2 border border-white/10 bg-white/[.02]">
+                <span className="font-mono text-gold-hi/80 shrink-0">{a.action}</span>
+                <span className="text-muted truncate flex-1">{a.detail ?? ''}{a.amountCents != null ? ` (${dollars(a.amountCents)})` : ''}</span>
+                <span className="text-muted/60 shrink-0 whitespace-nowrap">{new Date(a.createdAt).toLocaleString()}</span>
               </li>
             ))}
           </ul>

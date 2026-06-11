@@ -373,6 +373,16 @@ export interface AdminMatch {
   target: number;
   players: Array<{ seat: number; username: string | null; connected: boolean }>;
 }
+export interface AdminActionRecord {
+  id: string;
+  adminId: string;
+  action: string;
+  targetUserId: string | null;
+  amountCents: number | null;
+  detail: string | null;
+  createdAt: number;
+}
+export type AdminAccountState = 'active' | 'frozen' | 'suspended' | 'banned';
 
 export const adminApi = {
   users: (token: string) => request<{ users: AdminUser[] }>('/admin/users', { token }),
@@ -387,6 +397,13 @@ export const adminApi = {
   setRole: (token: string, id: string, role: 'user' | 'admin') =>
     request<{ user: AdminUser }>(`/admin/users/${id}/role`, { method: 'POST', token, body: { role } }),
   revenue: (token: string) => request<{ totalRakeCents: number; rakeCount: number }>('/admin/revenue', { token }),
+  audit: (token: string) => request<{ actions: AdminActionRecord[] }>('/admin/audit', { token }),
+  support: (token: string) => request<{ tickets: SupportTicket[] }>('/admin/support', { token }),
+  resolveTicket: (token: string, id: string, status: 'resolved' | 'closed', adminNote?: string) =>
+    request<{ ticket: SupportTicket }>(`/admin/support/${id}/resolve`, { method: 'POST', token, body: { status, adminNote } }),
+  setAccountState: (token: string, id: string, state: AdminAccountState, reason?: string, durationMs?: number) =>
+    request<{ user: AdminUser }>(`/admin/users/${id}/account-state`, { method: 'POST', token, body: { state, reason, durationMs } }),
+  transactions: (token: string, id: string) => request<{ transactions: Transaction[] }>(`/admin/users/${id}/transactions`, { token }),
 };
 
 // ----- Tournaments ---------------------------------------------------------
