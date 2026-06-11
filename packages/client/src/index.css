@@ -483,15 +483,45 @@ select:focus-visible,
   .mode .mname { font-size: 24px; }
 }
 
-/* Phone held in LANDSCAPE: a short, WIDE viewport. The portrait felt is nearly
-   square (full width × tall); here we make it WIDE + SHORT — a proper rectangular
-   table — and slim the rail so the whole table fits the short height without the
-   page feeling zoomed. (Tablets/desktops have max-height > 560px and are unaffected.) */
+/* In-match table root: safe-area insets (the felt screen renders outside the lobby
+   Shell). Lives in CSS — not inline — so the landscape rules below can override it. */
+.tv-root {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+/* Phone held in LANDSCAPE: a short, WIDE viewport. Goal: the ENTIRE table fits on
+   ONE screen with NO scrolling. The root is pinned to the viewport height and clips;
+   every row is compressed and the felt becomes WIDE + SHORT (rectangular) to fit the
+   leftover height. (Tablets/desktops have max-height > 560px and are unaffected.) */
 @media (orientation: landscape) and (max-height: 560px) {
-  .rail-outer { padding: 8px; border-radius: 90px / 26%; }
-  .rail-inner { min-height: clamp(118px, 46vh, 240px); border-radius: 82px / 22%; }
-  .felt-ring { inset: 9% 15%; }
-  .tlogo { font-size: 18px; letter-spacing: 3px; top: 24%; }
+  .tv-root {
+    min-height: 0 !important;
+    height: 100dvh;
+    overflow: hidden;                 /* no scroll — ever */
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+  .tv-top { padding-top: 4px !important; padding-bottom: 0 !important; }
+  .tv-score { margin: 3px 0 !important; }
+  .tv-table { padding-top: 0 !important; padding-bottom: 0 !important; }
+  .tv-felt { padding: 2px 6px !important; }
+  .tv-bottom { padding-top: 0 !important; }
+
+  /* Felt: wide + short, with a small floor so it shrinks into the leftover space. */
+  .rail-outer { padding: 5px; border-radius: 70px / 22%; }
+  .rail-inner { min-height: 84px; border-radius: 64px / 18%; }
+  .felt-ring { inset: 8% 14%; }
+  .tlogo { font-size: 14px; letter-spacing: 2px; top: 22%; }
+
+  /* Slimmer seats + a compact hand so the fixed rows stay short. */
+  .av { width: 36px; height: 36px; font-size: 11px; border-width: 2px; }
+  .seat-nm { max-width: 54px; font-size: 10px; }
+  .hand-fan .gcard { width: 40px; height: 58px; }
+  .hand-fan .gcard .gc-r, .hand-fan .gcard .gc-br { font-size: 12px; }
+  .hand-fan .gcard .gc-big { font-size: 20px; }
+  .hand-fan .gcard .gc-s { top: 16px; font-size: 9px; }
 }
 
 /* Touch devices have no hover: press affordance + ≥44px tap targets (WCAG). */

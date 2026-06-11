@@ -252,18 +252,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     // Safe-area insets: this is the main gameplay screen and renders OUTSIDE the
     // lobby Shell, so it must inset itself or the top controls sit under the iPhone
     // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
-    <div
-      className={`relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${shake ? ' shake-fx' : ''}`}
-      style={{
-        paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))',
-        paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
-        paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
-      }}
-    >
+    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${shake ? ' shake-fx' : ''}`}>
       <h1 className="sr-only">{t('table.title')}</h1>
       {/* Top bar (corner controls live here so they never overlap seats) */}
-      <div className="flex items-center justify-between gap-2 pt-3 pb-1">
+      <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
         <button
           onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
           className="btn btn-ghost"
@@ -288,14 +280,14 @@ export function TableView({ room }: { room: RoomStateDTO }) {
 
       {/* Scorebar */}
       {scoreboard && (
-        <div className="my-2">
+        <div className="tv-score my-2">
           <Scoreboard scoreboard={scoreboard} names={nameOf} />
         </div>
       )}
 
       {/* Table — grows to fill the space between the scorebar and the hand */}
-      <div className="flex-1 flex items-center justify-center min-h-0 py-1">
-        <div className={`relative w-full max-w-[640px] px-7 py-6 max-[480px]:px-3 ${feltClass} ${cbClass}`}>
+      <div className="tv-table flex-1 flex items-center justify-center min-h-0 py-1">
+        <div className={`tv-felt relative w-full max-w-[640px] px-7 py-6 max-[480px]:px-3 ${feltClass} ${cbClass}`}>
           <div className="rail-outer">
           <CupHolders />
           <div className="rail-inner">
@@ -336,7 +328,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       </div>
 
       {/* My hand + controls (no framing box — cards sit on the table surface) */}
-      <div className="pt-1">
+      <div className="tv-bottom pt-1">
         {switching ? (
           <div className="text-center pb-1.5">
             {switchPick ? (
