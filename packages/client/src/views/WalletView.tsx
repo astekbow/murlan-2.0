@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useWalletStore } from '../store/walletStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { accountApi, type RgLimits } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
+import { CountUp } from '../components/ui/CountUp.tsx';
+import { Confetti } from '../components/ui/Confetti.tsx';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
@@ -31,6 +33,27 @@ export function WalletView() {
   // double-click can't double-submit.
   const [depositing, setDepositing] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+
+  // Celebrate a balance INCREASE (e.g. a deposit credited) once the initial load has
+  // settled, so the 0→balance load on mount never falsely fires confetti.
+  const prevBalance = useRef(balanceCents);
+  const settled = useRef(false);
+  const [gain, setGain] = useState(0);
+  const [celebrate, setCelebrate] = useState(false);
+  useEffect(() => {
+    const tm = setTimeout(() => { settled.current = true; }, 1200);
+    return () => clearTimeout(tm);
+  }, []);
+  useEffect(() => {
+    const prev = prevBalance.current;
+    prevBalance.current = balanceCents;
+    if (!settled.current || balanceCents <= prev) return;
+    setGain(balanceCents - prev);
+    setCelebrate(true);
+    const a = setTimeout(() => setCelebrate(false), 2400);
+    const b = setTimeout(() => setGain(0), 1600);
+    return () => { clearTimeout(a); clearTimeout(b); };
+  }, [balanceCents]);
 
   const onDeposit = async () => {
     if (depositing) return;
@@ -77,17 +100,28 @@ export function WalletView() {
         {t('common.backToLobby')}
       </button>
 
-      {/* Balance */}
-      <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
-        <div>
-          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('wallet.section')}</div>
-          <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('wallet.balance')}</h1>
+      {/* Balance hero */}
+      <section className="panel-solid p-6 animate-rise text-center relative overflow-hidden">
+        <div className="font-serif text-xs tracking-[0.4em] text-muted mb-2">{t('wallet.balance')}</div>
+        <div className="flex items-center justify-center gap-3">
+          <span
+            className="coin-anim shrink-0 rounded-full"
+            aria-hidden
+            style={{
+              width: 34, height: 34,
+              background: 'radial-gradient(circle at 35% 30%, #fff3cf, #e8c879 55%, #a9842f)',
+              boxShadow: '0 4px 10px -3px rgba(0,0,0,.6), inset 0 1px 2px rgba(255,255,255,.6)',
+            }}
+          />
+          <CountUp valueCents={balanceCents} className="gold-text font-display font-bold text-5xl tracking-wide tabular-nums" />
         </div>
-        <span className="chip text-lg">
-          <span className="coin" />
-          {dollars(balanceCents)}
-        </span>
+        {gain > 0 && (
+          <span className="float-up absolute left-1/2 -translate-x-1/2 top-9 text-emerald-300 font-display font-bold text-xl pointer-events-none">
+            +{dollars(gain)}
+          </span>
+        )}
       </section>
+      {celebrate && <Confetti />}
 
       {(error || notice) && (
         <div
