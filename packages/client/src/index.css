@@ -559,57 +559,62 @@ select:focus-visible,
   padding-right: max(0.75rem, env(safe-area-inset-right));
 }
 
-/* Phone held in LANDSCAPE: a short, WIDE viewport. Goal: the ENTIRE table fits on
-   ONE screen with NO scrolling. The root is pinned to the viewport height and clips;
-   every row is compressed and the felt becomes WIDE + SHORT (rectangular) to fit the
-   leftover height. (Tablets/desktops have max-height > 560px and are unaffected.) */
-@media (orientation: landscape) and (max-height: 560px) {
-  .tv-root {
-    min-height: 0 !important;
-    height: 100dvh;
-    overflow: hidden;                 /* no scroll — ever */
-    max-width: 96vw !important;       /* use most of the wide landscape screen */
-    padding-bottom: env(safe-area-inset-bottom) !important;
-  }
-  .tv-top { padding-top: 4px !important; padding-bottom: 0 !important; }
-  .tv-score { margin: 2px 0 !important; }
-  /* Top padding gives the opponent seat (which sits ABOVE the felt) room; the
-     left/right safe-area insets shift the felt (and its side seat badges) clear of
-     the Dynamic Island, which sits on a SIDE edge in landscape. */
-  .tv-table { padding: 18px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
-  /* Felt fills the WIDTH (no 640px cap) so the table isn't a narrow strip. */
-  .tv-felt { padding: 2px 8px !important; max-width: none !important; }
-  /* Hand drops to the very bottom, centered, leaving room for the side buttons. */
-  .tv-bottom { padding: 0 96px !important; }
+/* The game table is LANDSCAPE-ONLY on phones. JS (useForceLandscape) adds `.tv-ls`
+   to .tv-root whenever the table should use the wide landscape layout — either the
+   phone is physically in landscape (short, wide viewport) OR it's held in portrait
+   and we force-rotate it (`.tv-forced`, below). The ENTIRE table fits one screen with
+   NO scroll; the felt is WIDE + SHORT. (Desktops/large tablets never get `.tv-ls`.) */
+.tv-root.tv-ls {
+  min-height: 0 !important;
+  height: 100dvh;
+  overflow: hidden;                 /* no scroll — ever */
+  max-width: 96vw !important;       /* use most of the wide landscape screen */
+  padding-bottom: env(safe-area-inset-bottom) !important;
+}
+.tv-ls .tv-top { padding-top: 4px !important; padding-bottom: 0 !important; }
+.tv-ls .tv-score { margin: 2px 0 !important; }
+/* Top padding gives the opponent seat (above the felt) room; the left/right safe-area
+   insets shift the felt (and its side seat badges) clear of the Dynamic Island. */
+.tv-ls .tv-table { padding: 18px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
+.tv-ls .tv-felt { padding: 2px 8px !important; max-width: none !important; }
+.tv-ls .tv-bottom { padding: 0 96px !important; }
+.tv-ls .rail-outer { padding: 6px; border-radius: 120px / 30%; }
+.tv-ls .rail-inner { min-height: clamp(150px, 56vh, 240px); border-radius: 112px / 26%; }
+.tv-ls .felt-ring { inset: 14% 22%; }
+.tv-ls .tlogo { font-size: 16px; letter-spacing: 3px; top: 26%; }
+.tv-ls .av { width: 36px; height: 36px; font-size: 11px; border-width: 2px; }
+.tv-ls .seat-nm { max-width: 54px; font-size: 10px; }
+.tv-ls .hand-fan .gcard { width: 40px; height: 58px; }
+.tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }
+.tv-ls .hand-fan .gcard .gc-big { font-size: 20px; }
+.tv-ls .hand-fan .gcard .gc-s { top: 16px; font-size: 9px; }
+.tv-ls .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
+.tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
+.tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
+.tv-ls .ctrl-pass, .tv-ls .ctrl-play {
+  position: absolute; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 25;
+  flex: none !important; padding: 0 !important; border-radius: 9999px !important;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  font-weight: 700; box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
+}
+.tv-ls .ctrl-pass { left: max(14px, env(safe-area-inset-left)); width: 66px; height: 66px; }
+.tv-ls .ctrl-play { right: max(14px, env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 15px; }
 
-  /* Felt: WIDE + tall enough that the opponent (top) and the pile (centre) don't
-     overlap — but bounded by vh so the whole table still fits with no scroll. */
-  .rail-outer { padding: 6px; border-radius: 120px / 30%; }
-  .rail-inner { min-height: clamp(150px, 56vh, 240px); border-radius: 112px / 26%; }
-  .felt-ring { inset: 14% 22%; }
-  .tlogo { font-size: 16px; letter-spacing: 3px; top: 26%; }
-
-  /* Slimmer seats + a compact hand so the fixed rows stay short. */
-  .av { width: 36px; height: 36px; font-size: 11px; border-width: 2px; }
-  .seat-nm { max-width: 54px; font-size: 10px; }
-  .hand-fan .gcard { width: 40px; height: 58px; }
-  .hand-fan .gcard .gc-r, .hand-fan .gcard .gc-br { font-size: 12px; }
-  .hand-fan .gcard .gc-big { font-size: 20px; }
-  .hand-fan .gcard .gc-s { top: 16px; font-size: 9px; }
-
-  /* Controls → just TWO round buttons in the bottom corners (Pass left, Play
-     right). Clear + the hint text are hidden; the row collapses out of flow. */
-  .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
-  .ctrl-hint, .ctrl-clear { display: none !important; }
-  .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
-  .ctrl-pass, .ctrl-play {
-    position: absolute; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 25;
-    flex: none !important; padding: 0 !important; border-radius: 9999px !important;
-    display: flex; align-items: center; justify-content: center; line-height: 1;
-    font-weight: 700; box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
-  }
-  .ctrl-pass { left: max(14px, env(safe-area-inset-left)); width: 66px; height: 66px; }
-  .ctrl-play { right: max(14px, env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 15px; }
+/* Held in PORTRAIT on a phone → rotate the whole landscape table 90° so the game is
+   ALWAYS horizontal, never vertical. The box is sized as a landscape rectangle
+   (width = viewport height, height = viewport width), rotated about its top-left and
+   shifted into view — it exactly fills the portrait screen. Physically rotating the
+   phone turns the device landscape, drops `.tv-forced`, and shows the real layout. */
+.tv-root.tv-forced {
+  position: fixed;
+  top: 100%;
+  left: 0;
+  width: 100vh;
+  height: 100vw;
+  max-width: 100vh !important;
+  transform-origin: left top;
+  transform: rotate(90deg);
+  overflow: hidden;
 }
 
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */

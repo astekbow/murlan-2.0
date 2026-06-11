@@ -20,7 +20,7 @@ import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
-import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
+import { useForceLandscape } from '../lib/useForceLandscape.ts';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
@@ -88,6 +88,7 @@ function LogPanel({ onClose }: { onClose: () => void }) {
 }
 
 export function TableView({ room }: { room: RoomStateDTO }) {
+  const { ls, forced } = useForceLandscape(); // landscape-only: rotate if held portrait
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
@@ -252,9 +253,8 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     // Safe-area insets: this is the main gameplay screen and renders OUTSIDE the
     // lobby Shell, so it must inset itself or the top controls sit under the iPhone
     // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
-    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${shake ? ' shake-fx' : ''}`}>
+    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${forced ? ' tv-forced' : ''}${shake ? ' shake-fx' : ''}`}>
       <h1 className="sr-only">{t('table.title')}</h1>
-      <RotateOverlay />
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
         <button
