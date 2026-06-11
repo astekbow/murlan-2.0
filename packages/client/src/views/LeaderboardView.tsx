@@ -129,6 +129,40 @@ export function LeaderboardView() {
   );
 }
 
+interface PodiumEntry { id: string; name: string; avatar: string | null; sub: string; isMe: boolean }
+
+/** Top-3 podium: 2nd (left), 1st (centre, raised), 3rd (right) — medals + pedestals. */
+function Podium({ top }: { top: PodiumEntry[] }) {
+  if (top.length < 3) return null;
+  const slots = [
+    { e: top[1], place: 2, medal: '🥈', h: 54, accent: '#cdd3da' },
+    { e: top[0], place: 1, medal: '🥇', h: 78, accent: '#e8c879' },
+    { e: top[2], place: 3, medal: '🥉', h: 36, accent: '#c8884b' },
+  ];
+  return (
+    <div className="panel p-4 mb-3 animate-rise">
+      <div className="grid grid-cols-3 gap-2 items-end">
+        {slots.map(({ e, place, medal, h, accent }) => (
+          <div key={place} className="flex flex-col items-center text-center min-w-0 podium-rise" style={{ animationDelay: `${(3 - place) * 0.08}s` }}>
+            <div className="text-xl leading-none mb-1">{medal}</div>
+            <div className="pfp" style={{ width: place === 1 ? 60 : 50, height: place === 1 ? 60 : 50, boxShadow: `0 0 0 2px ${accent}, 0 0 16px -2px ${accent}77` }}>
+              <AvatarFace id={e.avatar} fill className="text-xl leading-none" />
+            </div>
+            <div className={`mt-1.5 font-display font-semibold tracking-wide truncate max-w-full ${e.isMe ? 'text-gold-hi' : 'text-txt'} ${place === 1 ? 'text-sm' : 'text-xs'}`} title={e.name}>{e.name}</div>
+            <div className="text-[11px] text-gold-hi font-semibold tabular-nums">{e.sub}</div>
+            <div
+              className="w-full rounded-t-md mt-1.5 flex items-start justify-center pt-1 font-display font-bold leading-none"
+              style={{ height: h, background: `linear-gradient(180deg, ${accent}33, ${accent}0a)`, borderTop: `2px solid ${accent}` }}
+            >
+              <span style={{ color: accent }}>{place}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | null }) {
   const t = useT();
   if (rows.length === 0) {
@@ -150,8 +184,11 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
         <span className="w-16 text-right">{t('lb.wins')}</span>
         <span className="w-20 text-right">{t('lb.winPct')}</span>
       </div>
+      {rows.length >= 3 && (
+        <Podium top={rows.slice(0, 3).map((r) => ({ id: r.id, name: r.username, avatar: r.avatar, sub: `${r.xp} XP`, isMe: myId !== null && r.id === myId }))} />
+      )}
       <ul className="space-y-2.5">
-        {rows.map((r, i) => {
+        {(rows.length >= 3 ? rows.slice(3) : rows).map((r, i) => {
           const isMe = myId !== null && r.id === myId;
           return (
             <li
@@ -211,8 +248,11 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
         <span className="w-16 text-right">{t('lb.games')}</span>
         <span className="w-20 text-right">{t('lb.winPct')}</span>
       </div>
+      {rows.length >= 3 && (
+        <Podium top={rows.slice(0, 3).map((r) => ({ id: r.userId, name: r.username, avatar: r.avatar, sub: `${r.rating}`, isMe: myId !== null && r.userId === myId }))} />
+      )}
       <ul className="space-y-2.5">
-        {rows.map((r, i) => {
+        {(rows.length >= 3 ? rows.slice(3) : rows).map((r, i) => {
           const isMe = myId !== null && r.userId === myId;
           return (
             <li
