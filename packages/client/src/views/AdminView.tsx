@@ -4,7 +4,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
 import { adminApi } from '../lib/api.ts';
-import type { AdminUser, SupportTicket, AdminActionRecord } from '../lib/api.ts';
+import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAccountState } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -34,6 +34,18 @@ function UserRow({ user }: { user: AdminUser }) {
       danger: !makeAdmin,
     }))) return;
     void setRole(user.id, makeAdmin ? 'admin' : 'user');
+  };
+
+  const [txns, setTxns] = useState<Transaction[] | null>(null);
+  const applyState = async (state: AdminAccountState) => {
+    if (!(await confirm({ title: t('admin.accountState'), message: t('admin.confirmStateM', { state, user: user.username }), danger: state === 'banned' || state === 'suspended' }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (token) { try { await adminApi.setAccountState(token, user.id, state); } catch { /* surfaced via toast elsewhere */ } }
+  };
+  const loadTxns = async () => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    try { const r = await adminApi.transactions(token, user.id); setTxns(r.transactions); } catch { setTxns([]); }
   };
 
   return (
@@ -96,6 +108,30 @@ function UserRow({ user }: { user: AdminUser }) {
         <button onClick={() => void onAdjust(1)} className="btn btn-green">{t('admin.credit')}</button>
         <button onClick={() => void onAdjust(-1)} className="btn btn-danger">{t('admin.debit')}</button>
       </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="field-label">{t('admin.accountState')}:</span>
+        {(['active', 'frozen', 'suspended', 'banned'] as const).map((s) => (
+          <button key={s} onClick={() => void applyState(s)} className="btn btn-ghost btn-xs">{s}</button>
+        ))}
+        <button onClick={() => { if (txns) setTxns(null); else void loadTxns(); }} className="btn btn-ghost btn-xs ml-auto">
+          {txns ? t('admin.hideTx') : t('admin.viewTx')}
+        </button>
+      </div>
+      {txns && (
+        <ul className="space-y-1 max-h-[30vh] overflow-y-auto -mr-1 pr-1">
+          {txns.length === 0 ? (
+            <li className="text-xs text-muted italic">{t('admin.noTx')}</li>
+          ) : txns.map((tx) => (
+            <li key={tx.id} className="text-xs flex items-center gap-2 rounded px-2 py-1 border border-white/10 bg-white/[.02]">
+              <span className="font-mono text-gold-hi/80 shrink-0 w-24 truncate">{tx.type}</span>
+              <b className="text-txt shrink-0">{dollars(tx.amountCents)}</b>
+              <span className="text-muted truncate flex-1">{tx.reason ?? tx.matchId ?? ''}</span>
+              <span className="text-muted/60 shrink-0">{new Date(tx.createdAt).toLocaleDateString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {dialog}
     </li>
   );
