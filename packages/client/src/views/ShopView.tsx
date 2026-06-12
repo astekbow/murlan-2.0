@@ -143,6 +143,7 @@ export function ShopView() {
             </div>
             <p className="text-center text-xs text-muted mt-2">{t('shop.previewHint')}</p>
           </section>
+          <div className="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
           {GROUPS.map((group, gi) => {
           const items = status.shop.filter((it) => it.type === group.type);
           if (items.length === 0) return null;
@@ -221,6 +222,7 @@ export function ShopView() {
             </section>
           );
         })}
+          </div>
         </>
       )}
     </div>
