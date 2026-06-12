@@ -18,10 +18,9 @@ import type { PaymentProvider } from '../money/paymentProvider.ts';
 import type { DepositIntentRepository } from '../money/depositIntents.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
-import { type Notifier, escapeHtml } from '../notify/notifier.ts';
-import { classifyWithdrawal } from '../money/withdrawalPolicy.ts';
-
-const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
+import type { Notifier } from '../notify/notifier.ts';
+import type { PayoutProvider } from '../money/payoutProvider.ts';
+import { processWithdrawal } from '../money/autoPayout.ts';
 
 export interface WalletRoutesDeps {
   auth: AuthService;
@@ -32,6 +31,7 @@ export interface WalletRoutesDeps {
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService; // responsible-gaming daily deposit cap
   notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
+  payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
@@ -111,35 +111,20 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
     try {
       const record = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
-      // Best-effort ops alert (OFF the response path) so the operator knows at once
-      // and can pay it out — withdrawals are manual/semi-auto, not webhook-driven.
-      if (notifier) {
-        void (async () => {
-          const [u, comp] = await Promise.all([
-            auth.getUser(caller.userId).catch(() => null),
-            auth.getComplianceProfile(caller.userId).catch(() => null),
-          ]);
-          // Semi-auto triage: small + KYC-verified ⇒ fast-track; else review. (The
-          // crypto send is still manual — this only tailors the operator alert.)
-          const cls = classifyWithdrawal(
-            { amountCents: record.amountCents, kycStatus: comp?.kycStatus },
-            { autoMaxCents: deps.autoWithdrawMaxCents ?? 0 },
-          );
-          const head = cls.tier === 'auto' ? '✅ <b>Tërheqje — e sigurt (fast-track)</b>' : '⚠️ <b>Tërheqje — rishiko</b>';
-          const tail = cls.tier === 'auto'
-            ? '→ E vogël + KYC e verifikuar: e sigurt për ta aprovuar shpejt (pasi ta dërgosh).'
-            : `→ Rishiko para aprovimit: ${cls.reasons.join(', ')}.`;
-          await notifier.notify(
-            `${head}\n` +
-            `Lojtari: ${escapeHtml(u?.username ?? caller.userId)}\n` +
-            `Shuma: <b>${usd(record.amountCents)}</b>\n` +
-            `Adresa: <code>${escapeHtml(record.destination)}</code>\n` +
-            `KYC: ${comp?.kycStatus ?? '?'}\n` +
-            `ID: ${record.id}\n` +
-            tail,
-          );
-        })();
-      }
+      // Post-process OFF the response path: classify, optionally AUTO-PAY a small
+      // KYC-verified withdrawal, then ping the operator on Telegram. The crypto for
+      // larger/unverified withdrawals stays manual.
+      void (async () => {
+        const [u, comp] = await Promise.all([
+          auth.getUser(caller.userId).catch(() => null),
+          auth.getComplianceProfile(caller.userId).catch(() => null),
+        ]);
+        await processWithdrawal(
+          { id: record.id, amountCents: record.amountCents, destination: record.destination },
+          { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null },
+          { approve: (id) => withdrawals.approve(id), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0 },
+        ).catch(() => { /* best-effort: never affects the 201 */ });
+      })();
       return reply.code(201).send({ withdrawal: record });
     } catch (e) {
       if (e instanceof WithdrawalError) {

@@ -198,6 +198,9 @@ export function WalletView() {
               className="field" />
           </label>
         </div>
+        <p className="text-[11px] text-amber-300/90 flex items-start gap-1.5">
+          <span aria-hidden>⚠️</span><span>{t('wallet.networkWarn')}</span>
+        </p>
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
       </div>

@@ -37,6 +37,10 @@ const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),   // set BOTH token + chat id → ops alerts (e.g. new withdrawal) to Telegram
   TELEGRAM_CHAT_ID: z.string().optional(),
   AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
+  AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
+  NOWPAYMENTS_PAYOUT_EMAIL: z.string().optional(),    // NOWPayments account email — enables AUTO crypto payout (with password + API key)
+  NOWPAYMENTS_PAYOUT_PASSWORD: z.string().optional(), // NOWPayments account password (for the payout JWT auth)
+  NOWPAYMENTS_2FA_SECRET: z.string().optional(),      // base32 authenticator secret → auto-generates the payout 2FA code
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -75,6 +79,10 @@ export interface AppConfig {
   telegramBotToken: string | null;
   telegramChatId: string | null;
   autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
+  autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
+  nowPaymentsPayoutEmail: string | null;
+  nowPaymentsPayoutPassword: string | null;
+  nowPayments2faSecret: string | null;
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -154,6 +162,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     telegramBotToken: parsed.TELEGRAM_BOT_TOKEN || null,
     telegramChatId: parsed.TELEGRAM_CHAT_ID || null,
     autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
+    autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,
+    nowPaymentsPayoutEmail: parsed.NOWPAYMENTS_PAYOUT_EMAIL || null,
+    nowPaymentsPayoutPassword: parsed.NOWPAYMENTS_PAYOUT_PASSWORD || null,
+    nowPayments2faSecret: parsed.NOWPAYMENTS_2FA_SECRET || null,
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,
