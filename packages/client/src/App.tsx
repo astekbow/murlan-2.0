@@ -15,6 +15,7 @@ import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
+import { useUrlSync } from './lib/useUrlSync.ts';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
 import { useCosmeticsStore } from './store/cosmeticsStore.ts';
@@ -82,6 +83,7 @@ export function App() {
   const lobbyView = useUiStore((s) => s.view);
   const replayMatchId = useUiStore((s) => s.replayMatchId);
   const t = useT();
+  useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
 
   // Email-link entry points (?resetPassword=… / ?verifyEmail=…). Captured once on
   // load; the param is stripped from the URL after handling.
