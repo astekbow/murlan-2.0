@@ -8,12 +8,27 @@ import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAcc
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
+// The grantable admin scopes (must mirror ADMIN_PERMISSIONS on the server). An
+// admin with NO scopes is a full admin; assigning any scope restricts them.
+const ADMIN_PERMS = ['adjust_balance', 'approve_withdrawals', 'manage_accounts', 'manage_admins', 'moderate_chat', 'void_matches', 'view_revenue'] as const;
+
 function UserRow({ user }: { user: AdminUser }) {
   const t = useT();
   const { confirm, dialog } = useConfirm();
   const { adjust, setKyc, setRole } = useAdminStore();
   const [delta, setDelta] = useState('10');
   const [reason, setReason] = useState('manual');
+  const [perms, setPerms] = useState<string[]>(user.permissions ?? []);
+
+  // Toggle a single scope for this admin, persisting immediately (optimistic; a
+  // failure reverts). Empty list = full admin, so clearing all = restore full power.
+  const togglePerm = async (p: string) => {
+    const prev = perms;
+    const next = prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p];
+    setPerms(next);
+    const token = useAuthStore.getState().accessToken;
+    if (token) { try { await adminApi.setPermissions(token, user.id, next); } catch { setPerms(prev); } }
+  };
 
   const onAdjust = async (sign: 1 | -1) => {
     const cents = Math.round((parseFloat(delta) || 0) * 100) * sign;
@@ -132,6 +147,23 @@ function UserRow({ user }: { user: AdminUser }) {
           {txns ? t('admin.hideTx') : t('admin.viewTx')}
         </button>
       </div>
+
+      {/* Granular admin scopes (RBAC) — only meaningful for admins. No scope
+          selected = full admin; selecting any restricts this admin to those. */}
+      {user.role === 'admin' && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="field-label">{t('admin.permsLabel')}:</span>
+          {ADMIN_PERMS.map((p) => {
+            const on = perms.includes(p);
+            return (
+              <button key={p} onClick={() => void togglePerm(p)} aria-pressed={on} className={`btn btn-xs ${on ? 'btn-gold' : 'btn-ghost'}`} title={t(`admin.perm.${p}`)}>
+                {t(`admin.perm.${p}`)}
+              </button>
+            );
+          })}
+          <span className="text-[11px] text-muted/70">{perms.length === 0 ? t('admin.permsFull') : t('admin.permsScoped', { n: perms.length })}</span>
+        </div>
+      )}
       {txns && (
         <ul className="space-y-1 max-h-[30vh] overflow-y-auto -mr-1 pr-1">
           {txns.length === 0 ? (

@@ -23,6 +23,9 @@ export interface User {
   email: string;        // stored lowercased
   passwordHash: string;
   role: UserRole;
+  // Granular admin scopes (RBAC). Empty = full admin (backward-compatible); a
+  // non-empty list restricts that admin to those scopes. Irrelevant for non-admins.
+  permissions: string[];
   balanceCents: number; // integer USD cents — never floats
   createdAt: number;    // epoch ms
   tokenVersion: number; // bumped to force-invalidate all refresh tokens
@@ -153,6 +156,8 @@ export interface UserRepository {
   setPassword(id: string, passwordHash: string): Promise<void>;
   /** Set a user's platform role (admin bootstrap). */
   setRole(id: string, role: UserRole): Promise<void>;
+  /** Replace a user's granular admin permission scopes (RBAC). */
+  setPermissions(id: string, permissions: string[]): Promise<void>;
 }
 
 /** In-memory repository for tests and single-instance local dev. */
@@ -175,6 +180,7 @@ export class InMemoryUserRepository implements UserRepository {
       email,
       passwordHash: u.passwordHash,
       role: u.role ?? 'user',
+      permissions: [],
       balanceCents: 0,
       createdAt: epochMs(),
       tokenVersion: 0,
@@ -345,6 +351,11 @@ export class InMemoryUserRepository implements UserRepository {
   async setRole(id: string, role: UserRole): Promise<void> {
     const user = this.byId.get(id);
     if (user) user.role = role;
+  }
+
+  async setPermissions(id: string, permissions: string[]): Promise<void> {
+    const user = this.byId.get(id);
+    if (user) user.permissions = [...permissions];
   }
 }
 

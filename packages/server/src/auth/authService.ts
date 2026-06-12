@@ -71,6 +71,7 @@ export interface PublicUser {
   username: string;
   email: string;
   role: string;
+  permissions: string[]; // granular admin scopes; empty = full admin (back-compat)
   balanceCents: number;
 }
 
@@ -80,7 +81,7 @@ export interface AuthResult {
 }
 
 export function toPublicUser(u: User): PublicUser {
-  return { id: u.id, username: u.username, email: u.email, role: u.role, balanceCents: u.balanceCents };
+  return { id: u.id, username: u.username, email: u.email, role: u.role, permissions: u.permissions ?? [], balanceCents: u.balanceCents };
 }
 
 export class AuthService {
@@ -320,6 +321,13 @@ export class AuthService {
   /** Set a user's platform role (admin promote/demote). Returns the updated user. */
   async setRole(userId: string, role: UserRole): Promise<PublicUser | null> {
     await this.users.setRole(userId, role);
+    const u = await this.users.findById(userId);
+    return u ? toPublicUser(u) : null;
+  }
+
+  /** Replace a user's granular admin permission scopes (RBAC). Returns the updated user. */
+  async setPermissions(userId: string, permissions: string[]): Promise<PublicUser | null> {
+    await this.users.setPermissions(userId, permissions);
     const u = await this.users.findById(userId);
     return u ? toPublicUser(u) : null;
   }

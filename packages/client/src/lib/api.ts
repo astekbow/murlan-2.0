@@ -14,6 +14,7 @@ export interface PublicUser {
   username: string;
   email: string;
   role: string;
+  permissions?: string[]; // granular admin scopes; empty/absent = full admin
   balanceCents: number;
 }
 
@@ -408,6 +409,8 @@ export const adminApi = {
   rejectWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/reject`, { method: 'POST', token }),
   setRole: (token: string, id: string, role: 'user' | 'admin') =>
     request<{ user: AdminUser }>(`/admin/users/${id}/role`, { method: 'POST', token, body: { role } }),
+  setPermissions: (token: string, id: string, permissions: string[]) =>
+    request<{ user: AdminUser }>(`/admin/users/${id}/permissions`, { method: 'POST', token, body: { permissions } }),
   revenue: (token: string) => request<{ totalRakeCents: number; rakeCount: number }>('/admin/revenue', { token }),
   audit: (token: string) => request<{ actions: AdminActionRecord[] }>('/admin/audit', { token }),
   support: (token: string) => request<{ tickets: SupportTicket[] }>('/admin/support', { token }),

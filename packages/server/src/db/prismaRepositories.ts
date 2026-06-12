@@ -46,6 +46,7 @@ function toUser(row: any): User {
     email: row.email,
     passwordHash: row.passwordHash,
     role: row.role as User['role'],
+    permissions: row.permissions ?? [],
     balanceCents: row.balanceCents,
     createdAt: ms(row.createdAt),
     tokenVersion: row.tokenVersion ?? 0,
@@ -235,6 +236,9 @@ export class PrismaUserRepository implements UserRepository {
   }
   async setRole(id: string, role: UserRole): Promise<void> {
     await this.db.user.update({ where: { id }, data: { role } }).catch(() => undefined);
+  }
+  async setPermissions(id: string, permissions: string[]): Promise<void> {
+    await this.db.user.update({ where: { id }, data: { permissions } }).catch(() => undefined);
   }
 }
 

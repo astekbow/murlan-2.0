@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAdmin } from './authRoutes.ts';
+import { requirePermission, isAdminPermission } from './permissions.ts';
 import type { WalletService } from '../money/walletService.ts';
 import { InsufficientFundsError, HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
@@ -37,11 +38,20 @@ const muteSchema = z.object({
   durationMs: z.number().int().positive().max(30 * 24 * 60 * 60 * 1000).optional(), // default 24h
   reason: z.string().max(280).optional(),
 });
+const permissionsSchema = z.object({ permissions: z.array(z.string()).max(20) });
 
 export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, rooms } = deps;
   const audit = deps.audit ?? new InMemoryAdminAudit();
-  const admin = requireAdmin(auth);
+  const admin = requireAdmin(auth); // read-only listings: any admin
+  // Scoped guards for sensitive actions. A full admin (empty permission list)
+  // passes all of these; a scoped admin must hold the matching scope.
+  const canAdjust = requirePermission(auth, 'adjust_balance');
+  const canAccounts = requirePermission(auth, 'manage_accounts');
+  const canAdmins = requirePermission(auth, 'manage_admins');
+  const canWithdraw = requirePermission(auth, 'approve_withdrawals');
+  const canModerate = requirePermission(auth, 'moderate_chat');
+  const canRevenue = requirePermission(auth, 'view_revenue');
 
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await admin(req, reply))) return;
@@ -64,7 +74,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   app.post('/api/admin/users/:id/adjust', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canAdjust(req, reply);
     if (!caller) return;
     const parsed = adjustSchema.safeParse(req.body);
     if (!parsed.success || parsed.data.deltaCents === 0) {
@@ -82,7 +92,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   app.post('/api/admin/users/:id/kyc', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canAccounts(req, reply);
     if (!caller) return;
     const parsed = kycSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Status KYC i pavlefshëm.' } });
@@ -94,7 +104,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   app.post('/api/admin/users/:id/account-state', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canAccounts(req, reply);
     if (!caller) return;
     const parsed = accountStateSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Gjendje llogarie e pavlefshme.' } });
@@ -114,7 +124,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
 
   // Promote / demote an admin. Guards against removing your OWN admin (locking out).
   app.post('/api/admin/users/:id/role', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canAdmins(req, reply);
     if (!caller) return;
     const role = (req.body as { role?: unknown } | undefined)?.role;
     if (role !== 'user' && role !== 'admin') return reply.code(400).send({ error: { code: 'validation', message: 'Rol i pavlefshëm.' } });
@@ -128,9 +138,27 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     return reply.send({ user });
   });
 
+  // Assign granular admin permission scopes (RBAC). Empty list = full admin.
+  // Unknown scope strings are dropped; you can't restrict your OWN powers (lockout).
+  app.post('/api/admin/users/:id/permissions', async (req, reply) => {
+    const caller = await canAdmins(req, reply);
+    if (!caller) return;
+    const parsed = permissionsSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Lejet janë të pavlefshme.' } });
+    const userId = (req.params as { id: string }).id;
+    if (userId === caller.userId) {
+      return reply.code(400).send({ error: { code: 'self_scope', message: 'Nuk mund t’i kufizosh vetes lejet.' } });
+    }
+    const perms = [...new Set(parsed.data.permissions.filter(isAdminPermission))];
+    const user = await auth.setPermissions(userId, perms);
+    if (!user) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    await audit.record({ adminId: caller.userId, action: 'permissions_set', targetUserId: userId, detail: perms.length ? perms.join(',') : '(full)' });
+    return reply.send({ user });
+  });
+
   // House revenue = the accumulated 10% rake (booked to the synthetic house account).
   app.get('/api/admin/revenue', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canRevenue(req, reply);
     if (!caller) return;
     const txs = await wallet.listTransactions(HOUSE_ACCOUNT_ID);
     const rake = txs.filter((t) => t.type === 'rake');
@@ -160,7 +188,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     });
 
     app.post('/api/admin/users/:id/mute', async (req, reply) => {
-      const caller = await admin(req, reply);
+      const caller = await canModerate(req, reply);
       if (!caller) return;
       const parsed = muteSchema.safeParse(req.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna heshtjeje të pavlefshme.' } });
@@ -172,7 +200,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     });
 
     app.post('/api/admin/users/:id/unmute', async (req, reply) => {
-      const caller = await admin(req, reply);
+      const caller = await canModerate(req, reply);
       if (!caller) return;
       const userId = (req.params as { id: string }).id;
       await chat.adminUnmute(userId);
@@ -182,7 +210,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   }
 
   app.post('/api/admin/withdrawals/:id/approve', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canWithdraw(req, reply);
     if (!caller) return;
     const id = (req.params as { id: string }).id;
     return resolveWithdrawal(reply, async () => {
@@ -193,7 +221,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   app.post('/api/admin/withdrawals/:id/reject', async (req, reply) => {
-    const caller = await admin(req, reply);
+    const caller = await canWithdraw(req, reply);
     if (!caller) return;
     const id = (req.params as { id: string }).id;
     // Optional reason — recorded in the audit detail (and shown to support) so a

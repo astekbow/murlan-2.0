@@ -78,6 +78,10 @@ model User {
   email         String   @unique // stored lowercased
   passwordHash  String
   role         UserRole @default(user)
+  // Granular admin scopes (RBAC). EMPTY = full admin (backward-compatible: every
+  // existing admin keeps all powers). A non-empty list restricts that admin to
+  // exactly those scopes. Ignored for non-admins (they fail the admin gate first).
+  permissions  String[] @default([])
   balanceCents Int      @default(0)
   createdAt    DateTime @default(now())
 
