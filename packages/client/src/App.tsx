@@ -14,7 +14,9 @@ import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
 import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
+import { OnboardingModal } from './components/ui/OnboardingModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
+import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
@@ -82,6 +84,7 @@ export function App() {
   const { socket, room, spectating, connect, disconnect, toast, toastKind, dismissToast } = useGameStore();
   const lobbyView = useUiStore((s) => s.view);
   const replayMatchId = useUiStore((s) => s.replayMatchId);
+  const onboarded = useOnboardingStore((s) => s.done);
   const t = useT();
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
 
@@ -168,7 +171,9 @@ export function App() {
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
       {status === 'authed' && <InviteBanner />}
-      {status === 'authed' && !room && !spectating && <InstallModal />}
+      {/* First-run welcome takes precedence; the install prompt waits until it's done. */}
+      {status === 'authed' && !room && !spectating && !onboarded && <OnboardingModal />}
+      {status === 'authed' && !room && !spectating && onboarded && <InstallModal />}
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <RealityCheckModal />}
       {status === 'authed' && <ReconnectOverlay />}
