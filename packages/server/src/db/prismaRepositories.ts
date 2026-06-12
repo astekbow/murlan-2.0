@@ -399,6 +399,11 @@ export class PrismaMatchesRepository implements MatchesRepository {
     const row = await this.db.match.findUnique({ where: { id }, include: { players: true } });
     return row ? toMatch(row) : null;
   }
+  async findManyByIds(ids: string[]): Promise<MatchRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.match.findMany({ where: { id: { in: ids } }, include: { players: true } });
+    return rows.map(toMatch);
+  }
   async markSettled(id: string, winnerSeats: number[]): Promise<void> {
     // winnerSide is a representative seat; full winner set is derivable from match_players + finishingOrder.
     await this.db.match.update({ where: { id }, data: { status: 'settled', winnerSide: winnerSeats[0] ?? null, endedAt: new Date() } });

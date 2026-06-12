@@ -89,3 +89,20 @@ test('account-state validation rejects an unknown state (400)', async () => {
   assert.equal(res.statusCode, 400);
   await app.close();
 });
+
+test('revenue breakdown reports rake + payout liability (read-only)', async () => {
+  const { app, wallet, userId, adminToken } = await build();
+  // Give the player a balance (the house's outstanding liability) and book rake.
+  await wallet.adminAdjust(userId, 5000, 'seed');
+  await wallet.recordRake(300, { matchId: 'm1', providerRef: 'rake:m1' });
+  await wallet.recordRake(200, { matchId: 'm2', providerRef: 'rake:m2' });
+
+  const res = await app.inject({ method: 'GET', url: '/api/admin/revenue/breakdown', headers: authH(adminToken) });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { totalRakeCents: number; rakeCount: number; payoutLiabilityCents: number; byDay: unknown[]; byType: unknown[] };
+  assert.equal(body.totalRakeCents, 500);
+  assert.equal(body.rakeCount, 2);
+  assert.equal(body.payoutLiabilityCents, 5000); // the credited player balance
+  assert.ok(Array.isArray(body.byDay) && Array.isArray(body.byType));
+  await app.close();
+});

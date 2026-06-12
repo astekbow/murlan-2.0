@@ -36,6 +36,9 @@ export interface NewMatch {
 export interface MatchesRepository {
   create(m: NewMatch): Promise<MatchRecord>;
   find(id: string): Promise<MatchRecord | null>;
+  /** Batch fetch by id (one query) — for joining many ledger rows to their match
+   *  (e.g. revenue-by-match-type reporting) without an N+1. Order not guaranteed. */
+  findManyByIds(ids: string[]): Promise<MatchRecord[]>;
   markSettled(id: string, winnerSeats: number[]): Promise<void>;
   markCancelled(id: string): Promise<void>;
   /** Matches still 'active' — used by the crash-recovery sweeper to refund pots
@@ -62,6 +65,15 @@ export class InMemoryMatchesRepository implements MatchesRepository {
   async find(id: string): Promise<MatchRecord | null> {
     const r = this.byId.get(id);
     return r ? { ...r, players: r.players.map((p) => ({ ...p })) } : null;
+  }
+
+  async findManyByIds(ids: string[]): Promise<MatchRecord[]> {
+    const out: MatchRecord[] = [];
+    for (const id of ids) {
+      const r = this.byId.get(id);
+      if (r) out.push({ ...r, players: r.players.map((p) => ({ ...p })) });
+    }
+    return out;
   }
 
   async markSettled(id: string, winnerSeats: number[]): Promise<void> {

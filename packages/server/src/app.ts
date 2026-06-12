@@ -93,6 +93,7 @@ export interface HttpDeps {
   tournaments?: TournamentService;
   chat?: ChatService;
   rooms?: RoomManager;
+  matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   profiles?: ProfileService;
   ranked?: RankedService;
   friends?: FriendsService;
@@ -223,7 +224,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, audit: deps.adminAudit, chat: deps.chat });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, matches: deps.matches, audit: deps.adminAudit, chat: deps.chat });
   }
 
   // Lightweight in-house client error logging (no third party): the browser POSTs
@@ -453,7 +454,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const drainState = { active: false };
   const isDraining = () => drainState.active;
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, matches: matchesRepo, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

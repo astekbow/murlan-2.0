@@ -15,6 +15,8 @@ import { InsufficientFundsError, HOUSE_ACCOUNT_ID } from '../money/walletService
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
 import type { RoomManager } from '../room/roomManager.ts';
+import type { MatchesRepository } from '../money/matchesRepository.ts';
+import { revenueBreakdown } from '../money/revenueReport.ts';
 import { InMemoryAdminAudit, type AdminAuditRepository } from '../auth/adminAudit.ts';
 import type { ChatService } from '../chat/chatService.ts';
 
@@ -23,6 +25,7 @@ export interface AdminRoutesDeps {
   wallet: WalletService;
   withdrawals: WithdrawalService;
   rooms?: RoomManager; // for the active-matches view
+  matches?: MatchesRepository; // for revenue-by-match-type reporting
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
   chat?: ChatService; // chat-report triage + global mute
 }
@@ -41,7 +44,7 @@ const muteSchema = z.object({
 const permissionsSchema = z.object({ permissions: z.array(z.string()).max(20) });
 
 export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): Promise<void> {
-  const { auth, wallet, withdrawals, rooms } = deps;
+  const { auth, wallet, withdrawals, rooms, matches } = deps;
   const audit = deps.audit ?? new InMemoryAdminAudit();
   const admin = requireAdmin(auth); // read-only listings: any admin
   // Scoped guards for sensitive actions. A full admin (empty permission list)
@@ -164,6 +167,28 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const rake = txs.filter((t) => t.type === 'rake');
     const totalRakeCents = rake.reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
     return reply.send({ totalRakeCents, rakeCount: rake.length });
+  });
+
+  // Revenue BREAKDOWN: rake by UTC day + by match type, plus current payout
+  // liability (what the house owes players right now = sum of all real balances).
+  // Read-only aggregation over the ledger; no money is moved.
+  app.get('/api/admin/revenue/breakdown', async (req, reply) => {
+    const caller = await canRevenue(req, reply);
+    if (!caller) return;
+    const txs = await wallet.listTransactions(HOUSE_ACCOUNT_ID);
+    const rake = txs.filter((t) => t.type === 'rake');
+    // Bulk-load the match type for each rake row (one query) to bucket by type.
+    const ids = [...new Set(rake.map((t) => t.matchId).filter((x): x is string => !!x))];
+    const typeById = new Map<string, string>();
+    if (matches && ids.length) for (const m of await matches.findManyByIds(ids)) typeById.set(m.id, m.type);
+    const report = revenueBreakdown(
+      rake.map((t) => ({ amountCents: t.amountCents, matchId: t.matchId, createdAt: t.createdAt })),
+      typeById,
+    );
+    // Outstanding obligation to players = sum of every real user's balance.
+    const users = await auth.listUsers();
+    const payoutLiabilityCents = users.reduce((sum, u) => sum + u.balanceCents, 0);
+    return reply.send({ ...report, payoutLiabilityCents });
   });
 
   app.get('/api/admin/withdrawals', async (req, reply) => {

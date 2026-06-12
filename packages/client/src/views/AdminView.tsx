@@ -4,7 +4,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
 import { adminApi } from '../lib/api.ts';
-import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport } from '../lib/api.ts';
+import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -192,6 +192,7 @@ export function AdminView() {
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
   const [reports, setReports] = useState<AdminChatReport[]>([]);
+  const [revenue, setRevenue] = useState<RevenueBreakdown | null>(null);
   const [kycFilter, setKycFilter] = useState<'all' | 'none' | 'pending' | 'verified'>('all');
   const [sortBy, setSortBy] = useState<'balance' | 'name'>('balance');
 
@@ -201,6 +202,7 @@ export function AdminView() {
     void adminApi.support(token).then((r) => setTickets(r.tickets)).catch(() => {});
     void adminApi.audit(token).then((r) => setAuditLog(r.actions)).catch(() => {});
     void adminApi.chatReports(token).then((r) => setReports(r.reports)).catch(() => {});
+    void adminApi.revenueBreakdown(token).then(setRevenue).catch(() => {});
   };
 
   useEffect(() => {
@@ -236,18 +238,52 @@ export function AdminView() {
       </div>
       {dialog}
 
-      {/* Revenue: the accumulated house rake (your 10% cut). */}
-      <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
-        <div>
-          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('admin.revenueEyebrow')}</div>
-          <h2 className="gold-text font-display font-bold text-2xl tracking-wide leading-none">{t('admin.revenueTitle')}</h2>
-          <p className="text-[11px] text-muted/70 mt-1">{t('admin.revenueNote')}</p>
-        </div>
-        <div className="text-right">
-          <div className="font-display font-semibold tracking-wide text-gold-hi text-3xl leading-none">
-            {revenueCents == null ? '—' : dollars(revenueCents)}
+      {/* Revenue: the accumulated house rake (your 10% cut) + a breakdown. */}
+      <section className="panel p-5 animate-rise space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('admin.revenueEyebrow')}</div>
+            <h2 className="gold-text font-display font-bold text-2xl tracking-wide leading-none">{t('admin.revenueTitle')}</h2>
+            <p className="text-[11px] text-muted/70 mt-1">{t('admin.revenueNote')}</p>
+          </div>
+          <div className="text-right">
+            <div className="font-display font-semibold tracking-wide text-gold-hi text-3xl leading-none">
+              {revenueCents == null ? '—' : dollars(revenueCents)}
+            </div>
+            {revenue && (
+              <div className="text-[11px] text-muted/80 mt-1">{t('admin.liability')}: <b className="text-txt">{dollars(revenue.payoutLiabilityCents)}</b></div>
+            )}
           </div>
         </div>
+
+        {revenue && revenue.rakeCount > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2 pt-1 border-t border-white/10">
+            {/* By match type */}
+            <div>
+              <div className="field-label mb-1.5">{t('admin.revenueByType')}</div>
+              <ul className="space-y-1">
+                {revenue.byType.map((r) => (
+                  <li key={r.type} className="flex items-center justify-between text-sm">
+                    <span className="text-muted">{r.type} <span className="text-muted/60">· {r.matchCount}</span></span>
+                    <b className="text-gold-hi tabular-nums">{dollars(r.rakeCents)}</b>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* By day (recent) */}
+            <div>
+              <div className="field-label mb-1.5">{t('admin.revenueByDay')}</div>
+              <ul className="space-y-1 max-h-40 overflow-y-auto -mr-1 pr-1">
+                {revenue.byDay.map((r) => (
+                  <li key={r.date} className="flex items-center justify-between text-sm">
+                    <span className="text-muted tabular-nums">{r.date} <span className="text-muted/60">· {r.matchCount}</span></span>
+                    <b className="text-gold-hi tabular-nums">{dollars(r.rakeCents)}</b>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
       </section>
 
       {(error || notice) && (

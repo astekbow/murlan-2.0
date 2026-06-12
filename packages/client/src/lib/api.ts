@@ -358,6 +358,13 @@ export const supportApi = {
 export interface AdminUser extends PublicUser {
   kycStatus: 'none' | 'pending' | 'verified';
 }
+export interface RevenueBreakdown {
+  totalRakeCents: number;
+  rakeCount: number;
+  byDay: Array<{ date: string; rakeCents: number; matchCount: number }>;
+  byType: Array<{ type: string; rakeCents: number; matchCount: number }>;
+  payoutLiabilityCents: number;
+}
 export interface AdminWithdrawal {
   id: string;
   userId: string;
@@ -412,6 +419,7 @@ export const adminApi = {
   setPermissions: (token: string, id: string, permissions: string[]) =>
     request<{ user: AdminUser }>(`/admin/users/${id}/permissions`, { method: 'POST', token, body: { permissions } }),
   revenue: (token: string) => request<{ totalRakeCents: number; rakeCount: number }>('/admin/revenue', { token }),
+  revenueBreakdown: (token: string) => request<RevenueBreakdown>('/admin/revenue/breakdown', { token }),
   audit: (token: string) => request<{ actions: AdminActionRecord[] }>('/admin/audit', { token }),
   support: (token: string) => request<{ tickets: SupportTicket[] }>('/admin/support', { token }),
   resolveTicket: (token: string, id: string, status: 'resolved' | 'closed', adminNote?: string) =>
