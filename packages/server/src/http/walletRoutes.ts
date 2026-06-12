@@ -18,6 +18,9 @@ import type { PaymentProvider } from '../money/paymentProvider.ts';
 import type { DepositIntentRepository } from '../money/depositIntents.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
+import { type Notifier, escapeHtml } from '../notify/notifier.ts';
+
+const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 
 export interface WalletRoutesDeps {
   auth: AuthService;
@@ -27,6 +30,7 @@ export interface WalletRoutesDeps {
   intents: DepositIntentRepository;
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService; // responsible-gaming daily deposit cap
+  notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -48,7 +52,7 @@ const withdrawSchema = z.object({
 });
 
 export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps): Promise<void> {
-  const { auth, wallet, withdrawals, provider, intents } = deps;
+  const { auth, wallet, withdrawals, provider, intents, notifier } = deps;
   const guard = requireAuth(auth);
   const sigHeader = (deps.webhookSignatureHeader ?? 'x-signature').toLowerCase();
 
@@ -105,6 +109,25 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
     try {
       const record = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
+      // Best-effort ops alert (OFF the response path) so the operator knows at once
+      // and can pay it out — withdrawals are manual/semi-auto, not webhook-driven.
+      if (notifier) {
+        void (async () => {
+          const [u, comp] = await Promise.all([
+            auth.getUser(caller.userId).catch(() => null),
+            auth.getComplianceProfile(caller.userId).catch(() => null),
+          ]);
+          await notifier.notify(
+            `💸 <b>Kërkesë tërheqjeje</b>\n` +
+            `Lojtari: ${escapeHtml(u?.username ?? caller.userId)}\n` +
+            `Shuma: <b>${usd(record.amountCents)}</b>\n` +
+            `Adresa: <code>${escapeHtml(record.destination)}</code>\n` +
+            `KYC: ${comp?.kycStatus ?? '?'}\n` +
+            `ID: ${record.id}\n` +
+            `→ Aprovo te paneli i admin-it pasi ta dërgosh.`,
+          );
+        })();
+      }
       return reply.code(201).send({ withdrawal: record });
     } catch (e) {
       if (e instanceof WithdrawalError) {

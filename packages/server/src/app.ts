@@ -47,6 +47,7 @@ import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvid
 import { NowPaymentsProvider } from './money/nowPaymentsProvider.ts';
 import { ConsoleEmailProvider, type EmailProvider } from './email/emailProvider.ts';
 import { ResendEmailProvider } from './email/resendEmailProvider.ts';
+import { createNotifier, type Notifier } from './notify/notifier.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -93,6 +94,7 @@ export interface HttpDeps {
   tournaments?: TournamentService;
   chat?: ChatService;
   rooms?: RoomManager;
+  notifier?: Notifier; // ops alerts (Telegram) — e.g. new withdrawal request
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
   profiles?: ProfileService;
@@ -222,6 +224,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await walletRoutes(app, {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
+      notifier: deps.notifier,
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
@@ -380,6 +383,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const email: EmailProvider = config.resendApiKey
     ? new ResendEmailProvider(config.resendApiKey, config.emailFrom)
     : new ConsoleEmailProvider();
+  // Ops alerts (Telegram) when configured, else a no-op. Used for withdrawal pings.
+  const notifier: Notifier = createNotifier(config);
   // Real crypto deposits when NOWPayments is configured (env), else the stub.
   const provider: PaymentProvider =
     config.nowPaymentsApiKey && config.nowPaymentsIpnSecret
@@ -462,7 +467,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const voidMatch = (roomId: string, meta: { adminId: string; reason: string }) =>
     voidHolder.fn ? voidHolder.fn(roomId, meta) : Promise.resolve({ ok: false as const, reason: 'unavailable' as const });
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

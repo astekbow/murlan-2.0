@@ -34,6 +34,8 @@ const schema = z.object({
   RESEND_API_KEY: z.string().optional(),       // set to send real reset/verification emails via Resend
   EMAIL_FROM: z.string().optional(),           // sender, e.g. "Murlan <noreply@yourdomain.com>"
   ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
+  TELEGRAM_BOT_TOKEN: z.string().optional(),   // set BOTH token + chat id → ops alerts (e.g. new withdrawal) to Telegram
+  TELEGRAM_CHAT_ID: z.string().optional(),
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -69,6 +71,8 @@ export interface AppConfig {
   resendApiKey: string | null;
   emailFrom: string;
   adminEmail: string | null;
+  telegramBotToken: string | null;
+  telegramChatId: string | null;
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -145,6 +149,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     resendApiKey: parsed.RESEND_API_KEY || null,
     emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,
+    telegramBotToken: parsed.TELEGRAM_BOT_TOKEN || null,
+    telegramChatId: parsed.TELEGRAM_CHAT_ID || null,
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,
