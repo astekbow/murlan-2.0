@@ -4,7 +4,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
 import { adminApi } from '../lib/api.ts';
-import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAccountState } from '../lib/api.ts';
+import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -46,6 +46,17 @@ function UserRow({ user }: { user: AdminUser }) {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     try { const r = await adminApi.transactions(token, user.id); setTxns(r.transactions); } catch { setTxns([]); }
+  };
+
+  // Chat moderation: global mute (default 24h) / unmute. Confirmed; audited server-side.
+  const mute24h = async () => {
+    if (!(await confirm({ title: t('admin.mute'), message: t('admin.confirmMuteM', { user: user.username }), danger: true }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (token) { try { await adminApi.muteUser(token, user.id, 24 * 60 * 60 * 1000); } catch { /* surfaced via toast elsewhere */ } }
+  };
+  const unmute = async () => {
+    const token = useAuthStore.getState().accessToken;
+    if (token) { try { await adminApi.unmuteUser(token, user.id); } catch { /* surfaced via toast elsewhere */ } }
   };
 
   return (
@@ -114,6 +125,9 @@ function UserRow({ user }: { user: AdminUser }) {
         {(['active', 'frozen', 'suspended', 'banned'] as const).map((s) => (
           <button key={s} onClick={() => void applyState(s)} className="btn btn-ghost btn-xs">{s}</button>
         ))}
+        <span className="w-px h-4 bg-white/15 mx-1" aria-hidden />
+        <button onClick={() => void mute24h()} className="btn btn-ghost btn-xs">{t('admin.mute')}</button>
+        <button onClick={() => void unmute()} className="btn btn-ghost btn-xs">{t('admin.unmute')}</button>
         <button onClick={() => { if (txns) setTxns(null); else void loadTxns(); }} className="btn btn-ghost btn-xs ml-auto">
           {txns ? t('admin.hideTx') : t('admin.viewTx')}
         </button>
@@ -145,6 +159,7 @@ export function AdminView() {
   const [userQuery, setUserQuery] = useState('');
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
+  const [reports, setReports] = useState<AdminChatReport[]>([]);
   const [kycFilter, setKycFilter] = useState<'all' | 'none' | 'pending' | 'verified'>('all');
   const [sortBy, setSortBy] = useState<'balance' | 'name'>('balance');
 
@@ -153,6 +168,7 @@ export function AdminView() {
     if (!token) return;
     void adminApi.support(token).then((r) => setTickets(r.tickets)).catch(() => {});
     void adminApi.audit(token).then((r) => setAuditLog(r.actions)).catch(() => {});
+    void adminApi.chatReports(token).then((r) => setReports(r.reports)).catch(() => {});
   };
 
   useEffect(() => {
@@ -286,6 +302,32 @@ export function AdminView() {
                 {tk.status === 'open' && (
                   <button onClick={() => void resolveTicket(tk.id)} className="btn btn-gold btn-sm mt-2">{t('admin.resolveTicket')}</button>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Chat moderation — reported-message queue (read-only triage). Mute/unmute
+          live on each user row, since a mute is keyed by user id. */}
+      <section className="panel p-5 animate-rise" style={{ animationDelay: '.11s' }}>
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3 flex items-center gap-2">
+          {t('admin.moderation')}
+          {reports.filter((r) => !r.reviewed).length > 0 && <span className="tag tag-live">{reports.filter((r) => !r.reviewed).length}</span>}
+        </h2>
+        {reports.length === 0 ? (
+          <p className="text-sm text-muted italic">{t('admin.noReports')}</p>
+        ) : (
+          <ul className="space-y-2.5 max-h-[44vh] overflow-y-auto -mr-1 pr-1">
+            {reports.slice(0, 50).map((r) => (
+              <li key={r.id} className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-display font-semibold tracking-wide text-txt text-sm break-words">{r.reason || t('admin.reportNoReason')}</span>
+                  <span className={`tag ${r.reviewed ? 'tag-open' : 'tag-live'}`}>{r.reviewed ? t('admin.reviewed') : t('admin.reportNew')}</span>
+                </div>
+                <p className="text-[11px] text-muted mt-1">
+                  {t('admin.reportMeta', { club: r.clubId.slice(0, 8), reporter: r.reporterId.slice(0, 8) })} · {new Date(r.createdAt).toLocaleString()}
+                </p>
               </li>
             ))}
           </ul>

@@ -386,6 +386,16 @@ export interface AdminActionRecord {
 }
 export type AdminAccountState = 'active' | 'frozen' | 'suspended' | 'banned';
 
+export interface AdminChatReport {
+  id: string;
+  messageId: string;
+  clubId: string;
+  reporterId: string;
+  reason: string;
+  reviewed: boolean;
+  createdAt: number;
+}
+
 export const adminApi = {
   users: (token: string) => request<{ users: AdminUser[] }>('/admin/users', { token }),
   matches: (token: string) => request<{ matches: AdminMatch[] }>('/admin/matches', { token }),
@@ -406,6 +416,11 @@ export const adminApi = {
   setAccountState: (token: string, id: string, state: AdminAccountState, reason?: string, durationMs?: number) =>
     request<{ user: AdminUser }>(`/admin/users/${id}/account-state`, { method: 'POST', token, body: { state, reason, durationMs } }),
   transactions: (token: string, id: string) => request<{ transactions: Transaction[] }>(`/admin/users/${id}/transactions`, { token }),
+  chatReports: (token: string) => request<{ reports: AdminChatReport[] }>('/admin/chat-reports', { token }),
+  muteUser: (token: string, id: string, durationMs?: number, reason?: string) =>
+    request<{ ok: boolean }>(`/admin/users/${id}/mute`, { method: 'POST', token, body: { durationMs, reason } }),
+  unmuteUser: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/admin/users/${id}/unmute`, { method: 'POST', token, body: {} }),
 };
 
 // ----- Tournaments ---------------------------------------------------------
