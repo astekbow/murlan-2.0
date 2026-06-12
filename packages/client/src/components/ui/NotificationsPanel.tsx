@@ -5,6 +5,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from './useFocusTrap.ts';
 import { useNotifications } from '../../store/notificationsStore.ts';
 import type { NotifKind } from '../../store/notificationsStore.ts';
 import { useT, translate, useLangStore } from '../../lib/i18n.ts';
@@ -35,6 +36,8 @@ function relativeTime(ts: number): string {
 export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const items = useNotifications((s) => s.items);
+  // Trap Tab inside the open popover and restore focus to the bell on close.
+  const panelRef = useFocusTrap<HTMLDivElement>(true);
 
   // Opening the panel clears the unread badge; Escape closes it.
   useEffect(() => {
@@ -52,6 +55,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
       <div className="fixed inset-0 z-[90]" onClick={onClose} aria-hidden />
 
       <div
+        ref={panelRef}
         role="dialog"
         aria-label={t('notifs.ariaLabel')}
         className="fixed right-3 top-16 w-80 max-w-[calc(100vw-1.5rem)] z-[91] panel-solid animate-pop overflow-hidden"

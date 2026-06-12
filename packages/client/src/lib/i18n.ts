@@ -69,6 +69,9 @@ const STRINGS: Record<string, Entry> = {
   'nav.shop': { sq: 'DYQANI', en: 'SHOP' },
   'nav.vip': { sq: 'VIP', en: 'VIP' },
   'nav.support': { sq: 'NDIHMË', en: 'SUPPORT' },
+  // Accessible names for the two icon rails flanking the lobby hero.
+  'nav.railPrimary': { sq: 'Menyja kryesore', en: 'Primary menu' },
+  'nav.railSecondary': { sq: 'Menyja dytësore', en: 'Secondary menu' },
 
   // Lobby hero / sections
   'lobby.quickName': { sq: 'Lojë e Shpejtë', en: 'Quick Match' },

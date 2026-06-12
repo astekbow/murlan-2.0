@@ -39,7 +39,7 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
   const t = useT();
   const setView = useUiStore((s) => s.setView);
   return (
-    <nav className={`flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise ${side === 'left' ? 'order-2 md:order-1' : 'order-3'}`}>
+    <nav aria-label={t(side === 'left' ? 'nav.railPrimary' : 'nav.railSecondary')} className={`flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise ${side === 'left' ? 'order-2 md:order-1' : 'order-3'}`}>
       {items.map((r) => (
         <button
           key={r.labelKey}
@@ -284,12 +284,20 @@ function TypePicker({ value, onChange }: { value: MatchType; onChange: (t: Match
   );
 }
 
-function StakeField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function StakeField({ value, onChange, onEnter }: { value: string; onChange: (v: string) => void; onEnter?: () => void }) {
   const t = useT();
   return (
     <label className="block">
       <span className="field-label">{t('lobby.stakeUsd')}</span>
-      <input type="number" min="0" step="0.5" value={value} onChange={(e) => onChange(e.target.value)} className="field" />
+      <input
+        type="number"
+        min="0"
+        step="0.5"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onEnter ? (e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } } : undefined}
+        className="field"
+      />
     </label>
   );
 }
@@ -347,7 +355,7 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
           <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
-        <StakeField value={stake} onChange={setStake} />
+        <StakeField value={stake} onChange={setStake} onEnter={() => void play()} />
         <p className="text-xs text-muted">{t('lobby.quickBlurb')}</p>
         <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
           {busy ? t('lobby.searching') : t('lobby.quickCta')}
@@ -403,7 +411,7 @@ function CreateRoomModal({ onClose, onCreate }: CreateProps) {
           <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
-        <StakeField value={stake} onChange={setStake} />
+        <StakeField value={stake} onChange={setStake} onEnter={() => void create()} />
         <label className="flex items-center gap-2.5 cursor-pointer select-none">
           <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="w-4 h-4 accent-gold" />
           <span className="text-sm text-txt">{t('lobby.privateRoom')}</span>

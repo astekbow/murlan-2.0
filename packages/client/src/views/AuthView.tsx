@@ -84,9 +84,9 @@ export function AuthView() {
         </div>
 
         {mode === 'register' && (
-          <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} />
+          <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
         )}
-        <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required />
+        <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
         <Field
           label={t('auth.password')}
           type="password"
@@ -95,10 +95,12 @@ export function AuthView() {
           autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
           required
           minLength={mode === 'register' ? 8 : undefined}
+          invalid={!!error}
+          describedBy={error ? 'auth-error' : undefined}
         />
 
         {error && (
-          <div className="text-sm text-red-300 bg-suit/15 border border-suit/40 rounded-lg px-3 py-2">{error}</div>
+          <div id="auth-error" role="alert" className="text-sm text-red-300 bg-suit/15 border border-suit/40 rounded-lg px-3 py-2">{error}</div>
         )}
 
         <button type="submit" disabled={loading} className="btn btn-gold btn-lg btn-block">
@@ -123,8 +125,10 @@ interface FieldProps {
   autoComplete?: string;
   required?: boolean;
   minLength?: number;
+  invalid?: boolean;
+  describedBy?: string;
 }
-function Field({ label, value, onChange, type = 'text', autoComplete, required, minLength }: FieldProps) {
+function Field({ label, value, onChange, type = 'text', autoComplete, required, minLength, invalid, describedBy }: FieldProps) {
   return (
     <label className="block">
       <span className="field-label">{label}</span>
@@ -134,6 +138,8 @@ function Field({ label, value, onChange, type = 'text', autoComplete, required, 
         autoComplete={autoComplete}
         required={required}
         minLength={minLength}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         // Stop mobile keyboards from auto-capitalizing/autocorrecting credentials
         // (an auto-capped first letter in the email was breaking login).
         autoCapitalize="none"

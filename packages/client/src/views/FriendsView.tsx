@@ -194,7 +194,7 @@ export function FriendsView() {
                 <p className="text-xs text-muted/70 mt-1">{t('friends.emptyHint')}</p>
               </div>
             ) : (
-              <ul className="space-y-2.5">
+              <ul className="grid gap-2.5 lg:grid-cols-2">
                 {accepted.map((f) => (
                   <FriendRow key={f.id} entry={f} showOnline>
                     {inRoom && (
@@ -239,7 +239,7 @@ function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
   const t = useT();
   const { user, online } = entry;
   return (
-    <li className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
+    <li className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold/40 transition-colors">
       <AvatarFace id={user.avatar} size={40} className="text-3xl leading-none" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">

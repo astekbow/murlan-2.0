@@ -16,6 +16,7 @@ import { CountUp } from './CountUp.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
 import { ProfileModal } from './ProfileModal.tsx';
 import { NotificationsPanel } from './NotificationsPanel.tsx';
+import { useFocusTrap } from './useFocusTrap.ts';
 import { useNotifications } from '../../store/notificationsStore.ts';
 import { profileApi, type Profile } from '../../lib/api.ts';
 import { sound } from '../../lib/sound.ts';
@@ -39,6 +40,9 @@ export function TopBar() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const unread = useNotifications((s) => s.unread);
+  // Keyboard focus stays inside the open gear menu (Tab cycles its items, focus
+  // returns to the ⚙ button on close) — same dialog semantics as the modals.
+  const menuRef = useFocusTrap<HTMLDivElement>(menuOpen);
 
   // Fetch the signed-in user's real progression (level/XP) once when present.
   // On a null token or a failed fetch we leave `profile` null and fall back to
@@ -131,7 +135,7 @@ export function TopBar() {
           {menuOpen && createPortal(
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div role="menu" aria-label={t('topbar.settings')} className="fixed top-16 w-44 z-[91] panel-solid p-1.5 animate-pop" style={{ right: 'max(0.75rem, env(safe-area-inset-right))' }}>
+              <div ref={menuRef} role="menu" aria-label={t('topbar.settings')} className="fixed top-16 w-44 z-[91] panel-solid p-1.5 animate-pop" style={{ right: 'max(0.75rem, env(safe-area-inset-right))' }}>
                 {user.role === 'admin' && (
                   <button
                     role="menuitem"
