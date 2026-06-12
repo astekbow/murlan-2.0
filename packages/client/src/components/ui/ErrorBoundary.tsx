@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { translate, useLangStore } from '../../lib/i18n.ts';
+import { logClientError } from '../../lib/errorLog.ts';
 
 const tr = (key: string): string => translate(key, useLangStore.getState().lang);
 
@@ -24,8 +25,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Keep a console trace for diagnostics; a real telemetry sink can hook here.
+    // Console trace for local diagnostics + report to the in-house server log.
     console.error('Unhandled UI error:', error, info.componentStack);
+    logClientError(error.message, { stack: error.stack ?? info.componentStack ?? undefined, kind: 'react' });
   }
 
   private reload = (): void => {

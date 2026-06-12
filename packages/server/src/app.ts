@@ -226,6 +226,28 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, audit: deps.adminAudit, chat: deps.chat });
   }
 
+  // Lightweight in-house client error logging (no third party): the browser POSTs
+  // uncaught errors here; they land in the server logs (pino), rate-limited by the
+  // global limiter. No auth — errors can occur before sign-in. Fields are truncated.
+  app.post('/api/client-errors', async (req, reply) => {
+    const b = (req.body ?? {}) as { message?: unknown; stack?: unknown; url?: unknown; kind?: unknown };
+    const message = typeof b.message === 'string' ? b.message.slice(0, 500) : '';
+    if (!message) return reply.code(204).send();
+    app.log.warn(
+      {
+        clientError: {
+          message,
+          stack: typeof b.stack === 'string' ? b.stack.slice(0, 2000) : undefined,
+          url: typeof b.url === 'string' ? b.url.slice(0, 300) : undefined,
+          kind: typeof b.kind === 'string' ? b.kind.slice(0, 40) : undefined,
+          ip: req.ip,
+        },
+      },
+      'client error',
+    );
+    return reply.code(204).send();
+  });
+
   return app;
 }
 
