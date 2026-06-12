@@ -246,8 +246,8 @@ function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
           {showOnline && (
             <span
               className={`inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-emerald-400' : 'bg-white/25'}`}
-              title={online ? 'Online' : 'Offline'}
-              aria-label={online ? 'Online' : 'Offline'}
+              title={online ? t('common.online') : t('common.offline')}
+              aria-label={online ? t('common.online') : t('common.offline')}
             />
           )}
           <span className="font-display font-semibold tracking-wide text-txt truncate">{user.username}</span>

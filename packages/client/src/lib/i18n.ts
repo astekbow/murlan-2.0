@@ -155,6 +155,18 @@ const STRINGS: Record<string, Entry> = {
   // Common (shared across views)
   'common.refresh': { sq: 'Rifresko', en: 'Refresh' },
   'common.remove': { sq: 'Hiq', en: 'Remove' },
+  'common.online': { sq: 'Në linjë', en: 'Online' },
+  'common.offline': { sq: 'Jashtë linje', en: 'Offline' },
+  'common.live': { sq: 'Live', en: 'Live' },
+
+  // Opponent seat badge (in-game)
+  'seat.finished': { sq: 'Mbaroi', en: 'Out' },
+  'seat.passed': { sq: 'Pas', en: 'Pass' },
+  'seat.turn': { sq: 'Radha…', en: 'Turn…' },
+  'seat.offline': { sq: 'Offline', en: 'Offline' },
+  'seat.partner': { sq: 'shoku', en: 'partner' },
+  'seat.ledLast': { sq: 'Hodhi i fundit', en: 'Led last' },
+  'seat.team': { sq: 'Ek.{n}', en: 'Tm.{n}' },
 
   // Wallet
   'wallet.section': { sq: 'KULETA', en: 'WALLET' },
@@ -620,6 +632,17 @@ const STRINGS: Record<string, Entry> = {
   'invite.join': { sq: 'Hyr', en: 'Join' },
   'emote.quickChat': { sq: 'Bisedë e shpejtë', en: 'Quick chat' },
   'emote.quickChatTitle': { sq: 'BISEDË E SHPEJTË', en: 'QUICK CHAT' },
+  'emote.emote': { sq: 'Emote', en: 'Emote' },
+  'emote.emoteTitle': { sq: 'EMOTE', en: 'EMOTE' },
+  // Preset quick-chat phrases (sent in the speaker's own language).
+  'emote.p1': { sq: 'Mirë luajtur!', en: 'Well played!' },
+  'emote.p2': { sq: 'Faleminderit', en: 'Thank you' },
+  'emote.p3': { sq: 'Hajde!', en: 'Come on!' },
+  'emote.p4': { sq: 'Shpejto pak 🙂', en: 'Hurry up a bit 🙂' },
+  'emote.p5': { sq: 'Fat të mirë 🍀', en: 'Good luck 🍀' },
+  'emote.p6': { sq: 'Oof…', en: 'Oof…' },
+  'emote.p7': { sq: 'Mbarsi!', en: 'Nice one!' },
+  'emote.p8': { sq: 'Pa fjalë 😄', en: 'Speechless 😄' },
   'controls.comboSingle': { sq: 'letër e vetme', en: 'single card' },
   'controls.comboPair': { sq: 'çift', en: 'pair' },
   'controls.comboTriple': { sq: 'treshe', en: 'triple' },

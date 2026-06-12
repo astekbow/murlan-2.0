@@ -5,7 +5,8 @@ import { useFocusTrap } from './ui/useFocusTrap.ts';
 import { useT } from '../lib/i18n.ts';
 
 const EMOTES = ['👍', '😂', '😮', '😎', '🔥', '😢', '🤝', '👏', '🤔', '🍀', '🙈', '🎉'];
-const PHRASES = ['Mirë luajtur!', 'Faleminderit', 'Hajde!', 'Shpejto pak 🙂', 'Fat të mirë 🍀', 'Oof…', 'Mbarsi!', 'Pa fjalë 😄'];
+// Quick-chat phrase keys — resolved with t() so each player sends in their own language.
+const PHRASE_KEYS = ['emote.p1', 'emote.p2', 'emote.p3', 'emote.p4', 'emote.p5', 'emote.p6', 'emote.p7', 'emote.p8'] as const;
 
 /** A small popover for in-game emotes / preset quick-chat (corner buttons). */
 export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: () => void }) {
@@ -29,13 +30,13 @@ export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: 
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={kind === 'emote' ? 'Emote' : t('emote.quickChat')}
+        aria-label={kind === 'emote' ? t('emote.emote') : t('emote.quickChat')}
         className="panel-solid w-full max-w-sm p-4 animate-pop outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
-            {kind === 'emote' ? 'EMOTE' : t('emote.quickChatTitle')}
+            {kind === 'emote' ? t('emote.emoteTitle') : t('emote.quickChatTitle')}
           </h3>
           <button className="iconbtn" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
@@ -50,11 +51,14 @@ export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: 
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {PHRASES.map((p) => (
-              <button key={p} onClick={() => pick(() => sendChat(p))} className="btn btn-ghost text-left">
-                {p}
-              </button>
-            ))}
+            {PHRASE_KEYS.map((k) => {
+              const phrase = t(k);
+              return (
+                <button key={k} onClick={() => pick(() => sendChat(phrase))} className="btn btn-ghost text-left">
+                  {phrase}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { useT } from '../lib/i18n.ts';
 
 interface SeatBadgeProps {
   name: string;
@@ -24,9 +25,10 @@ function initials(name: string): string {
  * (the server only ever sends counts), only how many they hold.
  */
 function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, lastPlayer, partner }: SeatBadgeProps) {
+  const t = useT();
   const ring = isTurn ? 'turn' : lastPlayer ? 'green' : '';
   const fanCount = Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
-  const status = finished ? 'Mbaroi' : passed ? 'Pas' : !connected ? 'Offline' : isTurn ? 'Radha…' : '';
+  const status = finished ? t('seat.finished') : passed ? t('seat.passed') : !connected ? t('seat.offline') : isTurn ? t('seat.turn') : '';
 
   return (
     <div className={`flex flex-col items-center gap-1 ${!connected ? 'opacity-60' : ''}`}>
@@ -37,12 +39,12 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
       </div>
       <div className={`av ${ring} ${!connected ? 'off' : ''}`} title={name}>{initials(name)}</div>
       <div className={`seat-nm ${partner ? 'partner' : ''} truncate max-w-[110px]`}>
-        {name}{partner && ' · shoku'}
+        {name}{partner && ` · ${t('seat.partner')}`}
       </div>
       <div className="flex items-center gap-1.5">
         <span className="seat-cnt">({count})</span>
-        {lastPlayer && <span className="lastp">Hodhi i fundit</span>}
-        {team !== null && !partner && <span className="text-[11px] text-cream/80">Ek.{team + 1}</span>}
+        {lastPlayer && <span className="lastp">{t('seat.ledLast')}</span>}
+        {team !== null && !partner && <span className="text-[11px] text-cream/80">{t('seat.team', { n: team + 1 })}</span>}
       </div>
       {status && <div className="text-[11px] text-cream/80 h-3.5 leading-tight">{status}</div>}
     </div>

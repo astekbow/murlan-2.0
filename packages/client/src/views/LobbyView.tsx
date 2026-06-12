@@ -166,7 +166,7 @@ export function LobbyView() {
                     <div className="flex-1 min-w-0 text-sm text-muted truncate">
                       {m.players.map((p) => p.username).filter(Boolean).join(' · ') || t('lobby.players')}
                     </div>
-                    <span className="tag tag-live shrink-0"><span className="pls" />Live</span>
+                    <span className="tag tag-live shrink-0"><span className="pls" />{t('common.live')}</span>
                     <button onClick={() => { sound.play('button'); void spectate(m.roomId); }} className="btn btn-ghost w-full sm:w-auto">👁 {t('lobby.watch')}</button>
                   </li>
                 ))}
