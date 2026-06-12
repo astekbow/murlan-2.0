@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { createHmac, createHash } from 'node:crypto';
 import { deal } from '@murlan/engine';
