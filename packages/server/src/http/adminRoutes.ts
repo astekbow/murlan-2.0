@@ -140,7 +140,15 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
 
   app.get('/api/admin/withdrawals', async (req, reply) => {
     if (!(await admin(req, reply))) return;
-    return reply.send({ withdrawals: await withdrawals.listPending() });
+    // Enrich each pending row with WHO is withdrawing + their KYC status, so the
+    // operator has context to approve/reject. One listUsers() call, no N+1.
+    const [pending, users] = await Promise.all([withdrawals.listPending(), auth.listUsers()]);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const enriched = pending.map((w) => {
+      const u = byId.get(w.userId);
+      return { ...w, username: u?.username ?? null, kycStatus: u?.kycStatus ?? null };
+    });
+    return reply.send({ withdrawals: enriched });
   });
 
   // ----- Chat moderation: report queue + global mute -------------------------
@@ -188,9 +196,13 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const caller = await admin(req, reply);
     if (!caller) return;
     const id = (req.params as { id: string }).id;
+    // Optional reason — recorded in the audit detail (and shown to support) so a
+    // rejection isn't a silent refund.
+    const body = (req.body ?? {}) as { reason?: unknown };
+    const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
     return resolveWithdrawal(reply, async () => {
       const w = await withdrawals.reject(id);
-      await audit.record({ adminId: caller.userId, action: 'withdrawal_reject', targetUserId: w.userId, amountCents: w.amountCents, detail: id });
+      await audit.record({ adminId: caller.userId, action: 'withdrawal_reject', targetUserId: w.userId, amountCents: w.amountCents, detail: reason ? `${id}: ${reason}` : id });
       return w;
     });
   });

@@ -364,6 +364,8 @@ export interface AdminWithdrawal {
   destination: string;
   status: string;
   createdAt: number;
+  username?: string | null;
+  kycStatus?: string | null;
 }
 export interface AdminMatch {
   roomId: string;

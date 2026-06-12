@@ -221,9 +221,12 @@ export function AdminView() {
                 key={w.id}
                 className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
               >
-                <span className="text-sm">
+                <span className="text-sm min-w-0">
                   <b className="text-txt">{dollars(w.amountCents)}</b>
-                  <span className="text-muted"> → {w.destination}</span>
+                  <span className="text-muted"> → <span className="break-all">{w.destination}</span></span>
+                  <span className="block text-[11px] text-muted/80">
+                    {w.username ?? '?'}{w.kycStatus ? ` · KYC ${w.kycStatus}` : ''} · {new Date(w.createdAt).toLocaleString()}
+                  </span>
                 </span>
                 <span className="flex gap-2">
                   <button onClick={async () => { if (await confirm({ title: t('admin.approve'), message: t('admin.confirmApproveM', { amount: dollars(w.amountCents), dest: w.destination }) })) void approve(w.id); }} className="btn btn-green">{t('admin.approve')}</button>
