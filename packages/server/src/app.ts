@@ -224,7 +224,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await walletRoutes(app, {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
-      notifier: deps.notifier,
+      notifier: deps.notifier, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });

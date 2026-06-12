@@ -36,6 +36,7 @@ const schema = z.object({
   ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
   TELEGRAM_BOT_TOKEN: z.string().optional(),   // set BOTH token + chat id → ops alerts (e.g. new withdrawal) to Telegram
   TELEGRAM_CHAT_ID: z.string().optional(),
+  AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -73,6 +74,7 @@ export interface AppConfig {
   adminEmail: string | null;
   telegramBotToken: string | null;
   telegramChatId: string | null;
+  autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -151,6 +153,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,
     telegramBotToken: parsed.TELEGRAM_BOT_TOKEN || null,
     telegramChatId: parsed.TELEGRAM_CHAT_ID || null,
+    autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,

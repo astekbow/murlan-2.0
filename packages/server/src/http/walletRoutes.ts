@@ -19,6 +19,7 @@ import type { DepositIntentRepository } from '../money/depositIntents.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 import { type Notifier, escapeHtml } from '../notify/notifier.ts';
+import { classifyWithdrawal } from '../money/withdrawalPolicy.ts';
 
 const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 
@@ -31,6 +32,7 @@ export interface WalletRoutesDeps {
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService; // responsible-gaming daily deposit cap
   notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
+  autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -117,14 +119,24 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
             auth.getUser(caller.userId).catch(() => null),
             auth.getComplianceProfile(caller.userId).catch(() => null),
           ]);
+          // Semi-auto triage: small + KYC-verified ⇒ fast-track; else review. (The
+          // crypto send is still manual — this only tailors the operator alert.)
+          const cls = classifyWithdrawal(
+            { amountCents: record.amountCents, kycStatus: comp?.kycStatus },
+            { autoMaxCents: deps.autoWithdrawMaxCents ?? 0 },
+          );
+          const head = cls.tier === 'auto' ? '✅ <b>Tërheqje — e sigurt (fast-track)</b>' : '⚠️ <b>Tërheqje — rishiko</b>';
+          const tail = cls.tier === 'auto'
+            ? '→ E vogël + KYC e verifikuar: e sigurt për ta aprovuar shpejt (pasi ta dërgosh).'
+            : `→ Rishiko para aprovimit: ${cls.reasons.join(', ')}.`;
           await notifier.notify(
-            `💸 <b>Kërkesë tërheqjeje</b>\n` +
+            `${head}\n` +
             `Lojtari: ${escapeHtml(u?.username ?? caller.userId)}\n` +
             `Shuma: <b>${usd(record.amountCents)}</b>\n` +
             `Adresa: <code>${escapeHtml(record.destination)}</code>\n` +
             `KYC: ${comp?.kycStatus ?? '?'}\n` +
             `ID: ${record.id}\n` +
-            `→ Aprovo te paneli i admin-it pasi ta dërgosh.`,
+            tail,
           );
         })();
       }
