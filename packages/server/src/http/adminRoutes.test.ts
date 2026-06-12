@@ -90,10 +90,11 @@ test('account-state validation rejects an unknown state (400)', async () => {
   await app.close();
 });
 
-test('revenue breakdown reports rake + payout liability (read-only)', async () => {
-  const { app, wallet, userId, adminToken } = await build();
+test('revenue breakdown reports rake + payout liability (players only, read-only)', async () => {
+  const { app, wallet, userId, adminId, adminToken } = await build();
   // Give the player a balance (the house's outstanding liability) and book rake.
   await wallet.adminAdjust(userId, 5000, 'seed');
+  await wallet.adminAdjust(adminId, 1000, 'staff'); // admin balance must NOT count as player liability
   await wallet.recordRake(300, { matchId: 'm1', providerRef: 'rake:m1' });
   await wallet.recordRake(200, { matchId: 'm2', providerRef: 'rake:m2' });
 
@@ -102,7 +103,7 @@ test('revenue breakdown reports rake + payout liability (read-only)', async () =
   const body = res.json() as { totalRakeCents: number; rakeCount: number; payoutLiabilityCents: number; byDay: unknown[]; byType: unknown[] };
   assert.equal(body.totalRakeCents, 500);
   assert.equal(body.rakeCount, 2);
-  assert.equal(body.payoutLiabilityCents, 5000); // the credited player balance
+  assert.equal(body.payoutLiabilityCents, 5000); // only the player's balance, not the admin's 1000
   assert.ok(Array.isArray(body.byDay) && Array.isArray(body.byType));
   await app.close();
 });

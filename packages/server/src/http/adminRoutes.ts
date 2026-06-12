@@ -94,7 +94,9 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const roomId = (req.params as { roomId: string }).roomId;
     const result = await deps.voidMatch(roomId, { adminId: caller.userId, reason: parsed.data.reason });
     if (!result.ok) {
-      const status = result.reason === 'not_found' ? 404 : 409; // not_in_match / already_finalized
+      // not_found → 404; unavailable (gateway not bound yet, startup) → 503 transient;
+      // not_in_match / already_finalized → 409 conflict with the match state.
+      const status = result.reason === 'not_found' ? 404 : result.reason === 'unavailable' ? 503 : 409;
       return reply.code(status).send({ error: { code: result.reason, message: 'Ndeshja nuk mund të anulohet (mund të ketë mbaruar tashmë).' } });
     }
     await audit.record({ adminId: caller.userId, action: 'match_void', detail: `${roomId} (match ${result.matchId ?? '—'}, refunded=${result.refunded}): ${parsed.data.reason}` });
@@ -178,6 +180,14 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
       return reply.code(400).send({ error: { code: 'self_scope', message: 'Nuk mund t’i kufizosh vetes lejet.' } });
     }
     const perms = [...new Set(parsed.data.permissions.filter(isAdminPermission))];
+    // Anti-escalation: a SCOPED admin (non-empty list) may only grant scopes they
+    // themselves hold, and may NOT mint a full admin (empty list = all powers).
+    // A full admin (empty list) can grant anything. Without this, a manage_admins-
+    // only admin could create unrestricted admins and escalate past their own scope.
+    const callerPerms = (await auth.getUser(caller.userId))?.permissions ?? [];
+    if (callerPerms.length > 0 && (perms.length === 0 || perms.some((p) => !callerPerms.includes(p)))) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Mund të japësh vetëm leje që i ke vetë.' } });
+    }
     const user = await auth.setPermissions(userId, perms);
     if (!user) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
     await audit.record({ adminId: caller.userId, action: 'permissions_set', targetUserId: userId, detail: perms.length ? perms.join(',') : '(full)' });
@@ -210,9 +220,10 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
       rake.map((t) => ({ amountCents: t.amountCents, matchId: t.matchId, createdAt: t.createdAt })),
       typeById,
     );
-    // Outstanding obligation to players = sum of every real user's balance.
+    // Outstanding obligation to PLAYERS = sum of every player's balance. Exclude
+    // admin/staff accounts — their balance isn't money owed to players.
     const users = await auth.listUsers();
-    const payoutLiabilityCents = users.reduce((sum, u) => sum + u.balanceCents, 0);
+    const payoutLiabilityCents = users.filter((u) => u.role === 'user').reduce((sum, u) => sum + u.balanceCents, 0);
     return reply.send({ ...report, payoutLiabilityCents });
   });
 

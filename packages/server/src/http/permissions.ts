@@ -54,7 +54,9 @@ export function requirePermission(auth: AuthService, permission: AdminPermission
     const caller = await base(req, reply);
     if (!caller) return null; // base already sent 401/403
     const user = await auth.getUser(caller.userId);
-    if (!hasPermission(user?.permissions, permission)) {
+    // Fail CLOSED if the user vanished between the admin check and here (a hard
+    // delete mid-request) — an absent user must never be treated as a full admin.
+    if (!user || !hasPermission(user.permissions, permission)) {
       reply.code(403).send({ error: { code: 'forbidden', message: 'Nuk ke lejen e nevojshme për këtë veprim.' } });
       return null;
     }

@@ -465,6 +465,7 @@ const STRINGS: Record<string, Entry> = {
   'admin.permsLabel': { sq: 'Lejet', en: 'Scopes' },
   'admin.permsFull': { sq: '· asnjë = admin i plotë', en: '· none = full admin' },
   'admin.permsScoped': { sq: '· {n} të kufizuara', en: '· {n} scoped' },
+  'admin.permsSelf': { sq: '· nuk i ndryshon dot lejet e tua', en: '· you can’t edit your own scopes' },
   'admin.perm.adjust_balance': { sq: 'Bilanc', en: 'Balance' },
   'admin.perm.approve_withdrawals': { sq: 'Tërheqje', en: 'Withdrawals' },
   'admin.perm.manage_accounts': { sq: 'Llogari', en: 'Accounts' },

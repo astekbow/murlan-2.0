@@ -102,3 +102,34 @@ test('a scoped admin lacking manage_admins cannot assign permissions (403)', asy
   assert.equal(res.statusCode, 403);
   await app.close();
 });
+
+test('anti-escalation: a manage_admins-only admin cannot grant scopes it lacks or mint a full admin', async () => {
+  const { app, repo, tokenFor } = await build();
+  const scopedAdmin = await repo.create({ username: 'rbadmin', email: 'rb@x.com', passwordHash: 'h', role: 'admin' });
+  await repo.setPermissions(scopedAdmin.id, ['manage_admins']); // ONLY manage_admins
+  const target = await repo.create({ username: 'tgt', email: 'tg@x.com', passwordHash: 'h', role: 'admin' });
+  const tok = tokenFor(scopedAdmin.id, scopedAdmin.username);
+
+  // Cannot grant a scope it does not hold.
+  const denyEscalate = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(tok), payload: { permissions: ['adjust_balance'] } });
+  assert.equal(denyEscalate.statusCode, 403);
+  // Cannot mint a FULL admin (empty list = all powers).
+  const denyFull = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(tok), payload: { permissions: [] } });
+  assert.equal(denyFull.statusCode, 403);
+  // CAN grant a subset of what it holds.
+  const ok = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(tok), payload: { permissions: ['manage_admins'] } });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual((await repo.findById(target.id))!.permissions, ['manage_admins']);
+  await app.close();
+});
+
+test('a full admin can still grant any scope, including full (empty)', async () => {
+  const { app, repo, fullAdminToken } = await build();
+  const target = await repo.create({ username: 'tgt2', email: 'tg2@x.com', passwordHash: 'h', role: 'admin' });
+  const scoped = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(fullAdminToken), payload: { permissions: ['adjust_balance'] } });
+  assert.equal(scoped.statusCode, 200);
+  const full = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(fullAdminToken), payload: { permissions: [] } });
+  assert.equal(full.statusCode, 200);
+  assert.deepEqual((await repo.findById(target.id))!.permissions, []);
+  await app.close();
+});

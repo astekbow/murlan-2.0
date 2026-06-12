@@ -16,6 +16,8 @@ function UserRow({ user }: { user: AdminUser }) {
   const t = useT();
   const { confirm, dialog } = useConfirm();
   const { adjust, setKyc, setRole } = useAdminStore();
+  const myId = useAuthStore((s) => s.user?.id);
+  const isSelf = user.id === myId; // can't edit your own scopes (server rejects too)
   const [delta, setDelta] = useState('10');
   const [reason, setReason] = useState('manual');
   const [perms, setPerms] = useState<string[]>(user.permissions ?? []);
@@ -156,12 +158,12 @@ function UserRow({ user }: { user: AdminUser }) {
           {ADMIN_PERMS.map((p) => {
             const on = perms.includes(p);
             return (
-              <button key={p} onClick={() => void togglePerm(p)} aria-pressed={on} className={`btn btn-xs ${on ? 'btn-gold' : 'btn-ghost'}`} title={t(`admin.perm.${p}`)}>
+              <button key={p} onClick={() => void togglePerm(p)} disabled={isSelf} aria-pressed={on} className={`btn btn-xs ${on ? 'btn-gold' : 'btn-ghost'}`} title={t(`admin.perm.${p}`)}>
                 {t(`admin.perm.${p}`)}
               </button>
             );
           })}
-          <span className="text-[11px] text-muted/70">{perms.length === 0 ? t('admin.permsFull') : t('admin.permsScoped', { n: perms.length })}</span>
+          <span className="text-[11px] text-muted/70">{isSelf ? t('admin.permsSelf') : perms.length === 0 ? t('admin.permsFull') : t('admin.permsScoped', { n: perms.length })}</span>
         </div>
       )}
       {txns && (
