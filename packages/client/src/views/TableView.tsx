@@ -88,6 +88,19 @@ function LogPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Visually-hidden live region so screen-reader users hear turn changes + the result
+// (the table is rendered with CSS transforms, not semantic structure). The trailing
+// space alternates so an identical "your turn" on a later turn re-announces.
+function GameAnnouncer({ isMyTurn, result }: { isMyTurn: boolean; result: string | null }) {
+  const t = useT();
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    if (isMyTurn) setMsg((m) => (m === t('table.yourTurn') ? `${t('table.yourTurn')} ` : t('table.yourTurn')));
+  }, [isMyTurn, t]);
+  useEffect(() => { if (result) setMsg(result); }, [result]);
+  return <div className="sr-only" role="status" aria-live="assertive">{msg}</div>;
+}
+
 export function TableView({ room }: { room: RoomStateDTO }) {
   const { ls, forced } = useForceLandscape(); // landscape-only: rotate if held portrait
   // Select only what the table renders (with shallow equality) so unrelated
@@ -256,6 +269,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
     <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${shake ? ' shake-fx' : ''}`}>
       <h1 className="sr-only">{t('table.title')}</h1>
+      <GameAnnouncer
+        isMyTurn={isMyTurn}
+        result={matchResult ? (iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })) : null}
+      />
       {forced && <RotateOverlay />}
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">

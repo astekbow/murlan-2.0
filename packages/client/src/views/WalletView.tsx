@@ -157,6 +157,8 @@ export function WalletView() {
         </div>
       )}
 
+      {/* Deposit + Withdraw sit side-by-side on wide screens, stacked on mobile. */}
+      <div className="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
       {/* Deposit — crypto via the hosted checkout (NOWPayments). */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.08s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.deposit')}</h2>
@@ -198,6 +200,7 @@ export function WalletView() {
         </div>
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
+      </div>
 
       {/* Verification / responsible gaming */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.16s' }}>
