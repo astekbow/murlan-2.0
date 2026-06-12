@@ -145,6 +145,8 @@ export function AdminView() {
   const [userQuery, setUserQuery] = useState('');
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
+  const [kycFilter, setKycFilter] = useState<'all' | 'none' | 'pending' | 'verified'>('all');
+  const [sortBy, setSortBy] = useState<'balance' | 'name'>('balance');
 
   const loadDepth = () => {
     const token = useAuthStore.getState().accessToken;
@@ -169,9 +171,13 @@ export function AdminView() {
   const openTickets = tickets.filter((tk) => tk.status === 'open');
 
   const q = userQuery.trim().toLowerCase();
-  const shownUsers = q
-    ? users.filter((u) => u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-    : users;
+  const filteredUsers = users
+    .filter((u) => !q || u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+    .filter((u) => kycFilter === 'all' || u.kycStatus === kycFilter);
+  const shownUsers = [...filteredUsers].sort((a, b) =>
+    sortBy === 'balance' ? b.balanceCents - a.balanceCents : a.username.localeCompare(b.username),
+  );
+  const USER_CAP = 60; // client-side cap; server-side pagination needed before large scale
 
   return (
     <div className="space-y-5">
@@ -318,9 +324,24 @@ export function AdminView() {
             className="field max-w-[220px]"
           />
         </div>
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <div className="seg">
+            {(['all', 'none', 'pending', 'verified'] as const).map((s) => (
+              <button key={s} onClick={() => setKycFilter(s)} className={`seg-tab ${kycFilter === s ? 'active' : ''}`}>
+                {s === 'all' ? t('admin.allKyc') : s}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setSortBy(sortBy === 'balance' ? 'name' : 'balance')} className="btn btn-ghost btn-sm">
+            {sortBy === 'balance' ? t('admin.sortBalance') : t('admin.sortName')}
+          </button>
+        </div>
         <ul className="space-y-2.5">
-          {shownUsers.map((u) => <UserRow key={u.id} user={u} />)}
+          {shownUsers.slice(0, USER_CAP).map((u) => <UserRow key={u.id} user={u} />)}
         </ul>
+        {shownUsers.length > USER_CAP && (
+          <p className="text-xs text-muted/70 mt-3 text-center">{t('admin.showingCapped', { shown: USER_CAP, total: shownUsers.length })}</p>
+        )}
       </section>
     </div>
   );
