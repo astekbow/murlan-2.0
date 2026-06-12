@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 interface SeatBadgeProps {
   name: string;
   count: number;
@@ -21,7 +23,7 @@ function initials(name: string): string {
  * The fan is decorative and capped — opponents' card IDENTITIES are NEVER shown
  * (the server only ever sends counts), only how many they hold.
  */
-export function SeatBadge({ name, count, team, isTurn, connected, finished, passed, lastPlayer, partner }: SeatBadgeProps) {
+function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, lastPlayer, partner }: SeatBadgeProps) {
   const ring = isTurn ? 'turn' : lastPlayer ? 'green' : '';
   const fanCount = Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
   const status = finished ? 'Mbaroi' : passed ? 'Pas' : !connected ? 'Offline' : isTurn ? 'Radha…' : '';
@@ -46,3 +48,7 @@ export function SeatBadge({ name, count, team, isTurn, connected, finished, pass
     </div>
   );
 }
+
+// Memoized: opponents' seats only re-render when their own props change (count,
+// turn, connection…), not on every unrelated table state update.
+export const SeatBadge = memo(SeatBadgeImpl);

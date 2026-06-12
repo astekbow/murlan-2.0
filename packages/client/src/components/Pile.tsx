@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { Combo } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
 import { cardKey, sortComboForDisplay } from '../lib/cards.ts';
@@ -13,7 +14,7 @@ const COMBO_LABEL_KEY: Record<Combo['type'], string> = {
 };
 
 /** The current pile in the centre of the table — overlapping face-up cards. */
-export function Pile({ pile }: { pile: Combo | null }) {
+function PileImpl({ pile }: { pile: Combo | null }) {
   const t = useT();
   if (!pile) {
     return (
@@ -34,3 +35,7 @@ export function Pile({ pile }: { pile: Combo | null }) {
     </div>
   );
 }
+
+// Memoized: the centre pile only re-renders when the pile itself changes, not on
+// every hand/seat/timer update.
+export const Pile = memo(PileImpl);
