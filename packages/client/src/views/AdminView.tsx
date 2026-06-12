@@ -4,7 +4,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
 import { adminApi } from '../lib/api.ts';
-import type { AdminUser, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown } from '../lib/api.ts';
+import type { AdminUser, AdminMatch, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -183,6 +183,48 @@ function UserRow({ user }: { user: AdminUser }) {
   );
 }
 
+// One in-progress staked match, with an admin void control. Voiding refunds every
+// stake (no winner, no rake) and ends the match — guarded by a danger confirm and
+// an optional reason (audited).
+function MatchRow({ m }: { m: AdminMatch }) {
+  const t = useT();
+  const { confirm, dialog } = useConfirm();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const onVoid = async () => {
+    if (!(await confirm({
+      title: t('admin.voidMatch'),
+      message: t('admin.confirmVoidM', { type: m.type, stake: dollars(m.stakeCents) }),
+      danger: true,
+      confirmLabel: t('admin.voidMatch'),
+    }))) return;
+    setBusy(true);
+    const token = useAuthStore.getState().accessToken;
+    if (token) {
+      try {
+        await adminApi.voidMatch(token, m.roomId, reason.trim() || t('admin.voidDefaultReason'));
+        await useAdminStore.getState().refresh();
+      } catch { /* surfaced via the store's error banner on next refresh */ }
+    }
+    setBusy(false);
+  };
+
+  return (
+    <li className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] text-sm space-y-2">
+      <div>
+        <span className="font-display font-semibold tracking-wide text-txt">{m.type}</span>
+        <span className="text-muted"> · {dollars(m.stakeCents)} · {t('admin.target')} {m.target} · {m.players.map((p) => p.username ?? `?${p.seat}`).join(', ')}</span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('admin.voidReason')} className="field flex-1 min-w-[160px]" />
+        <button onClick={() => void onVoid()} disabled={busy} className="btn btn-danger btn-sm shrink-0">{busy ? t('admin.voiding') : t('admin.voidMatch')}</button>
+      </div>
+      {dialog}
+    </li>
+  );
+}
+
 export function AdminView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
@@ -335,15 +377,7 @@ export function AdminView() {
           <p className="text-sm text-muted italic">{t('admin.noActiveMatches')}</p>
         ) : (
           <ul className="space-y-2.5">
-            {matches.map((m) => (
-              <li
-                key={m.roomId}
-                className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] text-sm"
-              >
-                <span className="font-display font-semibold tracking-wide text-txt">{m.type}</span>
-                <span className="text-muted"> · {dollars(m.stakeCents)} · {t('admin.target')} {m.target} · {m.players.map((p) => p.username ?? `?${p.seat}`).join(', ')}</span>
-              </li>
-            ))}
+            {matches.map((m) => <MatchRow key={m.roomId} m={m} />)}
           </ul>
         )}
       </section>

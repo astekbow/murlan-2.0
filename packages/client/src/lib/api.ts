@@ -418,6 +418,8 @@ export const adminApi = {
     request<{ user: AdminUser }>(`/admin/users/${id}/role`, { method: 'POST', token, body: { role } }),
   setPermissions: (token: string, id: string, permissions: string[]) =>
     request<{ user: AdminUser }>(`/admin/users/${id}/permissions`, { method: 'POST', token, body: { permissions } }),
+  voidMatch: (token: string, roomId: string, reason: string) =>
+    request<{ ok: boolean; matchId: string | null; refunded: boolean }>(`/admin/matches/${encodeURIComponent(roomId)}/void`, { method: 'POST', token, body: { reason } }),
   revenue: (token: string) => request<{ totalRakeCents: number; rakeCount: number }>('/admin/revenue', { token }),
   revenueBreakdown: (token: string) => request<RevenueBreakdown>('/admin/revenue/breakdown', { token }),
   audit: (token: string) => request<{ actions: AdminActionRecord[] }>('/admin/audit', { token }),

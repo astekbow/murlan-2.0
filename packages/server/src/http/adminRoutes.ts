@@ -28,6 +28,10 @@ export interface AdminRoutesDeps {
   matches?: MatchesRepository; // for revenue-by-match-type reporting
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
   chat?: ChatService; // chat-report triage + global mute
+  // Voids an in-progress match (refund all stakes + end the room). Late-bound to
+  // the realtime gateway (which owns rooms/sockets/money), absent in HTTP-only tests.
+  voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) =>
+    Promise<{ ok: true; matchId: string | null; refunded: boolean } | { ok: false; reason: string }>;
 }
 
 const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1) });
@@ -42,6 +46,7 @@ const muteSchema = z.object({
   reason: z.string().max(280).optional(),
 });
 const permissionsSchema = z.object({ permissions: z.array(z.string()).max(20) });
+const voidSchema = z.object({ reason: z.string().min(1).max(500) });
 
 export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, rooms, matches } = deps;
@@ -55,6 +60,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   const canWithdraw = requirePermission(auth, 'approve_withdrawals');
   const canModerate = requirePermission(auth, 'moderate_chat');
   const canRevenue = requirePermission(auth, 'view_revenue');
+  const canVoid = requirePermission(auth, 'void_matches');
 
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await admin(req, reply))) return;
@@ -74,6 +80,25 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   app.get('/api/admin/matches', async (req, reply) => {
     if (!(await admin(req, reply))) return;
     return reply.send({ matches: rooms ? rooms.listActiveMatches() : [] });
+  });
+
+  // Void an in-progress match: refund every stake (no winner, no rake) and end the
+  // room. Non-destructive (compensating credits) + idempotent in the gateway. The
+  // reason is required and audited (compliance). Only acts on an active match.
+  app.post('/api/admin/matches/:roomId/void', async (req, reply) => {
+    const caller = await canVoid(req, reply);
+    if (!caller) return;
+    if (!deps.voidMatch) return reply.code(501).send({ error: { code: 'unavailable', message: 'Anulimi i ndeshjeve nuk disponohet.' } });
+    const parsed = voidSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Arsyeja e anulimit është e pavlefshme.' } });
+    const roomId = (req.params as { roomId: string }).roomId;
+    const result = await deps.voidMatch(roomId, { adminId: caller.userId, reason: parsed.data.reason });
+    if (!result.ok) {
+      const status = result.reason === 'not_found' ? 404 : 409; // not_in_match / already_finalized
+      return reply.code(status).send({ error: { code: result.reason, message: 'Ndeshja nuk mund të anulohet (mund të ketë mbaruar tashmë).' } });
+    }
+    await audit.record({ adminId: caller.userId, action: 'match_void', detail: `${roomId} (match ${result.matchId ?? '—'}, refunded=${result.refunded}): ${parsed.data.reason}` });
+    return reply.send({ ok: true, matchId: result.matchId, refunded: result.refunded });
   });
 
   app.post('/api/admin/users/:id/adjust', async (req, reply) => {

@@ -472,6 +472,12 @@ const STRINGS: Record<string, Entry> = {
   'admin.perm.moderate_chat': { sq: 'Moderim', en: 'Moderation' },
   'admin.perm.void_matches': { sq: 'Anulim ndeshjesh', en: 'Void matches' },
   'admin.perm.view_revenue': { sq: 'Të ardhura', en: 'Revenue' },
+  // Match void
+  'admin.voidMatch': { sq: 'Anulo ndeshjen', en: 'Void match' },
+  'admin.voiding': { sq: 'Po anulohet…', en: 'Voiding…' },
+  'admin.voidReason': { sq: 'Arsyeja (opsionale)', en: 'Reason (optional)' },
+  'admin.voidDefaultReason': { sq: 'anulim administrativ', en: 'admin void' },
+  'admin.confirmVoidM': { sq: 'Anulo ndeshjen {type} ({stake})? Të gjitha bastet u kthehen lojtarëve dhe ndeshja mbyllet. Veprimi regjistrohet në audit.', en: 'Void the {type} match ({stake})? Every stake is refunded to the players and the match ends. This is recorded in the audit log.' },
   'admin.accountState': { sq: 'Gjendja', en: 'State' },
   'admin.confirmStateM': { sq: 'Vendos gjendjen e {user} në "{state}"? Veprimi regjistrohet në audit.', en: 'Set {user}\'s account state to "{state}"? This is recorded in the audit log.' },
   'admin.viewTx': { sq: 'Transaksionet', en: 'Transactions' },

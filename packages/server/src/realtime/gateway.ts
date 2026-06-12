@@ -92,6 +92,11 @@ const IDLE_FORFEIT_STRIKES = 5;
 // Cap spectators per room so a flood of watchers can't blow up broadcast fan-out.
 const SPECTATOR_CAP = 100;
 
+/** Result of an admin match-void (see GameGateway.adminVoidMatch). */
+export type AdminVoidResult =
+  | { ok: true; matchId: string | null; refunded: boolean }
+  | { ok: false; reason: 'not_found' | 'not_in_match' | 'already_finalized' };
+
 export class GameGateway {
   private readonly turnMs: number;
   private readonly countdownMs: number;
@@ -1420,6 +1425,65 @@ export class GameGateway {
     }
     this.revealFair(roomId);
     this.broadcastLobby();
+  }
+
+  /**
+   * ADMIN VOID: cancel an in-progress staked match and refund EVERY stake (no
+   * winner, no rake), then end the room cleanly. Reuses the same finalize claim
+   * + refund path as a no-winner forfeit, so it's race-safe (a normal end / forfeit
+   * racing the void: whoever claims first wins) and non-destructive — refund()
+   * only adds compensating credits and is idempotent on its providerRefs. A voided
+   * match awards NO XP/MMR/stats (it never counted). Returns a structured result.
+   */
+  async adminVoidMatch(roomId: string, meta: { adminId: string; reason: string }): Promise<AdminVoidResult> {
+    const room = this.rooms.getRoom(roomId);
+    if (!room) return { ok: false, reason: 'not_found' };
+    if (room.status !== 'inMatch') return { ok: false, reason: 'not_in_match' };
+    // Claim finalize BEFORE any await — loses to a concurrent normal-end/forfeit.
+    if (!this.claimFinalize(roomId)) return { ok: false, reason: 'already_finalized' };
+
+    const players = room.seats
+      .map((s, i) => ({ seat: i, userId: s.userId }))
+      .filter((p): p is { seat: number; userId: string } => p.userId !== null);
+    this.clearTurnTimer(roomId);
+    this.clearRoomAbandonTimers(roomId);
+    this.clearRoomStrikes(roomId);
+    this.clearBotTimer(roomId);
+
+    let refunded = false;
+    const matchId = this.rooms.matchIdOf(roomId);
+    if (this.money && matchId) {
+      try {
+        await this.money.refund(matchId); // active-only, full-stake, no rake, idempotent
+        refunded = true;
+      } catch (err) {
+        // Refund threw → the match row stays 'active', so the crash-recovery sweep
+        // refunds it. Surface it (PAGE counter) and tell players it's delayed, not lost.
+        settlementFailures.inc();
+        // eslint-disable-next-line no-console
+        console.error(`[admin-void] refund FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
+        this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
+        this.broadcastLobby();
+        return { ok: true, matchId, refunded: false }; // the void DID proceed; refund follows via sweep
+      }
+    }
+    // Intentionally NO recordMatchStats / recordRankedResult / recordAntiCheat —
+    // a voided match is annulled, so it must not touch XP, MMR, or stats.
+    const sb = this.rooms.scoreboardDTO(roomId);
+    this.io.to(roomId).emit('match:end', {
+      winnerSide: -1,
+      winnerSeats: [],
+      finalSideScores: sb?.cumulative ?? [],
+      scoreboard: sb ?? { type: room.type, target: room.target, cumulative: [], teamTotals: null },
+      payoutCents: null,
+    });
+    // Tell every player it was voided + refunded by an admin (not a loss).
+    for (const p of players) {
+      this.io.to(personalRoom(p.userId)).emit('error', { code: 'match_voided', message: 'Ndeshja u anulua nga administratori — bastet u kthyen.' });
+    }
+    this.revealFair(roomId);
+    this.broadcastLobby();
+    return { ok: true, matchId, refunded };
   }
 
   private clearRoomAbandonTimers(roomId: string): void {

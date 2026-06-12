@@ -36,7 +36,7 @@ import { accountRoutes } from './http/accountRoutes.ts';
 import { ComplianceService } from './compliance/complianceService.ts';
 import { ResponsibleGamingService } from './compliance/responsibleGaming.ts';
 import { RoomManager } from './room/roomManager.ts';
-import { GameGateway } from './realtime/gateway.ts';
+import { GameGateway, type AdminVoidResult } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
 import { InMemoryRoomOwnership } from './realtime/roomOwnership.ts';
 import { InMemoryLedger, type LedgerRepository } from './money/ledger.ts';
@@ -94,6 +94,7 @@ export interface HttpDeps {
   chat?: ChatService;
   rooms?: RoomManager;
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
+  voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
   profiles?: ProfileService;
   ranked?: RankedService;
   friends?: FriendsService;
@@ -224,7 +225,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, matches: deps.matches, audit: deps.adminAudit, chat: deps.chat });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat });
   }
 
   // Lightweight in-house client error logging (no third party): the browser POSTs
@@ -454,7 +455,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const drainState = { active: false };
   const isDraining = () => drainState.active;
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, matches: matchesRepo, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  // Late-bind the admin match-void to the gateway (created below, after the HTTP
+  // app). The admin route calls this holder; until the gateway exists it reports
+  // 'unavailable'. Lets the HTTP layer trigger a gateway-owned refund + room-end.
+  const voidHolder: { fn?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult> } = {};
+  const voidMatch = (roomId: string, meta: { adminId: string; reason: string }) =>
+    voidHolder.fn ? voidHolder.fn(roomId, meta) : Promise.resolve({ ok: false as const, reason: 'unavailable' as const });
+
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -486,7 +494,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   }
 
   // The gateway registers all socket handlers on construction.
-  new GameGateway(io, rooms, auth, {
+  const gateway = new GameGateway(io, rooms, auth, {
     turnMs: config.turnMs,
     countdownMs: config.countdownMs,
     money,
@@ -509,6 +517,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // Redis-backed impl (DEPLOYMENT.md §7) to make horizontal scaling safe.
     ownership: new InMemoryRoomOwnership(),
   });
+  // Now the gateway exists, point the admin match-void route at it.
+  voidHolder.fn = (roomId, meta) => gateway.adminVoidMatch(roomId, meta);
 
   // Crash recovery: refund any match a previous (crashed) process left 'active'
   // with stakes still escrowed. At boot no room is live yet, so every active row
