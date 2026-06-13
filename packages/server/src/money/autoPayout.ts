@@ -88,7 +88,6 @@ export async function processWithdrawal(
       `Shuma: <b>${usd(record.amountCents)}</b>\n` +
       `Adresa: <code>${escapeHtml(record.destination)}</code>\n` +
       `KYC: ${ctx.kycStatus ?? '?'}\n` +
-      `ID: ${record.id}\n` +
       tail,
     );
   }

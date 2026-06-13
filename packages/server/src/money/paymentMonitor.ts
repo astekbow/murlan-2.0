@@ -27,7 +27,7 @@ import { BINANCE_WITHDRAW_FAILED, type BinanceWithdrawalStatus } from './binance
 
 export interface FailedWithdrawalDeps {
   list: () => Promise<BinanceWithdrawalStatus[]>;            // Binance withdraw history (OUR payouts, bare ids)
-  findWithdrawal: (id: string) => Promise<{ userId: string; amountCents: number; status: string } | null>;
+  findWithdrawal: (id: string) => Promise<{ userId: string; username?: string; amountCents: number; status: string } | null>;
   reverse: (w: { id: string; userId: string; amountCents: number }) => Promise<void>; // idempotent credit-back
   markReversed: (id: string) => Promise<void>;              // flip the record completed → rejected (durable dedup)
   notify: (text: string) => Promise<void>;
@@ -55,10 +55,11 @@ export async function reconcileFailedWithdrawals(deps: FailedWithdrawalDeps): Pr
     // Binance-reported figure, is the authoritative ledger entry that makes the player whole.
     // But if Binance reports a different amount, that's an anomaly worth surfacing (corrupted
     // record, unexpected fee handling, or a tampered row) — alert without changing the credit.
+    const who = wd.username ?? wd.userId;
     if (Number.isInteger(r.amountCents) && r.amountCents !== wd.amountCents) {
       await deps.notify(
         `⚠️ <b>Mospërputhje shume në kthim</b>\n` +
-        `ID: ${r.withdrawOrderId}\nDB: <b>$${(wd.amountCents / 100).toFixed(2)}</b> · Binance: <b>$${(r.amountCents / 100).toFixed(2)}</b>\n` +
+        `Lojtari: ${who}\nDB: <b>$${(wd.amountCents / 100).toFixed(2)}</b> · Binance: <b>$${(r.amountCents / 100).toFixed(2)}</b>\n` +
         `→ U rikreditua shuma e DB-së (debitimi origjinal). Verifiko manualisht.`,
       );
     }
@@ -66,7 +67,7 @@ export async function reconcileFailedWithdrawals(deps: FailedWithdrawalDeps): Pr
     await deps.markReversed(r.withdrawOrderId);
     await deps.notify(
       `🔴 <b>Tërheqje DËSHTOI në Binance</b>\n` +
-      `ID: ${r.withdrawOrderId}\nShuma: <b>$${(wd.amountCents / 100).toFixed(2)}</b>\n` +
+      `Lojtari: ${who}\nShuma: <b>$${(wd.amountCents / 100).toFixed(2)}</b>\n` +
       `→ Lojtarit iu rikreditua balanca (paratë u kthyen te Binance-i yt).`,
     );
     reversedCount++;

@@ -648,7 +648,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
             const wu = await auth.getUser(wd.userId).catch(() => null);
             await notifier.notify(
               `⌛ <b>Tërheqje në pritje > ${Math.round(STALE_WITHDRAWAL_MS / 3_600_000)}h</b>\n` +
-              `Lojtari: ${wu?.username ?? wd.userId}\nShuma: $${(wd.amountCents / 100).toFixed(2)}\nID: ${wd.id}\n→ Aprovo ose refuzo te admin paneli.`,
+              `Lojtari: ${wu?.username ?? wd.userId}\nShuma: $${(wd.amountCents / 100).toFixed(2)}\n→ Aprovo ose refuzo te admin paneli.`,
             ).catch(() => {});
           }
           pruneAlerted(alertedStaleWithdrawals, pending.map((p) => p.id));
@@ -676,7 +676,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           const reversedN = await reconcileFailedWithdrawals({
             // 7-day lookback so an on-chain failure that manifests slowly is still caught.
             list: () => binanceWithdrawReader.listRecent(now - 7 * 24 * 60 * 60 * 1000),
-            findWithdrawal: (id) => withdrawals.find(id).then((w) => (w ? { userId: w.userId, amountCents: w.amountCents, status: w.status } : null)),
+            findWithdrawal: async (id) => {
+              const w = await withdrawals.find(id);
+              if (!w) return null;
+              const u = await auth.getUser(w.userId).catch(() => null);
+              return { userId: w.userId, username: u?.username, amountCents: w.amountCents, status: w.status };
+            },
             reverse: ({ id, userId, amountCents }) =>
               wallet.credit(userId, amountCents, { type: 'admin_adjust', reason: 'rikthim: tërheqja dështoi në Binance', providerRef: `withdrawal_reversal:${id}` }).then(() => {}),
             markReversed: (id) => withdrawals.markReversed(id),

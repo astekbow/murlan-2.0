@@ -38,7 +38,7 @@ function reconcileRec() {
     notify: async (t: string) => { calls.messages.push(t); },
   };
 }
-const completed = (userId: string, amountCents: number) => async () => ({ userId, amountCents, status: 'completed' });
+const completed = (userId: string, amountCents: number, username = 'lojtari_test') => async () => ({ userId, username, amountCents, status: 'completed' });
 
 test('refunds a FAILED (status 5) completed payout: credit FIRST, then mark, then alert', async () => {
   const r = reconcileRec();
@@ -52,6 +52,7 @@ test('refunds a FAILED (status 5) completed payout: credit FIRST, then mark, the
   assert.deepEqual(r.calls.marked, ['wd_1']);
   assert.deepEqual(r.calls.order, ['reverse', 'mark']); // credit before mark (idempotency-safe)
   assert.match(r.calls.messages[0]!, /DËSHTOI/);
+  assert.match(r.calls.messages[0]!, /Lojtari: lojtari_test/); // identifies the player by USERNAME, not a raw id
 });
 
 test('on amount mismatch (Binance ≠ DB) it credits the DB amount and ALSO alerts the discrepancy', async () => {
