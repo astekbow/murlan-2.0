@@ -33,6 +33,48 @@ const NETWORKS: Record<string, { coin: string; network: string }> = {
 type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>
   Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<any> }>;
 
+/** One row of Binance withdrawal history, normalized. `withdrawOrderId` is OUR
+ *  withdrawal id (set when we created the payout), so we can match it back. */
+export interface BinanceWithdrawalStatus {
+  withdrawOrderId: string;
+  status: number; // Binance: 1=Cancelled, 3=Rejected, 5=Failure (terminal-failed); 6=Completed
+  amountCents: number;
+}
+
+// Binance withdraw statuses that mean the funds did NOT leave (returned to Spot).
+export const BINANCE_WITHDRAW_FAILED = new Set([1, 3, 5]);
+
+/** Reads recent Binance withdrawal history (signed) so a payout that Binance
+ *  ACCEPTED but later failed on-chain can be detected (there is no webhook). */
+export class BinanceWithdrawReader {
+  private readonly base: string;
+  private readonly fetchFn: FetchLike;
+  private readonly now: () => number;
+
+  constructor(private readonly opts: { apiKey: string; apiSecret: string; baseUrl?: string; fetchFn?: FetchLike; now?: () => number }) {
+    this.base = opts.baseUrl ?? API_PROD;
+    this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
+    this.now = opts.now ?? (() => Date.now());
+  }
+
+  async listRecent(sinceMs: number): Promise<BinanceWithdrawalStatus[]> {
+    try {
+      const params = new URLSearchParams({ coin: 'USDT', startTime: String(Math.max(0, Math.floor(sinceMs))), timestamp: String(this.now()), recvWindow: '10000' });
+      const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
+      params.append('signature', signature);
+      const res = await this.fetchFn(`${this.base}/sapi/v1/capital/withdraw/history?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } });
+      if (!res.ok) return [];
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return [];
+      return rows
+        .map((r) => ({ withdrawOrderId: String(r.withdrawOrderId ?? ''), status: Number(r.status), amountCents: Math.round(Number(r.amount) * 100) }))
+        .filter((r) => r.withdrawOrderId.length > 0 && Number.isInteger(r.status));
+    } catch {
+      return [];
+    }
+  }
+}
+
 export interface BinancePayoutOptions {
   apiKey: string;
   apiSecret: string;

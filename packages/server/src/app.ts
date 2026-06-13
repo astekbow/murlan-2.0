@@ -53,7 +53,8 @@ import { NowPaymentsPayoutProvider } from './money/nowPaymentsPayout.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
 import { BinanceDepositLister, BinanceAccountReader, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
-import { findStaleWithdrawals, pruneAlerted, treasuryBufferCents } from './money/paymentMonitor.ts';
+import { findStaleWithdrawals, pruneAlerted, treasuryBufferCents, reconcileFailedWithdrawals } from './money/paymentMonitor.ts';
+import { BinanceWithdrawReader } from './money/binancePayout.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -430,6 +431,11 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const binanceAccount = config.binanceApiKey && config.binanceApiSecret
     ? new BinanceAccountReader({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret })
     : null;
+  // Withdrawal-status reconciliation: Binance accepts a payout synchronously but the
+  // on-chain send can fail later (no webhook) → poll history + refund the player.
+  const binanceWithdrawReader = config.binanceApiKey && config.binanceApiSecret
+    ? new BinanceWithdrawReader({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret })
+    : null;
   if (payout.name !== 'null') {
     // eslint-disable-next-line no-console
     console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
@@ -597,6 +603,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const STALE_WITHDRAWAL_MS = 2 * 60 * 60 * 1000;
   const TREASURY_ALERT_THROTTLE_MS = 60 * 60 * 1000;
   const alertedStaleWithdrawals = new Set<string>();
+  const reversedWithdrawals = new Set<string>();
   let lastTreasuryAlert = 0;
   const sweepTimer = setInterval(() => {
     void (async () => {
@@ -661,6 +668,19 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
               ).catch(() => {});
             }
           }
+        }
+        // Reverse auto-payouts that Binance accepted but later FAILED on-chain (no
+        // webhook) — refund the player. Idempotent (providerRef + reversed set).
+        if (binanceWithdrawReader && wallet) {
+          const reversedN = await reconcileFailedWithdrawals({
+            list: () => binanceWithdrawReader.listRecent(now - 48 * 60 * 60 * 1000), // 48h lookback
+            findWithdrawal: (id) => withdrawals.find(id).then((w) => (w ? { userId: w.userId, amountCents: w.amountCents, status: w.status } : null)),
+            reverse: ({ id, userId, amountCents }) =>
+              wallet.credit(userId, amountCents, { type: 'admin_adjust', reason: 'rikthim: tërheqja dështoi në Binance', providerRef: `withdrawal_reversal:${id}` }).then(() => {}),
+            notify: (text) => notifier.notify(text),
+            reversed: reversedWithdrawals,
+          }).catch((err) => { app.log.warn({ err }, 'withdrawal reconciliation failed'); return 0; });
+          if (reversedN) app.log.warn({ reversedWithdrawals: reversedN }, 'reversed failed Binance withdrawals — players refunded');
         }
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');

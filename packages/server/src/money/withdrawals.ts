@@ -141,4 +141,7 @@ export class WithdrawalService {
   listByUser(userId: string): Promise<WithdrawalRecord[]> {
     return this.repo.listByUser(userId);
   }
+  find(id: string): Promise<WithdrawalRecord | null> {
+    return this.repo.find(id);
+  }
 }
