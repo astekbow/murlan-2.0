@@ -9,21 +9,21 @@ test('1v1: I am bottom, opponent is top (regardless of my seat index)', () => {
   assert.equal(seatPosition(2, 1, 0), 'top');
 });
 
-test('1v1v1: I am bottom, next-in-turn top-right, the other top-left', () => {
+test('1v1v1: clockwise — I am bottom, next-in-turn top-left, the other top-right', () => {
   assert.equal(seatPosition(3, 0, 0), 'bottom');
-  assert.equal(seatPosition(3, 0, 1), 'top-right');
-  assert.equal(seatPosition(3, 0, 2), 'top-left');
+  assert.equal(seatPosition(3, 0, 1), 'top-left');  // next to act sits to my left (clockwise)
+  assert.equal(seatPosition(3, 0, 2), 'top-right');
   // rotation: if I sit at seat 2
   assert.equal(seatPosition(3, 2, 2), 'bottom');
-  assert.equal(seatPosition(3, 2, 0), 'top-right');
-  assert.equal(seatPosition(3, 2, 1), 'top-left');
+  assert.equal(seatPosition(3, 2, 0), 'top-left');
+  assert.equal(seatPosition(3, 2, 1), 'top-right');
 });
 
-test('2v2: partner is opposite (top); opponents are left and right', () => {
+test('2v2: clockwise — partner opposite (top); next opponent left, last opponent right', () => {
   assert.equal(seatPosition(4, 0, 0), 'bottom');
-  assert.equal(seatPosition(4, 0, 1), 'right');
-  assert.equal(seatPosition(4, 0, 2), 'top'); // partner (seats 0 & 2 are a team)
-  assert.equal(seatPosition(4, 0, 3), 'left');
+  assert.equal(seatPosition(4, 0, 1), 'left');   // next to act sits to my left (clockwise)
+  assert.equal(seatPosition(4, 0, 2), 'top');    // partner (seats 0 & 2 are a team)
+  assert.equal(seatPosition(4, 0, 3), 'right');
   // my partner sits opposite me from seat 1's perspective too
   assert.equal(seatPosition(4, 1, 3), 'top');
 });
