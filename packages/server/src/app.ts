@@ -52,6 +52,7 @@ import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.
 import { NowPaymentsPayoutProvider } from './money/nowPaymentsPayout.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
+import { BinanceDepositLister, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -416,6 +417,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const tronDeposit = config.tronDepositAddress
     ? new TronDepositVerifier({ depositAddress: config.tronDepositAddress, apiKey: config.tronGridApiKey })
     : undefined;
+  // Unclaimed-deposit watcher: when deposits land in a Binance account AND we can
+  // alert (Telegram), poll deposit history and ping the owner about USDT-TRC20
+  // deposits that arrived but were never claimed via the TxID flow (player forgot).
+  const depositWatcher = config.binanceApiKey && config.binanceApiSecret && config.tronDepositAddress && notifier.name !== 'null'
+    ? { lister: new BinanceDepositLister({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret }), alerted: new Set<string>() }
+    : null;
   if (payout.name !== 'null') {
     // eslint-disable-next-line no-console
     console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
@@ -600,6 +607,18 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         const now = Date.now();
         const purged = (await refreshTokensRepo.deleteExpired(now)) + (await verificationTokensRepo.deleteExpired(now));
         if (purged > 0) app.log.info({ purged }, 'purged expired tokens');
+        // Safety net: ping the operator about Binance deposits that arrived but were
+        // never claimed via the TxID flow (so a forgotten deposit isn't lost).
+        if (depositWatcher) {
+          const alerts = await checkUnclaimedDeposits({
+            list: (since) => depositWatcher.lister.listRecent(since),
+            isClaimed: async (txId) => (await ledger.findByProviderRef(`tron:${txId}`)) != null,
+            notify: (text) => notifier.notify(text),
+            alerted: depositWatcher.alerted,
+            now,
+          }).catch((err) => { app.log.warn({ err }, 'deposit watcher failed'); return 0; });
+          if (alerts) app.log.warn({ unclaimedDeposits: alerts }, 'alerted operator about unclaimed Binance deposits');
+        }
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');
       }

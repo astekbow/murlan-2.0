@@ -160,7 +160,9 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     if (!deps.tronDeposit) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });
     const parsed = txidSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'TxID i pavlefshëm.' } });
-    const txId = parsed.data.txId;
+    // Normalize to lowercase: TRON tx hashes are lowercase hex on-chain, and the
+    // unclaimed-deposit watcher matches the ledger providerRef by lowercased txId.
+    const txId = parsed.data.txId.toLowerCase();
     const v = await deps.tronDeposit.verify(txId);
     if (!v.ok || v.amountCents == null) return reply.code(400).send({ error: { code: 'not_verified', message: v.error ?? 'Nuk u verifikua.' } });
     // Idempotent on the TxID — a transaction can credit AT MOST once (a replay or a
