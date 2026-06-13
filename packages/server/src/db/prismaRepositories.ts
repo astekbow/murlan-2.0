@@ -54,6 +54,8 @@ function toUser(row: any): User {
     accountState: (row.accountState ?? 'active') as User['accountState'],
     accountStateReason: row.accountStateReason ?? null,
     accountStateUntil: msOrNull(row.accountStateUntil ?? null),
+    depositAddress: row.depositAddress ?? null,
+    depositAddressIndex: row.depositAddressIndex ?? null,
     kycStatus: row.kycStatus as KycStatus,
     dateOfBirth: row.dateOfBirth,
     country: row.country,
@@ -128,6 +130,34 @@ export class PrismaUserRepository implements UserRepository {
     if (res.count === 0) return null; // not found or insufficient funds
     const row = await this.db.user.findUnique({ where: { id } });
     return row ? row.balanceCents : null;
+  }
+
+  async assignDepositAddress(id: string, derive: (index: number) => string): Promise<{ address: string; index: number } | null> {
+    // Retry the optimistic claim: pick max+1, set it ONLY if still unassigned. A
+    // concurrent claim either takes our index (unique constraint → P2002 → retry
+    // with a fresh max) or our row (updateMany count 0 → re-read the winner).
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const existing = await this.db.user.findUnique({ where: { id }, select: { depositAddress: true, depositAddressIndex: true } });
+      if (!existing) return null;
+      if (existing.depositAddress && existing.depositAddressIndex != null) {
+        return { address: existing.depositAddress, index: existing.depositAddressIndex };
+      }
+      const agg = await this.db.user.aggregate({ _max: { depositAddressIndex: true } });
+      const index = (agg._max.depositAddressIndex ?? -1) + 1;
+      const address = derive(index);
+      try {
+        const res = await this.db.user.updateMany({
+          where: { id, depositAddress: null },
+          data: { depositAddress: address, depositAddressIndex: index },
+        });
+        if (res.count === 1) return { address, index };
+        // count 0 → another request assigned ours first; loop re-reads + returns it.
+      } catch {
+        // unique violation on the index (another user grabbed it) → retry with a new max.
+      }
+    }
+    const u = await this.db.user.findUnique({ where: { id }, select: { depositAddress: true, depositAddressIndex: true } });
+    return u?.depositAddress != null && u.depositAddressIndex != null ? { address: u.depositAddress, index: u.depositAddressIndex } : null;
   }
 
   async updateCompliance(id: string, patch: ComplianceUpdate): Promise<User | null> {

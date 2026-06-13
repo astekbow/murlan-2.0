@@ -27,7 +27,8 @@ export interface TronDepositVerification {
 }
 
 export interface TronDepositOptions {
-  depositAddress: string;  // YOUR USDT-TRC20 receiving address (base58 T...)
+  depositAddress?: string; // DEFAULT receiving address (legacy single-address mode);
+                           // with per-player addresses, verify() is given the address.
   apiKey?: string | null;  // TronGrid API key (free); higher rate limits when set
   contract?: string;       // token contract (defaults to mainnet USDT)
   baseUrl?: string;
@@ -45,18 +46,27 @@ export class TronDepositVerifier {
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
   }
 
-  async verify(txId: string): Promise<TronDepositVerification> {
+  /**
+   * Verify a TxID is a real USDT-TRC20 transfer TO `toAddress` (the player's OWN
+   * unique deposit address — pass it explicitly; falls back to the configured
+   * single address). Binding the credit to the recipient address is what makes
+   * claim-jacking impossible: a stranger's TxID went to THEIR address, not yours,
+   * so it isn't in your address's transfer list and `tx.to` won't match.
+   */
+  async verify(txId: string, toAddress?: string): Promise<TronDepositVerification> {
     if (!/^[0-9a-fA-F]{64}$/.test(txId)) return { ok: false, error: 'TxID i pavlefshëm.' };
+    const dest = toAddress ?? this.opts.depositAddress;
+    if (!dest) return { ok: false, error: 'Mungon adresa e marrjes.' };
     const want = txId.toLowerCase();
     try {
-      const url = `${this.base}/v1/accounts/${this.opts.depositAddress}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
+      const url = `${this.base}/v1/accounts/${dest}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
       const res = await this.fetchFn(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
       if (!res.ok) return { ok: false, error: `TronGrid ${res.status}` };
       const data = await res.json();
       // Compare case-insensitively (TRON hashes are lowercase hex, but don't assume).
       const tx = (data?.data ?? []).find((t: any) => String(t.transaction_id).toLowerCase() === want);
       if (!tx) return { ok: false, error: 'Transaksioni nuk u gjet ose nuk shkoi te adresa e duhur.' };
-      if (tx.to !== this.opts.depositAddress) return { ok: false, error: 'Marrësi i gabuar.' };
+      if (tx.to !== dest) return { ok: false, error: 'Marrësi i gabuar.' };
       // REQUIRE the exact USDT contract — a missing/empty token_info.address (a fake
       // or scam token) must be REJECTED, not skipped. (undefined !== contract ⇒ reject.)
       if (tx.token_info?.address !== this.contract) return { ok: false, error: 'Nuk është USDT-TRC20.' };

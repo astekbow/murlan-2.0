@@ -34,6 +34,10 @@ export interface User {
   accountState: AccountState;
   accountStateReason: string | null; // admin note explaining the state
   accountStateUntil: number | null;  // epoch ms — suspension expiry (null = permanent/none)
+  // Per-player USDT-TRC20 deposit address (watch-only, derived from the deposit
+  // xpub at `depositAddressIndex`). null until first assigned. Unique per account.
+  depositAddress: string | null;
+  depositAddressIndex: number | null;
   // Compliance (spec §13) — gated by ComplianceService switches.
   kycStatus: KycStatus;
   dateOfBirth: string | null;     // 'YYYY-MM-DD'
@@ -124,6 +128,15 @@ export interface UserRepository {
    * pre-check funds. Production impl runs this inside a DB transaction.
    */
   adjustBalance(id: string, deltaCents: number): Promise<number | null>;
+  /**
+   * Get the player's unique deposit address, assigning one ATOMICALLY on first
+   * call: pick the next free index, derive its address via `derive(index)`, and
+   * persist both. Idempotent — returns the existing pair if already assigned.
+   * Returns null if the user doesn't exist. `derive` is a pure function (the
+   * watch-only HD derivation); it's called inside the assignment so the index and
+   * address stay consistent and unique.
+   */
+  assignDepositAddress(id: string, derive: (index: number) => string): Promise<{ address: string; index: number } | null>;
   /** Patch compliance fields (KYC status, DOB, country, self-exclusion). */
   updateCompliance(id: string, patch: ComplianceUpdate): Promise<User | null>;
   /** Set/clear responsible-gaming daily limits. */
@@ -188,6 +201,8 @@ export class InMemoryUserRepository implements UserRepository {
       accountState: 'active',
       accountStateReason: null,
       accountStateUntil: null,
+      depositAddress: null,
+      depositAddressIndex: null,
       kycStatus: 'none',
       dateOfBirth: null,
       country: null,
@@ -225,6 +240,18 @@ export class InMemoryUserRepository implements UserRepository {
       if (u) out.push({ ...u });
     }
     return out;
+  }
+
+  async assignDepositAddress(id: string, derive: (index: number) => string): Promise<{ address: string; index: number } | null> {
+    const u = this.byId.get(id);
+    if (!u) return null;
+    if (u.depositAddress != null && u.depositAddressIndex != null) return { address: u.depositAddress, index: u.depositAddressIndex };
+    const used = [...this.byId.values()].map((x) => x.depositAddressIndex).filter((i): i is number => i != null);
+    const index = used.length ? Math.max(...used) + 1 : 0;
+    const address = derive(index);
+    u.depositAddress = address;
+    u.depositAddressIndex = index;
+    return { address, index };
   }
 
   async findByEmail(email: string): Promise<User | null> {

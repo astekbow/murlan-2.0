@@ -296,6 +296,12 @@ export class AuthService {
     return user ? toPublicUser(user) : null;
   }
 
+  /** Get (assigning on first call) the player's unique USDT-TRC20 deposit address.
+   *  `derive` is the watch-only HD derivation for a given index. */
+  assignDepositAddress(userId: string, derive: (index: number) => string): Promise<{ address: string; index: number } | null> {
+    return this.users.assignDepositAddress(userId, derive);
+  }
+
   /** Compliance view of a user (for ComplianceService gating). */
   async getComplianceProfile(userId: string): Promise<{
     kycStatus: 'none' | 'pending' | 'verified';

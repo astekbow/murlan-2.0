@@ -38,7 +38,8 @@ const schema = z.object({
   AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
   BINANCE_API_KEY: z.string().optional(),             // Binance withdraw API — auto-payout rail when set (with secret)
   BINANCE_API_SECRET: z.string().optional(),          // Binance API secret (HMAC-SHA256 request signing)
-  TRON_DEPOSIT_ADDRESS: z.string().optional(),        // YOUR USDT-TRC20 address — enables fee-free TxID deposits
+  TRON_DEPOSIT_XPUB: z.string().optional(),           // account-level TRON xpub (watch-only) → UNIQUE per-player deposit address (preferred; theft-proof attribution)
+  TRON_DEPOSIT_ADDRESS: z.string().optional(),        // legacy SINGLE shared address (claim-jackable) — used only if no xpub is set
   TRONGRID_API_KEY: z.string().optional(),            // free TronGrid key (on-chain deposit verification; higher rate limits)
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
@@ -79,6 +80,7 @@ export interface AppConfig {
   autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
   binanceApiKey: string | null;
   binanceApiSecret: string | null;
+  tronDepositXpub: string | null;
   tronDepositAddress: string | null;
   tronGridApiKey: string | null;
   compliance: {
@@ -161,6 +163,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,
     binanceApiKey: parsed.BINANCE_API_KEY || null,
     binanceApiSecret: parsed.BINANCE_API_SECRET || null,
+    tronDepositXpub: parsed.TRON_DEPOSIT_XPUB || null,
     tronDepositAddress: parsed.TRON_DEPOSIT_ADDRESS || null,
     tronGridApiKey: parsed.TRONGRID_API_KEY || null,
     compliance: {

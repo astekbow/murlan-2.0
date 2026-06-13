@@ -21,7 +21,7 @@ import type { ResponsibleGamingService } from '../compliance/responsibleGaming.t
 import { type Notifier, escapeHtml } from '../notify/notifier.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { TronDepositVerifier } from '../money/tronDeposit.ts';
-import type { DepositIntentTracker } from '../money/depositIntentTracker.ts';
+import type { TronHdWallet } from '../money/tronHd.ts';
 import { processWithdrawal } from '../money/autoPayout.ts';
 import { isValidTronAddress } from '../money/tronAddress.ts';
 import { autoPayouts, tronDeposits } from '../metrics.ts';
@@ -39,8 +39,8 @@ export interface WalletRoutesDeps {
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
   dailyAutoWithdrawCapCents?: number; // 0/undefined = off; per-user 24h auto-payout cap
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via on-chain TxID verify
-  tronDepositAddress?: string | null; // YOUR receiving address (shown to players)
-  depositIntents?: DepositIntentTracker; // reduces TxID claim-race + watcher attribution
+  depositWallet?: TronHdWallet; // watch-only HD wallet → UNIQUE per-player deposit address (preferred)
+  tronDepositAddress?: string | null; // legacy SINGLE shared receiving address (used only if no depositWallet)
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -171,42 +171,43 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   // ----- Fee-free USDT-TRC20 deposits (own address + on-chain TxID verify) ----
   // The player sends to OUR address, then submits the TxID; we verify on-chain and
   // credit. Available only when a TRON deposit address is configured.
+  // The player's USDT-TRC20 receiving address. With a deposit xpub configured this
+  // is a UNIQUE per-player address (assigned on first call), so an on-chain deposit
+  // is attributed by which address received it — claim-jacking is impossible. Falls
+  // back to the legacy single shared address only if no xpub is set.
+  const resolveDepositAddress = async (userId: string): Promise<string | null> => {
+    if (deps.depositWallet) {
+      const assigned = await deps.auth.assignDepositAddress(userId, (i) => deps.depositWallet!.addressAt(i));
+      return assigned?.address ?? null;
+    }
+    return deps.tronDepositAddress ?? null;
+  };
+
   app.get('/api/wallet/deposit/address', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
-    if (!deps.tronDepositAddress) return reply.send({ address: null });
-    return reply.send({ address: deps.tronDepositAddress, currency: 'USDT', network: 'TRC20' });
+    const address = await resolveDepositAddress(caller.userId);
+    if (!address) return reply.send({ address: null });
+    return reply.send({ address, currency: 'USDT', network: 'TRC20' });
   });
 
-  // Declare a deposit ("I'm about to send ~$X") BEFORE sending. Gates the TxID claim
-  // (a stranger can't claim a deposit they spotted on-chain) + lets the unclaimed
-  // watcher attribute an arrived deposit to the right player by amount.
-  const intentSchema = z.object({ amountCents: z.number().int().nonnegative().max(MAX_DEPOSIT_CENTS).optional() });
-  app.post('/api/wallet/deposit/intent', async (req, reply) => {
-    const caller = await guard(req, reply);
-    if (!caller) return;
-    const parsed = intentSchema.safeParse(req.body ?? {});
-    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
-    deps.depositIntents?.open(caller.userId, parsed.data.amountCents ?? 0);
-    return reply.send({ ok: true });
-  });
 
   const txidSchema = z.object({ txId: z.string().trim().min(60).max(80) });
   app.post('/api/wallet/deposit/txid', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     if (!deps.tronDeposit) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });
-    // Must have declared the deposit first (anti claim-race). In-memory → after a
-    // restart just press "Fillo depozitë" again (funds are safe; nothing is lost).
-    if (deps.depositIntents && !deps.depositIntents.hasOpen(caller.userId)) {
-      return reply.code(409).send({ error: { code: 'no_intent', message: 'Shtyp "Fillo depozitë" i pari, pastaj ngjit TxID-në.' } });
-    }
+    // Resolve THIS player's receiving address. The deposit is verified against it,
+    // so a TxID that went to someone else's address can never be claimed here — the
+    // address binding (not the TxID alone) is the anti-claim-jacking guarantee.
+    const myAddress = await resolveDepositAddress(caller.userId);
+    if (!myAddress) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });
     const parsed = txidSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'TxID i pavlefshëm.' } });
     // Normalize to lowercase: TRON tx hashes are lowercase hex on-chain, and the
     // unclaimed-deposit watcher matches the ledger providerRef by lowercased txId.
     const txId = parsed.data.txId.toLowerCase();
-    const v = await deps.tronDeposit.verify(txId);
+    const v = await deps.tronDeposit.verify(txId, myAddress);
     if (!v.ok || v.amountCents == null) { tronDeposits.inc({ outcome: 'rejected' }); return reply.code(400).send({ error: { code: 'not_verified', message: v.error ?? 'Nuk u verifikua.' } }); }
     // Below the stated minimum: don't auto-credit (keeps us safely above Binance's
     // own min deposit). The funds did arrive on-chain → the unclaimed-deposit watcher

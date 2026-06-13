@@ -50,6 +50,7 @@ import { createNotifier, type Notifier } from './notify/notifier.ts';
 import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
+import { TronHdWallet } from './money/tronHd.ts';
 import { BinanceDepositLister, BinanceAccountReader, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
 import { findStaleWithdrawals, pruneAlerted, treasuryBufferCents, reconcileFailedWithdrawals } from './money/paymentMonitor.ts';
 import { BinanceWithdrawReader } from './money/binancePayout.ts';
@@ -102,6 +103,7 @@ export interface HttpDeps {
   notifier?: Notifier; // ops alerts (Telegram) — e.g. new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via TxID verify
+  depositWallet?: TronHdWallet; // watch-only HD wallet → unique per-player deposit address
   tronDepositAddress?: string | null;
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
@@ -234,7 +236,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,
-      tronDeposit: deps.tronDeposit, tronDepositAddress: deps.config.tronDepositAddress,
+      tronDeposit: deps.tronDeposit, depositWallet: deps.depositWallet, tronDepositAddress: deps.config.tronDepositAddress,
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
@@ -402,11 +404,21 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   if (config.autoWithdrawMaxCents > 0 && config.binanceApiKey && config.binanceApiSecret) {
     payout = new BinancePayoutProvider({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret, currency: config.autoWithdrawCurrency });
   }
-  // Fee-free USDT-TRC20 deposits (own address + on-chain TxID verify) when an
-  // address is configured; else the existing processor/stub deposit flow is used.
-  const tronDeposit = config.tronDepositAddress
-    ? new TronDepositVerifier({ depositAddress: config.tronDepositAddress, apiKey: config.tronGridApiKey })
+  // Fee-free USDT-TRC20 deposits via on-chain TxID verify. PREFERRED: a watch-only
+  // HD wallet (TRON_DEPOSIT_XPUB) gives every player a UNIQUE deposit address, so a
+  // deposit is attributed by which address received it (theft-proof, no claim-jack)
+  // and the server holds NO private keys. Legacy fallback: a single shared address.
+  const depositWallet = config.tronDepositXpub ? new TronHdWallet(config.tronDepositXpub) : undefined;
+  const tronDeposit = depositWallet || config.tronDepositAddress
+    ? new TronDepositVerifier({ depositAddress: config.tronDepositAddress ?? undefined, apiKey: config.tronGridApiKey })
     : undefined;
+  if (depositWallet) {
+    // eslint-disable-next-line no-console
+    console.warn('[deposit] UNIQUE per-player USDT-TRC20 deposit addresses ENABLED (watch-only xpub; no private keys on the server).');
+  } else if (config.tronDepositAddress) {
+    // eslint-disable-next-line no-console
+    console.warn('⚠️  [deposit] Using a SINGLE shared TRON deposit address (TRON_DEPOSIT_ADDRESS). This is claim-jackable — set TRON_DEPOSIT_XPUB for unique per-player addresses.');
+  }
   // Unclaimed-deposit watcher: when deposits land in a Binance account AND we can
   // alert (Telegram), poll deposit history and ping the owner about USDT-TRC20
   // deposits that arrived but were never claimed via the TxID flow (player forgot).
@@ -431,8 +443,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // fee-free USDT-TRC20 TxID flow (`tronDeposit` above); this PaymentProvider is the
   // dev/test stub behind /api/payments/webhook/:provider (kept for local dev + tests).
   const provider: PaymentProvider = new MockPaymentProvider(config.paymentWebhookSecret);
-  // A real deposit rail in production = the on-chain TRON address (TxID flow). Without
-  // it, the only deposit path is the mock stub → block boot unless explicitly staging.
+  // A real deposit rail in production = on-chain USDT-TRC20 (per-player xpub addresses
+  // or a configured address). Without it, the only deposit path is the mock stub →
+  // block boot unless explicitly staging.
   const hasRealDepositRail = tronDeposit != null;
   if (config.isProd && !config.allowStubProviders) {
     if (!hasRealDepositRail) throw new Error('A real deposit rail must be configured in production: set TRON_DEPOSIT_ADDRESS (on-chain USDT-TRC20 deposits via TxID). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
@@ -511,7 +524,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const voidMatch = (roomId: string, meta: { adminId: string; reason: string }) =>
     voidHolder.fn ? voidHolder.fn(roomId, meta) : Promise.resolve({ ok: false as const, reason: 'unavailable' as const });
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

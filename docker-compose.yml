@@ -80,7 +80,11 @@ services:
       # Enable Withdrawals + the server IP whitelisted + address whitelist OFF.
       BINANCE_API_KEY: ${BINANCE_API_KEY:-}
       BINANCE_API_SECRET: ${BINANCE_API_SECRET:-}
-      # Fee-free USDT-TRC20 deposits: your receiving address + free TronGrid verify.
+      # Fee-free USDT-TRC20 deposits via on-chain TxID verify. PREFERRED: set
+      # TRON_DEPOSIT_XPUB (watch-only account xpub) → a UNIQUE deposit address per
+      # player, attributed by which address received funds (theft-proof; no private
+      # keys on the server). Legacy single shared address (claim-jackable) only if no xpub.
+      TRON_DEPOSIT_XPUB: ${TRON_DEPOSIT_XPUB:-}
       TRON_DEPOSIT_ADDRESS: ${TRON_DEPOSIT_ADDRESS:-}
       TRONGRID_API_KEY: ${TRONGRID_API_KEY:-}
     # Localhost only — the public entry point is the client (nginx) below, which

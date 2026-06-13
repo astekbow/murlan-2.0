@@ -97,6 +97,12 @@ model User {
   accountStateReason String?
   accountStateUntil  DateTime?
 
+  // Per-player USDT-TRC20 deposit address (watch-only, derived from TRON_DEPOSIT_XPUB
+  // at index `depositAddressIndex`). Unique → an on-chain deposit is attributed to
+  // exactly one account by which address received it (theft-proof, no claim-jacking).
+  depositAddress      String? @unique
+  depositAddressIndex Int?    @unique
+
   // Compliance (§13)
   kycStatus         KycStatus @default(none)
   dateOfBirth       String?
