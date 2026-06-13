@@ -44,12 +44,10 @@ import { WalletService } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
-import { NowPaymentsProvider } from './money/nowPaymentsProvider.ts';
 import { ConsoleEmailProvider, type EmailProvider } from './email/emailProvider.ts';
 import { ResendEmailProvider } from './email/resendEmailProvider.ts';
 import { createNotifier, type Notifier } from './notify/notifier.ts';
 import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.ts';
-import { NowPaymentsPayoutProvider } from './money/nowPaymentsPayout.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
 import { BinanceDepositLister, BinanceAccountReader, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
@@ -397,23 +395,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     : new ConsoleEmailProvider();
   // Ops alerts (Telegram) when configured, else a no-op. Used for withdrawal pings.
   const notifier: Notifier = createNotifier(config);
-  // AUTO crypto payout for small KYC-verified withdrawals — ON only when a payout
-  // provider's creds AND a positive cap are set. Binance is preferred when its keys
-  // are present; else NOWPayments Mass Payout; else NullPayoutProvider (manual).
+  // AUTO crypto payout for small KYC-verified withdrawals — ON only when the Binance
+  // withdraw API creds AND a positive cap are set; else NullPayoutProvider (manual).
   // This moves REAL money — keep the cap small. Larger withdrawals stay manual.
   let payout: PayoutProvider = new NullPayoutProvider();
   if (config.autoWithdrawMaxCents > 0 && config.binanceApiKey && config.binanceApiSecret) {
     payout = new BinancePayoutProvider({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret, currency: config.autoWithdrawCurrency });
-  } else if (config.autoWithdrawMaxCents > 0 && config.nowPaymentsApiKey && config.nowPaymentsPayoutEmail && config.nowPaymentsPayoutPassword) {
-    payout = new NowPaymentsPayoutProvider({
-      apiKey: config.nowPaymentsApiKey,
-      email: config.nowPaymentsPayoutEmail,
-      password: config.nowPaymentsPayoutPassword,
-      twoFaSecret: config.nowPayments2faSecret,
-      currency: config.autoWithdrawCurrency,
-      appOrigin: config.clientOrigin,
-      sandbox: config.nowPaymentsSandbox,
-    });
   }
   // Fee-free USDT-TRC20 deposits (own address + on-chain TxID verify) when an
   // address is configured; else the existing processor/stub deposit flow is used.
@@ -440,18 +427,20 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // eslint-disable-next-line no-console
     console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
   }
-  // Real crypto deposits when NOWPayments is configured (env), else the stub.
-  const provider: PaymentProvider =
-    config.nowPaymentsApiKey && config.nowPaymentsIpnSecret
-      ? new NowPaymentsProvider(config.nowPaymentsApiKey, config.nowPaymentsIpnSecret, config.clientOrigin, config.nowPaymentsSandbox)
-      : new MockPaymentProvider(config.paymentWebhookSecret);
+  // Deposit hosted-checkout/webhook flow. The PRIMARY deposit rail is now the
+  // fee-free USDT-TRC20 TxID flow (`tronDeposit` above); this PaymentProvider is the
+  // dev/test stub behind /api/payments/webhook/:provider (kept for local dev + tests).
+  const provider: PaymentProvider = new MockPaymentProvider(config.paymentWebhookSecret);
+  // A real deposit rail in production = the on-chain TRON address (TxID flow). Without
+  // it, the only deposit path is the mock stub → block boot unless explicitly staging.
+  const hasRealDepositRail = tronDeposit != null;
   if (config.isProd && !config.allowStubProviders) {
-    if (provider.name === 'mock') throw new Error('A real PaymentProvider must be configured in production (MockPaymentProvider is a stub — wire Stripe/PayPal/crypto). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
+    if (!hasRealDepositRail) throw new Error('A real deposit rail must be configured in production: set TRON_DEPOSIT_ADDRESS (on-chain USDT-TRC20 deposits via TxID). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
     if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
   }
-  if (config.isProd && config.allowStubProviders && (provider.name === 'mock' || email.name === 'console')) {
+  if (config.isProd && config.allowStubProviders && (!hasRealDepositRail || email.name === 'console')) {
     // eslint-disable-next-line no-console
-    console.warn('⚠️  ALLOW_STUB_PROVIDERS=true: running in production with STUB payment/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Wire real providers + unset this flag before accepting deposits.');
+    console.warn('⚠️  ALLOW_STUB_PROVIDERS=true: running in production with STUB deposit/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Configure TRON_DEPOSIT_ADDRESS + a real EmailProvider, then unset this flag before accepting deposits.');
   }
 
   // Email verification + password reset go through the EmailProvider above.

@@ -3,8 +3,8 @@
 // ----------------------------------------------------------------------------
 // Sends crypto from your Binance Spot balance to a player's address via the
 // Binance withdrawal API (POST /sapi/v1/capital/withdraw/apply, HMAC-SHA256
-// signed). Implements the same PayoutProvider interface as the NOWPayments one,
-// so it drops straight into the (tested) autoPayout orchestration.
+// signed). Implements the PayoutProvider interface, so it drops straight into the
+// (tested) autoPayout orchestration.
 //
 // IDEMPOTENCY: we pass our withdrawal id as `withdrawOrderId` — Binance rejects a
 // duplicate, so a retry can never double-send.

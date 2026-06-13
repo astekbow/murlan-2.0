@@ -1,8 +1,8 @@
 // ============================================================================
 // MURLAN — Payout provider (automatic crypto withdrawal send)
 // ----------------------------------------------------------------------------
-// The app depends only on this interface. A real provider (NOWPayments Mass
-// Payout) sends crypto to the player's address; the default NullPayoutProvider
+// The app depends only on this interface. A real provider (the Binance withdraw
+// API) sends crypto to the player's address; the default NullPayoutProvider
 // means "no auto-send configured" → withdrawals stay manual. payout() must NEVER
 // throw (return { ok:false } on failure) so the caller can fall back to manual.
 // ============================================================================

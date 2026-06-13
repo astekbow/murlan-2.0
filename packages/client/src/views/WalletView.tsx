@@ -12,20 +12,15 @@ import { useT, translate, useLangStore } from '../lib/i18n.ts';
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
-// Minimum deposit (USD cents) — keep in sync with the server (walletRoutes). Below
-// this, most crypto is under the provider's per-coin minimum (the "unavailable" trap).
-const MIN_DEPOSIT_CENTS = 500; // $5 — keep in sync with the server (walletRoutes)
-
 export function WalletView() {
   const {
-    balanceCents, transactions, withdrawals, profile, lastIntent, error, notice,
-    refresh, deposit, withdraw, setProfile, selfExclude, clearMessages,
+    balanceCents, transactions, withdrawals, profile, error, notice,
+    refresh, withdraw, setProfile, selfExclude, clearMessages,
   } = useWalletStore();
   const setView = useUiStore((s) => s.setView);
   const t = useT();
   const { confirm, dialog } = useConfirm();
 
-  const [depositAmt, setDepositAmt] = useState('5');
   const [withdrawAmt, setWithdrawAmt] = useState('5');
   const [destination, setDestination] = useState('');
   const [dob, setDob] = useState(profile?.dateOfBirth ?? '');
@@ -33,7 +28,6 @@ export function WalletView() {
   const [exclDays, setExclDays] = useState('30');
   // In-flight guards: disable money buttons while a request is pending so a
   // double-click can't double-submit.
-  const [depositing, setDepositing] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
   const [depAddr, setDepAddr] = useState<string | null>(null);
@@ -86,21 +80,6 @@ export function WalletView() {
     const b = setTimeout(() => setGain(0), 1600);
     return () => { clearTimeout(a); clearTimeout(b); };
   }, [balanceCents]);
-
-  const onDeposit = async () => {
-    if (depositing) return;
-    const cents = parseDollarsToCents(depositAmt);
-    if (!cents || cents <= 0) { useWalletStore.setState({ error: tr('wallet.errAmountGt0') }); return; }
-    // Below the provider's per-coin minimum the checkout just shows "unavailable",
-    // so reject it here with a clear message instead.
-    if (cents < MIN_DEPOSIT_CENTS) { useWalletStore.setState({ error: tr('wallet.errMinDeposit') }); return; }
-    setDepositing(true);
-    const intent = await deposit(cents);
-    setDepositing(false);
-    // A real provider (NOWPayments) returns a hosted-checkout URL → send the player
-    // there to pick a coin + pay; the balance is credited automatically via webhook.
-    if (intent && /^https?:\/\//i.test(intent.payAddress)) window.location.href = intent.payAddress;
-  };
 
   useEffect(() => {
     void refresh();
@@ -210,32 +189,6 @@ export function WalletView() {
         </section>
       )}
 
-      {/* Deposit + Withdraw sit side-by-side on wide screens, stacked on mobile. */}
-      <div className="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
-      {/* Deposit — crypto via the hosted checkout (NOWPayments). */}
-      <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.08s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.deposit')}</h2>
-        <div className="flex flex-wrap gap-3 items-end">
-          <label className="flex-1">
-            <span className="field-label">{t('wallet.amountUsd')}</span>
-            <input type="number" min="5" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
-          </label>
-          <button onClick={() => void onDeposit()} disabled={depositing} className="btn btn-gold w-full sm:w-auto">
-            {depositing ? t('wallet.sending') : t('wallet.depositCrypto')}
-          </button>
-        </div>
-        <p className="text-[11px] text-muted/80">{t('wallet.minDepositHint')}</p>
-        <p className="text-[11px] text-muted/80">{t('wallet.cryptoRedirectNote')}</p>
-        {/* Dev/stub fallback: no hosted URL → show the raw (mock) address. */}
-        {lastIntent && !/^https?:\/\//i.test(lastIntent.payAddress) && (
-          <div className="panel-solid p-3 text-xs break-all">
-            <div className="text-muted">{t('wallet.sendToAddress', { amount: dollars(lastIntent.amountCents) })}</div>
-            <div className="font-mono text-emerald-300 mt-0.5">{lastIntent.payAddress}</div>
-            <div className="text-muted/70 mt-1">{t('wallet.testModeNote')}</div>
-          </div>
-        )}
-      </section>
-
       {/* Withdraw */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.12s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.withdraw')}</h2>
@@ -257,7 +210,6 @@ export function WalletView() {
         <p className="text-[11px] text-muted/80">{t('wallet.withdrawFeeNote')}</p>
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
-      </div>
 
       {/* Verification / responsible gaming */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.16s' }}>

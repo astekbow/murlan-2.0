@@ -9,7 +9,7 @@ function recorder() {
   const notifier: Notifier = { name: 'rec', async notify(t) { calls.messages.push(t); } };
   const approve = async (id: string) => { calls.approved.push(id); };
   const payoutProvider = (result: PayoutResult): PayoutProvider => ({
-    name: 'nowpayments-payout',
+    name: 'binance-payout',
     async payout(req) { calls.paid.push(req.withdrawalId); return result; },
   });
   return { calls, notifier, approve, payoutProvider };
@@ -64,7 +64,7 @@ test('no payout provider configured → auto-eligible but stays manual (fast-tra
 
 test('provider that throws is caught → not paid, error reported', async () => {
   const r = recorder();
-  const throwing: PayoutProvider = { name: 'nowpayments-payout', async payout() { throw new Error('network down'); } };
+  const throwing: PayoutProvider = { name: 'binance-payout', async payout() { throw new Error('network down'); } };
   const out = await processWithdrawal(REC, VERIFIED, { approve: r.approve, payout: throwing, notifier: r.notifier, autoMaxCents: 5000 });
   assert.equal(out.autoPaid, false);
   assert.match(out.error!, /payout threw/);

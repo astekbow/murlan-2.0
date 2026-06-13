@@ -28,9 +28,6 @@ const schema = z.object({
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)
-  NOWPAYMENTS_API_KEY: z.string().optional(),  // set both API_KEY + IPN_SECRET to enable real crypto deposits
-  NOWPAYMENTS_IPN_SECRET: z.string().optional(),
-  NOWPAYMENTS_SANDBOX: z.string().optional(), // 'true' → use the NOWPayments sandbox API (test payments)
   RESEND_API_KEY: z.string().optional(),       // set to send real reset/verification emails via Resend
   EMAIL_FROM: z.string().optional(),           // sender, e.g. "Murlan <noreply@yourdomain.com>"
   ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
@@ -39,10 +36,7 @@ const schema = z.object({
   AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
   DAILY_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = no daily cap; >0 = once a user's 24h withdrawals exceed this, further ones go MANUAL (anti-drain/AML)
   AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
-  NOWPAYMENTS_PAYOUT_EMAIL: z.string().optional(),    // NOWPayments account email — enables AUTO crypto payout (with password + API key)
-  NOWPAYMENTS_PAYOUT_PASSWORD: z.string().optional(), // NOWPayments account password (for the payout JWT auth)
-  NOWPAYMENTS_2FA_SECRET: z.string().optional(),      // base32 authenticator secret → auto-generates the payout 2FA code
-  BINANCE_API_KEY: z.string().optional(),             // Binance withdraw API — PREFERRED auto-payout when set (with secret)
+  BINANCE_API_KEY: z.string().optional(),             // Binance withdraw API — auto-payout rail when set (with secret)
   BINANCE_API_SECRET: z.string().optional(),          // Binance API secret (HMAC-SHA256 request signing)
   TRON_DEPOSIT_ADDRESS: z.string().optional(),        // YOUR USDT-TRC20 address — enables fee-free TxID deposits
   TRONGRID_API_KEY: z.string().optional(),            // free TronGrid key (on-chain deposit verification; higher rate limits)
@@ -75,9 +69,6 @@ export interface AppConfig {
   abandonMs: number;
   paymentWebhookSecret: string;
   paymentWebhookIps: string[];
-  nowPaymentsApiKey: string | null;
-  nowPaymentsIpnSecret: string | null;
-  nowPaymentsSandbox: boolean;
   resendApiKey: string | null;
   emailFrom: string;
   adminEmail: string | null;
@@ -86,9 +77,6 @@ export interface AppConfig {
   autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
   dailyAutoWithdrawCapCents: number; // 0 = off; per-user 24h auto-payout cap (excess → manual)
   autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
-  nowPaymentsPayoutEmail: string | null;
-  nowPaymentsPayoutPassword: string | null;
-  nowPayments2faSecret: string | null;
   binanceApiKey: string | null;
   binanceApiSecret: string | null;
   tronDepositAddress: string | null;
@@ -163,9 +151,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(',')
       .map((ip) => ip.trim())
       .filter((ip) => ip.length > 0),
-    nowPaymentsApiKey: parsed.NOWPAYMENTS_API_KEY || null,
-    nowPaymentsIpnSecret: parsed.NOWPAYMENTS_IPN_SECRET || null,
-    nowPaymentsSandbox: isTrue(parsed.NOWPAYMENTS_SANDBOX),
     resendApiKey: parsed.RESEND_API_KEY || null,
     emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,
@@ -174,9 +159,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
     dailyAutoWithdrawCapCents: parsed.DAILY_AUTO_WITHDRAW_CAP_CENTS,
     autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,
-    nowPaymentsPayoutEmail: parsed.NOWPAYMENTS_PAYOUT_EMAIL || null,
-    nowPaymentsPayoutPassword: parsed.NOWPAYMENTS_PAYOUT_PASSWORD || null,
-    nowPayments2faSecret: parsed.NOWPAYMENTS_2FA_SECRET || null,
     binanceApiKey: parsed.BINANCE_API_KEY || null,
     binanceApiSecret: parsed.BINANCE_API_SECRET || null,
     tronDepositAddress: parsed.TRON_DEPOSIT_ADDRESS || null,

@@ -1,11 +1,12 @@
 // ============================================================================
 // MURLAN — Payment provider abstraction (Phase 6)
 // ----------------------------------------------------------------------------
-// Deposits go through a hosted provider behind this interface (NOWPayments /
-// Coinbase Commerce / PayPal in production). Phase 6 ships the interface + a
-// deterministic MOCK so the full deposit→webhook→credit flow is testable
-// without external calls. The webhook signature is HMAC-SHA256-verified; the
-// credit is idempotent on the provider's payment id (handled by WalletService).
+// A hosted deposit provider can sit behind this interface (a webhook/IPN flow).
+// The PRIMARY production deposit rail is the on-chain USDT-TRC20 TxID flow
+// (TronDepositVerifier); this interface + a deterministic MOCK keep the
+// deposit→webhook→credit flow testable without external calls. The webhook
+// signature is HMAC-SHA256-verified; the credit is idempotent on the provider's
+// payment id (handled by WalletService).
 // ============================================================================
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
