@@ -15,7 +15,10 @@ export function base32Decode(input: string): Buffer {
   const out: number[] = [];
   for (const ch of clean) {
     const idx = alphabet.indexOf(ch);
-    if (idx === -1) continue; // skip stray chars
+    // Padding/whitespace was already stripped above, so any leftover non-alphabet
+    // char is a real typo — fail LOUDLY rather than silently decode a wrong key
+    // (which would produce TOTP codes that never match → silent payout 2FA failure).
+    if (idx === -1) throw new Error(`invalid base32 character: ${ch}`);
     value = (value << 5) | idx;
     bits += 5;
     if (bits >= 8) {

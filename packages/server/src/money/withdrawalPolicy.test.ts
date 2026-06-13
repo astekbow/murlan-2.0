@@ -36,3 +36,18 @@ test('null kyc is treated as unverified', () => {
   assert.equal(c.tier, 'manual');
   assert.ok(c.reasons.includes('KYC not verified'));
 });
+
+test('daily auto cap: within cap → auto; exceeding it → manual', () => {
+  // cap $200, already withdrew $180 today, now wants $50 → 230 > 200 → manual
+  const over = classifyWithdrawal({ amountCents: 5000, kycStatus: 'verified', priorTodayCents: 18000 }, { autoMaxCents: 5000, dailyAutoCapCents: 20000 });
+  assert.equal(over.tier, 'manual');
+  assert.ok(over.reasons.includes('above daily auto cap'));
+  // already $100 today, now $50 → 150 ≤ 200 → still auto
+  const under = classifyWithdrawal({ amountCents: 5000, kycStatus: 'verified', priorTodayCents: 10000 }, { autoMaxCents: 5000, dailyAutoCapCents: 20000 });
+  assert.equal(under.tier, 'auto');
+});
+
+test('daily auto cap of 0 = no cap (unbounded auto, per-tx limits still apply)', () => {
+  const c = classifyWithdrawal({ amountCents: 5000, kycStatus: 'verified', priorTodayCents: 999999 }, { autoMaxCents: 5000, dailyAutoCapCents: 0 });
+  assert.equal(c.tier, 'auto');
+});

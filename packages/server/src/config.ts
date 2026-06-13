@@ -37,6 +37,7 @@ const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),   // set BOTH token + chat id → ops alerts (e.g. new withdrawal) to Telegram
   TELEGRAM_CHAT_ID: z.string().optional(),
   AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
+  DAILY_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = no daily cap; >0 = once a user's 24h withdrawals exceed this, further ones go MANUAL (anti-drain/AML)
   AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
   NOWPAYMENTS_PAYOUT_EMAIL: z.string().optional(),    // NOWPayments account email — enables AUTO crypto payout (with password + API key)
   NOWPAYMENTS_PAYOUT_PASSWORD: z.string().optional(), // NOWPayments account password (for the payout JWT auth)
@@ -83,6 +84,7 @@ export interface AppConfig {
   telegramBotToken: string | null;
   telegramChatId: string | null;
   autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
+  dailyAutoWithdrawCapCents: number; // 0 = off; per-user 24h auto-payout cap (excess → manual)
   autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
   nowPaymentsPayoutEmail: string | null;
   nowPaymentsPayoutPassword: string | null;
@@ -170,6 +172,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     telegramBotToken: parsed.TELEGRAM_BOT_TOKEN || null,
     telegramChatId: parsed.TELEGRAM_CHAT_ID || null,
     autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
+    dailyAutoWithdrawCapCents: parsed.DAILY_AUTO_WITHDRAW_CAP_CENTS,
     autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,
     nowPaymentsPayoutEmail: parsed.NOWPAYMENTS_PAYOUT_EMAIL || null,
     nowPaymentsPayoutPassword: parsed.NOWPAYMENTS_PAYOUT_PASSWORD || null,

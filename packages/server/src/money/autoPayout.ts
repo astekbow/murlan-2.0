@@ -30,6 +30,7 @@ export interface ProcessDeps {
   payout: PayoutProvider | null; // null / NullPayoutProvider → no auto-send
   notifier: Notifier | null;
   autoMaxCents: number;
+  dailyAutoCapCents?: number; // 0/undefined = no daily cap
 }
 
 export interface ProcessOutcome {
@@ -40,10 +41,13 @@ export interface ProcessOutcome {
 
 export async function processWithdrawal(
   record: WithdrawalForProcessing,
-  ctx: { username: string; kycStatus: string | null | undefined },
+  ctx: { username: string; kycStatus: string | null | undefined; priorTodayCents?: number },
   deps: ProcessDeps,
 ): Promise<ProcessOutcome> {
-  const cls = classifyWithdrawal({ amountCents: record.amountCents, kycStatus: ctx.kycStatus }, { autoMaxCents: deps.autoMaxCents });
+  const cls = classifyWithdrawal(
+    { amountCents: record.amountCents, kycStatus: ctx.kycStatus, priorTodayCents: ctx.priorTodayCents },
+    { autoMaxCents: deps.autoMaxCents, dailyAutoCapCents: deps.dailyAutoCapCents },
+  );
   const provider = deps.payout && deps.payout.name !== 'null' ? deps.payout : null;
 
   let autoPaid = false;
@@ -55,12 +59,12 @@ export async function processWithdrawal(
       .catch((e): { ok: false; error: string } => ({ ok: false, error: `payout threw: ${String(e)}` }));
     if (r.ok) {
       autoPaid = true;
-      try {
-        await deps.approve(record.id); // mark completed (idempotent)
-      } catch (e) {
-        // Sent, but we couldn't flip the status — the operator just clicks Approve
-        // (which never re-sends). Surface it so it isn't silently left pending.
-        error = `paid but mark-complete failed: ${String(e)}`;
+      // The send succeeded → mark completed. Retry a few times (a transient DB blip
+      // shouldn't strand a paid withdrawal as pending); approve() is idempotent.
+      let marked = false;
+      for (let attempt = 1; attempt <= 3 && !marked; attempt++) {
+        try { await deps.approve(record.id); marked = true; }
+        catch (e) { if (attempt === 3) error = `paid but mark-complete failed after retries: ${String(e)}`; }
       }
     } else {
       error = r.error ?? 'payout failed';

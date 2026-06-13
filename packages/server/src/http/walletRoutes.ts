@@ -21,7 +21,10 @@ import type { ResponsibleGamingService } from '../compliance/responsibleGaming.t
 import { type Notifier, escapeHtml } from '../notify/notifier.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { TronDepositVerifier } from '../money/tronDeposit.ts';
+import type { DepositIntentTracker } from '../money/depositIntentTracker.ts';
 import { processWithdrawal } from '../money/autoPayout.ts';
+import { isValidTronAddress } from '../money/tronAddress.ts';
+import { autoPayouts, tronDeposits } from '../metrics.ts';
 
 export interface WalletRoutesDeps {
   auth: AuthService;
@@ -34,8 +37,10 @@ export interface WalletRoutesDeps {
   notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
+  dailyAutoWithdrawCapCents?: number; // 0/undefined = off; per-user 24h auto-payout cap
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via on-chain TxID verify
   tronDepositAddress?: string | null; // YOUR receiving address (shown to players)
+  depositIntents?: DepositIntentTracker; // reduces TxID claim-race + watcher attribution
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -112,21 +117,41 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     }
     const parsed = withdrawSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
+    // Payouts are USDT-TRC20 → the destination MUST be a valid TRON address (checksum
+    // verified). A typo/wrong-network address would otherwise burn the funds.
+    if (!isValidTronAddress(parsed.data.destination.trim())) {
+      return reply.code(400).send({ error: { code: 'bad_address', message: 'Adresa duhet të jetë adresë e vlefshme USDT-TRC20 (TRON, fillon me T, 34 karaktere).' } });
+    }
     try {
       const record = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
       // Post-process OFF the response path: classify, optionally AUTO-PAY a small
       // KYC-verified withdrawal, then ping the operator on Telegram. The crypto for
       // larger/unverified withdrawals stays manual.
       void (async () => {
-        const [u, comp] = await Promise.all([
+        const [u, comp, recent] = await Promise.all([
           auth.getUser(caller.userId).catch(() => null),
           auth.getComplianceProfile(caller.userId).catch(() => null),
+          withdrawals.listByUser(caller.userId).catch(() => []),
         ]);
-        await processWithdrawal(
+        // The user's other (non-rejected) withdrawals in the last 24h — for the daily
+        // auto-payout cap. Excludes the one we just created (the cap adds it).
+        const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const priorTodayCents = recent
+          .filter((w) => w.id !== record.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
+          .reduce((s, w) => s + w.amountCents, 0);
+        const outcome = await processWithdrawal(
           { id: record.id, amountCents: record.amountCents, destination: record.destination },
-          { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null },
-          { approve: (id) => withdrawals.approve(id), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0 },
-        ).catch(() => { /* best-effort: never affects the 201 */ });
+          { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null, priorTodayCents },
+          { approve: (id) => withdrawals.approve(id), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0, dailyAutoCapCents: deps.dailyAutoWithdrawCapCents ?? 0 },
+        ).catch((err) => { app.log.error({ err, withdrawalId: record.id }, 'auto-payout processing threw'); return null; });
+        // Metrics + log on the auto-payout path (manual/fast-track aren't counted).
+        if (outcome?.autoPaid) {
+          autoPayouts.inc({ outcome: 'paid' });
+          app.log.info({ withdrawalId: record.id, amountCents: record.amountCents }, 'auto-payout sent');
+        } else if (outcome && outcome.tier === 'auto' && outcome.error) {
+          autoPayouts.inc({ outcome: 'failed' });
+          app.log.warn({ withdrawalId: record.id, err: outcome.error }, 'auto-payout FAILED → manual');
+        }
       })();
       return reply.code(201).send({ withdrawal: record });
     } catch (e) {
@@ -153,29 +178,50 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     return reply.send({ address: deps.tronDepositAddress, currency: 'USDT', network: 'TRC20' });
   });
 
+  // Declare a deposit ("I'm about to send ~$X") BEFORE sending. Gates the TxID claim
+  // (a stranger can't claim a deposit they spotted on-chain) + lets the unclaimed
+  // watcher attribute an arrived deposit to the right player by amount.
+  const intentSchema = z.object({ amountCents: z.number().int().nonnegative().max(MAX_DEPOSIT_CENTS).optional() });
+  app.post('/api/wallet/deposit/intent', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const parsed = intentSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
+    deps.depositIntents?.open(caller.userId, parsed.data.amountCents ?? 0);
+    return reply.send({ ok: true });
+  });
+
   const txidSchema = z.object({ txId: z.string().trim().min(60).max(80) });
   app.post('/api/wallet/deposit/txid', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     if (!deps.tronDeposit) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });
+    // Must have declared the deposit first (anti claim-race). In-memory → after a
+    // restart just press "Fillo depozitë" again (funds are safe; nothing is lost).
+    if (deps.depositIntents && !deps.depositIntents.hasOpen(caller.userId)) {
+      return reply.code(409).send({ error: { code: 'no_intent', message: 'Shtyp "Fillo depozitë" i pari, pastaj ngjit TxID-në.' } });
+    }
     const parsed = txidSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'TxID i pavlefshëm.' } });
     // Normalize to lowercase: TRON tx hashes are lowercase hex on-chain, and the
     // unclaimed-deposit watcher matches the ledger providerRef by lowercased txId.
     const txId = parsed.data.txId.toLowerCase();
     const v = await deps.tronDeposit.verify(txId);
-    if (!v.ok || v.amountCents == null) return reply.code(400).send({ error: { code: 'not_verified', message: v.error ?? 'Nuk u verifikua.' } });
+    if (!v.ok || v.amountCents == null) { tronDeposits.inc({ outcome: 'rejected' }); return reply.code(400).send({ error: { code: 'not_verified', message: v.error ?? 'Nuk u verifikua.' } }); }
     // Below the stated minimum: don't auto-credit (keeps us safely above Binance's
     // own min deposit). The funds did arrive on-chain → the unclaimed-deposit watcher
     // alerts the operator to credit it manually.
     if (v.amountCents < MIN_DEPOSIT_CENTS) {
+      tronDeposits.inc({ outcome: 'rejected' });
       return reply.code(400).send({ error: { code: 'below_min', message: `Depozita minimale është $${(MIN_DEPOSIT_CENTS / 100).toFixed(0)}. Kontakto suportin për shuma më të vogla.` } });
     }
     // Idempotent on the TxID — a transaction can credit AT MOST once (a replay or a
     // second claimant gets 409, never a double-credit). We must credit a deposit
     // that genuinely arrived on-chain, so no min/cap gate here (the money is real).
     const res = await wallet.credit(caller.userId, v.amountCents, { type: 'deposit', providerRef: `tron:${txId}`, reason: 'Depozitë USDT-TRC20' });
-    if (res.idempotent) return reply.code(409).send({ error: { code: 'already_used', message: 'Ky TxID është përdorur tashmë.' } });
+    if (res.idempotent) { tronDeposits.inc({ outcome: 'replay' }); return reply.code(409).send({ error: { code: 'already_used', message: 'Ky TxID është përdorur tashmë.' } }); }
+    tronDeposits.inc({ outcome: 'credited' });
+    app.log.info({ userId: caller.userId, amountCents: v.amountCents, txId }, 'USDT-TRC20 deposit credited');
     if (notifier) {
       void notifier.notify(
         `💰 <b>Depozitë USDT-TRC20</b>\n` +

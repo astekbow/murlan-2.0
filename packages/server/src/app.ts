@@ -28,7 +28,7 @@ import { InMemoryGames, type GamesRepository } from './fair/gamesRepository.ts';
 import { InMemoryMatchActions, type MatchActionsRepository } from './realtime/matchActions.ts';
 import { InMemoryVerificationTokens, type VerificationTokenRepository } from './auth/verificationTokens.ts';
 import { fairRoutes } from './http/fairRoutes.ts';
-import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded, activeMatches, pendingWithdrawals } from './metrics.ts';
+import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded, activeMatches, pendingWithdrawals, treasuryBufferCents as treasuryBufferGauge } from './metrics.ts';
 import { authRoutes, requireAdmin } from './http/authRoutes.ts';
 import { walletRoutes } from './http/walletRoutes.ts';
 import { adminRoutes } from './http/adminRoutes.ts';
@@ -52,7 +52,8 @@ import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.
 import { NowPaymentsPayoutProvider } from './money/nowPaymentsPayout.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
-import { BinanceDepositLister, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
+import { BinanceDepositLister, BinanceAccountReader, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
+import { findStaleWithdrawals, pruneAlerted, treasuryBufferCents } from './money/paymentMonitor.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -233,6 +234,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
+      dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,
       tronDeposit: deps.tronDeposit, tronDepositAddress: deps.config.tronDepositAddress,
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
@@ -423,6 +425,11 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const depositWatcher = config.binanceApiKey && config.binanceApiSecret && config.tronDepositAddress && notifier.name !== 'null'
     ? { lister: new BinanceDepositLister({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret }), alerted: new Set<string>() }
     : null;
+  // Treasury check: compare Binance free USDT to total player liabilities so we get
+  // alerted before we can't cover withdrawals. Available when Binance keys are set.
+  const binanceAccount = config.binanceApiKey && config.binanceApiSecret
+    ? new BinanceAccountReader({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret })
+    : null;
   if (payout.name !== 'null') {
     // eslint-disable-next-line no-console
     console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
@@ -585,6 +592,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Abandoned tournaments (admin-advanced, no realtime auto-run) get refunded +
   // voided once this old, so escrowed buy-ins can't be stranded forever (C4).
   const TOURNAMENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+  // Payment-ops alerting state (in-memory): manual withdrawals unapproved past this,
+  // and a throttle so the under-funding alert pings at most hourly.
+  const STALE_WITHDRAWAL_MS = 2 * 60 * 60 * 1000;
+  const TREASURY_ALERT_THROTTLE_MS = 60 * 60 * 1000;
+  const alertedStaleWithdrawals = new Set<string>();
+  let lastTreasuryAlert = 0;
   const sweepTimer = setInterval(() => {
     void (async () => {
       try {
@@ -618,6 +631,36 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
             now,
           }).catch((err) => { app.log.warn({ err }, 'deposit watcher failed'); return 0; });
           if (alerts) app.log.warn({ unclaimedDeposits: alerts }, 'alerted operator about unclaimed Binance deposits');
+        }
+        // Stale manual withdrawals: ping the operator about ones unapproved too long.
+        if (notifier.name !== 'null') {
+          const pending = await withdrawals.listPending().catch(() => []);
+          for (const wd of findStaleWithdrawals(pending, now, STALE_WITHDRAWAL_MS, alertedStaleWithdrawals)) {
+            alertedStaleWithdrawals.add(wd.id);
+            const wu = await auth.getUser(wd.userId).catch(() => null);
+            await notifier.notify(
+              `⌛ <b>Tërheqje në pritje > ${Math.round(STALE_WITHDRAWAL_MS / 3_600_000)}h</b>\n` +
+              `Lojtari: ${wu?.username ?? wd.userId}\nShuma: $${(wd.amountCents / 100).toFixed(2)}\nID: ${wd.id}\n→ Aprovo ose refuzo te admin paneli.`,
+            ).catch(() => {});
+          }
+          pruneAlerted(alertedStaleWithdrawals, pending.map((p) => p.id));
+        }
+        // Treasury: is Binance funded enough to cover what we owe players?
+        if (binanceAccount) {
+          const binCents = await binanceAccount.freeUsdtCents();
+          if (binCents != null) {
+            const liabilities = (await auth.listUsers()).filter((u) => u.role === 'user').reduce((s, u) => s + u.balanceCents, 0);
+            const buffer = treasuryBufferCents(binCents, liabilities);
+            treasuryBufferGauge.set(buffer);
+            if (buffer < 0 && notifier.name !== 'null' && now - lastTreasuryAlert > TREASURY_ALERT_THROTTLE_MS) {
+              lastTreasuryAlert = now;
+              await notifier.notify(
+                `🚨 <b>Binance NËN-FINANCUAR</b>\n` +
+                `Balanca Binance: $${(binCents / 100).toFixed(2)}\nDetyrime ndaj lojtarëve: $${(liabilities / 100).toFixed(2)}\n` +
+                `Mungesë: <b>$${(Math.abs(buffer) / 100).toFixed(2)}</b>\n→ Shto USDT te Binance Spot që të mbulosh tërheqjet.`,
+              ).catch(() => {});
+            }
+          }
         }
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');
@@ -669,7 +712,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       drainState.active = true;
       app.log.warn('draining: /ready now 503, rejecting new matches');
       await new Promise((r) => setTimeout(r, graceMs));
-      const refunded = await money.recoverOrphanedMatches(new Set()).catch(() => [] as string[]);
+      // Log loudly if the drain refund fails — silently swallowing it could strand
+      // escrowed stakes with no signal (boot recovery would still retry next start).
+      const refunded = await money.recoverOrphanedMatches(new Set()).catch((err) => {
+        app.log.error({ err }, 'drain crash-recovery refund FAILED — in-flight stakes may be stranded until next boot');
+        return [] as string[];
+      });
       if (refunded.length) {
         app.log.warn({ matchIds: refunded }, 'refunded in-flight matches on drain');
         orphanedMatchesRefunded.inc(refunded.length);

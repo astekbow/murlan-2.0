@@ -15,8 +15,8 @@ export interface WithdrawalClassification {
 }
 
 export function classifyWithdrawal(
-  input: { amountCents: number; kycStatus: string | null | undefined },
-  cfg: { autoMaxCents: number },
+  input: { amountCents: number; kycStatus: string | null | undefined; priorTodayCents?: number },
+  cfg: { autoMaxCents: number; dailyAutoCapCents?: number },
 ): WithdrawalClassification {
   const reasons: string[] = [];
   if (cfg.autoMaxCents <= 0) {
@@ -25,5 +25,10 @@ export function classifyWithdrawal(
     reasons.push('above auto threshold');
   }
   if (input.kycStatus !== 'verified') reasons.push('KYC not verified');
+  // Per-user 24h auto-payout cap (anti hot-wallet-drain / AML structuring): once a
+  // user's recent withdrawals + this one exceed the cap, route to MANUAL review.
+  if (cfg.dailyAutoCapCents && cfg.dailyAutoCapCents > 0 && (input.priorTodayCents ?? 0) + input.amountCents > cfg.dailyAutoCapCents) {
+    reasons.push('above daily auto cap');
+  }
   return { tier: reasons.length === 0 ? 'auto' : 'manual', reasons };
 }

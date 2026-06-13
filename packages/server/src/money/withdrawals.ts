@@ -93,7 +93,14 @@ export class WithdrawalService {
       if (e instanceof InsufficientFundsError) throw new WithdrawalError('insufficient_funds', 'Bilanc i pamjaftueshëm.');
       throw e;
     }
-    return this.repo.create({ userId, amountCents, destination });
+    try {
+      return await this.repo.create({ userId, amountCents, destination });
+    } catch (e) {
+      // The balance was already debited but the record didn't persist → refund it so
+      // the funds aren't stuck in a phantom hold with no withdrawal to resolve.
+      await this.wallet.credit(userId, amountCents, { type: 'admin_adjust', reason: 'rikthim: krijimi i tërheqjes dështoi' }).catch(() => {});
+      throw e;
+    }
   }
 
   /** Admin marks a withdrawal paid out externally. Atomic, acts at most once. */
@@ -114,15 +121,18 @@ export class WithdrawalService {
     const rec = await this.repo.find(id);
     if (!rec) throw new WithdrawalError('not_found', 'Tërheqja nuk u gjet.');
     if (rec.status !== 'pending') throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
-    // Idempotent refund: same providerRef across retries/concurrent calls credits once.
+    // CLAIM the transition FIRST (atomic compare-and-set). Only the winner refunds —
+    // so a concurrent approve() (which already paid out) can't also trigger a refund
+    // here (that would be a double-pay). The loser of the race throws not_pending.
+    const claimed = await this.repo.setStatusIfPending(id, 'rejected');
+    if (!claimed) throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+    // Idempotent refund (providerRef): safe even if this path somehow re-runs.
     await this.wallet.credit(rec.userId, rec.amountCents, {
       type: 'admin_adjust',
       reason: 'rikthim tërheqjeje',
       providerRef: `withdrawal_refund:${id}`,
     });
-    const claimed = await this.repo.setStatusIfPending(id, 'rejected');
-    // If a concurrent caller won the transition, the refund still happened once.
-    return claimed ?? (await this.repo.find(id))!;
+    return claimed;
   }
 
   listPending(): Promise<WithdrawalRecord[]> {

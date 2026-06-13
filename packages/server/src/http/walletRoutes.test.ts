@@ -156,10 +156,10 @@ test('withdrawal: request holds funds (201) or rejects insufficient (402); admin
   const { body, sig } = webhook(provider, { providerRef: ref, userId: 'ignored-by-intent', amountCents: 5000, status: 'confirmed' });
   await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': sig }, payload: body });
 
-  const tooMuch = await app.inject({ method: 'POST', url: '/api/wallet/withdraw', headers: authH(userToken), payload: { amountCents: 999999, destination: 'addr-123' } });
+  const tooMuch = await app.inject({ method: 'POST', url: '/api/wallet/withdraw', headers: authH(userToken), payload: { amountCents: 999999, destination: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' } });
   assert.equal(tooMuch.statusCode, 402);
 
-  const wd = await app.inject({ method: 'POST', url: '/api/wallet/withdraw', headers: authH(userToken), payload: { amountCents: 2000, destination: 'addr-123' } });
+  const wd = await app.inject({ method: 'POST', url: '/api/wallet/withdraw', headers: authH(userToken), payload: { amountCents: 2000, destination: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' } });
   assert.equal(wd.statusCode, 201);
   const balAfter = await app.inject({ method: 'GET', url: '/api/wallet', headers: authH(userToken) });
   assert.equal(balAfter.json().balanceCents, 3000); // held

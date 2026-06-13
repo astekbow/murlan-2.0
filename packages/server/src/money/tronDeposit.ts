@@ -47,19 +47,26 @@ export class TronDepositVerifier {
 
   async verify(txId: string): Promise<TronDepositVerification> {
     if (!/^[0-9a-fA-F]{64}$/.test(txId)) return { ok: false, error: 'TxID i pavlefshëm.' };
+    const want = txId.toLowerCase();
     try {
       const url = `${this.base}/v1/accounts/${this.opts.depositAddress}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
       const res = await this.fetchFn(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
       if (!res.ok) return { ok: false, error: `TronGrid ${res.status}` };
       const data = await res.json();
-      const tx = (data?.data ?? []).find((t: any) => t.transaction_id === txId);
+      // Compare case-insensitively (TRON hashes are lowercase hex, but don't assume).
+      const tx = (data?.data ?? []).find((t: any) => String(t.transaction_id).toLowerCase() === want);
       if (!tx) return { ok: false, error: 'Transaksioni nuk u gjet ose nuk shkoi te adresa e duhur.' };
       if (tx.to !== this.opts.depositAddress) return { ok: false, error: 'Marrësi i gabuar.' };
-      if (tx.token_info?.address && tx.token_info.address !== this.contract) return { ok: false, error: 'Nuk është USDT-TRC20.' };
+      // REQUIRE the exact USDT contract — a missing/empty token_info.address (a fake
+      // or scam token) must be REJECTED, not skipped. (undefined !== contract ⇒ reject.)
+      if (tx.token_info?.address !== this.contract) return { ok: false, error: 'Nuk është USDT-TRC20.' };
       const value = Number(tx.value);
-      const decimals = Number(tx.token_info?.decimals ?? 6);
       if (!Number.isFinite(value) || value <= 0) return { ok: false, error: 'Shumë e pavlefshme.' };
-      const amountCents = Math.round((value / 10 ** decimals) * 100);
+      // Validate decimals (a hostile/garbage value could inflate the credit). USDT=6.
+      const decimals = tx.token_info?.decimals == null ? 6 : Number(tx.token_info.decimals);
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) return { ok: false, error: 'Token i pavlefshëm.' };
+      // Integer math (multiply before divide) to avoid float-precision inflation.
+      const amountCents = Math.floor((value * 100) / 10 ** decimals);
       if (amountCents <= 0) return { ok: false, error: 'Shumë shumë e vogël.' };
       return { ok: true, amountCents, from: tx.from };
     } catch (err) {

@@ -54,13 +54,46 @@ export class BinanceDepositLister {
     const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
     params.append('signature', signature);
     const res = await this.fetchFn(`${this.base}/sapi/v1/capital/deposit/hisrec?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } });
-    if (!res.ok) throw new Error(`binance deposit history failed (${res.status})`);
+    // Conservative + never-throws: a transient Binance error (429/5xx) → no deposits
+    // this cycle (the 5-min sweep retries shortly). Matches the payout provider's contract.
+    if (!res.ok) return [];
     const rows = await res.json();
     if (!Array.isArray(rows)) return [];
     return rows
       .filter((r) => String(r.network) === 'TRX') // TRC20 only (the TxID flow is TRON)
       .map((r) => ({ txId: String(r.txId ?? ''), amountCents: Math.round(Number(r.amount) * 100), address: String(r.address ?? ''), insertTime: Number(r.insertTime ?? 0) }))
       .filter((d) => d.txId.length > 0 && Number.isFinite(d.amountCents));
+  }
+}
+
+/** Reads the Binance account's free USDT balance (signed) — for the treasury
+ *  under-funding check. Returns null on any error (the check just skips that cycle). */
+export class BinanceAccountReader {
+  private readonly base: string;
+  private readonly fetchFn: FetchLike;
+  private readonly now: () => number;
+
+  constructor(private readonly opts: BinanceDepositListerOptions) {
+    this.base = opts.baseUrl ?? API_PROD;
+    this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
+    this.now = opts.now ?? (() => Date.now());
+  }
+
+  async freeUsdtCents(): Promise<number | null> {
+    try {
+      const params = new URLSearchParams({ timestamp: String(this.now()), recvWindow: '10000' });
+      const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
+      params.append('signature', signature);
+      const res = await this.fetchFn(`${this.base}/api/v3/account?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const usdt = (data?.balances ?? []).find((b: any) => b.asset === 'USDT');
+      if (!usdt) return 0;
+      const free = Number(usdt.free);
+      return Number.isFinite(free) ? Math.round(free * 100) : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -72,6 +105,7 @@ export interface UnclaimedCheckDeps {
   now: number;          // epoch ms (passed in for testability)
   graceMs?: number;     // ignore deposits younger than this (the player may still submit) — default 10m
   windowMs?: number;    // only look this far back — default 24h
+  attribute?: (amountCents: number) => string[]; // optional: likely depositors (by open-intent amount)
 }
 
 /**
@@ -89,13 +123,19 @@ export async function checkUnclaimedDeposits(deps: UnclaimedCheckDeps): Promise<
     if (deps.now - d.insertTime < graceMs) continue; // give the player time to submit it
     if (await deps.isClaimed(id)) continue;        // already credited in-app
     deps.alerted.add(id);
+    const likely = deps.attribute?.(d.amountCents) ?? [];
     await deps.notify(
       `⚠️ <b>Depozitë e PA-ATRIBUUAR</b>\n` +
       `Shuma: <b>$${(d.amountCents / 100).toFixed(2)}</b>\n` +
       `TxID: <code>${d.txId}</code>\n` +
+      (likely.length ? `Ndoshta nga: <b>${likely.join(', ')}</b>\n` : '') +
       `→ Arriti te Binance por lojtari s'e kërkoi. Gjeje + kredito nga admin paneli.`,
     );
     alerts++;
   }
+  // Keep the alerted set bounded: drop ids that have aged out of the lookback window
+  // (they'll never be re-fetched). Ids still in-window stay, so they aren't re-pinged.
+  const inWindow = new Set(deposits.map((d) => d.txId.toLowerCase()));
+  for (const id of [...deps.alerted]) if (!inWindow.has(id)) deps.alerted.delete(id);
   return alerts;
 }

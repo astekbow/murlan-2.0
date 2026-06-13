@@ -82,3 +82,28 @@ export const depositWebhooks = new client.Counter({
   labelNames: ['outcome'] as const,
   registers: [registry],
 });
+
+/** Auto-payout attempts by outcome (paid / failed) — watch the fail rate on the
+ *  crypto-withdrawal path; each fail means a withdrawal fell back to manual. */
+export const autoPayouts = new client.Counter({
+  name: 'murlan_auto_payouts_total',
+  help: 'Automatic crypto payouts attempted, by outcome (paid|failed)',
+  labelNames: ['outcome'] as const,
+  registers: [registry],
+});
+
+/** USDT-TRC20 deposits credited via the on-chain TxID flow (by outcome). */
+export const tronDeposits = new client.Counter({
+  name: 'murlan_tron_deposits_total',
+  help: 'USDT-TRC20 TxID deposits, by outcome (credited|rejected|replay)',
+  labelNames: ['outcome'] as const,
+  registers: [registry],
+});
+
+/** Set by the periodic treasury check: Binance free USDT minus player liabilities
+ *  (cents). Negative = under-funded (can't cover all withdrawals). PAGE if < 0. */
+export const treasuryBufferCents = new client.Gauge({
+  name: 'murlan_treasury_buffer_cents',
+  help: 'Binance free USDT minus total player balances, in cents (negative = under-funded)',
+  registers: [registry],
+});

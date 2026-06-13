@@ -55,3 +55,37 @@ test('non-ok TronGrid response → error, never throws', async () => {
   assert.equal(r.ok, false);
   assert.match(r.error!, /503/);
 });
+
+test('REJECTS a transfer with a missing/empty token contract (scam-token guard)', async () => {
+  const { fetchFn } = stub({ data: [transfer({ token_info: { decimals: 0, symbol: 'SCAM' } })] }); // no .address
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
+  assert.equal(r.ok, false);
+  assert.match(r.error!, /USDT-TRC20/);
+});
+
+test('REJECTS a transfer from the wrong contract', async () => {
+  const { fetchFn } = stub({ data: [transfer({ token_info: { address: 'TWrongContractXXXXXXXXXXXXXXXXXXXXX', decimals: 6 } })] });
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
+  assert.equal(r.ok, false);
+});
+
+test('REJECTS invalid token decimals (negative / >18 / non-integer)', async () => {
+  for (const decimals of [-6, 100, 6.5]) {
+    const { fetchFn } = stub({ data: [transfer({ token_info: { address: USDT_TRC20_CONTRACT, decimals } })] });
+    const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
+    assert.equal(r.ok, false, `decimals=${decimals} must be rejected`);
+  }
+});
+
+test('matches the TxID case-insensitively (TronGrid may return upper/mixed case)', async () => {
+  const { fetchFn } = stub({ data: [transfer({ transaction_id: TX.toUpperCase() })] });
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
+  assert.deepEqual(r, { ok: true, amountCents: 3000, from: 'TSenderAddr' });
+});
+
+test('uses integer math (no float-precision inflation)', async () => {
+  // 999999.999999 USDT (6 decimals) → floor to 99,999,999 cents, NOT rounded up to 100,000,000.
+  const { fetchFn } = stub({ data: [transfer({ value: '999999999999' })] });
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
+  assert.equal(r.amountCents, 99_999_999);
+});
