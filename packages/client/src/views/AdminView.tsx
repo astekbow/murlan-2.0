@@ -43,6 +43,18 @@ function UserRow({ user }: { user: AdminUser }) {
     void adjust(user.id, cents, reason || 'manual');
   };
 
+  // One-click "clear liability": debit the EXACT current balance so it lands on $0
+  // (no need to type the amount). Goes through the same audited ledger path as Debit.
+  const onClearLiability = async () => {
+    if (user.balanceCents <= 0) return;
+    if (!(await confirm({
+      title: t('admin.clearLiability'),
+      message: t('admin.confirmClearM', { amount: dollars(user.balanceCents), user: user.username }),
+      danger: true,
+    }))) return;
+    void adjust(user.id, -user.balanceCents, reason || 'clear liability');
+  };
+
   const onToggleRole = async () => {
     const makeAdmin = user.role !== 'admin';
     if (!(await confirm({
@@ -135,6 +147,9 @@ function UserRow({ user }: { user: AdminUser }) {
         </label>
         <button onClick={() => void onAdjust(1)} className="btn btn-green">{t('admin.credit')}</button>
         <button onClick={() => void onAdjust(-1)} className="btn btn-danger">{t('admin.debit')}</button>
+        {user.balanceCents > 0 && (
+          <button onClick={() => void onClearLiability()} className="btn btn-outline" title={t('admin.clearLiability')}>{t('admin.clearLiability')}</button>
+        )}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">

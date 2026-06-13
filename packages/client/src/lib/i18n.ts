@@ -453,6 +453,8 @@ const STRINGS: Record<string, Entry> = {
   'admin.confirmApproveM': { sq: 'Mirato tërheqjen {amount} te {dest}? Paratë dërgohen.', en: 'Approve the {amount} withdrawal to {dest}? Funds are sent.' },
   'admin.confirmRejectM': { sq: 'Refuzo tërheqjen {amount}? Shuma i kthehet përdoruesit.', en: 'Reject the {amount} withdrawal? The amount is refunded to the user.' },
   'admin.debit': { sq: '− Debito', en: '− Debit' },
+  'admin.clearLiability': { sq: 'Hiq detyrimin (→ $0)', en: 'Clear balance (→ $0)' },
+  'admin.confirmClearM': { sq: 'Çoje balancën e {user} ({amount}) në $0? Veprimi regjistrohet në audit.', en: "Set {user}'s balance ({amount}) to $0? Recorded in the audit log." },
   'admin.panelTitle': { sq: 'Paneli i administratorit', en: 'Admin panel' },
   'admin.pendingWithdrawals': { sq: 'TËRHEQJET NË PRITJE', en: 'PENDING WITHDRAWALS' },
   'admin.noPendingWithdrawals': { sq: 'Asnjë tërheqje në pritje.', en: 'No pending withdrawals.' },
