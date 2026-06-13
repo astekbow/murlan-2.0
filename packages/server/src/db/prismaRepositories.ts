@@ -133,29 +133,25 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async assignDepositAddress(id: string, derive: (index: number) => string): Promise<{ address: string; index: number } | null> {
-    // Retry the optimistic claim: pick max+1, set it ONLY if still unassigned. A
-    // concurrent claim either takes our index (unique constraint → P2002 → retry
-    // with a fresh max) or our row (updateMany count 0 → re-read the winner).
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const existing = await this.db.user.findUnique({ where: { id }, select: { depositAddress: true, depositAddressIndex: true } });
-      if (!existing) return null;
-      if (existing.depositAddress && existing.depositAddressIndex != null) {
-        return { address: existing.depositAddress, index: existing.depositAddressIndex };
-      }
-      const agg = await this.db.user.aggregate({ _max: { depositAddressIndex: true } });
-      const index = (agg._max.depositAddressIndex ?? -1) + 1;
-      const address = derive(index);
-      try {
-        const res = await this.db.user.updateMany({
-          where: { id, depositAddress: null },
-          data: { depositAddress: address, depositAddressIndex: index },
-        });
-        if (res.count === 1) return { address, index };
-        // count 0 → another request assigned ours first; loop re-reads + returns it.
-      } catch {
-        // unique violation on the index (another user grabbed it) → retry with a new max.
-      }
+    // Idempotent: return the existing assignment if any.
+    const existing = await this.db.user.findUnique({ where: { id }, select: { depositAddress: true, depositAddressIndex: true } });
+    if (!existing) return null;
+    if (existing.depositAddress && existing.depositAddressIndex != null) {
+      return { address: existing.depositAddress, index: existing.depositAddressIndex };
     }
+    // A DB SEQUENCE hands every caller a DISTINCT index — no max+1 contention, so
+    // concurrent first-time visitors never collide. `derive` is total for a valid
+    // index (the xpub is validated once at construction); a throw would only waste
+    // one index (gaps are fine) and surface as a 500, never a wrong address.
+    const rows = await this.db.$queryRawUnsafe<Array<{ nextval: bigint }>>(`SELECT nextval('deposit_address_index_seq') AS nextval`);
+    const index = Number(rows[0]?.nextval ?? 0n);
+    const address = derive(index);
+    const res = await this.db.user.updateMany({
+      where: { id, depositAddress: null },
+      data: { depositAddress: address, depositAddressIndex: index },
+    });
+    if (res.count === 1) return { address, index };
+    // count 0 → a concurrent call for the SAME user assigned first; return the winner.
     const u = await this.db.user.findUnique({ where: { id }, select: { depositAddress: true, depositAddressIndex: true } });
     return u?.depositAddress != null && u.depositAddressIndex != null ? { address: u.depositAddress, index: u.depositAddressIndex } : null;
   }

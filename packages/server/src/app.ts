@@ -448,7 +448,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // block boot unless explicitly staging.
   const hasRealDepositRail = tronDeposit != null;
   if (config.isProd && !config.allowStubProviders) {
-    if (!hasRealDepositRail) throw new Error('A real deposit rail must be configured in production: set TRON_DEPOSIT_ADDRESS (on-chain USDT-TRC20 deposits via TxID). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
+    if (!hasRealDepositRail) throw new Error('A real deposit rail must be configured in production: set TRON_DEPOSIT_XPUB for UNIQUE per-player USDT-TRC20 deposit addresses (recommended — theft-proof; generate it offline with tools/tron-xpub.mjs), or TRON_DEPOSIT_ADDRESS for the legacy single shared address. For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
     if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
   }
   if (config.isProd && config.allowStubProviders && (!hasRealDepositRail || email.name === 'console')) {
