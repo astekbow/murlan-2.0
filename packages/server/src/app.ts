@@ -50,6 +50,7 @@ import { ResendEmailProvider } from './email/resendEmailProvider.ts';
 import { createNotifier, type Notifier } from './notify/notifier.ts';
 import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.ts';
 import { NowPaymentsPayoutProvider } from './money/nowPaymentsPayout.ts';
+import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -388,24 +389,27 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     : new ConsoleEmailProvider();
   // Ops alerts (Telegram) when configured, else a no-op. Used for withdrawal pings.
   const notifier: Notifier = createNotifier(config);
-  // AUTO crypto payout for small KYC-verified withdrawals — ON only when the
-  // NOWPayments payout creds AND a positive cap are set. Default: no auto-send
-  // (every withdrawal stays manual). This moves REAL money — keep the cap small.
-  const payoutEnabled = !!(config.nowPaymentsApiKey && config.nowPaymentsPayoutEmail && config.nowPaymentsPayoutPassword && config.autoWithdrawMaxCents > 0);
-  const payout: PayoutProvider = payoutEnabled
-    ? new NowPaymentsPayoutProvider({
-        apiKey: config.nowPaymentsApiKey!,
-        email: config.nowPaymentsPayoutEmail!,
-        password: config.nowPaymentsPayoutPassword!,
-        twoFaSecret: config.nowPayments2faSecret,
-        currency: config.autoWithdrawCurrency,
-        appOrigin: config.clientOrigin,
-        sandbox: config.nowPaymentsSandbox,
-      })
-    : new NullPayoutProvider();
-  if (payoutEnabled) {
+  // AUTO crypto payout for small KYC-verified withdrawals — ON only when a payout
+  // provider's creds AND a positive cap are set. Binance is preferred when its keys
+  // are present; else NOWPayments Mass Payout; else NullPayoutProvider (manual).
+  // This moves REAL money — keep the cap small. Larger withdrawals stay manual.
+  let payout: PayoutProvider = new NullPayoutProvider();
+  if (config.autoWithdrawMaxCents > 0 && config.binanceApiKey && config.binanceApiSecret) {
+    payout = new BinancePayoutProvider({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret, currency: config.autoWithdrawCurrency });
+  } else if (config.autoWithdrawMaxCents > 0 && config.nowPaymentsApiKey && config.nowPaymentsPayoutEmail && config.nowPaymentsPayoutPassword) {
+    payout = new NowPaymentsPayoutProvider({
+      apiKey: config.nowPaymentsApiKey,
+      email: config.nowPaymentsPayoutEmail,
+      password: config.nowPaymentsPayoutPassword,
+      twoFaSecret: config.nowPayments2faSecret,
+      currency: config.autoWithdrawCurrency,
+      appOrigin: config.clientOrigin,
+      sandbox: config.nowPaymentsSandbox,
+    });
+  }
+  if (payout.name !== 'null') {
     // eslint-disable-next-line no-console
-    console.warn(`[payout] AUTO crypto payout ENABLED (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢, sandbox=${config.nowPaymentsSandbox}). Real money will be sent automatically for small KYC-verified withdrawals.`);
+    console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
   }
   // Real crypto deposits when NOWPayments is configured (env), else the stub.
   const provider: PaymentProvider =

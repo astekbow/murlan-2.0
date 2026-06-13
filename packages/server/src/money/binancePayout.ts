@@ -1,0 +1,89 @@
+// ============================================================================
+// MURLAN — Binance withdrawal payout provider (automatic crypto withdrawals)
+// ----------------------------------------------------------------------------
+// Sends crypto from your Binance Spot balance to a player's address via the
+// Binance withdrawal API (POST /sapi/v1/capital/withdraw/apply, HMAC-SHA256
+// signed). Implements the same PayoutProvider interface as the NOWPayments one,
+// so it drops straight into the (tested) autoPayout orchestration.
+//
+// IDEMPOTENCY: we pass our withdrawal id as `withdrawOrderId` — Binance rejects a
+// duplicate, so a retry can never double-send.
+//
+// ⚠️ SAFETY / SETUP (cannot be exercised from CI/dev, and Binance has NO testnet
+// for real external withdrawals — the first real test moves real money):
+//   • API key needs "Enable Withdrawals" + the server's IP must be WHITELISTED.
+//   • To pay arbitrary player addresses, the account's withdrawal ADDRESS whitelist
+//     must be OFF (a security downgrade — the small per-tx cap is the limiter).
+//   • USDT must sit in the Spot wallet; Binance charges a flat network fee.
+// payout() never throws.
+// ============================================================================
+
+import { createHmac } from 'node:crypto';
+import type { PayoutProvider, PayoutRequest, PayoutResult } from './payoutProvider.ts';
+
+const API_PROD = 'https://api.binance.com';
+
+// Map our app currency code → Binance (coin, network) pair.
+const NETWORKS: Record<string, { coin: string; network: string }> = {
+  usdttrc20: { coin: 'USDT', network: 'TRX' },
+  usdtbep20: { coin: 'USDT', network: 'BSC' },
+  btc: { coin: 'BTC', network: 'BTC' },
+};
+
+type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>
+  Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<any> }>;
+
+export interface BinancePayoutOptions {
+  apiKey: string;
+  apiSecret: string;
+  currency: string; // e.g. 'usdttrc20'
+  baseUrl?: string;
+  fetchFn?: FetchLike;
+  now?: () => number;
+}
+
+export class BinancePayoutProvider implements PayoutProvider {
+  readonly name = 'binance-payout';
+  private readonly base: string;
+  private readonly fetchFn: FetchLike;
+  private readonly now: () => number;
+
+  constructor(private readonly opts: BinancePayoutOptions) {
+    this.base = opts.baseUrl ?? API_PROD;
+    this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
+    this.now = opts.now ?? (() => Date.now());
+  }
+
+  async payout(req: PayoutRequest): Promise<PayoutResult> {
+    const map = NETWORKS[this.opts.currency];
+    if (!map) return { ok: false, error: `unsupported payout currency: ${this.opts.currency}` };
+    try {
+      // Build the signed query. The player receives `amount` minus Binance's flat
+      // network fee (USDT-TRC20 ≈ $1, value-stable → amount = USD value).
+      const params = new URLSearchParams({
+        coin: map.coin,
+        network: map.network,
+        address: req.address,
+        amount: (req.amountCents / 100).toFixed(2),
+        withdrawOrderId: req.withdrawalId, // idempotency key (Binance dedupes)
+        timestamp: String(this.now()),
+        recvWindow: '10000',
+      });
+      const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
+      params.append('signature', signature);
+
+      const res = await this.fetchFn(`${this.base}/sapi/v1/capital/withdraw/apply`, {
+        method: 'POST',
+        headers: { 'X-MBX-APIKEY': this.opts.apiKey, 'content-type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      if (!res.ok) return { ok: false, error: `binance withdraw failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 180)}` };
+      const data = await res.json();
+      const id = data?.id;
+      if (!id) return { ok: false, error: 'binance: no withdrawal id in response' };
+      return { ok: true, providerRef: String(id) };
+    } catch (err) {
+      return { ok: false, error: `binance error: ${String(err)}` };
+    }
+  }
+}
