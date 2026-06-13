@@ -78,6 +78,7 @@ services:
       # provider's creds = auto-pay small KYC-verified withdrawals (rest manual).
       AUTO_WITHDRAW_MAX_CENTS: ${AUTO_WITHDRAW_MAX_CENTS:-0}
       AUTO_WITHDRAW_CURRENCY: ${AUTO_WITHDRAW_CURRENCY:-usdttrc20}
+      DAILY_AUTO_WITHDRAW_CAP_CENTS: ${DAILY_AUTO_WITHDRAW_CAP_CENTS:-0}
       # Payout provider A — Binance (preferred when set). Needs Enable Withdrawals
       # + the server IP whitelisted + address whitelist OFF.
       BINANCE_API_KEY: ${BINANCE_API_KEY:-}
