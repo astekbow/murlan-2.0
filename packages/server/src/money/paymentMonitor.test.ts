@@ -30,24 +30,27 @@ test('treasuryBufferCents = binance − liabilities (negative when under-funded)
 });
 
 function reconcileRec() {
-  const calls = { reversed: [] as string[], messages: [] as string[] };
+  const calls = { order: [] as string[], reversed: [] as string[], marked: [] as string[], messages: [] as string[] };
   return {
     calls,
-    reverse: async (w: { id: string }) => { calls.reversed.push(w.id); },
+    reverse: async (w: { id: string }) => { calls.order.push('reverse'); calls.reversed.push(w.id); },
+    markReversed: async (id: string) => { calls.order.push('mark'); calls.marked.push(id); },
     notify: async (t: string) => { calls.messages.push(t); },
   };
 }
 const completed = (userId: string, amountCents: number) => async () => ({ userId, amountCents, status: 'completed' });
 
-test('reconcileFailedWithdrawals refunds a FAILED (status 5) completed payout', async () => {
+test('refunds a FAILED (status 5) completed payout: credit FIRST, then mark, then alert', async () => {
   const r = reconcileRec();
   const n = await reconcileFailedWithdrawals({
     list: async () => [{ withdrawOrderId: 'wd_1', status: 5, amountCents: 3000 }],
     findWithdrawal: completed('u1', 3000),
-    reverse: r.reverse, notify: r.notify, reversed: new Set(),
+    reverse: r.reverse, markReversed: r.markReversed, notify: r.notify,
   });
   assert.equal(n, 1);
   assert.deepEqual(r.calls.reversed, ['wd_1']);
+  assert.deepEqual(r.calls.marked, ['wd_1']);
+  assert.deepEqual(r.calls.order, ['reverse', 'mark']); // credit before mark (idempotency-safe)
   assert.match(r.calls.messages[0]!, /DËSHTOI/);
 });
 
@@ -56,35 +59,32 @@ test('does NOT reverse a Completed (6) or Processing (4) withdrawal', async () =
   const n = await reconcileFailedWithdrawals({
     list: async () => [{ withdrawOrderId: 'a', status: 6, amountCents: 100 }, { withdrawOrderId: 'b', status: 4, amountCents: 100 }],
     findWithdrawal: completed('u1', 100),
-    reverse: r.reverse, notify: r.notify, reversed: new Set(),
+    reverse: r.reverse, markReversed: r.markReversed, notify: r.notify,
   });
   assert.equal(n, 0);
   assert.deepEqual(r.calls.reversed, []);
 });
 
-test('does NOT reverse a withdrawal that is not ours / not completed', async () => {
+test('does NOT reverse a withdrawal that is not ours, or not in completed state', async () => {
   const r = reconcileRec();
   const n = await reconcileFailedWithdrawals({
-    list: async () => [{ withdrawOrderId: 'x', status: 5, amountCents: 100 }, { withdrawOrderId: 'y', status: 5, amountCents: 100 }],
-    findWithdrawal: async (id) => (id === 'x' ? null : { userId: 'u', amountCents: 100, status: 'pending' }),
-    reverse: r.reverse, notify: r.notify, reversed: new Set(),
+    list: async () => [{ withdrawOrderId: 'x', status: 5, amountCents: 100 }, { withdrawOrderId: 'y', status: 5, amountCents: 100 }, { withdrawOrderId: 'z', status: 5, amountCents: 100 }],
+    findWithdrawal: async (id) => (id === 'x' ? null : id === 'y' ? { userId: 'u', amountCents: 100, status: 'pending' } : { userId: 'u', amountCents: 100, status: 'rejected' }),
+    reverse: r.reverse, markReversed: r.markReversed, notify: r.notify,
   });
-  assert.equal(n, 0);
+  assert.equal(n, 0); // null (not ours), pending (not paid), rejected (already reversed) → all skipped
+  assert.deepEqual(r.calls.reversed, []);
 });
 
-test('does NOT double-reverse (reversed set blocks repeats) and prunes out-of-window ids', async () => {
+test('status is the durable dedup: an already-reversed (now rejected) record is skipped — no re-credit/re-alert', async () => {
   const r = reconcileRec();
-  const reversed = new Set<string>(['wd_1']);       // already reversed
+  // Same failed Binance record, but our withdrawal is now 'rejected' (was reversed last sweep).
   const n = await reconcileFailedWithdrawals({
     list: async () => [{ withdrawOrderId: 'wd_1', status: 5, amountCents: 3000 }],
-    findWithdrawal: completed('u1', 3000),
-    reverse: r.reverse, notify: r.notify, reversed,
+    findWithdrawal: async () => ({ userId: 'u1', amountCents: 3000, status: 'rejected' }),
+    reverse: r.reverse, markReversed: r.markReversed, notify: r.notify,
   });
-  assert.equal(n, 0);                                // not reversed again
+  assert.equal(n, 0);
   assert.deepEqual(r.calls.reversed, []);
-  assert.ok(reversed.has('wd_1'));                   // still in window → retained
-  // an id no longer in the window is pruned
-  const reversed2 = new Set<string>(['old_id']);
-  await reconcileFailedWithdrawals({ list: async () => [], findWithdrawal: completed('u', 1), reverse: r.reverse, notify: r.notify, reversed: reversed2 });
-  assert.equal(reversed2.has('old_id'), false);
+  assert.deepEqual(r.calls.messages, []);
 });

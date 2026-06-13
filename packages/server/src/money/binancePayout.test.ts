@@ -25,7 +25,7 @@ test('binance payout signs the request and passes coin/network/address/amount/wi
   assert.match(body, /network=TRX/);
   assert.match(body, /address=TXabc/);
   assert.match(body, /amount=30\.00/);
-  assert.match(body, /withdrawOrderId=wd_9/); // idempotency
+  assert.match(body, /withdrawOrderId=murlan_wd_9/); // idempotency (prefixed to namespace our payouts in Binance history)
   assert.match(body, /signature=[a-f0-9]{64}/); // HMAC-SHA256 hex appended
 });
 

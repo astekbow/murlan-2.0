@@ -26,28 +26,33 @@ export function treasuryBufferCents(binanceUsdtCents: number, playerLiabilitiesC
 import { BINANCE_WITHDRAW_FAILED, type BinanceWithdrawalStatus } from './binancePayout.ts';
 
 export interface FailedWithdrawalDeps {
-  list: () => Promise<BinanceWithdrawalStatus[]>;            // Binance withdraw history
+  list: () => Promise<BinanceWithdrawalStatus[]>;            // Binance withdraw history (OUR payouts, bare ids)
   findWithdrawal: (id: string) => Promise<{ userId: string; amountCents: number; status: string } | null>;
   reverse: (w: { id: string; userId: string; amountCents: number }) => Promise<void>; // idempotent credit-back
+  markReversed: (id: string) => Promise<void>;              // flip the record completed → rejected (durable dedup)
   notify: (text: string) => Promise<void>;
-  reversed: Set<string>;                                     // withdrawalIds already reversed (don't repeat)
 }
 
 /**
  * Detect auto-payouts that Binance ACCEPTED but then failed/cancelled/rejected
- * on-chain (no webhook exists) and refund the player. Idempotent: the caller's
- * reverse() credit is keyed by a deterministic providerRef, and `reversed` blocks
- * re-alerting. Only acts on OUR withdrawals that we marked 'completed' (auto-paid).
+ * on-chain (no webhook exists) and refund the player.
+ *
+ * SOURCE OF TRUTH = the withdrawal RECORD STATUS (durable, survives restarts), NOT
+ * an in-memory set: we only act on a 'completed' withdrawal, and markReversed flips
+ * it to 'rejected' so it's skipped forever after — and excluded from the daily cap.
+ * We CREDIT FIRST (idempotent on providerRef) then mark: if marking fails, the next
+ * sweep safely re-credits (no double — idempotent) and retries the mark. Restores
+ * EXACTLY what was debited (wd.amountCents), so the ledger reconciles.
  */
 export async function reconcileFailedWithdrawals(deps: FailedWithdrawalDeps): Promise<number> {
   const records = await deps.list();
   let reversedCount = 0;
   for (const r of records) {
-    if (!BINANCE_WITHDRAW_FAILED.has(r.status) || deps.reversed.has(r.withdrawOrderId)) continue;
+    if (!BINANCE_WITHDRAW_FAILED.has(r.status)) continue;
     const wd = await deps.findWithdrawal(r.withdrawOrderId);
-    if (!wd || wd.status !== 'completed') continue; // not ours / not an auto-completed payout
-    deps.reversed.add(r.withdrawOrderId);
+    if (!wd || wd.status !== 'completed') continue; // not ours / already reversed (now 'rejected')
     await deps.reverse({ id: r.withdrawOrderId, userId: wd.userId, amountCents: wd.amountCents });
+    await deps.markReversed(r.withdrawOrderId);
     await deps.notify(
       `🔴 <b>Tërheqje DËSHTOI në Binance</b>\n` +
       `ID: ${r.withdrawOrderId}\nShuma: <b>$${(wd.amountCents / 100).toFixed(2)}</b>\n` +
@@ -55,8 +60,5 @@ export async function reconcileFailedWithdrawals(deps: FailedWithdrawalDeps): Pr
     );
     reversedCount++;
   }
-  // Bound the set: drop ids no longer in the fetched window.
-  const inWindow = new Set(records.map((r) => r.withdrawOrderId));
-  for (const id of [...deps.reversed]) if (!inWindow.has(id)) deps.reversed.delete(id);
   return reversedCount;
 }

@@ -23,6 +23,11 @@ import type { PayoutProvider, PayoutRequest, PayoutResult } from './payoutProvid
 
 const API_PROD = 'https://api.binance.com';
 
+// Prefix on the Binance withdrawOrderId so the reconciler only ever touches OUR
+// payouts — if this Binance account is ever shared, another app's withdrawals
+// (and sentinel ids like '0'/'null') are ignored, never matched to our records.
+export const WITHDRAW_ORDER_PREFIX = 'murlan_';
+
 // Map our app currency code → Binance (coin, network) pair.
 const NETWORKS: Record<string, { coin: string; network: string }> = {
   usdttrc20: { coin: 'USDT', network: 'TRX' },
@@ -68,7 +73,10 @@ export class BinanceWithdrawReader {
       if (!Array.isArray(rows)) return [];
       return rows
         .map((r) => ({ withdrawOrderId: String(r.withdrawOrderId ?? ''), status: Number(r.status), amountCents: Math.round(Number(r.amount) * 100) }))
-        .filter((r) => r.withdrawOrderId.length > 0 && Number.isInteger(r.status));
+        // Only OUR prefixed payouts, with a clean status + amount (drops sentinel ids
+        // like 'null'/'0' and any NaN amount). Strip the prefix → bare withdrawal id.
+        .filter((r) => r.withdrawOrderId.startsWith(WITHDRAW_ORDER_PREFIX) && Number.isInteger(r.status) && Number.isInteger(r.amountCents))
+        .map((r) => ({ ...r, withdrawOrderId: r.withdrawOrderId.slice(WITHDRAW_ORDER_PREFIX.length) }));
     } catch {
       return [];
     }
@@ -107,7 +115,7 @@ export class BinancePayoutProvider implements PayoutProvider {
         network: map.network,
         address: req.address,
         amount: (req.amountCents / 100).toFixed(2),
-        withdrawOrderId: req.withdrawalId, // idempotency key (Binance dedupes)
+        withdrawOrderId: WITHDRAW_ORDER_PREFIX + req.withdrawalId, // idempotency + origin tag (Binance dedupes)
         timestamp: String(this.now()),
         recvWindow: '10000',
       });

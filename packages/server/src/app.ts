@@ -603,7 +603,6 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const STALE_WITHDRAWAL_MS = 2 * 60 * 60 * 1000;
   const TREASURY_ALERT_THROTTLE_MS = 60 * 60 * 1000;
   const alertedStaleWithdrawals = new Set<string>();
-  const reversedWithdrawals = new Set<string>();
   let lastTreasuryAlert = 0;
   const sweepTimer = setInterval(() => {
     void (async () => {
@@ -673,12 +672,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         // webhook) — refund the player. Idempotent (providerRef + reversed set).
         if (binanceWithdrawReader && wallet) {
           const reversedN = await reconcileFailedWithdrawals({
-            list: () => binanceWithdrawReader.listRecent(now - 48 * 60 * 60 * 1000), // 48h lookback
+            // 7-day lookback so an on-chain failure that manifests slowly is still caught.
+            list: () => binanceWithdrawReader.listRecent(now - 7 * 24 * 60 * 60 * 1000),
             findWithdrawal: (id) => withdrawals.find(id).then((w) => (w ? { userId: w.userId, amountCents: w.amountCents, status: w.status } : null)),
             reverse: ({ id, userId, amountCents }) =>
               wallet.credit(userId, amountCents, { type: 'admin_adjust', reason: 'rikthim: tërheqja dështoi në Binance', providerRef: `withdrawal_reversal:${id}` }).then(() => {}),
+            markReversed: (id) => withdrawals.markReversed(id),
             notify: (text) => notifier.notify(text),
-            reversed: reversedWithdrawals,
           }).catch((err) => { app.log.warn({ err }, 'withdrawal reconciliation failed'); return 0; });
           if (reversedN) app.log.warn({ reversedWithdrawals: reversedN }, 'reversed failed Binance withdrawals — players refunded');
         }

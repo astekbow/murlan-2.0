@@ -448,6 +448,10 @@ export class PrismaWithdrawals implements WithdrawalRepository {
     const row = await this.db.withdrawal.findUnique({ where: { id } });
     return row ? toWithdrawal(row) : null;
   }
+  async markReversed(id: string): Promise<void> {
+    // Atomic: only flip a 'completed' payout that later failed on-chain → 'rejected'.
+    await this.db.withdrawal.updateMany({ where: { id, status: 'completed' }, data: { status: 'rejected', resolvedAt: new Date() } });
+  }
   async listPending(): Promise<WithdrawalRecord[]> {
     return (await this.db.withdrawal.findMany({ where: { status: 'pending' } })).map(toWithdrawal);
   }

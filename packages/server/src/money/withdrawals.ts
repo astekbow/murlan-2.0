@@ -29,6 +29,9 @@ export interface WithdrawalRepository {
    * resolved (the compare-and-set lost the race) — so approve/reject act once.
    */
   setStatusIfPending(id: string, status: WithdrawalStatus): Promise<WithdrawalRecord | null>;
+  /** Flip a 'completed' withdrawal to 'rejected' (used when a paid-out payout later
+   *  failed on-chain and was reversed) — so it's deduped + excluded from the daily cap. */
+  markReversed(id: string): Promise<void>;
   listPending(): Promise<WithdrawalRecord[]>;
   listByUser(userId: string): Promise<WithdrawalRecord[]>;
 }
@@ -52,6 +55,10 @@ export class InMemoryWithdrawals implements WithdrawalRepository {
     r.status = status;
     r.resolvedAt = Date.now();
     return { ...r };
+  }
+  async markReversed(id: string): Promise<void> {
+    const r = this.rows.find((x) => x.id === id);
+    if (r && r.status === 'completed') { r.status = 'rejected'; r.resolvedAt = Date.now(); }
   }
   async listPending(): Promise<WithdrawalRecord[]> {
     return this.rows.filter((r) => r.status === 'pending').map((r) => ({ ...r }));
@@ -143,5 +150,8 @@ export class WithdrawalService {
   }
   find(id: string): Promise<WithdrawalRecord | null> {
     return this.repo.find(id);
+  }
+  markReversed(id: string): Promise<void> {
+    return this.repo.markReversed(id);
   }
 }
