@@ -14,7 +14,7 @@ const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 // Minimum deposit (USD cents) — keep in sync with the server (walletRoutes). Below
 // this, most crypto is under the provider's per-coin minimum (the "unavailable" trap).
-const MIN_DEPOSIT_CENTS = 1_500; // $15
+const MIN_DEPOSIT_CENTS = 500; // $5 — keep in sync with the server (walletRoutes)
 
 export function WalletView() {
   const {
@@ -25,7 +25,7 @@ export function WalletView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
 
-  const [depositAmt, setDepositAmt] = useState('15');
+  const [depositAmt, setDepositAmt] = useState('5');
   const [withdrawAmt, setWithdrawAmt] = useState('5');
   const [destination, setDestination] = useState('');
   const [dob, setDob] = useState(profile?.dateOfBirth ?? '');
@@ -218,7 +218,7 @@ export function WalletView() {
         <div className="flex flex-wrap gap-3 items-end">
           <label className="flex-1">
             <span className="field-label">{t('wallet.amountUsd')}</span>
-            <input type="number" min="15" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
+            <input type="number" min="5" step="1" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} className="field" />
           </label>
           <button onClick={() => void onDeposit()} disabled={depositing} className="btn btn-gold w-full sm:w-auto">
             {depositing ? t('wallet.sending') : t('wallet.depositCrypto')}
@@ -254,6 +254,7 @@ export function WalletView() {
         <p className="text-[11px] text-amber-300/90 flex items-start gap-1.5">
           <span aria-hidden>⚠️</span><span>{t('wallet.networkWarn')}</span>
         </p>
+        <p className="text-[11px] text-muted/80">{t('wallet.withdrawFeeNote')}</p>
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
       </div>

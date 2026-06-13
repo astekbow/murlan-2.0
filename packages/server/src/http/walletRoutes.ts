@@ -44,7 +44,7 @@ export interface WalletRoutesDeps {
 // process than they're worth; max stops typo/oversized intents from being
 // recorded (then becoming un-creditable) AFTER the user has paid. Enforced at
 // the route so a bad amount is rejected before any intent/record is created.
-const MIN_DEPOSIT_CENTS = 1_500; // $15 — below this most crypto (esp. BTC) is under
+const MIN_DEPOSIT_CENTS = 500; // $5 — safely above Binance's USDT-TRC20 min deposit
 // the provider's per-coin minimum, so the checkout would just show "unavailable".
 const MAX_DEPOSIT_CENTS = 1_000_000_00; // $1,000,000
 const MIN_WITHDRAW_CENTS = 500; // $5
@@ -165,6 +165,12 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     const txId = parsed.data.txId.toLowerCase();
     const v = await deps.tronDeposit.verify(txId);
     if (!v.ok || v.amountCents == null) return reply.code(400).send({ error: { code: 'not_verified', message: v.error ?? 'Nuk u verifikua.' } });
+    // Below the stated minimum: don't auto-credit (keeps us safely above Binance's
+    // own min deposit). The funds did arrive on-chain → the unclaimed-deposit watcher
+    // alerts the operator to credit it manually.
+    if (v.amountCents < MIN_DEPOSIT_CENTS) {
+      return reply.code(400).send({ error: { code: 'below_min', message: `Depozita minimale është $${(MIN_DEPOSIT_CENTS / 100).toFixed(0)}. Kontakto suportin për shuma më të vogla.` } });
+    }
     // Idempotent on the TxID — a transaction can credit AT MOST once (a replay or a
     // second claimant gets 409, never a double-credit). We must credit a deposit
     // that genuinely arrived on-chain, so no min/cap gate here (the money is real).
