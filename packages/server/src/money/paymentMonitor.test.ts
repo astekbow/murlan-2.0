@@ -30,10 +30,10 @@ test('treasuryBufferCents = binance − liabilities (negative when under-funded)
 });
 
 function reconcileRec() {
-  const calls = { order: [] as string[], reversed: [] as string[], marked: [] as string[], messages: [] as string[] };
+  const calls = { order: [] as string[], reversed: [] as string[], reversedAmounts: [] as number[], marked: [] as string[], messages: [] as string[] };
   return {
     calls,
-    reverse: async (w: { id: string }) => { calls.order.push('reverse'); calls.reversed.push(w.id); },
+    reverse: async (w: { id: string; amountCents: number }) => { calls.order.push('reverse'); calls.reversed.push(w.id); calls.reversedAmounts.push(w.amountCents); },
     markReversed: async (id: string) => { calls.order.push('mark'); calls.marked.push(id); },
     notify: async (t: string) => { calls.messages.push(t); },
   };
@@ -52,6 +52,21 @@ test('refunds a FAILED (status 5) completed payout: credit FIRST, then mark, the
   assert.deepEqual(r.calls.marked, ['wd_1']);
   assert.deepEqual(r.calls.order, ['reverse', 'mark']); // credit before mark (idempotency-safe)
   assert.match(r.calls.messages[0]!, /DËSHTOI/);
+});
+
+test('on amount mismatch (Binance ≠ DB) it credits the DB amount and ALSO alerts the discrepancy', async () => {
+  const r = reconcileRec();
+  const n = await reconcileFailedWithdrawals({
+    list: async () => [{ withdrawOrderId: 'wd_2', status: 3, amountCents: 2900 }], // Binance says $29
+    findWithdrawal: completed('u1', 3000),                                          // DB debited $30
+    reverse: r.reverse, markReversed: r.markReversed, notify: r.notify,
+  });
+  assert.equal(n, 1);
+  assert.deepEqual(r.calls.reversed, ['wd_2']);                 // reversed (made whole)…
+  assert.deepEqual(r.calls.reversedAmounts, [3000]);            // …with the DB debit ($30), NOT Binance's $29…
+  assert.match(r.calls.messages[0]!, /Mospërputhje/);           // …discrepancy alert first…
+  assert.match(r.calls.messages[0]!, /\$30\.00.*\$29\.00/s);    // …showing both figures…
+  assert.match(r.calls.messages[1]!, /DËSHTOI/);                // …then the normal failure alert.
 });
 
 test('does NOT reverse a Completed (6) or Processing (4) withdrawal', async () => {

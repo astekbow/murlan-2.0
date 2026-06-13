@@ -51,6 +51,17 @@ export async function reconcileFailedWithdrawals(deps: FailedWithdrawalDeps): Pr
     if (!BINANCE_WITHDRAW_FAILED.has(r.status)) continue;
     const wd = await deps.findWithdrawal(r.withdrawOrderId);
     if (!wd || wd.status !== 'completed') continue; // not ours / already reversed (now 'rejected')
+    // We ALWAYS restore exactly what we debited the player (wd.amountCents) — that, not the
+    // Binance-reported figure, is the authoritative ledger entry that makes the player whole.
+    // But if Binance reports a different amount, that's an anomaly worth surfacing (corrupted
+    // record, unexpected fee handling, or a tampered row) — alert without changing the credit.
+    if (Number.isInteger(r.amountCents) && r.amountCents !== wd.amountCents) {
+      await deps.notify(
+        `⚠️ <b>Mospërputhje shume në kthim</b>\n` +
+        `ID: ${r.withdrawOrderId}\nDB: <b>$${(wd.amountCents / 100).toFixed(2)}</b> · Binance: <b>$${(r.amountCents / 100).toFixed(2)}</b>\n` +
+        `→ U rikreditua shuma e DB-së (debitimi origjinal). Verifiko manualisht.`,
+      );
+    }
     await deps.reverse({ id: r.withdrawOrderId, userId: wd.userId, amountCents: wd.amountCents });
     await deps.markReversed(r.withdrawOrderId);
     await deps.notify(
