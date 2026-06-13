@@ -285,6 +285,10 @@ export const walletApi = {
   withdraw: (token: string, amountCents: number, destination: string) =>
     request<{ withdrawal: WithdrawalRecord }>('/wallet/withdraw', { method: 'POST', token, body: { amountCents, destination } }),
   withdrawals: (token: string) => request<{ withdrawals: WithdrawalRecord[] }>('/wallet/withdrawals', { token }),
+  // Fee-free USDT-TRC20 deposits: fetch our receiving address, then submit a TxID.
+  depositAddress: (token: string) => request<{ address: string | null; currency?: string; network?: string }>('/wallet/deposit/address', { token }),
+  submitDepositTxid: (token: string, txId: string) =>
+    request<{ ok: boolean; amountCents: number; balanceCents: number }>('/wallet/deposit/txid', { method: 'POST', token, body: { txId } }),
 };
 
 export interface RgLimits {

@@ -43,6 +43,8 @@ const schema = z.object({
   NOWPAYMENTS_2FA_SECRET: z.string().optional(),      // base32 authenticator secret → auto-generates the payout 2FA code
   BINANCE_API_KEY: z.string().optional(),             // Binance withdraw API — PREFERRED auto-payout when set (with secret)
   BINANCE_API_SECRET: z.string().optional(),          // Binance API secret (HMAC-SHA256 request signing)
+  TRON_DEPOSIT_ADDRESS: z.string().optional(),        // YOUR USDT-TRC20 address — enables fee-free TxID deposits
+  TRONGRID_API_KEY: z.string().optional(),            // free TronGrid key (on-chain deposit verification; higher rate limits)
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -87,6 +89,8 @@ export interface AppConfig {
   nowPayments2faSecret: string | null;
   binanceApiKey: string | null;
   binanceApiSecret: string | null;
+  tronDepositAddress: string | null;
+  tronGridApiKey: string | null;
   compliance: {
     kycRequired: boolean;
     minAge: number;
@@ -172,6 +176,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nowPayments2faSecret: parsed.NOWPAYMENTS_2FA_SECRET || null,
     binanceApiKey: parsed.BINANCE_API_KEY || null,
     binanceApiSecret: parsed.BINANCE_API_SECRET || null,
+    tronDepositAddress: parsed.TRON_DEPOSIT_ADDRESS || null,
+    tronGridApiKey: parsed.TRONGRID_API_KEY || null,
     compliance: {
       kycRequired: isTrue(parsed.KYC_REQUIRED),
       minAge: parsed.MIN_AGE,

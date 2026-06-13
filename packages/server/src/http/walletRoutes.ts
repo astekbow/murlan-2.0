@@ -18,8 +18,9 @@ import type { PaymentProvider } from '../money/paymentProvider.ts';
 import type { DepositIntentRepository } from '../money/depositIntents.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
-import type { Notifier } from '../notify/notifier.ts';
+import { type Notifier, escapeHtml } from '../notify/notifier.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
+import type { TronDepositVerifier } from '../money/tronDeposit.ts';
 import { processWithdrawal } from '../money/autoPayout.ts';
 
 export interface WalletRoutesDeps {
@@ -33,6 +34,8 @@ export interface WalletRoutesDeps {
   notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
+  tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via on-chain TxID verify
+  tronDepositAddress?: string | null; // YOUR receiving address (shown to players)
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -138,6 +141,42 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     const caller = await guard(req, reply);
     if (!caller) return;
     return reply.send({ withdrawals: await withdrawals.listByUser(caller.userId) });
+  });
+
+  // ----- Fee-free USDT-TRC20 deposits (own address + on-chain TxID verify) ----
+  // The player sends to OUR address, then submits the TxID; we verify on-chain and
+  // credit. Available only when a TRON deposit address is configured.
+  app.get('/api/wallet/deposit/address', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!deps.tronDepositAddress) return reply.send({ address: null });
+    return reply.send({ address: deps.tronDepositAddress, currency: 'USDT', network: 'TRC20' });
+  });
+
+  const txidSchema = z.object({ txId: z.string().trim().min(60).max(80) });
+  app.post('/api/wallet/deposit/txid', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!deps.tronDeposit) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });
+    const parsed = txidSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'TxID i pavlefshëm.' } });
+    const txId = parsed.data.txId;
+    const v = await deps.tronDeposit.verify(txId);
+    if (!v.ok || v.amountCents == null) return reply.code(400).send({ error: { code: 'not_verified', message: v.error ?? 'Nuk u verifikua.' } });
+    // Idempotent on the TxID — a transaction can credit AT MOST once (a replay or a
+    // second claimant gets 409, never a double-credit). We must credit a deposit
+    // that genuinely arrived on-chain, so no min/cap gate here (the money is real).
+    const res = await wallet.credit(caller.userId, v.amountCents, { type: 'deposit', providerRef: `tron:${txId}`, reason: 'Depozitë USDT-TRC20' });
+    if (res.idempotent) return reply.code(409).send({ error: { code: 'already_used', message: 'Ky TxID është përdorur tashmë.' } });
+    if (notifier) {
+      void notifier.notify(
+        `💰 <b>Depozitë USDT-TRC20</b>\n` +
+        `Lojtari: ${escapeHtml(caller.username ?? caller.userId)}\n` +
+        `Shuma: <b>$${(v.amountCents / 100).toFixed(2)}</b>\n` +
+        `TxID: <code>${escapeHtml(txId)}</code>`,
+      ).catch(() => {});
+    }
+    return reply.code(201).send({ ok: true, amountCents: v.amountCents, balanceCents: res.balanceCents });
   });
 
   // Provider webhook: verify source IP (if an allowlist is set) + the signature

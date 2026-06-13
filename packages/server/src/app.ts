@@ -51,6 +51,7 @@ import { createNotifier, type Notifier } from './notify/notifier.ts';
 import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.ts';
 import { NowPaymentsPayoutProvider } from './money/nowPaymentsPayout.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
+import { TronDepositVerifier } from './money/tronDeposit.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
 import { InMemoryDepositIntents, type DepositIntentRepository } from './money/depositIntents.ts';
 import type { UnitOfWork } from './money/unitOfWork.ts';
@@ -99,6 +100,8 @@ export interface HttpDeps {
   rooms?: RoomManager;
   notifier?: Notifier; // ops alerts (Telegram) — e.g. new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
+  tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via TxID verify
+  tronDepositAddress?: string | null;
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
   profiles?: ProfileService;
@@ -229,6 +232,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
+      tronDeposit: deps.tronDeposit, tronDepositAddress: deps.config.tronDepositAddress,
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
@@ -407,6 +411,11 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       sandbox: config.nowPaymentsSandbox,
     });
   }
+  // Fee-free USDT-TRC20 deposits (own address + on-chain TxID verify) when an
+  // address is configured; else the existing processor/stub deposit flow is used.
+  const tronDeposit = config.tronDepositAddress
+    ? new TronDepositVerifier({ depositAddress: config.tronDepositAddress, apiKey: config.tronGridApiKey })
+    : undefined;
   if (payout.name !== 'null') {
     // eslint-disable-next-line no-console
     console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
@@ -493,7 +502,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const voidMatch = (roomId: string, meta: { adminId: string; reason: string }) =>
     voidHolder.fn ? voidHolder.fn(roomId, meta) : Promise.resolve({ ok: false as const, reason: 'unavailable' as const });
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

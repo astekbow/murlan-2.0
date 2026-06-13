@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useWalletStore } from '../store/walletStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
-import { accountApi, type RgLimits } from '../lib/api.ts';
+import { accountApi, walletApi, ApiError, type RgLimits } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
@@ -35,6 +35,36 @@ export function WalletView() {
   // double-click can't double-submit.
   const [depositing, setDepositing] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
+  const [depAddr, setDepAddr] = useState<string | null>(null);
+  const [txId, setTxId] = useState('');
+  const [submittingTxid, setSubmittingTxid] = useState(false);
+
+  useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    void walletApi.depositAddress(token).then((r) => setDepAddr(r.address)).catch(() => {});
+  }, []);
+
+  const onSubmitTxid = async () => {
+    if (submittingTxid) return;
+    const id = txId.trim();
+    if (id.length < 60) { useWalletStore.setState({ error: tr('wallet.errTxid') }); return; }
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setSubmittingTxid(true);
+    try {
+      const r = await walletApi.submitDepositTxid(token, id);
+      setTxId('');
+      useWalletStore.setState({ notice: tr('wallet.depositCredited'), error: null });
+      await refresh();
+      return r;
+    } catch (e) {
+      useWalletStore.setState({ error: e instanceof ApiError ? e.message : tr('wallet.errTxidVerify') });
+    } finally {
+      setSubmittingTxid(false);
+    }
+  };
 
   // Celebrate a balance INCREASE (e.g. a deposit credited) once the initial load has
   // settled, so the 0→balance load on mount never falsely fires confetti.
@@ -155,6 +185,29 @@ export function WalletView() {
         >
           {error || notice}
         </div>
+      )}
+
+      {/* Fee-free USDT-TRC20 deposit: send to our address, then paste the TxID. */}
+      {depAddr && (
+        <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.06s' }}>
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
+          <p className="text-sm text-muted">{t('wallet.depositTrc20Steps')}</p>
+          <div>
+            <span className="field-label">{t('wallet.yourAddress')}</span>
+            <div className="flex items-center gap-2">
+              <code className="field flex-1 font-mono text-xs break-all select-all">{depAddr}</code>
+              <button onClick={() => void navigator.clipboard?.writeText(depAddr)} className="btn btn-ghost btn-sm shrink-0">{t('common.copy')}</button>
+            </div>
+            <p className="text-[11px] text-amber-300/90 mt-1">⚠️ {t('wallet.networkWarn')}</p>
+          </div>
+          <label className="block">
+            <span className="field-label">{t('wallet.txidLabel')}</span>
+            <input value={txId} onChange={(e) => setTxId(e.target.value)} placeholder={t('wallet.txidPlaceholder')} className="field font-mono" />
+          </label>
+          <button onClick={() => void onSubmitTxid()} disabled={submittingTxid} className="btn btn-gold w-full sm:w-auto">
+            {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
+          </button>
+        </section>
       )}
 
       {/* Deposit + Withdraw sit side-by-side on wide screens, stacked on mobile. */}
