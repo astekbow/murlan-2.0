@@ -71,6 +71,24 @@ services:
       MIN_AGE: ${MIN_AGE:-0}
       GEO_BLOCKED_COUNTRIES: ${GEO_BLOCKED_COUNTRIES:-}
       RESPONSIBLE_GAMING: ${RESPONSIBLE_GAMING:-false}
+      # Ops alerts (Telegram) — set BOTH to ping the owner on a withdrawal request.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # Semi-auto / automatic crypto payout. AUTO_WITHDRAW_MAX_CENTS>0 + a payout
+      # provider's creds = auto-pay small KYC-verified withdrawals (rest manual).
+      AUTO_WITHDRAW_MAX_CENTS: ${AUTO_WITHDRAW_MAX_CENTS:-0}
+      AUTO_WITHDRAW_CURRENCY: ${AUTO_WITHDRAW_CURRENCY:-usdttrc20}
+      # Payout provider A — Binance (preferred when set). Needs Enable Withdrawals
+      # + the server IP whitelisted + address whitelist OFF.
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET:-}
+      # Payout provider B — NOWPayments Mass Payout (used only if Binance is unset).
+      NOWPAYMENTS_PAYOUT_EMAIL: ${NOWPAYMENTS_PAYOUT_EMAIL:-}
+      NOWPAYMENTS_PAYOUT_PASSWORD: ${NOWPAYMENTS_PAYOUT_PASSWORD:-}
+      NOWPAYMENTS_2FA_SECRET: ${NOWPAYMENTS_2FA_SECRET:-}
+      # Fee-free USDT-TRC20 deposits: your receiving address + free TronGrid verify.
+      TRON_DEPOSIT_ADDRESS: ${TRON_DEPOSIT_ADDRESS:-}
+      TRONGRID_API_KEY: ${TRONGRID_API_KEY:-}
     # Localhost only — the public entry point is the client (nginx) below, which
     # proxies /api + /socket.io to this service over the internal Docker network.
     # Don't expose the server directly (it would bypass nginx's headers + your TLS).
