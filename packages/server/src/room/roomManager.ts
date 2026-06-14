@@ -382,6 +382,14 @@ export class RoomManager {
     return this.rooms.get(roomId);
   }
 
+  /** Flag a ZERO-STAKE room as practice (no XP/ranked/stats; money is already gated
+   *  on stake>0) — used when a free lobby is auto-filled with fill-players so playing
+   *  against them can never farm rewards. No-op (and refused) on a staked room. */
+  markPractice(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (room && room.stakeCents === 0) room.practice = true;
+  }
+
   roomStateDTO(roomId: string): RoomStateDTO | null {
     const room = this.rooms.get(roomId);
     if (!room) return null;

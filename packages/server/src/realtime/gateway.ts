@@ -46,7 +46,7 @@ import type { ChatService } from '../chat/chatService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
 import { settlementFailures, socketConnections, settlementDuration } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
-import { personalRoom, clubRoom, isBot, BOT_PREFIX, BOT_NAMES, BOT_MIN_DELAY, BOT_MAX_DELAY } from './gatewayHelpers.ts';
+import { personalRoom, clubRoom, isBot, BOT_PREFIX, pickGhostNames, BOT_MIN_DELAY, BOT_MAX_DELAY } from './gatewayHelpers.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -71,6 +71,7 @@ export interface GatewayOptions {
   push?: PushService; // Web Push re-engagement nudges (isolated; never affects play)
   chat?: ChatService; // club chat (membership-gated, rate-limited, mute-aware)
   botDelayMs?: number; // practice-bot "thinking" delay (ms); injectable for deterministic tests
+  ghostFillMs?: number; // free-lobby auto-fill delay (ms); injectable for deterministic tests
   isDraining?: () => boolean; // graceful shutdown: reject NEW matches/queue joins while true
   ownership?: RoomOwnership; // multi-instance room-ownership registry (single-instance no-op)
   rateLimiter?: RateLimiter; // per-user intent bucket (default 40 burst / 20-per-sec); injectable for tests
@@ -91,6 +92,11 @@ const IDLE_FORFEIT_STRIKES = 5;
 
 // Cap spectators per room so a flood of watchers can't blow up broadcast fan-out.
 const SPECTATOR_CAP = 100;
+
+// A FREE (zero-stake) room that hasn't filled with humans this long auto-fills with
+// fill-players so the host never sits in an empty lobby. Humans always get priority:
+// if they join first the timer is cancelled. NEVER applies to staked rooms.
+const GHOST_FILL_MS = 12_000;
 
 /** Result of an admin match-void (see GameGateway.adminVoidMatch). */
 export type AdminVoidResult =
@@ -130,6 +136,8 @@ export class GameGateway {
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
   private botTiers = new Map<string, BotTier>(); // practice roomId -> bot difficulty
   private botTimers = new Map<string, ReturnType<typeof setTimeout>>(); // practice roomId -> pending bot-move timer
+  private ghostFillTimers = new Map<string, ReturnType<typeof setTimeout>>(); // free roomId -> pending auto-fill timer
+  private readonly ghostFillMs: number;
   private seenCards = new Map<string, Card[]>(); // practice roomId -> cards played this game (bot card-counting)
   private finalizedMatches = new Set<string>(); // matchIds whose match:end has been emitted (exactly-once finalize)
   private fairByRoom = new Map<string, FairShuffle>(); // provably-fair shuffle per active match
@@ -167,6 +175,7 @@ export class GameGateway {
     this.push = opts.push ?? null;
     this.chat = opts.chat ?? null;
     this.botDelayMs = opts.botDelayMs ?? null;
+    this.ghostFillMs = opts.ghostFillMs ?? GHOST_FILL_MS;
     this.isDraining = opts.isDraining ?? (() => false);
     this.ownership = opts.ownership ?? null;
     // Matchmaking needs MMR ratings to bracket players, so it's only active when
@@ -360,6 +369,7 @@ export class GameGateway {
       reply({ ok: true, roomId: res.roomId, joinCode: res.joinCode });
       this.broadcastRoomState(res.roomId);
       this.broadcastLobby();
+      this.armGhostFill(res.roomId); // free public lobby → auto-fill with players if no humans join
     } catch (e) {
       console.error('[gateway] onCreate failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
@@ -434,6 +444,7 @@ export class GameGateway {
     const seat = this.rooms.seatOf(roomId, socket.data.userId);
     const userId = socket.data.userId;
     const wasPractice = room?.practice ?? false;
+    this.clearGhostFill(roomId); // a pending free-lobby auto-fill is moot once someone leaves
 
     // Detach this socket from the room immediately.
     void socket.leave(roomId);
@@ -745,21 +756,37 @@ export class GameGateway {
     }
     this.rooms.setReady(userId, true);
 
-    // Fill every empty seat with a bot (marked connected + ready so the match starts).
-    const room = this.rooms.getRoom(roomId);
-    let bi = 0;
-    for (let seat = 0; seat < (room?.seats.length ?? 0); seat += 1) {
-      if (room!.seats[seat]!.userId) continue; // the human's seat
-      const botId = `${BOT_PREFIX}${roomId}:${seat}`;
-      const joined = this.rooms.joinRoom({ userId: botId, username: BOT_NAMES[bi % BOT_NAMES.length]! }, roomId);
-      bi += 1;
-      if (!joined.ok) { this.teardownPractice(roomId); return reply(ackError('seat_failed', 'Vendet nuk u mbushën.')); }
-      this.rooms.setConnected(botId, true);
-      this.rooms.setReady(botId, true);
+    if (!this.fillEmptySeatsWithBots(roomId, socket.data.username)) {
+      this.teardownPractice(roomId);
+      return reply(ackError('seat_failed', 'Vendet nuk u mbushën.'));
     }
     reply({ ok: true, roomId });
     this.broadcastRoomState(roomId);
     this.maybeStartCountdown(roomId); // all ready ⇒ commit + countdown + deal
+  }
+
+  /**
+   * Seat a fill-player ("ghost") in every empty seat of a ZERO-STAKE room, ready +
+   * connected so the match can start. Human-like names (the client only sees the
+   * username). HARD GUARD: refuses outright on any staked room — fill players must
+   * NEVER enter a real-money game (that would be fraud); escrow is gated on stake>0
+   * too, so this is belt-and-suspenders. Returns false if seating failed.
+   */
+  private fillEmptySeatsWithBots(roomId: string, humanName?: string | null): boolean {
+    const room = this.rooms.getRoom(roomId);
+    if (!room) return false;
+    if (room.stakeCents !== 0) return false; // ⛔ never fill a staked/real-money room
+    const empties = room.seats.map((s, i) => (s.userId ? -1 : i)).filter((i) => i >= 0);
+    const names = pickGhostNames(empties.length, humanName);
+    for (let k = 0; k < empties.length; k += 1) {
+      const seat = empties[k]!;
+      const botId = `${BOT_PREFIX}${roomId}:${seat}`;
+      const joined = this.rooms.joinRoom({ userId: botId, username: names[k] ?? `Lojtar ${seat + 1}` }, roomId);
+      if (!joined.ok) return false;
+      this.rooms.setConnected(botId, true);
+      this.rooms.setReady(botId, true);
+    }
+    return true;
   }
 
   /** Schedule a bot's move after a short, natural "thinking" delay. */
@@ -841,8 +868,44 @@ export class GameGateway {
     if (t) { clearTimeout(t); this.botTimers.delete(roomId); }
   }
 
+  /** Arm an auto-fill for a FREE (zero-stake) waiting room: if no humans join within
+   *  GHOST_FILL_MS, seat fill-players and start, so the host never sits alone. Humans
+   *  get priority (joining cancels it). HARD-GATED to zero-stake, non-ranked, public,
+   *  non-practice rooms — a staked/real-money room is NEVER auto-filled. */
+  private armGhostFill(roomId: string): void {
+    const room = this.rooms.getRoom(roomId);
+    if (!room || room.stakeCents !== 0 || room.ranked || room.practice || room.private) return; // ⛔ only free public lobbies
+    if (room.status !== 'waiting') return;
+    const humans = room.seats.filter((s) => s.userId && !isBot(s.userId)).length;
+    const empties = room.seats.filter((s) => !s.userId).length;
+    if (humans < 1 || empties < 1) return; // need a host + room to fill
+    if (this.ghostFillTimers.has(roomId)) return; // already armed
+    this.ghostFillTimers.set(roomId, setTimeout(() => {
+      this.ghostFillTimers.delete(roomId);
+      const r = this.rooms.getRoom(roomId);
+      // Re-check EVERYTHING at fire time — humans may have joined/filled/started meanwhile.
+      if (!r || r.stakeCents !== 0 || r.ranked || r.private || r.practice || r.status !== 'waiting') return;
+      const human = r.seats.filter((s) => s.userId && !isBot(s.userId));
+      // Only auto-fill a SOLO host ("when there are no other players"). If others joined,
+      // leave it to the humans; if the host left, do nothing.
+      if (human.length !== 1) return;
+      if (!r.seats.some((s) => !s.userId)) return; // already full
+      const host = human[0];
+      this.rooms.markPractice(roomId); // no XP/ranked/stats/money vs fill-players (also stake is 0)
+      if (!this.fillEmptySeatsWithBots(roomId, host?.username ?? null)) { this.teardownPractice(roomId); return; }
+      this.broadcastRoomState(roomId);
+      this.maybeStartCountdown(roomId);
+    }, this.ghostFillMs));
+  }
+
+  private clearGhostFill(roomId: string): void {
+    const t = this.ghostFillTimers.get(roomId);
+    if (t) { clearTimeout(t); this.ghostFillTimers.delete(roomId); }
+  }
+
   /** Remove a practice room's bots + timers (called when the human leaves/disconnects). */
   private teardownPractice(roomId: string): void {
+    this.clearGhostFill(roomId);
     this.clearBotTimer(roomId);
     this.botTiers.delete(roomId);
     this.seenCards.delete(roomId);
@@ -859,6 +922,7 @@ export class GameGateway {
       return;
     }
     if (this.timers.hasCountdown(roomId)) return; // already counting down
+    this.clearGhostFill(roomId); // the room is starting → cancel any pending free-lobby auto-fill
 
     // Provably-fair COMMIT happens here — BEFORE clientSeeds are collected for
     // this match. We generate+commit the serverSeed, discard any pre-commit
@@ -1055,6 +1119,11 @@ export class GameGateway {
     if (!state) return state;
     const deadline = this.timers.countdownDeadline(roomId);
     state.countdownMs = deadline !== null ? Math.max(0, deadline - Date.now()) : null;
+    // Redact fill-player (bot) userIds from the client DTO: their userId carries the
+    // 'bot:' prefix, which would unmask them in the WebSocket frame. The client never
+    // needs a bot's id (only its own + real opponents'), so null it out — keeping the
+    // human-like username only. (Defense for the "ghost" disguise on free tables.)
+    for (const s of state.seats) if (isBot(s.userId)) s.userId = null;
     return state;
   }
 

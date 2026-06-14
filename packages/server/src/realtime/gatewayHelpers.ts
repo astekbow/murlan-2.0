@@ -13,12 +13,29 @@ export function clubRoom(clubId: string): string {
   return `club:${clubId}`;
 }
 
-// ---- Practice bots ---------------------------------------------------------
-// Bots are synthetic, socket-less "players" seated in zero-stake rooms (escrow is
-// gated on stakeCents>0, so they never touch money), identified by a userId prefix.
+// ---- Fill players (a.k.a. practice bots) -----------------------------------
+// Synthetic, socket-less "players" seated ONLY in zero-stake rooms (escrow is gated
+// on stakeCents>0, so they NEVER touch money — this is the hard structural guard
+// that keeps them out of every real-money game). Identified internally by a userId
+// prefix; the client only ever receives their `username`, so a human-like name makes
+// them indistinguishable on a free/practice table (no money is ever at stake).
 export const BOT_PREFIX = 'bot:';
 export const isBot = (userId: string | null): boolean => !!userId && userId.startsWith(BOT_PREFIX);
-export const BOT_NAMES = ['🤖 Roboti', '🤖 Bardha', '🤖 Genci'];
+/** Human-like names so a free-table opponent doesn't read as a robot. */
+export const GHOST_NAMES = [
+  'Andi', 'Beni', 'Gent', 'Eri', 'Drini', 'Ardit', 'Sokol', 'Ilir', 'Endri', 'Redi',
+  'Joni', 'Marsel', 'Kreshnik', 'Fatos', 'Besa', 'Era', 'Ana', 'Lira', 'Doni', 'Rina',
+  'Eda', 'Klea', 'Noa', 'Toni', 'Geri', 'Leo', 'Dea', 'Iris',
+];
+/** Pick `count` DISTINCT random ghost names, avoiding `exclude` (the human's name). */
+export function pickGhostNames(count: number, exclude?: string | null): string[] {
+  const pool = GHOST_NAMES.filter((n) => n.toLowerCase() !== (exclude ?? '').trim().toLowerCase());
+  for (let i = pool.length - 1; i > 0; i -= 1) { // Fisher–Yates shuffle
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+  }
+  return pool.slice(0, Math.max(0, count));
+}
 /** Bot "thinking" delay before it acts, for a natural pace (ms). */
 export const BOT_MIN_DELAY = 550;
 export const BOT_MAX_DELAY = 1100;

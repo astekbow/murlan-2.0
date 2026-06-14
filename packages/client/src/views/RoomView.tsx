@@ -21,7 +21,9 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
   const { mySeat, setReady, leaveRoom } = useGameStore();
   const t = useT();
   const meReady = mySeat !== null ? room.seats[mySeat]?.ready ?? false : false;
-  const filled = room.seats.filter((s) => s.userId !== null).length;
+  // Occupancy is by username, not userId: a seat can be filled by a player whose id
+  // we don't expose (fill-players on free tables have their userId redacted).
+  const filled = room.seats.filter((s) => s.username !== null).length;
   const allFilled = filled === room.seats.length;
   const allReady = allFilled && room.seats.every((s) => s.ready);
   const counting = room.countdownMs != null;
@@ -117,7 +119,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
               >
                 <span
                   className="pfp"
-                  style={{ width: 54, height: 54, borderColor: s.userId ? ring : 'rgba(255,255,255,.12)', opacity: s.userId ? 1 : 0.4 }}
+                  style={{ width: 54, height: 54, borderColor: s.username ? ring : 'rgba(255,255,255,.12)', opacity: s.username ? 1 : 0.4 }}
                 >
                   {s.username ? s.username.charAt(0).toUpperCase() : '…'}
                 </span>
@@ -131,7 +133,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                 ) : (
                   <div className="text-xs italic text-muted/70">{t('room.waiting')}</div>
                 )}
-                {s.userId &&
+                {s.username &&
                   (s.ready ? <span className="tag tag-open">{t('room.ready')}</span> : <span className="tag tag-live"><span className="pls" />{t('room.notReady')}</span>)}
               </div>
             );
