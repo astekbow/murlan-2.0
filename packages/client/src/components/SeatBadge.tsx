@@ -11,11 +11,30 @@ interface SeatBadgeProps {
   passed: boolean;
   lastPlayer?: boolean; // led the current pile
   partner?: boolean;    // 2v2 teammate of the local player
+  turnDeadline?: number | null; // epoch ms — when set + isTurn, a depleting ring shows the time left
 }
 
 function initials(name: string): string {
   const parts = name.trim().split(/[\s_]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? name[0] ?? '?') + (parts[1]?.[0] ?? '')).toUpperCase();
+}
+
+/** A ring around the avatar that depletes over the remaining turn time. Restarts
+ *  whenever the deadline changes (a new turn). Pure CSS animation — cheap, no timers. */
+function TurnRing({ deadline }: { deadline: number }) {
+  const remaining = Math.max(0, deadline - Date.now());
+  return (
+    <svg className="turn-ring" viewBox="0 0 40 40" aria-hidden>
+      <circle
+        className="turn-ring-track" cx="20" cy="20" r="18" pathLength={100}
+      />
+      <circle
+        key={deadline} // restart the animation on each new turn
+        className="turn-ring-arc" cx="20" cy="20" r="18" pathLength={100}
+        style={{ animationDuration: `${remaining}ms` }}
+      />
+    </svg>
+  );
 }
 
 /**
@@ -24,7 +43,7 @@ function initials(name: string): string {
  * The fan is decorative and capped — opponents' card IDENTITIES are NEVER shown
  * (the server only ever sends counts), only how many they hold.
  */
-function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, lastPlayer, partner }: SeatBadgeProps) {
+function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, lastPlayer, partner, turnDeadline }: SeatBadgeProps) {
   const t = useT();
   const ring = isTurn ? 'turn' : lastPlayer ? 'green' : '';
   const fanCount = Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
@@ -37,7 +56,10 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
           <div key={i} className="mini" style={{ height: 22, width: 16, marginLeft: i === 0 ? 0 : -9 }} />
         ))}
       </div>
-      <div className={`av ${ring} ${!connected ? 'off' : ''}`} title={name}>{initials(name)}</div>
+      <div className="relative inline-grid place-items-center">
+        {isTurn && turnDeadline != null && <TurnRing deadline={turnDeadline} />}
+        <div className={`av ${ring} ${!connected ? 'off' : ''}`} title={name}>{initials(name)}</div>
+      </div>
       <div className={`seat-nm ${partner ? 'partner' : ''} truncate max-w-[110px]`}>
         {name}{partner && ` · ${t('seat.partner')}`}
       </div>

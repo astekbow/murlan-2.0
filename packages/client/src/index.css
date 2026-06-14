@@ -342,15 +342,18 @@ select:focus-visible,
   }
   .av.green { border-color: var(--green); }
   .av.turn { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(230, 197, 112, 0.5), 0 0 22px rgba(230, 197, 112, 0.6); }
-  .av.turn::after {
-    content: ''; position: absolute; inset: -7px; border-radius: 50%;
-    background: conic-gradient(var(--gold) var(--p, 70%), transparent 0);
-    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
-    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
-    animation: spin360 8s linear infinite;
-    will-change: transform;
-  }
   .av.off { opacity: 0.5; }
+
+  /* ---- Turn countdown ring (depletes over the player's remaining time) ------- */
+  .turn-ring { position: absolute; inset: -6px; transform: rotate(-90deg); pointer-events: none; z-index: 2; }
+  .turn-ring-track { fill: none; stroke: rgba(0, 0, 0, 0.4); stroke-width: 3.5; }
+  .turn-ring-arc {
+    fill: none; stroke: var(--gold); stroke-width: 3.5; stroke-linecap: round;
+    stroke-dasharray: 100; stroke-dashoffset: 0;
+    animation-name: deplete; animation-timing-function: linear; animation-fill-mode: forwards;
+    filter: drop-shadow(0 0 3px rgba(230, 197, 112, 0.7));
+  }
+  @keyframes deplete { to { stroke-dashoffset: 100; } }
   .seat-cnt { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 13px; color: #7cffa8; text-shadow: 0 1px 2px #000; }
   .seat-nm { font-size: 12px; font-weight: 600; text-shadow: 0 1px 3px #000; }
   .seat-nm.partner { color: #9bd0f5; }

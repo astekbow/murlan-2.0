@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { RoomStateDTO } from '@murlan/shared';
 import type { Card } from '@murlan/engine';
@@ -38,25 +38,6 @@ const SEAT_POS: Record<SeatPosition, string> = {
   left: '-left-3 top-1/2 -translate-y-1/2 max-[480px]:left-1 max-[480px]:top-[36%]',
   right: '-right-3 top-1/2 -translate-y-1/2 max-[480px]:right-1 max-[480px]:top-[36%]',
 };
-
-/** Recessed cup-holders spaced around the padded rail (like a real poker table). */
-function CupHolders() {
-  const top = ['22%', '50%', '78%'];
-  const side = ['34%', '66%'];
-  const spots: Array<CSSProperties> = [
-    ...top.map((l) => ({ left: l, top: '2px', transform: 'translateX(-50%)' })),
-    ...top.map((l) => ({ left: l, bottom: '2px', transform: 'translateX(-50%)' })),
-    ...side.map((t) => ({ left: '2px', top: t, transform: 'translateY(-50%)' })),
-    ...side.map((t) => ({ right: '2px', top: t, transform: 'translateY(-50%)' })),
-  ];
-  return (
-    <>
-      {spots.map((s, i) => (
-        <span key={i} className="cupholder" style={s} aria-hidden />
-      ))}
-    </>
-  );
-}
 
 /** A transient emote/quick-chat speech bubble above a seat. */
 function SpeechBubble({ b }: { b: Bubble }) {
@@ -290,7 +271,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             >
               {(scoreboard.type === '2v2' && scoreboard.teamTotals
                 ? scoreboard.teamTotals.map((v, i) => ({ label: `T${i + 1}`, val: v }))
-                : scoreboard.cumulative.map((v, i) => ({ label: (nameOf(i) || String(i + 1)).slice(0, 3), val: v }))
+                : scoreboard.cumulative.map((v, i) => ({ label: (nameOf(i) || String(i + 1)).slice(0, 8), val: v }))
               ).map((s, i) => (
                 <span key={i} className="inline-flex items-center gap-1">
                   {i > 0 && <span className="opacity-30">·</span>}
@@ -314,7 +295,6 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       <div className="tv-table flex-1 flex items-center justify-center min-h-0 py-1">
         <div className={`tv-felt relative w-full max-w-[640px] px-7 py-6 max-[480px]:px-3 ${feltClass} ${cbClass}`}>
           <div className="rail-outer">
-          <CupHolders />
           <div className="rail-inner">
             <div className="felt-ring" aria-hidden />
             <div className="tlogo">MURLAN</div>
@@ -337,6 +317,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                         passed={passedSet.has(s.seat)}
                         lastPlayer={game?.pileOwner === s.seat}
                         partner={room.type === '2v2' && myTeam !== null && s.team === myTeam}
+                        turnDeadline={game?.turn === s.seat ? game?.turnDeadline ?? null : null}
                       />
                     </button>
                   </div>
