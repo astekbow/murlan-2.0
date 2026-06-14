@@ -354,6 +354,25 @@ select:focus-visible,
     filter: drop-shadow(0 0 3px rgba(230, 197, 112, 0.7));
   }
   @keyframes deplete { to { stroke-dashoffset: 100; } }
+
+  /* ---- Local player's turn bar (the local player has no avatar/ring) ------ */
+  .local-turn-bar {
+    height: 7px; border-radius: 9999px; overflow: hidden;
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.25);
+  }
+  .local-turn-bar-fill {
+    height: 100%; width: 100%; border-radius: 9999px;
+    transform-origin: left center;
+    background: linear-gradient(90deg, var(--gold), #f1deae);
+    box-shadow: 0 0 8px rgba(230, 197, 112, 0.6);
+    animation: deplete-bar linear forwards;
+  }
+  .local-turn-bar-fill.low {
+    background: linear-gradient(90deg, #b91c1c, #ef4444);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+  }
+  @keyframes deplete-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   .seat-cnt { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 13px; color: #7cffa8; text-shadow: 0 1px 2px #000; }
   .seat-nm { font-size: 12px; font-weight: 600; text-shadow: 0 1px 3px #000; }
   .seat-nm.partner { color: #9bd0f5; }

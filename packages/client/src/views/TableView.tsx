@@ -19,6 +19,7 @@ import { Pile } from '../components/Pile.tsx';
 import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
+import { LocalTurnBar } from '../components/LocalTurnBar.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
 import { useForceLandscape } from '../lib/useForceLandscape.ts';
 import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
@@ -364,11 +365,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 </span>
               </div>
             )}
-            {isMyTurn && (
-              <div className="text-center pb-1">
-                <span className="inline-block animate-pop gold-text font-display font-semibold tracking-wide text-sm">{t('table.yourTurn')}</span>
-              </div>
-            )}
+            {isMyTurn && <LocalTurnBar deadline={game?.turnDeadline ?? null} />}
           </>
         )}
         <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate />

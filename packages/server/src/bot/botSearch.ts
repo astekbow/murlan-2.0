@@ -34,7 +34,7 @@ import type { BotMove, BotView } from './botDecision.ts';
 // blip: ~24 sims × 14 candidates keeps a full 18-card decision around ~15-20ms, and
 // it runs inside the bot's think-delay. More sims ⇒ lower variance ⇒ stronger play,
 // with diminishing returns (the cheap rollout is the real ceiling).
-const SIMS_PER_MOVE = 24;   // determinizations evaluated per candidate move
+const SIMS_PER_MOVE = 36;   // determinizations evaluated per candidate move (more ⇒ lower variance ⇒ fewer flukey picks)
 const MAX_CANDIDATES = 14;  // candidate moves actually simulated (prefiltered)
 const PLAYOUT_GUARD = 400;  // hard cap on rollout steps (safety against a stuck loop)
 
@@ -168,10 +168,29 @@ function applyPass(sim: Sim, seat: number): void { sim.passed[seat] = true; afte
 function lowestSingle(hand: Card[]): Card {
   return hand.reduce((a, b) => (singlePower(b) < singlePower(a) ? b : a));
 }
+/** Leading in a rollout: shed the biggest CHEAP group (pair/triple before a lone
+ *  single), mirroring how a real player unloads — never a bomb (4-of-a-kind stays
+ *  in reserve), no straights (kept cheap). Consuming combos instead of dribbling
+ *  one card per trick makes simulated game LENGTH realistic, which is what the root
+ *  search relies on to compare moves. */
+function rolloutLead(hand: Card[]): Card[] {
+  const byRank = new Map<Rank, Extract<Card, { kind: 'standard' }>[]>();
+  for (const c of std(hand)) { const l = byRank.get(c.rank) ?? []; l.push(c); byRank.set(c.rank, l); }
+  let best: Card[] = [lowestSingle(hand)];
+  let bestScore = 100 - singlePower(best[0]!);     // single: shed 1
+  for (const cards of byRank.values()) {
+    const n = Math.min(cards.length, 3);           // pair/triple only (skip bombs)
+    if (n < 2) continue;
+    const g = cards.slice(0, n);
+    const score = n * 100 - singlePower(g[0]!);    // shed more, prefer lower cards
+    if (score > bestScore) { bestScore = score; best = g; }
+  }
+  return best;
+}
 function rolloutPlay(sim: Sim, seat: number): Card[] | null {
   const hand = sim.hands[seat]!;
   const pile = sim.pile;
-  if (!pile) return [lowestSingle(hand)]; // leading
+  if (!pile) return rolloutLead(hand); // leading
   // Responding: match the pile category cheaply.
   if (pile.type === 'single') {
     let best: Card | null = null;
