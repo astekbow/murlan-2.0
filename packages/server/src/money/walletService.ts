@@ -15,8 +15,14 @@ import { depositsToday } from '../compliance/responsibleGaming.ts';
 /** Synthetic account that accumulates the house rake (ledger-only, no balance). */
 export const HOUSE_ACCOUNT_ID = '__house__';
 
-/** Sanity cap so a single movement can never approach Number.MAX_SAFE_INTEGER. */
-export const MAX_AMOUNT_CENTS = 100_000_000_00; // $100,000,000
+/**
+ * Sanity cap on any single movement. Kept BELOW the Postgres `int4` max
+ * (2,147,483,647 cents ≈ $21.47M) so a valid app-level amount can never overflow
+ * the `Int` money columns (balanceCents/amountCents/potCents/…). $20,000,000 is far
+ * above any real stake/pot yet safely under the column ceiling. (If stakes ever need
+ * to exceed this, migrate the money columns to BigInt first, then raise this.)
+ */
+export const MAX_AMOUNT_CENTS = 2_000_000_000; // $20,000,000 (< int4 max)
 
 export class InsufficientFundsError extends Error {
   constructor(public readonly userId: string, public readonly neededCents: number, public readonly availableCents: number) {

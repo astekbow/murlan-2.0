@@ -11,6 +11,7 @@
 import type { UserRepository } from '../auth/userRepository.ts';
 import type { LedgerRepository } from './ledger.ts';
 import { type MatchesRepository, InMemoryMatchesRepository } from './matchesRepository.ts';
+import { type WithdrawalRepository, InMemoryWithdrawals } from './withdrawals.ts';
 
 export interface WalletTxContext {
   users: UserRepository;
@@ -18,6 +19,9 @@ export interface WalletTxContext {
   // Bound to the same transaction so a match's payouts/rake AND its status flip
   // (settle/refund) commit or roll back together — no partially-settled match.
   matches: MatchesRepository;
+  // Bound too, so a withdrawal's hold (debit + ledger) AND its record insert commit
+  // or roll back together — no phantom debit with no withdrawal row.
+  withdrawals: WithdrawalRepository;
 }
 
 export interface UnitOfWork {
@@ -30,9 +34,10 @@ export class InMemoryUnitOfWork implements UnitOfWork {
     private readonly users: UserRepository,
     private readonly ledger: LedgerRepository,
     private readonly matches: MatchesRepository = new InMemoryMatchesRepository(),
+    private readonly withdrawals: WithdrawalRepository = new InMemoryWithdrawals(),
   ) {}
 
   transaction<T>(fn: (ctx: WalletTxContext) => Promise<T>): Promise<T> {
-    return fn({ users: this.users, ledger: this.ledger, matches: this.matches });
+    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals });
   }
 }

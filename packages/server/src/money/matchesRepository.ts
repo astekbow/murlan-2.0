@@ -78,7 +78,7 @@ export class InMemoryMatchesRepository implements MatchesRepository {
 
   async markSettled(id: string, winnerSeats: number[]): Promise<void> {
     const r = this.byId.get(id);
-    if (r) {
+    if (r && r.status === 'active') { // guard: only an active match transitions (mirrors the DB updateMany)
       r.status = 'settled';
       r.winnerSeats = [...winnerSeats];
       r.endedAt = Date.now();
@@ -87,7 +87,7 @@ export class InMemoryMatchesRepository implements MatchesRepository {
 
   async markCancelled(id: string): Promise<void> {
     const r = this.byId.get(id);
-    if (r) {
+    if (r && r.status === 'active') {
       r.status = 'cancelled';
       r.endedAt = Date.now();
     }

@@ -180,11 +180,15 @@ export class GameGateway {
   // ---------- Auth handshake --------------------------------------------------
 
   private registerAuth(): void {
-    this.io.use((socket, next) => {
+    this.io.use(async (socket, next) => {
       const token = (socket.handshake.auth?.token ?? socket.handshake.headers?.authorization?.replace(/^Bearer /, '')) as string | undefined;
       if (!token) return next(new Error('unauthorized'));
       try {
         const { userId, username } = this.auth.verifyAccess(token);
+        // Account-state gate: a banned/suspended user can't (re)connect even with a
+        // still-valid access token — closes the ~15-min live-token window after a ban.
+        const gate = await this.auth.checkLogin(userId);
+        if (!gate.allowed) return next(new Error(gate.code ?? 'blocked'));
         socket.data.userId = userId;
         socket.data.username = username;
         socket.data.roomId = null;
@@ -196,6 +200,13 @@ export class GameGateway {
         next(new Error('unauthorized'));
       }
     });
+  }
+
+  /** Force-disconnect every live socket for a user (e.g. when an admin bans/suspends
+   *  them) so they can't keep playing on a still-valid access token. The auth
+   *  middleware then refuses any reconnect while the account is blocked. */
+  disconnectUser(userId: string): void {
+    void this.io.in(personalRoom(userId)).disconnectSockets(true);
   }
 
   // ---------- Connection lifecycle -------------------------------------------

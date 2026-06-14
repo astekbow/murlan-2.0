@@ -41,6 +41,7 @@ export interface WalletRoutesDeps {
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via on-chain TxID verify
   depositWallet?: TronHdWallet; // watch-only HD wallet → UNIQUE per-player deposit address (preferred)
   tronDepositAddress?: string | null; // legacy SINGLE shared receiving address (used only if no depositWallet)
+  hostedDepositEnabled?: boolean; // false → /api/wallet/deposit (hosted checkout) is disabled (mock provider in prod)
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -79,6 +80,13 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   });
 
   app.post('/api/wallet/deposit', async (req, reply) => {
+    // Hosted-checkout deposits run through the MockPaymentProvider stub. In production
+    // (without ALLOW_STUB_PROVIDERS) there is no real hosted provider — real deposits
+    // use the on-chain TxID flow — so this route is disabled to remove dead/mock money
+    // surface. Re-enabled automatically if a real PaymentProvider is ever wired.
+    if (deps.hostedDepositEnabled === false) {
+      return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me checkout nuk disponohen. Përdor depozitën USDT-TRC20.' } });
+    }
     const caller = await guard(req, reply);
     if (!caller) return;
     // Account-state gate (always on): a frozen account cannot deposit.
@@ -142,7 +150,7 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         const outcome = await processWithdrawal(
           { id: record.id, amountCents: record.amountCents, destination: record.destination },
           { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null, priorTodayCents },
-          { approve: (id) => withdrawals.approve(id), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0, dailyAutoCapCents: deps.dailyAutoWithdrawCapCents ?? 0 },
+          { approve: (id, audit) => withdrawals.approve(id, audit), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0, dailyAutoCapCents: deps.dailyAutoWithdrawCapCents ?? 0 },
         ).catch((err) => { app.log.error({ err, withdrawalId: record.id }, 'auto-payout processing threw'); return null; });
         // Metrics + log on the auto-payout path (manual/fast-track aren't counted).
         if (outcome?.autoPaid) {
@@ -216,10 +224,32 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
       tronDeposits.inc({ outcome: 'rejected' });
       return reply.code(400).send({ error: { code: 'below_min', message: `Depozita minimale është $${(MIN_DEPOSIT_CENTS / 100).toFixed(0)}. Kontakto suportin për shuma më të vogla.` } });
     }
+    // Responsible-gaming daily DEPOSIT cap applies to on-chain deposits too — a
+    // self-imposed limit shouldn't be bypassed just because funds arrived on-chain.
+    // If over cap, DON'T auto-credit: the money is real + already on-chain, so leave it
+    // for operator/manual review (the unclaimed-deposit watcher pings). Pre-check, then
+    // enforce atomically in credit() via depositCapCents (excludes this txId from the sum).
+    let depositCapCents: number | null = null;
+    if (deps.rg) {
+      const verdict = await deps.rg.checkDeposit(caller.userId, v.amountCents);
+      if (!verdict.allowed) {
+        tronDeposits.inc({ outcome: 'rejected' });
+        return reply.code(422).send({ error: { code: verdict.code ?? 'deposit_limit', message: verdict.message ?? 'Kufiri ditor i depozitës u arrit. Kontakto suportin.' } });
+      }
+      depositCapCents = (await deps.rg.getLimits(caller.userId)).dailyDepositLimitCents;
+    }
     // Idempotent on the TxID — a transaction can credit AT MOST once (a replay or a
-    // second claimant gets 409, never a double-credit). We must credit a deposit
-    // that genuinely arrived on-chain, so no min/cap gate here (the money is real).
-    const res = await wallet.credit(caller.userId, v.amountCents, { type: 'deposit', providerRef: `tron:${txId}`, reason: 'Depozitë USDT-TRC20' });
+    // second claimant gets 409, never a double-credit).
+    let res;
+    try {
+      res = await wallet.credit(caller.userId, v.amountCents, { type: 'deposit', providerRef: `tron:${txId}`, reason: 'Depozitë USDT-TRC20', depositCapCents });
+    } catch (e) {
+      if (e instanceof DepositCapExceededError) {
+        tronDeposits.inc({ outcome: 'rejected' });
+        return reply.code(422).send({ error: { code: 'deposit_limit', message: 'Kjo depozitë kalon kufirin ditor. Fondet mbërritën — kontakto suportin për ta kredituar.' } });
+      }
+      throw e;
+    }
     if (res.idempotent) { tronDeposits.inc({ outcome: 'replay' }); return reply.code(409).send({ error: { code: 'already_used', message: 'Ky TxID është përdorur tashmë.' } }); }
     tronDeposits.inc({ outcome: 'credited' });
     app.log.info({ userId: caller.userId, amountCents: v.amountCents, txId }, 'USDT-TRC20 deposit credited');

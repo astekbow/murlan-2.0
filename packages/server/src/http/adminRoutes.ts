@@ -32,6 +32,9 @@ export interface AdminRoutesDeps {
   // the realtime gateway (which owns rooms/sockets/money), absent in HTTP-only tests.
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) =>
     Promise<{ ok: true; matchId: string | null; refunded: boolean } | { ok: false; reason: string }>;
+  // Force-disconnect a user's live sockets (set on ban/suspend so the live access
+  // token can't keep them online). Late-bound to the gateway; absent in HTTP tests.
+  kickUser?: (userId: string) => void;
 }
 
 const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1) });
@@ -143,6 +146,10 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const until = parsed.data.state === 'suspended' && parsed.data.durationMs ? Date.now() + parsed.data.durationMs : null;
     const res = await auth.setAccountState(userId, { state: parsed.data.state, reason: parsed.data.reason ?? null, until });
     if (!res) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    // Ban/suspend already revoked refresh sessions; also kick any LIVE socket so the
+    // still-valid access token can't keep them connected (the socket auth gate then
+    // refuses reconnects while blocked).
+    if (parsed.data.state === 'banned' || parsed.data.state === 'suspended') deps.kickUser?.(userId);
     await audit.record({
       adminId: caller.userId,
       action: 'account_state_set',
@@ -275,7 +282,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     if (!caller) return;
     const id = (req.params as { id: string }).id;
     return resolveWithdrawal(reply, async () => {
-      const w = await withdrawals.approve(id);
+      const w = await withdrawals.approve(id, { resolvedByAdminId: caller.userId });
       await audit.record({ adminId: caller.userId, action: 'withdrawal_approve', targetUserId: w.userId, amountCents: w.amountCents, detail: id });
       return w;
     });
@@ -290,7 +297,7 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const body = (req.body ?? {}) as { reason?: unknown };
     const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
     return resolveWithdrawal(reply, async () => {
-      const w = await withdrawals.reject(id);
+      const w = await withdrawals.reject(id, { resolvedByAdminId: caller.userId, failureReason: reason || null });
       await audit.record({ adminId: caller.userId, action: 'withdrawal_reject', targetUserId: w.userId, amountCents: w.amountCents, detail: reason ? `${id}: ${reason}` : id });
       return w;
     });

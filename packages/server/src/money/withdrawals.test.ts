@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { InMemoryLedger } from './ledger.ts';
 import { WalletService } from './walletService.ts';
+import { InMemoryUnitOfWork } from './unitOfWork.ts';
 import { InMemoryWithdrawals, WithdrawalService, WithdrawalError } from './withdrawals.ts';
 
 async function setup() {
@@ -46,4 +47,39 @@ test('reject refunds exactly once even under concurrent rejects (no double-credi
   const rec2 = await svc.reject(rec.id).catch((e) => e);
   assert.ok(rec2 instanceof WithdrawalError && rec2.code === 'not_pending'); // already resolved
   assert.equal(await wallet.getBalance(userId), 5000); // still 5000
+});
+
+test('audit fields default null, and approve/reject stamp them (resolvedByAdminId, providerRef, failureReason)', async () => {
+  const { svc, userId } = await setup();
+  const a = await svc.request(userId, 2000, 'addr');
+  assert.equal(a.resolvedByAdminId, null);
+  assert.equal(a.providerRef, null);
+  const approved = await svc.approve(a.id, { resolvedByAdminId: 'admin_1', providerRef: 'binance_W1' });
+  assert.equal(approved.resolvedByAdminId, 'admin_1');
+  assert.equal(approved.providerRef, 'binance_W1');
+
+  const b = await svc.request(userId, 1000, 'addr2');
+  const rejected = await svc.reject(b.id, { resolvedByAdminId: 'admin_2', failureReason: 'suspicious' });
+  assert.equal(rejected.resolvedByAdminId, 'admin_2');
+  assert.equal(rejected.failureReason, 'suspicious');
+});
+
+test('atomic request via UnitOfWork: debit + record commit together; insufficient funds maps to a WithdrawalError', async () => {
+  const users = new InMemoryUserRepository();
+  const ledger = new InMemoryLedger();
+  const wallet = new WalletService(users, ledger);
+  const repo = new InMemoryWithdrawals();
+  // Share the SAME repo with the UoW so the atomic-path create lands where find() reads.
+  const uow = new InMemoryUnitOfWork(users, ledger, undefined, repo);
+  const u = await users.create({ username: 'a', email: 'a@x.com', passwordHash: 'h' });
+  await wallet.credit(u.id, 3000, { type: 'deposit' });
+  const svc = new WithdrawalService(wallet, repo, { minCents: 500, maxCents: 1_000_000 }, uow);
+
+  const rec = await svc.request(u.id, 2000, 'addr-xyz');
+  assert.equal(rec.status, 'pending');
+  assert.equal(await wallet.getBalance(u.id), 1000); // held atomically
+  assert.equal((await svc.find(rec.id))?.id, rec.id); // record persisted
+
+  await assert.rejects(svc.request(u.id, 5000, 'addr-xyz'), (e: unknown) => e instanceof WithdrawalError && e.code === 'insufficient_funds');
+  assert.equal(await wallet.getBalance(u.id), 1000); // unchanged — nothing held on failure
 });

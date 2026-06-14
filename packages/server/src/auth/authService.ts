@@ -364,6 +364,15 @@ export class AuthService {
     return this.accountState.checkRealMoney(status);
   }
 
+  /** Gate a live connection / login on the account state (banned & suspended blocked).
+   *  Used by the socket auth middleware so a banned user with a still-valid access
+   *  token can't (re)connect — closing the live-token window after a ban. */
+  async checkLogin(userId: string): Promise<AccountCheck> {
+    const status = await this.getAccountStatus(userId);
+    if (!status) return { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
+    return this.accountState.checkLogin(status);
+  }
+
   /** Update compliance fields (admin KYC verification, self-exclusion). Low-level
    *  — callers that expose this to end users MUST go through updateSelfProfile. */
   async updateCompliance(userId: string, patch: ComplianceUpdate): Promise<PublicUser | null> {

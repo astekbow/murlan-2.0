@@ -4,9 +4,9 @@
 // Implement the SAME repository interfaces the services use, so swapping in
 // Postgres requires no change to AuthService/WalletService/MoneyService/etc.
 // `balanceCents` adjustments are conditional single-statement updates (no
-// overdraw race). NOTE: WalletService.credit/debit perform two repo writes
-// (ledger row + balance); in production those should be wrapped in one
-// prisma.$transaction — a documented follow-up (see moneyService.ts header).
+// overdraw race). WalletService.credit/debit perform two repo writes (ledger row +
+// balance); these ARE wrapped in one prisma.$transaction via PrismaUnitOfWork —
+// wired into the wallet in app.ts — so both commit or roll back together.
 // ============================================================================
 
 import type { PrismaClient } from '@prisma/client';
@@ -16,7 +16,7 @@ import {
   DuplicateProviderRefError,
 } from '../money/ledger.ts';
 import type { MatchesRepository, MatchRecord, NewMatch, MatchStatus } from '../money/matchesRepository.ts';
-import type { WithdrawalRepository, WithdrawalRecord, WithdrawalStatus } from '../money/withdrawals.ts';
+import type { WithdrawalRepository, WithdrawalRecord, WithdrawalStatus, WithdrawalResolution } from '../money/withdrawals.ts';
 import type { DepositIntentRepository, DepositIntentRecord } from '../money/depositIntents.ts';
 import type { UnitOfWork, WalletTxContext } from '../money/unitOfWork.ts';
 import type { FriendsRepository, Friendship } from '../social/friendsRepository.ts';
@@ -432,10 +432,12 @@ export class PrismaMatchesRepository implements MatchesRepository {
   }
   async markSettled(id: string, winnerSeats: number[]): Promise<void> {
     // winnerSide is a representative seat; full winner set is derivable from match_players + finishingOrder.
-    await this.db.match.update({ where: { id }, data: { status: 'settled', winnerSide: winnerSeats[0] ?? null, endedAt: new Date() } });
+    // Status-guarded (WHERE status='active'): a duplicate/late transition is a harmless
+    // no-op (0 rows), so a multi-instance or retried settle can't re-finalize a match.
+    await this.db.match.updateMany({ where: { id, status: 'active' }, data: { status: 'settled', winnerSide: winnerSeats[0] ?? null, endedAt: new Date() } });
   }
   async markCancelled(id: string): Promise<void> {
-    await this.db.match.update({ where: { id }, data: { status: 'cancelled', endedAt: new Date() } });
+    await this.db.match.updateMany({ where: { id, status: 'active' }, data: { status: 'cancelled', endedAt: new Date() } });
   }
   async listActive(): Promise<MatchRecord[]> {
     const rows = await this.db.match.findMany({ where: { status: 'active' }, include: { players: true } });
@@ -452,13 +454,30 @@ function toWithdrawal(row: any): WithdrawalRecord {
     status: row.status as WithdrawalStatus,
     createdAt: ms(row.createdAt),
     resolvedAt: msOrNull(row.resolvedAt),
+    providerRef: row.providerRef ?? null,
+    network: row.network ?? null,
+    txHash: row.txHash ?? null,
+    resolvedByAdminId: row.resolvedByAdminId ?? null,
+    failureReason: row.failureReason ?? null,
   };
+}
+
+/** Map a WithdrawalResolution to a Prisma update payload (only defined keys). */
+function withdrawalAuditData(audit?: WithdrawalResolution): Record<string, unknown> {
+  const d: Record<string, unknown> = {};
+  if (!audit) return d;
+  if (audit.resolvedByAdminId !== undefined) d.resolvedByAdminId = audit.resolvedByAdminId;
+  if (audit.providerRef !== undefined) d.providerRef = audit.providerRef;
+  if (audit.network !== undefined) d.network = audit.network;
+  if (audit.txHash !== undefined) d.txHash = audit.txHash;
+  if (audit.failureReason !== undefined) d.failureReason = audit.failureReason;
+  return d;
 }
 
 export class PrismaWithdrawals implements WithdrawalRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  async create(r: Omit<WithdrawalRecord, 'id' | 'status' | 'createdAt' | 'resolvedAt'>): Promise<WithdrawalRecord> {
+  async create(r: Omit<WithdrawalRecord, 'id' | 'status' | 'createdAt' | 'resolvedAt' | 'providerRef' | 'network' | 'txHash' | 'resolvedByAdminId' | 'failureReason'>): Promise<WithdrawalRecord> {
     const row = await this.db.withdrawal.create({ data: { userId: r.userId, amountCents: r.amountCents, destination: r.destination } });
     return toWithdrawal(row);
   }
@@ -466,17 +485,17 @@ export class PrismaWithdrawals implements WithdrawalRepository {
     const row = await this.db.withdrawal.findUnique({ where: { id } });
     return row ? toWithdrawal(row) : null;
   }
-  async setStatusIfPending(id: string, status: WithdrawalStatus): Promise<WithdrawalRecord | null> {
+  async setStatusIfPending(id: string, status: WithdrawalStatus, audit?: WithdrawalResolution): Promise<WithdrawalRecord | null> {
     // Atomic compare-and-set: only a 'pending' row transitions. count===0 means
-    // it was already resolved (lost the race) → null.
-    const res = await this.db.withdrawal.updateMany({ where: { id, status: 'pending' }, data: { status, resolvedAt: new Date() } });
+    // it was already resolved (lost the race) → null. Stamps audit fields too.
+    const res = await this.db.withdrawal.updateMany({ where: { id, status: 'pending' }, data: { status, resolvedAt: new Date(), ...withdrawalAuditData(audit) } });
     if (res.count === 0) return null;
     const row = await this.db.withdrawal.findUnique({ where: { id } });
     return row ? toWithdrawal(row) : null;
   }
   async markReversed(id: string): Promise<void> {
     // Atomic: only flip a 'completed' payout that later failed on-chain → 'rejected'.
-    await this.db.withdrawal.updateMany({ where: { id, status: 'completed' }, data: { status: 'rejected', resolvedAt: new Date() } });
+    await this.db.withdrawal.updateMany({ where: { id, status: 'completed' }, data: { status: 'rejected', resolvedAt: new Date(), failureReason: 'payout failed on-chain (auto-reversed)' } });
   }
   async listPending(): Promise<WithdrawalRecord[]> {
     return (await this.db.withdrawal.findMany({ where: { status: 'pending' } })).map(toWithdrawal);
@@ -909,6 +928,7 @@ export class PrismaUnitOfWork implements UnitOfWork {
         users: new PrismaUserRepository(tx as unknown as PrismaClient),
         ledger: new PrismaLedger(tx as unknown as PrismaClient),
         matches: new PrismaMatchesRepository(tx as unknown as PrismaClient),
+        withdrawals: new PrismaWithdrawals(tx as unknown as PrismaClient),
       }),
     );
   }

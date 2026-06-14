@@ -25,8 +25,9 @@ export interface WithdrawalForProcessing {
 }
 
 export interface ProcessDeps {
-  /** Mark a withdrawal completed (idempotent) once the external send succeeded. */
-  approve: (id: string) => Promise<unknown>;
+  /** Mark a withdrawal completed (idempotent) once the external send succeeded.
+   *  `audit` records the payout provider ref/network for the audit trail. */
+  approve: (id: string, audit?: { providerRef?: string | null; network?: string | null }) => Promise<unknown>;
   payout: PayoutProvider | null; // null / NullPayoutProvider → no auto-send
   notifier: Notifier | null;
   autoMaxCents: number;
@@ -63,7 +64,7 @@ export async function processWithdrawal(
       // shouldn't strand a paid withdrawal as pending); approve() is idempotent.
       let marked = false;
       for (let attempt = 1; attempt <= 3 && !marked; attempt++) {
-        try { await deps.approve(record.id); marked = true; }
+        try { await deps.approve(record.id, { providerRef: r.providerRef ?? null }); marked = true; }
         catch (e) { if (attempt === 3) error = `paid but mark-complete failed after retries: ${String(e)}`; }
       }
     } else {

@@ -105,6 +105,7 @@ export interface HttpDeps {
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via TxID verify
   depositWallet?: TronHdWallet; // watch-only HD wallet → unique per-player deposit address
   tronDepositAddress?: string | null;
+  kickUser?: (userId: string) => void; // force-disconnect a user's live sockets (ban/suspend)
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
   profiles?: ProfileService;
@@ -129,11 +130,12 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       level: deps.config.isProd ? 'info' : 'warn',
       redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
     },
-    // Behind a reverse proxy (see deploy/nginx.conf): honor X-Forwarded-For so
-    // req.ip is the real client — used by IP-keyed rate-limiting and the optional
-    // payment-webhook IP allowlist. The proxy MUST set XFF authoritatively (e.g.
-    // `proxy_set_header X-Forwarded-For $remote_addr;`) so it can't be spoofed.
-    trustProxy: true,
+    // Behind a reverse proxy (Caddy/nginx): honor X-Forwarded-For so req.ip is the
+    // real client — used by IP-keyed rate-limiting and the payment-webhook allowlist.
+    // We trust XFF ONLY from the proxy (default: loopback + RFC1918 private ranges,
+    // configurable via TRUST_PROXY), so a client that ever reaches the server directly
+    // can't spoof its IP. The proxy must set XFF authoritatively.
+    trustProxy: deps.config.trustProxy,
   });
 
   // Capture the RAW JSON body (needed for webhook signature verification) while
@@ -167,7 +169,21 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     httpRequestDuration.observe({ method: req.method, route, status: reply.statusCode }, reply.elapsedTime / 1000);
     done();
   });
-  app.get('/metrics', async (_req, reply) => {
+  // Metrics can leak operational info, so guard them: if METRICS_TOKEN is set, require
+  // a matching bearer token; otherwise serve ONLY to private/loopback IPs (a public
+  // scrape via the proxy is refused). Scrapers on the internal network still work.
+  const metricsToken = deps.config.metricsToken;
+  const isPrivateIp = (ip: string): boolean =>
+    ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' ||
+    /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^(::ffff:)?(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+  app.get('/metrics', async (req, reply) => {
+    if (metricsToken) {
+      const auth = req.headers.authorization ?? '';
+      if (auth !== `Bearer ${metricsToken}`) return reply.code(401).send({ error: { code: 'unauthorized', message: 'metrics require a token' } });
+    } else if (!isPrivateIp(req.ip)) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'metrics are private' } });
+    }
     reply.header('Content-Type', registry.contentType);
     return registry.metrics();
   });
@@ -237,10 +253,13 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,
       tronDeposit: deps.tronDeposit, depositWallet: deps.depositWallet, tronDepositAddress: deps.config.tronDepositAddress,
+      // Hosted-checkout deposits are disabled in prod when only the mock provider is
+      // wired (real deposits use the on-chain TxID flow) — removes dead money surface.
+      hostedDepositEnabled: !(deps.config.isProd && deps.provider.name === 'mock' && !deps.config.allowStubProviders),
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser });
   }
 
   // Lightweight in-house client error logging (no third party): the browser POSTs
@@ -360,9 +379,16 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     verificationTokensRepo = stores.verificationTokens;
     uow = stores.uow; // Postgres: credit/debit run in one $transaction
   } else {
+    // Production with no DATABASE_URL would silently keep ALL balances in RAM and
+    // lose them on restart — catastrophic for real money. Fail closed, exactly like
+    // the secret/compliance gates. The staging/demo escape (ALLOW_STUB_PROVIDERS) and
+    // tests (which inject opts.userRepository) may still use the in-memory store.
+    if (config.isProd && !opts.userRepository && !config.allowStubProviders) {
+      throw new Error('DATABASE_URL is required in production (the in-memory store loses all balances on restart). Set DATABASE_URL, or for a staging/demo deploy WITHOUT real money set ALLOW_STUB_PROVIDERS=true.');
+    }
     if (config.isProd && !opts.userRepository) {
       // eslint-disable-next-line no-console
-      console.warn('[db] store=IN-MEMORY (no DATABASE_URL) — DATA WILL NOT PERSIST across restarts. Set DATABASE_URL for a real-money deploy.');
+      console.warn('⚠️  [db] store=IN-MEMORY (ALLOW_STUB_PROVIDERS) — DATA WILL NOT PERSIST across restarts. NEVER use for real money.');
     }
     repo = opts.userRepository ?? new InMemoryUserRepository();
     ledger = new InMemoryLedger();
@@ -489,7 +515,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const wallet = new WalletService(repo, ledger, uow);
   const rewards = new RewardsService(repo, config.rewardsEnabled, wallet);
   const money = new MoneyService(wallet, matchesRepo, uow);
-  const withdrawals = new WithdrawalService(wallet, withdrawalsRepo);
+  // Pass the UoW (Prisma only) so a withdrawal's debit + record-insert are one atomic
+  // transaction (no phantom debit on a crash). In-memory: uow is undefined → safe
+  // sequential path (single-threaded).
+  const withdrawals = new WithdrawalService(wallet, withdrawalsRepo, undefined, uow);
   const intents = intentsRepo;
   const compliance = new ComplianceService(config.compliance);
   const responsibleGaming = new ResponsibleGamingService(repo, wallet);
@@ -524,7 +553,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const voidMatch = (roomId: string, meta: { adminId: string; reason: string }) =>
     voidHolder.fn ? voidHolder.fn(roomId, meta) : Promise.resolve({ ok: false as const, reason: 'unavailable' as const });
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, matches: matchesRepo, voidMatch, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  // Late-bind admin "kick user" to the gateway (created below): on ban/suspend the
+  // admin route disconnects the user's live sockets. No-op until the gateway exists.
+  const kickHolder: { fn?: (userId: string) => void } = {};
+  const kickUser = (userId: string) => kickHolder.fn?.(userId);
+
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, matches: matchesRepo, voidMatch, kickUser, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -579,8 +613,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // Redis-backed impl (DEPLOYMENT.md §7) to make horizontal scaling safe.
     ownership: new InMemoryRoomOwnership(),
   });
-  // Now the gateway exists, point the admin match-void route at it.
+  // Now the gateway exists, point the admin match-void + kick-user routes at it.
   voidHolder.fn = (roomId, meta) => gateway.adminVoidMatch(roomId, meta);
+  kickHolder.fn = (userId) => gateway.disconnectUser(userId);
 
   // Crash recovery: refund any match a previous (crashed) process left 'active'
   // with stakes still escrowed. At boot no room is live yet, so every active row

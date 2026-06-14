@@ -28,6 +28,8 @@ const schema = z.object({
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)
+  TRUST_PROXY: z.string().optional(), // 'true'|'false'|hop-count|CSV of trusted proxy IPs/CIDRs (default: loopback + RFC1918)
+  METRICS_TOKEN: z.string().optional(), // when set, GET /metrics requires Authorization: Bearer <token> (else served only to private/loopback IPs)
   RESEND_API_KEY: z.string().optional(),       // set to send real reset/verification emails via Resend
   EMAIL_FROM: z.string().optional(),           // sender, e.g. "Murlan <noreply@yourdomain.com>"
   ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
@@ -53,6 +55,20 @@ const schema = z.object({
 
 const isTrue = (v: string | undefined): boolean => v === 'true' || v === '1';
 
+// Default: trust ONLY loopback + private (RFC1918) ranges — the reverse proxy
+// (Caddy/nginx) always reaches the server from a private/Docker IP, and the server
+// isn't publicly reachable, so a spoofed X-Forwarded-For from the outside is ignored.
+// Override with TRUST_PROXY: 'true'/'false', a hop count, or a CSV of IPs/CIDRs.
+const DEFAULT_TRUSTED_PROXIES = ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
+function parseTrustProxy(v: string | undefined): boolean | number | string[] {
+  const s = (v ?? '').trim();
+  if (s === '') return DEFAULT_TRUSTED_PROXIES;
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  if (/^\d+$/.test(s)) return Number(s); // hop count
+  return s.split(',').map((x) => x.trim()).filter(Boolean);
+}
+
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   port: number;
@@ -70,6 +86,8 @@ export interface AppConfig {
   abandonMs: number;
   paymentWebhookSecret: string;
   paymentWebhookIps: string[];
+  trustProxy: boolean | number | string[]; // Fastify trustProxy: which proxy hops/IPs to trust for X-Forwarded-For
+  metricsToken: string | null;             // bearer token guarding GET /metrics (null = private-IP-only)
   resendApiKey: string | null;
   emailFrom: string;
   adminEmail: string | null;
@@ -153,6 +171,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(',')
       .map((ip) => ip.trim())
       .filter((ip) => ip.length > 0),
+    trustProxy: parseTrustProxy(parsed.TRUST_PROXY),
+    metricsToken: parsed.METRICS_TOKEN || null,
     resendApiKey: parsed.RESEND_API_KEY || null,
     emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,

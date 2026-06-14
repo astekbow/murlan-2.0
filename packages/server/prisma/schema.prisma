@@ -143,6 +143,9 @@ model User {
   userSeasons    UserSeason[]
   supportTickets SupportTicket[]
   foundedClubs   Club[] @relation("ClubFounder")
+  clubMembership ClubMember?
+  chatMessages   ChatMessage[]
+  pushSubscriptions PushSubscription[]
 
   @@map("users")
 }
@@ -252,6 +255,8 @@ model Transaction {
   @@index([userId])
   @@index([matchId])
   @@index([createdAt]) // date-range admin/reporting queries
+  @@index([userId, createdAt]) // per-user paginated history (hot path)
+  @@index([type, createdAt])   // revenue/reporting by type over time
   @@map("transactions")
 }
 
@@ -288,6 +293,7 @@ model MatchPlayer {
   user  User  @relation(fields: [userId], references: [id])
 
   @@id([matchId, seat])
+  @@unique([matchId, userId]) // a user can occupy at most ONE seat in a match
   @@index([userId])
   @@map("match_players")
 }
@@ -380,6 +386,8 @@ model PushSubscription {
   auth      String
   createdAt DateTime @default(now())
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@map("push_subscriptions")
 }
@@ -394,7 +402,10 @@ model ChatMessage {
   text      String
   createdAt DateTime @default(now())
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([clubId])
+  @@index([userId])
   @@map("chat_messages")
 }
 
@@ -430,7 +441,7 @@ model Club {
   founderId String
   createdAt DateTime @default(now())
   private   Boolean  @default(false) // hidden from the public list; join by code only
-  joinCode  String?  // share code for a private club
+  joinCode  String?  @unique // share code for a private club (unique → no collisions; NULLs allowed)
 
   members ClubMember[]
   // FK so a club always points at a real founder. Restrict: a user who founded a
@@ -448,6 +459,7 @@ model ClubMember {
   joinedAt DateTime @default(now())
 
   club Club @relation(fields: [clubId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([clubId])
   @@map("club_members")
@@ -461,6 +473,12 @@ model Withdrawal {
   status      WithdrawalStatus @default(pending)
   createdAt   DateTime         @default(now())
   resolvedAt  DateTime?
+  // Audit/dispute trail (all nullable, populated as a withdrawal progresses):
+  providerRef       String? // payout provider's withdrawal/batch id (e.g. Binance)
+  network           String? // payout network actually used (e.g. TRX)
+  txHash            String? // on-chain transaction hash once known
+  resolvedByAdminId String? // admin who approved/rejected (null = auto/system)
+  failureReason     String? // short reason when a payout fails/reverses
 
   user User @relation(fields: [userId], references: [id])
 
@@ -478,6 +496,7 @@ model DepositIntent {
   currency    String   @default("USD")
   createdAt   DateTime @default(now())
 
+  @@index([createdAt]) // sweep stale/abandoned intents
   @@map("deposit_intents")
 }
 
