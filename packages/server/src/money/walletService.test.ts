@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { InMemoryLedger } from './ledger.ts';
-import { WalletService, InsufficientFundsError, DepositCapExceededError } from './walletService.ts';
+import { WalletService, InsufficientFundsError, DepositCapExceededError, MAX_AMOUNT_CENTS } from './walletService.ts';
 import { InMemoryUnitOfWork } from './unitOfWork.ts';
 
 async function setup() {
@@ -110,7 +110,7 @@ test('concurrent identical webhook credits never double-credit (idempotency is a
 
 test('rejects an amount above the safe maximum', async () => {
   const { wallet, userId } = await setup();
-  await assert.rejects(wallet.credit(userId, 100_000_000_00 + 1, { type: 'deposit' }));
+  await assert.rejects(wallet.credit(userId, MAX_AMOUNT_CENTS + 1, { type: 'deposit' }));
 });
 
 test('credit/debit run through a UnitOfWork (transactional path) with identical results', async () => {

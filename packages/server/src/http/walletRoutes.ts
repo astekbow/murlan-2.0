@@ -227,17 +227,12 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     // Responsible-gaming daily DEPOSIT cap applies to on-chain deposits too — a
     // self-imposed limit shouldn't be bypassed just because funds arrived on-chain.
     // If over cap, DON'T auto-credit: the money is real + already on-chain, so leave it
-    // for operator/manual review (the unclaimed-deposit watcher pings). Pre-check, then
-    // enforce atomically in credit() via depositCapCents (excludes this txId from the sum).
-    let depositCapCents: number | null = null;
-    if (deps.rg) {
-      const verdict = await deps.rg.checkDeposit(caller.userId, v.amountCents);
-      if (!verdict.allowed) {
-        tronDeposits.inc({ outcome: 'rejected' });
-        return reply.code(422).send({ error: { code: verdict.code ?? 'deposit_limit', message: verdict.message ?? 'Kufiri ditor i depozitës u arrit. Kontakto suportin.' } });
-      }
-      depositCapCents = (await deps.rg.getLimits(caller.userId)).dailyDepositLimitCents;
-    }
+    // for operator/manual review (the unclaimed-deposit watcher pings). The cap is
+    // enforced ATOMICALLY inside credit() via depositCapCents, which EXCLUDES this txId's
+    // providerRef from the day's sum — so a replay of an already-credited TxID still
+    // resolves to the idempotent 409 below (never a false cap error), even if the cap
+    // was lowered meanwhile. (checkDeposit is cap-only, so this single check suffices.)
+    const depositCapCents: number | null = deps.rg ? (await deps.rg.getLimits(caller.userId)).dailyDepositLimitCents : null;
     // Idempotent on the TxID — a transaction can credit AT MOST once (a replay or a
     // second claimant gets 409, never a double-credit).
     let res;
