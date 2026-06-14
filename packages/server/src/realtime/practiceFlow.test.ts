@@ -72,7 +72,7 @@ test('practice vs bots: a bot fills the table, leads the opening 3♠, and the m
     cli.on('game:state', (s: any) => states.push(s));
 
     const started = once(cli, 'game:start');
-    const res = await emitAck(cli, 'practice:start', { type: '1v1' });
+    const res = await emitAck(cli, 'practice:start', { type: '1v1', tier: 'medium' });
     assert.equal(res.ok, true);
 
     const gs = await started; // the human's private deal

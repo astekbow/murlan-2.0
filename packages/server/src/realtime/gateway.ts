@@ -741,7 +741,10 @@ export class GameGateway {
     if (this.rooms.roomOf(userId)) return reply(ackError('already_in_room', 'Je tashmë në një dhomë.'));
     const type = payload?.type;
     if (type !== '1v1' && type !== '1v1v1' && type !== '2v2') return reply(ackError('bad_type', 'Lloji i ndeshjes është i pavlefshëm.'));
-    const tier: BotTier = payload?.tier === 'easy' || payload?.tier === 'hard' ? payload.tier : 'medium';
+    // Default to the strongest brain (search-based 'hard') so opponents actually play
+    // well — hoard high cards, shed efficiently, count, and pass when right. Easy/medium
+    // remain selectable for a gentler game.
+    const tier: BotTier = payload?.tier === 'easy' || payload?.tier === 'medium' ? payload.tier : 'hard';
 
     const created = this.rooms.createRoom({ userId, username: socket.data.username }, { type, stakeCents: 0, practice: true });
     if (!created.ok || !created.roomId) return reply(ackError('create_failed', created.error?.message ?? 'Nuk u krijua dot.'));
@@ -803,7 +806,7 @@ export class GameGateway {
     if (!room?.match || room.status !== 'inMatch') return;
     const botUserId = this.userAtSeat(roomId, seat);
     if (!isBot(botUserId)) return;
-    const tier = this.botTiers.get(roomId) ?? 'medium';
+    const tier = this.botTiers.get(roomId) ?? 'hard';
     const snap = room.match.snapshot();
 
     // Card-switch: the bot is the winner who must return a 3–10 card. Return the
@@ -892,6 +895,7 @@ export class GameGateway {
       if (!r.seats.some((s) => !s.userId)) return; // already full
       const host = human[0];
       this.rooms.markPractice(roomId); // no XP/ranked/stats/money vs fill-players (also stake is 0)
+      this.botTiers.set(roomId, 'hard'); // free-table ghosts play with the strong (search) brain
       if (!this.fillEmptySeatsWithBots(roomId, host?.username ?? null)) { this.teardownPractice(roomId); return; }
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
