@@ -9,6 +9,7 @@ import { useGameStore } from '../../store/gameStore.ts';
 import { dollars } from '../../lib/money.ts';
 import { formatDuration } from '../../lib/realityCheck.ts';
 import { useT } from '../../lib/i18n.ts';
+import { useFocusTrap } from './useFocusTrap.ts';
 
 export function RealityCheckModal() {
   const t = useT();
@@ -39,6 +40,7 @@ export function RealityCheckModal() {
     const id = window.setTimeout(() => setDue(true), delay);
     return () => window.clearTimeout(id);
   }, [authed, intervalMin, due]);
+  const trapRef = useFocusTrap<HTMLDivElement>(due); // keep Tab focus inside the modal while shown
 
   // Don't interrupt a live match; the reminder shows once the player is free.
   if (!due || !authed || inMatch) return null;
@@ -49,7 +51,7 @@ export function RealityCheckModal() {
   const pause = () => { setDue(false); void useAuthStore.getState().logout(); };
 
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t('reality.title')}>
+    <div ref={trapRef} className="fixed inset-0 z-[80] grid place-items-center bg-black/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t('reality.title')}>
       <div className="panel-solid w-full max-w-sm p-7 text-center animate-pop mx-4">
         <div className="text-4xl mb-2">⏰</div>
         <h2 className="font-display font-bold tracking-wide text-xl text-gold-hi mb-1">{t('reality.title')}</h2>
@@ -62,8 +64,8 @@ export function RealityCheckModal() {
         </div>
         <p className="text-[11px] text-muted/80 mb-4">{t('reality.responsibly')}</p>
         <div className="flex gap-2">
-          <button onClick={pause} className="btn btn-ghost flex-1">{t('reality.takeBreak')}</button>
-          <button autoFocus onClick={cont} className="btn btn-gold flex-1">{t('reality.continue')}</button>
+          <button type="button" onClick={pause} className="btn btn-ghost flex-1">{t('reality.takeBreak')}</button>
+          <button type="button" autoFocus onClick={cont} className="btn btn-gold flex-1">{t('reality.continue')}</button>
         </div>
       </div>
     </div>

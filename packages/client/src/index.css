@@ -36,8 +36,8 @@
   --cream: #fbfaf5; --ink: #14110c; --red: #c21f1f;
 
   /* Text contrast ladder (cooler/cleaner than the old warm beige). */
-  --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #9c96a6; --txt-faint: rgba(156, 150, 166, 0.72);
-  --muted: #9c96a6;                           /* = --txt-lo — lightened for AA contrast on dark */
+  --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #b8b0c8; --txt-faint: rgba(184, 176, 200, 0.80);
+  --muted: #b8b0c8;                           /* = --txt-lo — lightened to meet WCAG AA (~4.5:1+) on the dark bg */
 
   /* Semantic (chrome). */
   --success: #34d39a; --danger: #ff5d5d; --info: #5b8cff; --live: #ff7a4d;
