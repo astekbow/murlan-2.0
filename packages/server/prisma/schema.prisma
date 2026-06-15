@@ -11,7 +11,7 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL") // pooled (Supabase pooler, port 6543) for the app
-  directUrl = env("DIRECT_URL")   // direct (port 5432) for `prisma migrate`
+  directUrl = env("DIRECT_URL") // direct (port 5432) for `prisma migrate`
 }
 
 enum UserRole {
@@ -77,13 +77,13 @@ model User {
   usernameLower String   @unique // case-insensitive uniqueness/lookup key
   email         String   @unique // stored lowercased
   passwordHash  String
-  role         UserRole @default(user)
+  role          UserRole @default(user)
   // Granular admin scopes (RBAC). EMPTY = full admin (backward-compatible: every
   // existing admin keeps all powers). A non-empty list restricts that admin to
   // exactly those scopes. Ignored for non-admins (they fail the admin gate first).
-  permissions  String[] @default([])
-  balanceCents Int      @default(0)
-  createdAt    DateTime @default(now())
+  permissions   String[] @default([])
+  balanceCents  Int      @default(0)
+  createdAt     DateTime @default(now())
 
   // Bumped to force-invalidate ALL of a user's refresh tokens at once (e.g. on
   // ban or "log out of all devices"). Checked on every refresh.
@@ -125,28 +125,31 @@ model User {
   // Engagement rewards (§2.6) — XP/cosmetic ONLY, never cashable. Gated by the
   // rewardsEnabled config (per-jurisdiction off switch).
   lastDailyClaim    DateTime?
-  dailyStreak       Int      @default(0)
-  cosmetics         String[] @default([]) // owned cosmetic ids
+  dailyStreak       Int       @default(0)
+  cosmetics         String[]  @default([]) // owned cosmetic ids
   cardBack          String? // equipped card-back id
   tableFelt         String? // equipped felt-theme id
-  claimedChallenges String[] @default([]) // claimed challenge ids
+  claimedChallenges String[]  @default([]) // claimed challenge ids
 
-  transactions   Transaction[]
-  withdrawals    Withdrawal[]
-  matchSeats     MatchPlayer[]
-  friendRequests Friendship[] @relation("FriendRequests")
-  friendOf       Friendship[] @relation("FriendOf")
-  refreshTokens  RefreshToken[]
-  adminActions   AdminAction[] @relation("AdminActor")
-  adminTargetedActions AdminAction[] @relation("AdminTarget")
-  verificationTokens VerificationToken[]
-  userSeasons    UserSeason[]
-  supportTickets SupportTicket[]
-  foundedClubs   Club[] @relation("ClubFounder")
-  clubMembership ClubMember?
-  chatMessages   ChatMessage[]
-  pushSubscriptions PushSubscription[]
+  transactions         Transaction[]
+  withdrawals          Withdrawal[]
+  matchSeats           MatchPlayer[]
+  friendRequests       Friendship[]        @relation("FriendRequests")
+  friendOf             Friendship[]        @relation("FriendOf")
+  refreshTokens        RefreshToken[]
+  adminActions         AdminAction[]       @relation("AdminActor")
+  adminTargetedActions AdminAction[]       @relation("AdminTarget")
+  verificationTokens   VerificationToken[]
+  userSeasons          UserSeason[]
+  supportTickets       SupportTicket[]
+  foundedClubs         Club[]              @relation("ClubFounder")
+  clubMembership       ClubMember?
+  chatMessages         ChatMessage[]
+  pushSubscriptions    PushSubscription[]
 
+  // Hot-path indexes: XP leaderboard (topByXp, ORDER BY xp) + admin user listing (newest-first).
+  @@index([xp])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -210,7 +213,7 @@ model AdminAction {
   detail       String?
   createdAt    DateTime @default(now())
 
-  admin User @relation("AdminActor", fields: [adminId], references: [id])
+  admin      User  @relation("AdminActor", fields: [adminId], references: [id])
   // FK on the audited subject. Restrict (not Cascade/SetNull) so a user with
   // audit history can't be silently deleted and the immutable AML trail keeps
   // its referential link — orphaned audit rows are unacceptable for compliance.
@@ -256,7 +259,7 @@ model Transaction {
   @@index([matchId])
   @@index([createdAt]) // date-range admin/reporting queries
   @@index([userId, createdAt]) // per-user paginated history (hot path)
-  @@index([type, createdAt])   // revenue/reporting by type over time
+  @@index([type, createdAt]) // revenue/reporting by type over time
   @@map("transactions")
 }
 
@@ -287,7 +290,7 @@ model MatchPlayer {
   userId     String
   seat       Int
   team       Int?
-  finalScore Int  @default(0)
+  finalScore Int    @default(0)
 
   match Match @relation(fields: [matchId], references: [id])
   user  User  @relation(fields: [userId], references: [id])
@@ -303,7 +306,7 @@ model Game {
   matchId        String
   index          Int
   finishingOrder Int[]
-  serverSeed     String?  // null until revealed
+  serverSeed     String? // null until revealed
   serverSeedHash String
   clientSeed     String
   nonce          Int
@@ -372,6 +375,7 @@ model SuspicionFlag {
 
   @@index([reviewed])
   @@index([userId])
+  @@index([createdAt])
   @@map("suspicion_flags")
 }
 
@@ -419,6 +423,7 @@ model ChatReport {
   createdAt  DateTime @default(now())
 
   @@index([reviewed])
+  @@index([createdAt])
   @@map("chat_reports")
 }
 
@@ -446,7 +451,7 @@ model Club {
   members ClubMember[]
   // FK so a club always points at a real founder. Restrict: a user who founded a
   // club can't be hard-deleted out from under it (account-state ban is used instead).
-  founder User @relation("ClubFounder", fields: [founderId], references: [id], onDelete: Restrict)
+  founder User         @relation("ClubFounder", fields: [founderId], references: [id], onDelete: Restrict)
 
   @@index([founderId])
   @@map("clubs")
@@ -466,13 +471,13 @@ model ClubMember {
 }
 
 model Withdrawal {
-  id          String           @id @default(cuid())
-  userId      String
-  amountCents Int
-  destination String
-  status      WithdrawalStatus @default(pending)
-  createdAt   DateTime         @default(now())
-  resolvedAt  DateTime?
+  id                String           @id @default(cuid())
+  userId            String
+  amountCents       Int
+  destination       String
+  status            WithdrawalStatus @default(pending)
+  createdAt         DateTime         @default(now())
+  resolvedAt        DateTime?
   // Audit/dispute trail (all nullable, populated as a withdrawal progresses):
   providerRef       String? // payout provider's withdrawal/batch id (e.g. Binance)
   network           String? // payout network actually used (e.g. TRX)
@@ -486,6 +491,7 @@ model Withdrawal {
   // Admin withdrawal triage lists pending rows; index status to avoid a scan.
   @@index([status])
   @@index([createdAt])
+  @@index([resolvedByAdminId]) // admin withdrawal-audit lookups by resolving admin
   @@map("withdrawals")
 }
 
