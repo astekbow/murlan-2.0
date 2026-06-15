@@ -150,11 +150,13 @@ test('POST /api/wallet/deposit returns a provider intent', async () => {
 });
 
 test('withdrawal: request holds funds (201) or rejects insufficient (402); admin can approve', async () => {
-  const { app, provider, userToken, adminToken } = await build();
+  const { app, provider, userId, userToken, adminToken } = await build();
   // fund $50 via a real deposit intent + webhook
   const ref = await startDeposit(app, userToken, 5000);
   const { body, sig } = webhook(provider, { providerRef: ref, userId: 'ignored-by-intent', amountCents: 5000, status: 'confirmed' });
   await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': sig }, payload: body });
+  // Withdrawals now require admin-verified KYC (always-on gate) — verify the player first.
+  await app.inject({ method: 'POST', url: `/api/admin/users/${userId}/kyc`, headers: authH(adminToken), payload: { status: 'verified' } });
 
   const tooMuch = await app.inject({ method: 'POST', url: '/api/wallet/withdraw', headers: authH(userToken), payload: { amountCents: 999999, destination: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' } });
   assert.equal(tooMuch.statusCode, 402);
@@ -170,6 +172,20 @@ test('withdrawal: request holds funds (201) or rejects insufficient (402); admin
   const approve = await app.inject({ method: 'POST', url: `/api/admin/withdrawals/${wid}/approve`, headers: authH(adminToken) });
   assert.equal(approve.statusCode, 200);
   assert.equal(approve.json().withdrawal.status, 'completed');
+  await app.close();
+});
+
+test('withdraw is BLOCKED with kyc_required until the admin verifies KYC (always-on gate)', async () => {
+  const { app, provider, userToken } = await build();
+  const ref = await startDeposit(app, userToken, 5000);
+  const { body, sig } = webhook(provider, { providerRef: ref, userId: 'x', amountCents: 5000, status: 'confirmed' });
+  await app.inject({ method: 'POST', url: '/api/payments/webhook/mock', headers: { 'content-type': 'application/json', 'x-signature': sig }, payload: body });
+  // No KYC verification → withdraw must be refused (funds NOT held).
+  const res = await app.inject({ method: 'POST', url: '/api/wallet/withdraw', headers: authH(userToken), payload: { amountCents: 2000, destination: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' } });
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.json().error.code, 'kyc_required');
+  const bal = await app.inject({ method: 'GET', url: '/api/wallet', headers: authH(userToken) });
+  assert.equal(bal.json().balanceCents, 5000); // unchanged — nothing held
   await app.close();
 });
 

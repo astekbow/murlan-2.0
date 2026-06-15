@@ -206,6 +206,8 @@ const STRINGS: Record<string, Entry> = {
   'wallet.requestWithdraw': { sq: 'Kërko tërheqje', en: 'Request withdrawal' },
   'wallet.verifyRG': { sq: 'VERIFIKIMI & LOJA E PËRGJEGJSHME', en: 'VERIFICATION & RESPONSIBLE GAMING' },
   'wallet.kycStatus': { sq: 'Statusi KYC:', en: 'KYC status:' },
+  'wallet.kycRequiredTitle': { sq: 'Verifikimi KYC kërkohet për tërheqje', en: 'KYC verification required to withdraw' },
+  'wallet.kycRequiredMsg': { sq: 'Për të tërhequr duhet të verifikosh identitetin (KYC) dhe të presësh aprovimin nga administratori. Për ndihmë, hap një tiket suporti.', en: 'To withdraw you must verify your identity (KYC) and wait for the admin to approve it. Open a support ticket if you need help.' },
   'wallet.dob': { sq: 'Datëlindja', en: 'Date of birth' },
   'wallet.country': { sq: 'Vendi (ISO-2)', en: 'Country (ISO-2)' },
   'wallet.selfExcludeDays': { sq: 'Vetëpërjashtim (ditë)', en: 'Self-exclusion (days)' },
