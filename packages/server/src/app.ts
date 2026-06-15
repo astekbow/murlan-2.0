@@ -162,6 +162,23 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   await app.register(cors, { origin: deps.config.clientOrigin, credentials: true });
   await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
+  // Global safety net: an UNHANDLED route exception must never leak its message or
+  // stack to a (real-money) client. Our explicit 4xx replies and Fastify's own
+  // validation 4xx pass through with their status + message; anything 500-level is
+  // logged server-side and returned as a generic error.
+  app.setErrorHandler((err, req, reply) => {
+    const e = err as { statusCode?: number; code?: string; message?: string };
+    const sc = typeof e.statusCode === 'number' ? e.statusCode : 500;
+    const status = sc >= 400 && sc < 500 ? sc : 500;
+    if (status >= 500) req.log.error({ err }, 'unhandled route error');
+    reply.code(status).send({
+      error: {
+        code: status >= 500 ? 'internal' : (e.code ?? 'error'),
+        message: status >= 500 ? 'Gabim i brendshëm.' : (e.message ?? 'Gabim.'),
+      },
+    });
+  });
+
   // Observability: time every request into a Prometheus histogram (keyed by the
   // ROUTE PATTERN, not the raw path, to avoid label cardinality blow-up).
   app.addHook('onResponse', (req, reply, done) => {
@@ -203,7 +220,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   await authRoutes(app, {
     auth: deps.auth,
     isProd: deps.config.isProd,
-    authRateLimit: { max: 20, timeWindow: '1 minute' },
+    authRateLimit: { max: 10, timeWindow: '1 minute' },
   });
   await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push });
 
@@ -384,7 +401,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // the secret/compliance gates. The staging/demo escape (ALLOW_STUB_PROVIDERS) and
     // tests (which inject opts.userRepository) may still use the in-memory store.
     if (config.isProd && !opts.userRepository && !config.allowStubProviders) {
-      throw new Error('DATABASE_URL is required in production (the in-memory store loses all balances on restart). Set DATABASE_URL, or for a staging/demo deploy WITHOUT real money set ALLOW_STUB_PROVIDERS=true.');
+      throw new Error('DATABASE_URL is required in production (the in-memory store loses all balances on restart). Set DATABASE_URL, or for a staging/demo deploy WITHOUT real money set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
     }
     if (config.isProd && !opts.userRepository) {
       // eslint-disable-next-line no-console
@@ -413,8 +430,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Provider stubs (mock payment, console email) must NEVER ship to production
   // silently: a stub can't move real money or deliver verification/reset links.
   // Fail CLOSED — a prod boot still on a stub throws. Wire a real provider here
-  // (env-selected) before going live. ALLOW_STUB_PROVIDERS=true is a DELIBERATE
-  // staging/demo escape: it permits the stubs in prod (keeping every other prod
+  // (env-selected) before going live. ALLOW_STUB_PROVIDERS=staging-no-real-money is a
+  // DELIBERATE staging/demo escape: it permits the stubs in prod (keeping every other prod
   // protection) so the app can be deployed WITHOUT payment/email integration —
   // NEVER set it for a real-money instance.
   // Real email (Resend) when configured, else the console stub.
@@ -474,12 +491,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // block boot unless explicitly staging.
   const hasRealDepositRail = tronDeposit != null;
   if (config.isProd && !config.allowStubProviders) {
-    if (!hasRealDepositRail) throw new Error('A real deposit rail must be configured in production: set TRON_DEPOSIT_XPUB for UNIQUE per-player USDT-TRC20 deposit addresses (recommended — theft-proof; generate it offline with tools/tron-xpub.mjs), or TRON_DEPOSIT_ADDRESS for the legacy single shared address. For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
-    if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=true.');
+    if (!hasRealDepositRail) throw new Error('A real deposit rail must be configured in production: set TRON_DEPOSIT_XPUB for UNIQUE per-player USDT-TRC20 deposit addresses (recommended — theft-proof; generate it offline with tools/tron-xpub.mjs), or TRON_DEPOSIT_ADDRESS for the legacy single shared address. For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
+    if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
   }
   if (config.isProd && config.allowStubProviders && (!hasRealDepositRail || email.name === 'console')) {
     // eslint-disable-next-line no-console
-    console.warn('⚠️  ALLOW_STUB_PROVIDERS=true: running in production with STUB deposit/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Configure TRON_DEPOSIT_ADDRESS + a real EmailProvider, then unset this flag before accepting deposits.');
+    console.warn('⚠️  ALLOW_STUB_PROVIDERS=staging-no-real-money: running in production with STUB deposit/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Configure a real deposit rail + EmailProvider, then unset this flag before accepting deposits.');
   }
 
   // Email verification + password reset go through the EmailProvider above.

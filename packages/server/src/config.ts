@@ -9,6 +9,10 @@ import { z } from 'zod';
 
 const DEV_ACCESS_SECRET = 'dev-access-secret-change-me';
 const DEV_REFRESH_SECRET = 'dev-refresh-secret-change-me';
+// Production opt-in phrase for the stub providers. A bare ALLOW_STUB_PROVIDERS=true
+// is REFUSED in prod (see loadConfig) — a leftover demo flag must never silently
+// enable mock money on a real-money host; a deliberate staging deploy uses this phrase.
+const STUB_PROD_PHRASE = 'staging-no-real-money';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -116,6 +120,7 @@ export interface AppConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = schema.parse(env);
   const isProd = parsed.NODE_ENV === 'production';
+  const stubRaw = (parsed.ALLOW_STUB_PROVIDERS ?? '').trim();
 
   if (isProd) {
     // Fail CLOSED: a production deploy that forgot to set strong secrets must not
@@ -148,6 +153,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         `Compliance flags must be explicitly configured in production (unset: ${unset.join(', ')}). ` +
         `Set each to enable, or explicitly to a disabling value ('false'/'0', or empty for GEO_BLOCKED_COUNTRIES) to acknowledge it is intentionally off.`,
       );
+    }
+
+    // Fail CLOSED on the stub-providers escape: a bare ALLOW_STUB_PROVIDERS=true/1
+    // (e.g. left over from a demo) must NOT silently enable mock deposits/email on a
+    // real-money host. 'false'/'0'/unset = off; only the explicit phrase opts in.
+    const stubDisabled = stubRaw === '' || stubRaw === 'false' || stubRaw === '0';
+    if (!stubDisabled && stubRaw !== STUB_PROD_PHRASE) {
+      throw new Error(
+        `ALLOW_STUB_PROVIDERS="${stubRaw}" is refused in production (mock payment/email must never run with real money). ` +
+        `Remove it for a real deploy, or set ALLOW_STUB_PROVIDERS=${STUB_PROD_PHRASE} for a deliberate staging/demo WITHOUT real money.`,
+      );
+    }
+
+    // CORS: a wildcard origin with credentials is always unsafe — refuse it. A
+    // non-HTTPS origin in prod is suspicious (cookies are Secure) — warn loudly.
+    if (parsed.CLIENT_ORIGIN.includes('*')) {
+      throw new Error('CLIENT_ORIGIN must be an exact origin in production, not a wildcard (credentialed CORS with "*" is unsafe).');
+    }
+    if (!parsed.CLIENT_ORIGIN.startsWith('https://')) {
+      // eslint-disable-next-line no-console
+      console.warn(`⚠️  CLIENT_ORIGIN is not https:// in production (${parsed.CLIENT_ORIGIN}) — secure cookies + CORS expect your real HTTPS site origin. Set CLIENT_ORIGIN=https://yourdomain.`);
     }
   }
 
@@ -197,6 +223,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     rewardsEnabled: parsed.REWARDS_ENABLED === undefined ? true : isTrue(parsed.REWARDS_ENABLED),
     isProd,
-    allowStubProviders: isTrue(parsed.ALLOW_STUB_PROVIDERS),
+    // In prod, stubs require the explicit phrase (a bare `true` already threw above).
+    // In dev/test, keep the simple `true`/`1` toggle for convenience.
+    allowStubProviders: isProd ? stubRaw === STUB_PROD_PHRASE : isTrue(parsed.ALLOW_STUB_PROVIDERS),
   };
 }
