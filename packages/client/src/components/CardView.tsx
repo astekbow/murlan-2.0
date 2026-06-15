@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 import type { Card } from '@murlan/engine';
 import { isRed, rankText, suitSymbol } from '../lib/cards.ts';
 
@@ -13,7 +13,7 @@ interface CardViewProps {
 }
 
 /** A single face-up playing card (cream face, gold ring when selected). */
-export function CardView({ card, selected, small, big, onClick, dealDelayMs, style }: CardViewProps) {
+function CardViewImpl({ card, selected, small, big, onClick, dealDelayMs, style }: CardViewProps) {
   const red = isRed(card);
   const size = small ? 'sm' : big ? 'lg' : '';
   const mergedStyle: CSSProperties = {
@@ -37,9 +37,11 @@ export function CardView({ card, selected, small, big, onClick, dealDelayMs, sty
     </button>
   );
 }
+/** Memoized: a card re-renders only when ITS OWN props change, not on every parent update. */
+export const CardView = memo(CardViewImpl);
 
 /** A face-down card (maroon club back). */
-export function CardBack({ small }: { small?: boolean }) {
+function CardBackImpl({ small }: { small?: boolean }) {
   const size = small ? 'w-6 h-9' : 'w-9 h-[52px]';
   return (
     <div
@@ -52,3 +54,4 @@ export function CardBack({ small }: { small?: boolean }) {
     />
   );
 }
+export const CardBack = memo(CardBackImpl);

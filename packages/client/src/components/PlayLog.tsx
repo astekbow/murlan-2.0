@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import type { LogEntry } from '../store/gameStore.ts';
 
 /** A small scrolling log of recent table events. */
-export function PlayLog({ entries }: { entries: LogEntry[] }) {
+function PlayLogImpl({ entries }: { entries: LogEntry[] }) {
   const recent = entries.slice(-6);
   return (
     <div className="rounded-lg bg-slate-900/70 backdrop-blur px-3 py-2 text-[11px] text-slate-300 h-24 overflow-y-auto no-scrollbar">
@@ -17,3 +18,5 @@ export function PlayLog({ entries }: { entries: LogEntry[] }) {
     </div>
   );
 }
+// Memoized: only re-renders when `entries` changes (not on every unrelated table update).
+export const PlayLog = memo(PlayLogImpl);

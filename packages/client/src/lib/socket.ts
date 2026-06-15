@@ -19,6 +19,10 @@ export function connectSocket(getToken: () => string | null): MurlanSocket {
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 500,
+    // Exponential backoff with a cap, so a long outage doesn't hammer the server /
+    // drain the device battery at a fixed short interval (delay grows 500ms → 10s).
+    reconnectionDelayMax: 10_000,
+    randomizationFactor: 0.5,
   });
 }
 
