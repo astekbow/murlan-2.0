@@ -83,4 +83,30 @@ export class TronDepositVerifier {
       return { ok: false, error: `Gabim verifikimi: ${String(err)}` };
     }
   }
+
+  /**
+   * Current USDT-TRC20 balance of an address, in USD cents (6 decimals) — for the
+   * admin treasury view (how much sits in deposit addresses awaiting a sweep).
+   * Returns null on ANY TronGrid error/shape issue so a treasury read degrades
+   * gracefully; 0 for an un-activated address (never received funds).
+   */
+  async usdtBalanceCents(address: string): Promise<number | null> {
+    try {
+      const res = await this.fetchFn(`${this.base}/v1/accounts/${address}`, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
+      if (!res.ok) return null;
+      const data = await res.json();
+      const acct = (data?.data ?? [])[0];
+      if (!acct) return 0; // never activated → empty
+      const trc20: Array<Record<string, string>> = Array.isArray(acct.trc20) ? acct.trc20 : [];
+      let raw = 0;
+      for (const entry of trc20) {
+        const v = entry?.[this.contract];
+        if (v != null) { raw = Number(v); break; }
+      }
+      if (!Number.isFinite(raw) || raw < 0) return null;
+      return Math.floor((raw * 100) / 1e6); // USDT has 6 decimals
+    } catch {
+      return null;
+    }
+  }
 }

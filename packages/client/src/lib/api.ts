@@ -408,8 +408,19 @@ export interface AdminChatReport {
   createdAt: number;
 }
 
+export interface TreasurySnapshot {
+  houseRakeCents: number;            // the house's accumulated rake (your earnings)
+  playerLiabilitiesCents: number;    // what we owe players (sum of balances)
+  pendingWithdrawalsCents: number;   // withdrawals awaiting payout
+  binanceFreeCents: number | null;   // Binance free USDT (payout pool); null = not configured
+  depositAddressFundsCents: number | null; // on-chain USDT in deposit addresses; null = not configured
+  depositFundsPartial: boolean;      // true if the on-chain read was capped/partial
+  coverageOk: boolean | null;        // can Binance cover pending? null = Binance unknown
+}
+
 export const adminApi = {
   users: (token: string) => request<{ users: AdminUser[] }>('/admin/users', { token }),
+  treasury: (token: string) => request<TreasurySnapshot>('/admin/treasury', { token }),
   matches: (token: string) => request<{ matches: AdminMatch[] }>('/admin/matches', { token }),
   withdrawals: (token: string) => request<{ withdrawals: AdminWithdrawal[] }>('/admin/withdrawals', { token }),
   adjust: (token: string, id: string, deltaCents: number, reason: string) =>

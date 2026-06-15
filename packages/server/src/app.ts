@@ -103,6 +103,7 @@ export interface HttpDeps {
   notifier?: Notifier; // ops alerts (Telegram) — e.g. new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via TxID verify
+  binanceFreeUsdtCents?: () => Promise<number | null>; // treasury: Binance free-USDT payout pool
   depositWallet?: TronHdWallet; // watch-only HD wallet → unique per-player deposit address
   tronDepositAddress?: string | null;
   kickUser?: (userId: string) => void; // force-disconnect a user's live sockets (ban/suspend)
@@ -276,7 +277,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser });
   }
 
   // Lightweight in-house client error logging (no third party): the browser POSTs
@@ -575,7 +576,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const kickHolder: { fn?: (userId: string) => void } = {};
   const kickUser = (userId: string) => kickHolder.fn?.(userId);
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, matches: matchesRepo, voidMatch, kickUser, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

@@ -28,6 +28,10 @@ export interface AdminRoutesDeps {
   // Auto-send a withdrawal on approve (Binance payout). When null/absent or a
   // NullPayoutProvider, approve just marks it paid (operator sent it manually).
   payout?: PayoutProvider | null;
+  // Treasury view (read-only): the Binance free-USDT payout pool + the on-chain USDT
+  // balance of a deposit address. Both optional — absent when not configured.
+  binanceFreeUsdtCents?: () => Promise<number | null>;
+  depositAddressBalanceCents?: (address: string) => Promise<number | null>;
   rooms?: RoomManager; // for the active-matches view
   matches?: MatchesRepository; // for revenue-by-match-type reporting
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
@@ -236,6 +240,58 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const users = await auth.listUsers();
     const payoutLiabilityCents = users.filter((u) => u.role === 'user').reduce((sum, u) => sum + u.balanceCents, 0);
     return reply.send({ ...report, payoutLiabilityCents });
+  });
+
+  // Treasury snapshot: where ALL the money is, in one read-only view — the house's
+  // rake earnings, what we owe players, the on-chain USDT sitting in deposit addresses
+  // (awaiting a sweep), the Binance payout pool, and pending withdrawals. Lets the
+  // operator see coverage + decide when to sweep deposits / top up Binance.
+  app.get('/api/admin/treasury', async (req, reply) => {
+    const caller = await canRevenue(req, reply);
+    if (!caller) return;
+    const [houseRakeCents, users, pending] = await Promise.all([
+      wallet.getBalance(HOUSE_ACCOUNT_ID),
+      auth.listUsers(),
+      withdrawals.listPending(),
+    ]);
+    const playerLiabilitiesCents = users.filter((u) => u.role === 'user').reduce((s, u) => s + u.balanceCents, 0);
+    const pendingWithdrawalsCents = pending.reduce((s, w) => s + w.amountCents, 0);
+
+    // Binance free USDT (the payout pool) — null if Binance isn't configured.
+    const binanceFreeCents = deps.binanceFreeUsdtCents ? await deps.binanceFreeUsdtCents().catch(() => null) : null;
+
+    // On-chain USDT across deposit addresses (the funds to sweep). Best-effort: a
+    // bounded count + small concurrency so a big roster or a TronGrid rate-limit can't
+    // hang the request; `depositFundsPartial` flags an incomplete/failed read.
+    let depositAddressFundsCents: number | null = null;
+    let depositFundsPartial = false;
+    const balOf = deps.depositAddressBalanceCents;
+    if (balOf) {
+      const addrs = await auth.listDepositAddresses().catch(() => [] as string[]);
+      const CAP = 250;
+      const checked = addrs.slice(0, CAP);
+      if (addrs.length > CAP) depositFundsPartial = true;
+      let sum = 0;
+      let anyFail = false;
+      const CONC = 4;
+      for (let i = 0; i < checked.length; i += CONC) {
+        const results = await Promise.all(checked.slice(i, i + CONC).map((a) => balOf(a).catch(() => null)));
+        for (const r of results) { if (r == null) anyFail = true; else sum += r; }
+      }
+      depositAddressFundsCents = sum;
+      if (anyFail) depositFundsPartial = true;
+    }
+
+    return reply.send({
+      houseRakeCents,
+      playerLiabilitiesCents,
+      pendingWithdrawalsCents,
+      binanceFreeCents,
+      depositAddressFundsCents,
+      depositFundsPartial,
+      // Can the payout pool cover everything pending right now? (null = Binance unknown)
+      coverageOk: binanceFreeCents == null ? null : binanceFreeCents >= pendingWithdrawalsCents,
+    });
   });
 
   app.get('/api/admin/withdrawals', async (req, reply) => {

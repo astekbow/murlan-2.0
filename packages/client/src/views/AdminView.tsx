@@ -238,7 +238,7 @@ function StatCard({ label, value, accent, onClick }: { label: string; value: str
 export function AdminView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
-  const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject } = useAdminStore();
+  const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject, treasury, treasuryLoading, loadTreasury } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
   const [tab, setTab] = useState<AdminTab>('overview');
   const [userQuery, setUserQuery] = useState('');
@@ -373,6 +373,35 @@ export function AdminView() {
             <StatCard label={t('admin.tab.moderation')} value={newReports.length} accent={newReports.length > 0} onClick={() => setTab('moderation')} />
             <StatCard label={t('admin.totalPlayers')} value={users.length} onClick={() => setTab('players')} />
           </div>
+
+          {/* Treasury: where ALL the money is. On-demand (hits Binance + TronGrid). */}
+          <section className="panel p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-display font-semibold text-gold-hi text-sm">{t('admin.treasury')}</h3>
+              <button onClick={() => void loadTreasury()} disabled={treasuryLoading} className="btn btn-ghost btn-sm">
+                {treasuryLoading ? t('admin.treasuryLoading') : treasury ? t('admin.treasuryRefresh') : t('admin.treasuryLoad')}
+              </button>
+            </div>
+            {treasury ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-1.5 text-sm">
+                  <div className="flex justify-between"><span className="text-muted">{t('admin.treasuryHouseRake')}</span><b className="text-gold-hi tabular-nums">{dollars(treasury.houseRakeCents)}</b></div>
+                  <div className="flex justify-between"><span className="text-muted">{t('admin.treasuryLiabilities')}</span><span className="tabular-nums">{dollars(treasury.playerLiabilitiesCents)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted">{t('admin.treasuryDepositFunds')}</span><span className="tabular-nums">{treasury.depositAddressFundsCents == null ? '—' : dollars(treasury.depositAddressFundsCents)}{treasury.depositFundsPartial ? ' *' : ''}</span></div>
+                  <div className="flex justify-between"><span className="text-muted">{t('admin.treasuryBinance')}</span><span className="tabular-nums">{treasury.binanceFreeCents == null ? '—' : dollars(treasury.binanceFreeCents)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted">{t('admin.treasuryPending')}</span><span className="tabular-nums">{dollars(treasury.pendingWithdrawalsCents)}</span></div>
+                </div>
+                {treasury.coverageOk != null && (
+                  <p className={`text-[12px] font-semibold ${treasury.coverageOk ? 'text-emerald-300' : 'text-red-300'}`}>
+                    {treasury.coverageOk ? t('admin.treasuryCoverageOk') : t('admin.treasuryCoverageBad')}
+                  </p>
+                )}
+                {treasury.depositFundsPartial && <p className="text-[11px] text-muted/70">* {t('admin.treasuryPartial')}</p>}
+              </>
+            ) : (
+              <p className="text-xs text-muted/70 italic">{t('admin.treasuryHint')}</p>
+            )}
+          </section>
         </div>
       )}
 

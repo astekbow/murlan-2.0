@@ -324,6 +324,11 @@ export class AuthService {
     return (await this.users.list()).map((u) => ({ ...toPublicUser(u), kycStatus: u.kycStatus, accountState: u.accountState }));
   }
 
+  /** Every assigned per-player deposit address — for the treasury on-chain total. */
+  async listDepositAddresses(): Promise<string[]> {
+    return (await this.users.list()).map((u) => u.depositAddress).filter((a): a is string => !!a);
+  }
+
   /** Set a user's platform role (admin promote/demote). Returns the updated user. */
   async setRole(userId: string, role: UserRole): Promise<PublicUser | null> {
     await this.users.setRole(userId, role);

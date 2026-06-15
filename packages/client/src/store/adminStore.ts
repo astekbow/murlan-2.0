@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { adminApi, ApiError, type AdminUser, type AdminWithdrawal, type AdminMatch } from '../lib/api.ts';
+import { adminApi, ApiError, type AdminUser, type AdminWithdrawal, type AdminMatch, type TreasurySnapshot } from '../lib/api.ts';
 import { useAuthStore } from './authStore.ts';
 import { translate, useLangStore } from '../lib/i18n.ts';
 
@@ -14,11 +14,14 @@ interface AdminStore {
   withdrawals: AdminWithdrawal[];
   matches: AdminMatch[];
   revenueCents: number | null; // total house rake collected
+  treasury: TreasurySnapshot | null; // on-demand (hits Binance/TronGrid)
+  treasuryLoading: boolean;
   loading: boolean;
   error: string | null;
   notice: string | null;
 
   refresh: () => Promise<void>;
+  loadTreasury: () => Promise<void>;
   adjust: (id: string, deltaCents: number, reason: string) => Promise<void>;
   setKyc: (id: string, status: 'none' | 'pending' | 'verified') => Promise<void>;
   setRole: (id: string, role: 'user' | 'admin') => Promise<void>;
@@ -36,6 +39,8 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   withdrawals: [],
   matches: [],
   revenueCents: null,
+  treasury: null,
+  treasuryLoading: false,
   loading: false,
   error: null,
   notice: null,
@@ -49,6 +54,17 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       set({ users: u.users, withdrawals: w.withdrawals, matches: m.matches, revenueCents: r.totalRakeCents, loading: false });
     } catch (e) {
       set({ loading: false, error: err(e, 'err.adminPanelLoadFailed') });
+    }
+  },
+
+  async loadTreasury() {
+    const t = token();
+    if (!t) return;
+    set({ treasuryLoading: true, error: null });
+    try {
+      set({ treasury: await adminApi.treasury(t), treasuryLoading: false });
+    } catch (e) {
+      set({ treasuryLoading: false, error: err(e, 'err.adminPanelLoadFailed') });
     }
   },
 
