@@ -51,19 +51,34 @@ function pubkeyToTronAddress(pubkeyCompressed) {
 
 const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
-/** Read an address's USDT-TRC20 balance (in whole USDT) from TronGrid, or null on error. */
+/** ABI-encode a base58 TRON address as a 32-byte hex parameter for balanceOf(address). */
+function addrParam(base58) {
+  const bytes = bs58.decode(base58);        // 25 bytes: 0x41 + 20-byte addr + 4 checksum
+  const addr20 = bytes.slice(1, 21);        // the 20-byte address
+  return '0'.repeat(24) + toHex(addr20);    // left-pad to 32 bytes (64 hex)
+}
+
+/** Read an address's USDT-TRC20 balance (whole USDT) by calling the contract's
+ *  balanceOf — reliable even for addresses that hold USDT but no TRX (the account
+ *  endpoint returns empty for those). null on error. */
 async function usdtBalance(address, apiKey) {
   try {
-    const res = await fetch(`${API}/v1/accounts/${address}`, apiKey ? { headers: { 'TRON-PRO-API-KEY': apiKey } } : {});
+    const res = await fetch(`${API}/wallet/triggerconstantcontract`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}) },
+      body: JSON.stringify({
+        owner_address: address,
+        contract_address: USDT_CONTRACT,
+        function_selector: 'balanceOf(address)',
+        parameter: addrParam(address),
+        visible: true,
+      }),
+    });
     if (!res.ok) return null;
     const data = await res.json();
-    const acct = (data?.data ?? [])[0];
-    if (!acct) return 0; // never activated → empty
-    for (const entry of (Array.isArray(acct.trc20) ? acct.trc20 : [])) {
-      const v = entry?.[USDT_CONTRACT];
-      if (v != null) return Number(v) / 1e6; // USDT has 6 decimals
-    }
-    return 0;
+    const hex = data?.constant_result?.[0];
+    if (hex == null) return null;
+    return Number(BigInt('0x' + hex)) / 1e6; // USDT has 6 decimals
   } catch {
     return null;
   }

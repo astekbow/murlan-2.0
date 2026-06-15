@@ -12,11 +12,13 @@
 // (fine for low volume; raise/paginate later if needed).
 // ============================================================================
 
+import { tronAddressToAbiParam } from './tronAddress.ts';
+
 // Mainnet USDT-TRC20 contract.
 export const USDT_TRC20_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 const API = 'https://api.trongrid.io';
 
-type FetchLike = (url: string, init?: { headers?: Record<string, string> }) =>
+type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>
   Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 
 export interface TronDepositVerification {
@@ -85,26 +87,32 @@ export class TronDepositVerifier {
   }
 
   /**
-   * Current USDT-TRC20 balance of an address, in USD cents (6 decimals) — for the
-   * admin treasury view (how much sits in deposit addresses awaiting a sweep).
-   * Returns null on ANY TronGrid error/shape issue so a treasury read degrades
-   * gracefully; 0 for an un-activated address (never received funds).
+   * Current USDT-TRC20 balance of an address, in USD cents — for the admin treasury
+   * view (how much sits in deposit addresses awaiting a sweep). Reads the contract's
+   * balanceOf via a constant call: this is RELIABLE even for addresses that hold USDT
+   * but no TRX (the /v1/accounts endpoint returns EMPTY for those — they're "inactive"
+   * on-chain — which would wrongly read as 0). Returns null on any error.
    */
   async usdtBalanceCents(address: string): Promise<number | null> {
     try {
-      const res = await this.fetchFn(`${this.base}/v1/accounts/${address}`, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
+      const param = tronAddressToAbiParam(address);
+      if (!param) return null;
+      const res = await this.fetchFn(`${this.base}/wallet/triggerconstantcontract`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(this.opts.apiKey ? { 'TRON-PRO-API-KEY': this.opts.apiKey } : {}) },
+        body: JSON.stringify({
+          owner_address: address,
+          contract_address: this.contract,
+          function_selector: 'balanceOf(address)',
+          parameter: param,
+          visible: true,
+        }),
+      });
       if (!res.ok) return null;
       const data = await res.json();
-      const acct = (data?.data ?? [])[0];
-      if (!acct) return 0; // never activated → empty
-      const trc20: Array<Record<string, string>> = Array.isArray(acct.trc20) ? acct.trc20 : [];
-      let raw = 0;
-      for (const entry of trc20) {
-        const v = entry?.[this.contract];
-        if (v != null) { raw = Number(v); break; }
-      }
-      if (!Number.isFinite(raw) || raw < 0) return null;
-      return Math.floor((raw * 100) / 1e6); // USDT has 6 decimals
+      const hex = data?.constant_result?.[0];
+      if (hex == null || typeof hex !== 'string') return null;
+      return Number(BigInt('0x' + hex) / 10_000n); // 6-decimal USDT raw → integer USD cents
     } catch {
       return null;
     }

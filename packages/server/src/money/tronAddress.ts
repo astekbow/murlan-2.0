@@ -26,6 +26,16 @@ function base58Decode(s: string): Uint8Array | null {
   return Uint8Array.from(bytes);
 }
 
+/** ABI-encode a TRON base58 address as the 32-byte hex parameter for a contract call
+ *  (e.g. balanceOf(address)) — the 20-byte body, left-padded to 32 bytes. null if malformed. */
+export function tronAddressToAbiParam(addr: string): string | null {
+  const decoded = base58Decode(addr);
+  if (!decoded || decoded.length !== 25 || decoded[0] !== 0x41) return null;
+  let hex = '';
+  for (const b of decoded.subarray(1, 21)) hex += b.toString(16).padStart(2, '0'); // drop 0x41 + checksum
+  return '0'.repeat(24) + hex;
+}
+
 /** True only for a well-formed mainnet TRON address with a valid checksum. */
 export function isValidTronAddress(addr: unknown): boolean {
   if (typeof addr !== 'string' || addr.length !== 34 || addr[0] !== 'T') return false;
