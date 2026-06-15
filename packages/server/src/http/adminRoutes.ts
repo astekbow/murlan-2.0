@@ -45,7 +45,7 @@ export interface AdminRoutesDeps {
   kickUser?: (userId: string) => void;
 }
 
-const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1) });
+const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1).max(280) });
 const kycSchema = z.object({ status: z.enum(['none', 'pending', 'verified']) });
 const accountStateSchema = z.object({
   state: z.enum(['active', 'frozen', 'suspended', 'banned']),

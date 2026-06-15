@@ -29,10 +29,12 @@ services:
   # because it can't reach the DB (audit 2026-06-08, finding C3).
   postgres:
     restart: unless-stopped
+    stop_grace_period: 60s   # let Postgres flush WAL + finish a backup dump cleanly
   redis:
     restart: unless-stopped
   server:
     restart: unless-stopped
+    stop_grace_period: 60s   # let in-flight matches drain (graceful SIGTERM) before kill
   client:
     restart: unless-stopped
 

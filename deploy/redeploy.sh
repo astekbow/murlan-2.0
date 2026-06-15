@@ -16,8 +16,17 @@ echo "==> Backing up the database before migrating…"
 mkdir -p backups/predeploy
 if $COMPOSE ps postgres 2>/dev/null | grep -qiE 'up|running|healthy'; then
   ts="$(date +%Y%m%d-%H%M%S)"
-  if $COMPOSE exec -T postgres pg_dump -U murlan murlan | gzip > "backups/predeploy/predeploy-$ts.sql.gz"; then
-    echo "    saved backups/predeploy/predeploy-$ts.sql.gz"
+  dump="backups/predeploy/predeploy-$ts.sql.gz"
+  if $COMPOSE exec -T postgres pg_dump -U murlan murlan | gzip > "$dump"; then
+    # VERIFY the dump before trusting it: gzip integrity (not truncated/corrupt) AND a
+    # sane minimum size (a populated DB dumps to many KB; <1KB means it captured ~nothing).
+    sz="$(wc -c < "$dump" 2>/dev/null || echo 0)"
+    if gzip -t "$dump" 2>/dev/null && [ "$sz" -gt 1024 ]; then
+      echo "    saved + verified $dump ($sz bytes)"
+    else
+      echo "    WARNING: pre-deploy backup is CORRUPT or near-empty (gzip -t failed or <1KB) — aborting deploy."
+      exit 1
+    fi
   else
     echo "    WARNING: pre-deploy backup FAILED — aborting deploy (fix the DB or take a manual dump first)."
     exit 1

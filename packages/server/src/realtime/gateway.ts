@@ -1357,6 +1357,13 @@ export class GameGateway {
     const key = this.rooms.matchIdOf(roomId) ?? roomId;
     if (this.finalizedMatches.has(key)) return false;
     this.finalizedMatches.add(key);
+    // Hard cap: the per-room delete (tryBeginMatch) frees reused rooms, but a room that
+    // finishes and is never reused would linger forever. Evict the oldest once over the
+    // cap (Set preserves insertion order) so the set can't grow unbounded → OOM.
+    if (this.finalizedMatches.size > 10_000) {
+      const oldest = this.finalizedMatches.values().next().value;
+      if (oldest !== undefined) this.finalizedMatches.delete(oldest);
+    }
     this.matchActionSeq.delete(key); // match over — drop its move-log seq counter
     this.rooms.markFinished(roomId); // idempotent (may already be 'finished')
     return true;
