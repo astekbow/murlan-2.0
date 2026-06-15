@@ -90,7 +90,7 @@ test('atomic request via UnitOfWork: debit + record commit together; insufficien
 
 test('payoutNow SENDS via the provider, marks completed, and stamps the providerRef', async () => {
   const { wallet, svc, userId } = await setup();
-  const rec = await svc.request(userId, 2000, 'TRaddr');
+  const rec = await svc.request(userId, 2000, 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6');
   assert.equal(await wallet.getBalance(userId), 3000); // held
   let seen: { withdrawalId: string; amountCents: number; address: string } | null = null;
   const provider: PayoutProvider = { name: 'binance-payout', payout: async (r) => { seen = r; return { ok: true, providerRef: 'binance_W9' }; } };
@@ -98,14 +98,14 @@ test('payoutNow SENDS via the provider, marks completed, and stamps the provider
   assert.equal(w.status, 'completed');
   assert.equal(w.providerRef, 'binance_W9');
   assert.equal(w.resolvedByAdminId, 'admin_1');
-  assert.deepEqual(seen, { withdrawalId: rec.id, amountCents: 2000, address: 'TRaddr' });
+  assert.deepEqual(seen, { withdrawalId: rec.id, amountCents: 2000, address: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' });
   assert.equal(await wallet.getBalance(userId), 3000); // paid out — NOT refunded
   assert.equal((await svc.find(rec.id))?.providerRef, 'binance_W9'); // persisted
 });
 
 test('payoutNow REFUNDS and does NOT complete when the send fails', async () => {
   const { wallet, svc, userId } = await setup();
-  const rec = await svc.request(userId, 2000, 'TRaddr');
+  const rec = await svc.request(userId, 2000, 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6');
   assert.equal(await wallet.getBalance(userId), 3000); // held
   await assert.rejects(
     svc.payoutNow(rec.id, failPayout(), { resolvedByAdminId: 'admin_1' }),
@@ -117,7 +117,7 @@ test('payoutNow REFUNDS and does NOT complete when the send fails', async () => 
 
 test('payoutNow with NO real provider just marks completed (operator paid manually)', async () => {
   const { wallet, svc, userId } = await setup();
-  const rec = await svc.request(userId, 2000, 'TRaddr');
+  const rec = await svc.request(userId, 2000, 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6');
   const w = await svc.payoutNow(rec.id, null, { resolvedByAdminId: 'admin_1' });
   assert.equal(w.status, 'completed');
   assert.equal(await wallet.getBalance(userId), 3000); // funds stay debited (sent by hand)
@@ -125,7 +125,7 @@ test('payoutNow with NO real provider just marks completed (operator paid manual
 
 test('a reject AFTER a successful payoutNow cannot refund the sent payout (no double-pay)', async () => {
   const { wallet, svc, userId } = await setup();
-  const rec = await svc.request(userId, 2000, 'TRaddr');
+  const rec = await svc.request(userId, 2000, 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6');
   await svc.payoutNow(rec.id, okPayout(), { resolvedByAdminId: 'admin_1' });
   assert.equal(await wallet.getBalance(userId), 3000); // paid
   await assert.rejects(svc.reject(rec.id), (e: unknown) => e instanceof WithdrawalError && e.code === 'not_pending');

@@ -552,6 +552,16 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     async debit(userId, cents, reason) { await wallet.debit(userId, cents, { type: 'bet', reason }); },
     async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
     async recordRake(cents, ref) { await wallet.recordRake(cents, { providerRef: ref }); },
+    // Champion prize + house rake in ONE transaction (Prisma) so a crash can't split
+    // them; in-memory falls back to sequential (single-threaded → already safe).
+    async payoutChampion(winnerId, prizeCents, rakeCents, ref) {
+      const pay = async (w: typeof wallet) => {
+        if (prizeCents > 0) await w.credit(winnerId, prizeCents, { type: 'payout', reason: `tournament prize:${ref}`, providerRef: `tournament prize:${ref}` });
+        if (rakeCents > 0) await w.recordRake(rakeCents, { providerRef: `tournament-rake:${ref}` });
+      };
+      if (uow) await uow.transaction(async (ctx) => { await pay(wallet.bind(ctx)); });
+      else await pay(wallet);
+    },
   };
   const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps);
   // Club chat + moderation. Membership-gated + mute-aware + abuse reports.

@@ -40,8 +40,12 @@ export interface Tournament {
 /** Minimal wallet capability the tournament needs (keeps it decoupled from WalletService). */
 export interface TournamentWallet {
   debit(userId: string, amountCents: number, reason: string): Promise<void>;  // buy-in escrow
-  credit(userId: string, amountCents: number, reason: string): Promise<void>; // prize / refund
-  recordRake(amountCents: number, ref: string): Promise<void>;                // house cut
+  credit(userId: string, amountCents: number, reason: string): Promise<void>; // refund
+  recordRake(amountCents: number, ref: string): Promise<void>;                // house cut (non-payout)
+  // Pay the champion AND record the house rake ATOMICALLY (one DB transaction in prod),
+  // so a crash between them can't credit the prize but lose the rake — which would
+  // break the per-tournament ledger invariant sum(in) == sum(out).
+  payoutChampion(winnerId: string, prizeCents: number, rakeCents: number, ref: string): Promise<void>;
 }
 
 export interface TournamentRepository {
@@ -182,8 +186,9 @@ export class TournamentService {
     t.status = 'finished';
     const rake = Math.floor((t.prizePoolCents * t.rakeBps) / 10000);
     const prize = t.prizePoolCents - rake;
-    if (prize > 0) await this.wallet.credit(winnerId, prize, `tournament prize:${t.id}`);
-    if (rake > 0) await this.wallet.recordRake(rake, `tournament-rake:${t.id}`);
+    // Prize + rake in ONE atomic op — a crash between them would leave the ledger short
+    // by `rake` (breaking the per-tournament conservation invariant).
+    await this.wallet.payoutChampion(winnerId, prize, rake, t.id);
   }
 
   /** Cancel a tournament and REFUND every escrowed buy-in. Works while REGISTERING

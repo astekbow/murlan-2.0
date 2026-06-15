@@ -14,6 +14,10 @@ class FakeWallet implements TournamentWallet {
   }
   async credit(userId: string, cents: number): Promise<void> { this.credits.push({ userId, cents }); }
   async recordRake(cents: number): Promise<void> { this.rake.push(cents); }
+  async payoutChampion(winnerId: string, prizeCents: number, rakeCents: number): Promise<void> {
+    if (prizeCents > 0) this.credits.push({ userId: winnerId, cents: prizeCents });
+    if (rakeCents > 0) this.rake.push(rakeCents);
+  }
 }
 
 function svc(rakeBps = 1000) {

@@ -9,6 +9,7 @@
 import { WalletService, InsufficientFundsError } from './walletService.ts';
 import type { UnitOfWork } from './unitOfWork.ts';
 import type { PayoutProvider } from './payoutProvider.ts';
+import { isValidTronAddress } from './tronAddress.ts';
 
 export type WithdrawalStatus = 'pending' | 'completed' | 'rejected';
 
@@ -215,6 +216,9 @@ export class WithdrawalService {
     const rec = await this.repo.find(id);
     if (!rec) throw new WithdrawalError('not_found', 'Tërheqja nuk u gjet.');
     if (rec.status !== 'pending') throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+    // MONEY-8: re-validate the destination at payout time (defense-in-depth — it was
+    // checked at request, but never send real funds to a malformed/corrupted address).
+    if (!isValidTronAddress(rec.destination)) throw new WithdrawalError('bad_destination', 'Adresa e tërheqjes është e pavlefshme.');
 
     // No auto-send provider → behave like the old manual approve (operator sent the
     // crypto themselves and is just recording it as paid).
