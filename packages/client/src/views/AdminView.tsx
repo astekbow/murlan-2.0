@@ -85,8 +85,15 @@ function UserRow({ user }: { user: AdminUser }) {
     if (token) { try { await adminApi.muteUser(token, user.id, 24 * 60 * 60 * 1000); } catch { /* surfaced elsewhere */ } }
   };
   const unmute = async () => {
+    if (!(await confirm({ title: t('admin.unmute'), message: t('admin.confirmUnmuteM', { user: user.username }) }))) return;
     const token = useAuthStore.getState().accessToken;
     if (token) { try { await adminApi.unmuteUser(token, user.id); } catch { /* surfaced elsewhere */ } }
+  };
+  // KYC change confirm: verifying unlocks withdrawals, so make it a deliberate action.
+  const changeKyc = async (s: 'none' | 'pending' | 'verified') => {
+    if (s === user.kycStatus) return; // no-op (clicked the current status)
+    if (!(await confirm({ title: t('admin.kycChange'), message: t('admin.confirmKycM', { user: user.username, status: s }) }))) return;
+    void setKyc(user.id, s);
   };
 
   return (
@@ -113,7 +120,7 @@ function UserRow({ user }: { user: AdminUser }) {
             <span className="field-label">KYC:</span>
             <div className="seg">
               {(['none', 'pending', 'verified'] as const).map((s) => (
-                <button key={s} onClick={() => void setKyc(user.id, s)} className={`seg-tab ${user.kycStatus === s ? 'active' : ''}`}>{s}</button>
+                <button key={s} onClick={() => void changeKyc(s)} className={`seg-tab ${user.kycStatus === s ? 'active' : ''}`}>{s}</button>
               ))}
             </div>
             <button onClick={() => void onToggleRole()} className={`btn ml-auto ${user.role === 'admin' ? 'btn-danger' : 'btn-ghost'}`}>

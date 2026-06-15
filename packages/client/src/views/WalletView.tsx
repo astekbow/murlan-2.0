@@ -308,10 +308,12 @@ export function WalletView() {
  *  the account API; empty/0 clears a limit. */
 function RgLimitsControls() {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const [limits, setLimitsState] = useState<RgLimits | null>(null);
   const [dep, setDep] = useState('');
   const [loss, setLoss] = useState('');
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     const token = useAuthStore.getState().accessToken;
@@ -327,11 +329,20 @@ function RgLimitsControls() {
     const c = Math.round(parseFloat(s || '0') * 100);
     return Number.isFinite(c) && c > 0 ? c : null;
   };
-  const save = async (patch: Partial<RgLimits>) => {
+  const save = async (patch: Partial<RgLimits>): Promise<boolean> => {
     const token = useAuthStore.getState().accessToken;
-    if (!token || busy) return;
-    setBusy(true);
-    try { setLimitsState((await accountApi.setLimits(token, patch)).limits); } catch { /* surfaced elsewhere */ } finally { setBusy(false); }
+    if (!token || busy) return false;
+    setBusy(true); setErr(null);
+    try { setLimitsState((await accountApi.setLimits(token, patch)).limits); return true; }
+    catch (e) { setErr(e instanceof ApiError ? e.message : t('err.limitSaveFailed')); return false; }
+    finally { setBusy(false); }
+  };
+  // RG limits are a safety control: confirm removal, and clear the field ONLY if the
+  // save actually succeeded (so a failed remove can't look like it worked).
+  const removeLimit = async (which: 'deposit' | 'loss') => {
+    if (!(await confirm({ title: t('wallet.removeLimitT'), message: t('wallet.removeLimitM'), confirmLabel: t('common.remove') }))) return;
+    const ok = await save(which === 'deposit' ? { dailyDepositLimitCents: null } : { dailyLossLimitCents: null });
+    if (ok) { if (which === 'deposit') setDep(''); else setLoss(''); }
   };
 
   return (
@@ -343,7 +354,7 @@ function RgLimitsControls() {
           <input type="number" min="0" step="1" value={dep} onChange={(e) => setDep(e.target.value)} placeholder={t('wallet.noLimit')} className="field w-32" />
         </label>
         <button disabled={busy} onClick={() => void save({ dailyDepositLimitCents: toCents(dep) })} className="btn btn-gold">{t('common.save')}</button>
-        <button disabled={busy} onClick={() => { setDep(''); void save({ dailyDepositLimitCents: null }); }} className="btn btn-ghost">{t('common.remove')}</button>
+        <button disabled={busy} onClick={() => void removeLimit('deposit')} className="btn btn-ghost">{t('common.remove')}</button>
       </div>
       <div className="flex flex-wrap gap-3 items-end">
         <label className="block">
@@ -351,7 +362,7 @@ function RgLimitsControls() {
           <input type="number" min="0" step="1" value={loss} onChange={(e) => setLoss(e.target.value)} placeholder={t('wallet.noLimit')} className="field w-32" />
         </label>
         <button disabled={busy} onClick={() => void save({ dailyLossLimitCents: toCents(loss) })} className="btn btn-gold">{t('common.save')}</button>
-        <button disabled={busy} onClick={() => { setLoss(''); void save({ dailyLossLimitCents: null }); }} className="btn btn-ghost">{t('common.remove')}</button>
+        <button disabled={busy} onClick={() => void removeLimit('loss')} className="btn btn-ghost">{t('common.remove')}</button>
       </div>
       {limits && (
         <p className="text-[11px] text-muted">
@@ -361,6 +372,8 @@ function RgLimitsControls() {
           })}
         </p>
       )}
+      {err && <p className="text-[11px] text-red-300">{err}</p>}
+      {dialog}
     </div>
   );
 }

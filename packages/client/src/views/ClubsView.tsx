@@ -166,6 +166,7 @@ export function ClubsView() {
 // WITH the chat — moderation policy review is still required before broad rollout.
 function ClubChat({ club }: { club: ClubDetailDTO }) {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const messages = useGameStore((s) => s.clubChat);
   const sendClubMessage = useGameStore((s) => s.sendClubMessage);
   const setClubChat = useGameStore((s) => s.setClubChat);
@@ -199,9 +200,8 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
   const report = async (messageId: string) => {
     const tk = token();
     if (!tk) return;
-    const reason = window.prompt(t('clubs.reportPrompt'))?.trim();
-    if (!reason) return;
-    await clubsApi.report(tk, messageId, reason).then(() => useGameStore.setState({ toast: t('clubs.reportSuccess'), toastKind: 'success' })).catch(() => useGameStore.setState({ toast: t('clubs.reportFailed'), toastKind: 'error' }));
+    if (!(await confirm({ title: t('clubs.report'), message: t('clubs.reportConfirmM') }))) return;
+    await clubsApi.report(tk, messageId, t('clubs.reportReason')).then(() => useGameStore.setState({ toast: t('clubs.reportSuccess'), toastKind: 'success' })).catch(() => useGameStore.setState({ toast: t('clubs.reportFailed'), toastKind: 'error' }));
   };
 
   const mute = async (userId: string) => {
@@ -236,6 +236,7 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
         <input value={text} onChange={(e) => setText(e.target.value)} maxLength={280} placeholder={t('clubs.messagePlaceholder')} className="field flex-1" />
         <button type="submit" disabled={busy || !text.trim()} className="btn btn-gold">{t('clubs.send')}</button>
       </form>
+      {dialog}
     </section>
   );
 }
