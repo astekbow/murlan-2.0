@@ -14,6 +14,7 @@ import type { WalletService } from '../money/walletService.ts';
 import { InsufficientFundsError, HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
+import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { RoomManager } from '../room/roomManager.ts';
 import type { MatchesRepository } from '../money/matchesRepository.ts';
 import { revenueBreakdown } from '../money/revenueReport.ts';
@@ -24,6 +25,9 @@ export interface AdminRoutesDeps {
   auth: AuthService;
   wallet: WalletService;
   withdrawals: WithdrawalService;
+  // Auto-send a withdrawal on approve (Binance payout). When null/absent or a
+  // NullPayoutProvider, approve just marks it paid (operator sent it manually).
+  payout?: PayoutProvider | null;
   rooms?: RoomManager; // for the active-matches view
   matches?: MatchesRepository; // for revenue-by-match-type reporting
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
@@ -282,8 +286,10 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     if (!caller) return;
     const id = (req.params as { id: string }).id;
     return resolveWithdrawal(reply, async () => {
-      const w = await withdrawals.approve(id, { resolvedByAdminId: caller.userId });
-      await audit.record({ adminId: caller.userId, action: 'withdrawal_approve', targetUserId: w.userId, amountCents: w.amountCents, detail: id });
+      // Approve now SENDS the payout on-chain (via the configured provider) and only
+      // marks 'completed' if the send succeeded; a failed send refunds + stays unpaid.
+      const w = await withdrawals.payoutNow(id, deps.payout ?? null, { resolvedByAdminId: caller.userId });
+      await audit.record({ adminId: caller.userId, action: 'withdrawal_approve', targetUserId: w.userId, amountCents: w.amountCents, detail: w.providerRef ? `${id} (sent: ${w.providerRef})` : id });
       return w;
     });
   });

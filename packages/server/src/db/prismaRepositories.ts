@@ -497,6 +497,10 @@ export class PrismaWithdrawals implements WithdrawalRepository {
     // Atomic: only flip a 'completed' payout that later failed on-chain → 'rejected'.
     await this.db.withdrawal.updateMany({ where: { id, status: 'completed' }, data: { status: 'rejected', resolvedAt: new Date(), failureReason: 'payout failed on-chain (auto-reversed)' } });
   }
+  async setAudit(id: string, audit: WithdrawalResolution): Promise<void> {
+    // Stamp audit fields only (no status change) — records the payout ref after a send.
+    await this.db.withdrawal.update({ where: { id }, data: withdrawalAuditData(audit) });
+  }
   async listPending(): Promise<WithdrawalRecord[]> {
     return (await this.db.withdrawal.findMany({ where: { status: 'pending' } })).map(toWithdrawal);
   }

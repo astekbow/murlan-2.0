@@ -8,6 +8,7 @@
 
 import { WalletService, InsufficientFundsError } from './walletService.ts';
 import type { UnitOfWork } from './unitOfWork.ts';
+import type { PayoutProvider } from './payoutProvider.ts';
 
 export type WithdrawalStatus = 'pending' | 'completed' | 'rejected';
 
@@ -49,6 +50,9 @@ export interface WithdrawalRepository {
   /** Flip a 'completed' withdrawal to 'rejected' (used when a paid-out payout later
    *  failed on-chain and was reversed) — so it's deduped + excluded from the daily cap. */
   markReversed(id: string): Promise<void>;
+  /** Stamp audit fields (providerRef/network/txHash/failureReason) on an existing row
+   *  WITHOUT changing its status — used to record the payout ref AFTER a send. */
+  setAudit(id: string, audit: WithdrawalResolution): Promise<void>;
   listPending(): Promise<WithdrawalRecord[]>;
   listByUser(userId: string): Promise<WithdrawalRecord[]>;
 }
@@ -86,6 +90,14 @@ export class InMemoryWithdrawals implements WithdrawalRepository {
   async markReversed(id: string): Promise<void> {
     const r = this.rows.find((x) => x.id === id);
     if (r && r.status === 'completed') { r.status = 'rejected'; r.resolvedAt = Date.now(); r.failureReason = 'payout failed on-chain (auto-reversed)'; }
+  }
+  async setAudit(id: string, audit: WithdrawalResolution): Promise<void> {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    if (audit.providerRef !== undefined) r.providerRef = audit.providerRef;
+    if (audit.network !== undefined) r.network = audit.network;
+    if (audit.txHash !== undefined) r.txHash = audit.txHash;
+    if (audit.failureReason !== undefined) r.failureReason = audit.failureReason;
   }
   async listPending(): Promise<WithdrawalRecord[]> {
     return this.rows.filter((r) => r.status === 'pending').map((r) => ({ ...r }));
@@ -185,6 +197,52 @@ export class WithdrawalService {
       providerRef: `withdrawal_refund:${id}`,
     });
     return claimed;
+  }
+
+  /**
+   * Admin approves AND actually SENDS the payout on-chain via the provider — so
+   * "Approve" can never be confused with "mark paid but nothing sent".
+   *
+   * Safety: CLAIM the row first (atomic pending→completed) so a racing reject()
+   * can't refund a payout we're about to send, and only ONE approve sends. The
+   * provider dedupes on our withdrawal id (Binance withdrawOrderId), so even the
+   * tiny claim→send window can't double-send. On send FAILURE the held funds are
+   * refunded (idempotent) and the row reversed out of 'completed', leaving the
+   * player whole. With NO real provider configured (NullPayoutProvider), it falls
+   * back to a plain mark-completed — the operator paid externally by hand.
+   */
+  async payoutNow(id: string, payout: PayoutProvider | null, opts: { resolvedByAdminId?: string | null } = {}): Promise<WithdrawalRecord> {
+    const rec = await this.repo.find(id);
+    if (!rec) throw new WithdrawalError('not_found', 'Tërheqja nuk u gjet.');
+    if (rec.status !== 'pending') throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+
+    // No auto-send provider → behave like the old manual approve (operator sent the
+    // crypto themselves and is just recording it as paid).
+    if (!payout || payout.name === 'null') {
+      return this.approve(id, { resolvedByAdminId: opts.resolvedByAdminId ?? null });
+    }
+
+    // CLAIM first (atomic compare-and-set): only one approve proceeds, and a racing
+    // reject() sees not-pending → it can't refund a payout we're about to send.
+    const claimed = await this.repo.setStatusIfPending(id, 'completed', { resolvedByAdminId: opts.resolvedByAdminId ?? null });
+    if (!claimed) throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+
+    const r = await payout.payout({ withdrawalId: id, amountCents: rec.amountCents, address: rec.destination });
+    if (r.ok) {
+      // The money is ALREADY sent. Stamping the provider ref is best-effort: a DB blip
+      // here must NOT make a successful payout look failed (which would mislead the
+      // admin and strand the row). The reconciler can still match via Binance history.
+      await this.repo.setAudit(id, { providerRef: r.providerRef ?? null }).catch(() => {});
+      return { ...claimed, providerRef: r.providerRef ?? null };
+    }
+
+    // Send FAILED → refund the held funds FIRST (idempotent providerRef, so a re-run
+    // can't double-refund) so the player is never short, then reverse the row.
+    await this.wallet.credit(rec.userId, rec.amountCents, {
+      type: 'admin_adjust', reason: 'rikthim: pagesa e tërheqjes dështoi', providerRef: `withdrawal_refund:${id}`,
+    });
+    await this.repo.markReversed(id);
+    throw new WithdrawalError('payout_failed', `Pagesa dështoi: ${r.error ?? 'e panjohur'}. Fondet u kthyen lojtarit — provoje sërish ose dërgo manualisht.`);
   }
 
   listPending(): Promise<WithdrawalRecord[]> {
