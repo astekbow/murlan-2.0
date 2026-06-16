@@ -55,6 +55,9 @@ const schema = z.object({
   RESPONSIBLE_GAMING: z.string().optional(),
   // Engagement rewards (§2.6) — ON by default; set false to disable per jurisdiction.
   REWARDS_ENABLED: z.string().optional(),
+  // Four-eyes on the tournament champion payout — needs TWO distinct admins. OFF by
+  // default (a solo operator has no second admin; it would block every payout).
+  TOURNAMENT_DUAL_CONTROL: z.string().optional(),
 });
 
 const isTrue = (v: string | undefined): boolean => v === 'true' || v === '1';
@@ -85,6 +88,7 @@ export interface AppConfig {
   redisUrl: string | null;
   databaseUrl: string | null;
   rakeBps: number;
+  tournamentDualControl: boolean; // require a 2nd distinct admin to confirm a champion payout
   turnMs: number;
   countdownMs: number;
   abandonMs: number;
@@ -189,6 +193,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     redisUrl: parsed.REDIS_URL ?? null,
     databaseUrl: parsed.DATABASE_URL ?? null,
     rakeBps: parsed.RAKE_BPS,
+    tournamentDualControl: isTrue(parsed.TOURNAMENT_DUAL_CONTROL),
     turnMs: parsed.TURN_MS,
     countdownMs: parsed.COUNTDOWN_MS,
     abandonMs: parsed.ABANDON_MS,

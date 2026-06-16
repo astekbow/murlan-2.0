@@ -95,7 +95,15 @@ export function TournamentsView() {
               {canRegister && <button disabled={busy} onClick={() => void act(() => tournamentsApi.register(tk()!, tn.id))} className="btn btn-gold btn-block">{t('tourn.register')} · {dollars(tn.buyInCents)}</button>}
               {joined && tn.status === 'registering' && <p className="text-xs text-emerald-300 text-center">{t('tourn.registered')}</p>}
               {isAdmin && tn.status === 'registering' && <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.cancelRefund'), message: t('tourn.confirmCancelM'), danger: true, confirmLabel: t('tourn.cancelRefund') })) void act(() => tournamentsApi.cancel(tk()!, tn.id)); }} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>}
-              {tn.winnerId && <p className="text-sm text-center text-gold-hi">🏆 {t('tourn.champion')}: {label(tn.winnerId)}</p>}
+              {/* Dual-control: a parked champion awaits a SECOND admin's confirmation before payout. */}
+              {isAdmin && tn.status === 'awaiting_confirmation' && (
+                <div className="space-y-1.5 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2.5">
+                  <p className="text-xs text-amber-300 text-center">{t('tourn.awaitingConfirm')}{tn.pendingWinnerId ? `: ${label(tn.pendingWinnerId)}` : ''}</p>
+                  <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.confirmPayout'), message: t('tourn.confirmPayoutM'), confirmLabel: t('tourn.confirmPayout') })) void act(() => tournamentsApi.confirm(tk()!, tn.id)); }} className="btn btn-gold btn-block">{t('tourn.confirmPayout')}</button>
+                  <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.cancelRefund'), message: t('tourn.confirmCancelM'), danger: true, confirmLabel: t('tourn.cancelRefund') })) void act(() => tournamentsApi.cancel(tk()!, tn.id)); }} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>
+                </div>
+              )}
+              {tn.winnerId && tn.status === 'finished' && <p className="text-sm text-center text-gold-hi">🏆 {t('tourn.champion')}: {label(tn.winnerId)}</p>}
 
               {rounds.length > 0 && (
                 <div className="space-y-2.5">

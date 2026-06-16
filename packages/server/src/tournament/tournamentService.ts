@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto';
 // TournamentRepository value). Lets escrow + the tournament-row write share one tx.
 import type { UnitOfWork, WalletTxContext } from '../money/unitOfWork.ts';
 
-export type TournamentStatus = 'registering' | 'running' | 'finished' | 'cancelled';
+export type TournamentStatus = 'registering' | 'running' | 'awaiting_confirmation' | 'finished' | 'cancelled';
 
 export interface BracketMatch {
   round: number;            // 0 = first round
@@ -37,6 +37,11 @@ export interface Tournament {
   prizePoolCents: number;   // sum of escrowed buy-ins
   rakeBps: number;          // house cut applied to the pool at payout
   winnerId: string | null;
+  // Dual-control: when the final is reported under four-eyes, the champion is parked
+  // here (status 'awaiting_confirmation') until a SECOND, distinct admin confirms. Both
+  // null otherwise. (Off by default — see TournamentService `dualControl`.)
+  pendingWinnerId: string | null;
+  reportedByAdminId: string | null;
   createdAt: number;
 }
 
@@ -80,6 +85,12 @@ export class TournamentService {
     // Present in prod (Prisma): wraps escrow/payout + the tournament-row write in ONE
     // transaction. Absent in-memory (single-threaded → the saga path below is enough).
     private readonly uow?: UnitOfWork,
+    // Four-eyes on the champion payout: when true, reporting a PAID final parks the
+    // champion (status 'awaiting_confirmation') until a SECOND, distinct admin confirms.
+    // Default false — a solo operator has no second admin (it would block every payout);
+    // the audit trail + admin-account security are the controls there. Turn on once
+    // multiple admins/staff exist.
+    private readonly dualControl: boolean = false,
   ) {}
 
   async list(): Promise<Tournament[]> { return this.repo.list(); }
@@ -112,6 +123,8 @@ export class TournamentService {
       prizePoolCents: 0,
       rakeBps: this.rakeBps,
       winnerId: null,
+      pendingWinnerId: null,
+      reportedByAdminId: null,
       createdAt: this.now(),
     };
     await this.repo.create(t);
@@ -176,9 +189,11 @@ export class TournamentService {
     t.status = 'running';
   }
 
-  /** Record a pairing's winner (called by the gateway when the match ends), then
-   *  advance the bracket — building the next round, or finishing + paying out. */
-  async reportResult(tournamentId: string, round: number, index: number, winnerId: string): Promise<Tournament> {
+  /** Record a pairing's winner (admin-reported), then advance the bracket — building the
+   *  next round, or finishing + paying out. With dual-control ON, reporting a PAID final
+   *  PARKS the champion (status 'awaiting_confirmation') for a second admin instead of
+   *  paying immediately; pass `adminId` so the confirmer can be required to differ. */
+  async reportResult(tournamentId: string, round: number, index: number, winnerId: string, adminId?: string): Promise<Tournament> {
     return this.withLock(tournamentId, async () => {
       const t = await this.repo.get(tournamentId);
       if (!t) throw new TournamentError('not_found', 'Turneu nuk u gjet.');
@@ -192,11 +207,22 @@ export class TournamentService {
       const roundMatches = t.bracket.filter((x) => x.round === round).sort((a, b) => a.index - b.index);
       if (roundMatches.every((x) => x.winnerId)) {
         if (roundMatches.length === 1) {
+          const champion = roundMatches[0]!.winnerId!;
+          if (this.dualControl && t.buyInCents > 0) {
+            // Four-eyes: park the champion for a SECOND admin to confirm; no money moves
+            // yet. The final-match winnerId is already set + persisted below, so the
+            // bracket is intact; only the payout waits. (Free finals skip this — no money.)
+            t.status = 'awaiting_confirmation';
+            t.pendingWinnerId = champion;
+            t.reportedByAdminId = adminId ?? null;
+            await this.repo.save(t);
+            return t;
+          }
           // Final decided → pay the champion AND persist the finished status ATOMICALLY
           // (see finish()), then return. We must NOT fall through to the trailing save:
           // finish() already persisted, and a second (non-tx) save could land AFTER the
           // payout, re-opening the very "paid but row still 'running'" window we close.
-          await this.finish(t, roundMatches[0]!.winnerId!);
+          await this.finish(t, champion);
           return t;
         }
         for (let i = 0; i < roundMatches.length; i += 2) {
@@ -210,6 +236,27 @@ export class TournamentService {
         }
       }
       await this.repo.save(t);
+      return t;
+    });
+  }
+
+  /** Dual-control: a SECOND, distinct admin confirms a parked champion → pays out. Only
+   *  valid while 'awaiting_confirmation'; the confirmer must differ from the admin who
+   *  reported the final (four-eyes). The payout is atomic via finish(). */
+  async confirmChampion(tournamentId: string, confirmingAdminId: string): Promise<Tournament> {
+    return this.withLock(tournamentId, async () => {
+      const t = await this.repo.get(tournamentId);
+      if (!t) throw new TournamentError('not_found', 'Turneu nuk u gjet.');
+      if (t.status !== 'awaiting_confirmation' || !t.pendingWinnerId) {
+        throw new TournamentError('not_awaiting', 'Turneu nuk është në pritje konfirmimi.');
+      }
+      if (t.reportedByAdminId && t.reportedByAdminId === confirmingAdminId) {
+        throw new TournamentError('same_admin', 'Një administrator i DYTË duhet ta konfirmojë pagesën.');
+      }
+      const champion = t.pendingWinnerId;
+      t.pendingWinnerId = null;
+      t.reportedByAdminId = null;
+      await this.finish(t, champion); // atomic payout + status=finished
       return t;
     });
   }
@@ -259,22 +306,23 @@ export class TournamentService {
   /**
    * Safety net for stranded money (audit 2026-06-08, finding C4): tournaments are
    * advanced manually by an admin and have no realtime auto-run, so a forgotten /
-   * disputed / crashed one can sit in 'registering' or 'running' holding escrowed
-   * buy-ins forever. This refunds + voids any such tournament older than `maxAgeMs`.
-   * Idempotent (per-player refund refs) and lock-guarded so it never double-refunds
-   * or races a concurrent report/cancel. Returns the ids it voided. Wired into the
-   * periodic money sweep (app.ts).
+   * disputed / crashed one can sit in 'registering', 'running', or 'awaiting_confirmation'
+   * holding escrowed buy-ins forever. This refunds + voids any such tournament older than
+   * `maxAgeMs` (a parked-but-never-confirmed champion is voided → all buy-ins refunded, the
+   * conservative outcome). Idempotent (per-player refund refs) and lock-guarded so it never
+   * double-refunds or races a concurrent report/confirm/cancel. Returns the ids it voided.
    */
+  private static readonly SWEEPABLE: ReadonlySet<TournamentStatus> = new Set(['registering', 'running', 'awaiting_confirmation']);
   async sweepStale(maxAgeMs: number): Promise<string[]> {
     const cutoff = this.now() - maxAgeMs;
     const all = await this.repo.list();
     const voided: string[] = [];
     for (const snap of all) {
-      if (snap.status !== 'registering' && snap.status !== 'running') continue;
+      if (!TournamentService.SWEEPABLE.has(snap.status)) continue;
       if (snap.createdAt > cutoff) continue;
       await this.withLock(snap.id, async () => {
         const t = await this.repo.get(snap.id); // re-read under the lock
-        if (!t || (t.status !== 'registering' && t.status !== 'running')) return;
+        if (!t || !TournamentService.SWEEPABLE.has(t.status)) return;
         if (t.buyInCents > 0) for (const uid of t.playerIds) await this.wallet.credit(uid, t.buyInCents, `tournament refund:${t.id}:${uid}`);
         t.status = 'cancelled';
         t.prizePoolCents = 0;

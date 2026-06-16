@@ -102,6 +102,54 @@ test('login succeeds with correct credentials and fails otherwise', async () => 
   );
 });
 
+// ---- per-email login throttle (MONEY-7/WEB-2) -----------------------------
+function makeThrottled(maxFailures = 3, windowMs = 60_000) {
+  const repo = new InMemoryUserRepository();
+  const tokens = new TokenService({ accessSecret: 'a', refreshSecret: 'b', accessTtl: '15m', refreshTtl: '7d' });
+  let clock = 1_000_000;
+  const auth = new AuthService(repo, tokens, undefined, { now: () => clock, loginThrottle: { maxFailures, windowMs } });
+  return { auth, advance: (ms: number) => { clock += ms; } };
+}
+
+test('login throttle: locks an email after N failures — even with the RIGHT password — then unlocks after the window', async () => {
+  const { auth, advance } = makeThrottled(3, 60_000);
+  await auth.register({ username: 'victim', email: 'v@x.com', password: 'correct-horse' });
+
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(auth.login({ email: 'v@x.com', password: 'wrong-pass' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  }
+  // 4th attempt is throttled regardless of the password → proxy-IP rotation can't help.
+  await assert.rejects(auth.login({ email: 'v@x.com', password: 'correct-horse' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
+
+  advance(60_001); // window elapses
+  const ok = await auth.login({ email: 'v@x.com', password: 'correct-horse' });
+  assert.equal(ok.user.username, 'victim');
+});
+
+test('login throttle: a successful login clears the failure counter', async () => {
+  const { auth } = makeThrottled(3, 60_000);
+  await auth.register({ username: 'player1', email: 'u@x.com', password: 'correct-horse' });
+
+  await assert.rejects(auth.login({ email: 'u@x.com', password: 'wrong-pass' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  await assert.rejects(auth.login({ email: 'u@x.com', password: 'wrong-pass' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  await auth.login({ email: 'u@x.com', password: 'correct-horse' }); // success → reset
+
+  // Counter reset → it takes a fresh 3 failures (not 1) to lock again.
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(auth.login({ email: 'u@x.com', password: 'wrong-pass' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  }
+  await assert.rejects(auth.login({ email: 'u@x.com', password: 'correct-horse' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
+});
+
+test('login throttle: applies to UNKNOWN emails too (no enumeration via lockout behavior)', async () => {
+  const { auth } = makeThrottled(3, 60_000);
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(auth.login({ email: 'ghost@x.com', password: 'whatever1' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  }
+  // A non-existent email locks identically to a real one — same observable behavior.
+  await assert.rejects(auth.login({ email: 'ghost@x.com', password: 'whatever1' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
+});
+
 test('verifyAccess accepts a freshly issued access token', async () => {
   const { auth } = makeService();
   const res = await auth.register(valid);

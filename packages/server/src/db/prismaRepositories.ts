@@ -967,12 +967,14 @@ export class PrismaTournaments implements TournamentRepository {
     return {
       id: row.id, name: row.name, buyInCents: row.buyInCents, capacity: row.capacity,
       status: row.status, playerIds: (row.playerIds as string[]) ?? [], bracket: (row.bracket as BracketMatch[]) ?? [],
-      prizePoolCents: row.prizePoolCents, rakeBps: row.rakeBps, winnerId: row.winnerId ?? null, createdAt: ms(row.createdAt),
+      prizePoolCents: row.prizePoolCents, rakeBps: row.rakeBps, winnerId: row.winnerId ?? null,
+      pendingWinnerId: row.pendingWinnerId ?? null, reportedByAdminId: row.reportedByAdminId ?? null,
+      createdAt: ms(row.createdAt),
     };
   }
   async create(t: Tournament): Promise<void> {
     await this.db.tournament.create({
-      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId },
+      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId },
     });
   }
   async get(id: string): Promise<Tournament | null> {
@@ -986,7 +988,7 @@ export class PrismaTournaments implements TournamentRepository {
   async save(t: Tournament): Promise<void> {
     await this.db.tournament.update({
       where: { id: t.id },
-      data: { status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, winnerId: t.winnerId },
+      data: { status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId },
     });
   }
 }

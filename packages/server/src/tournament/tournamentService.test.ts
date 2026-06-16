@@ -24,11 +24,11 @@ class FakeWallet implements TournamentWallet {
   }
 }
 
-function svc(rakeBps = 1000) {
+function svc(rakeBps = 1000, dualControl = false) {
   const repo = new InMemoryTournamentRepository();
   const wallet = new FakeWallet();
   let n = 0;
-  const s = new TournamentService(repo, wallet, rakeBps, () => 1_000, () => `trn_${(n += 1)}`);
+  const s = new TournamentService(repo, wallet, rakeBps, () => 1_000, () => `trn_${(n += 1)}`, undefined, dualControl);
   return { s, wallet, repo };
 }
 
@@ -124,6 +124,82 @@ test('cancel force-voids a RUNNING tournament and refunds all buy-ins (no champi
   await s.register(t2.id, 'y');
   await s.reportResult(t2.id, 0, 0, 'x'); // finishes
   await assert.rejects(s.cancel(t2.id), (e: unknown) => e instanceof TournamentError && e.code === 'not_cancellable');
+});
+
+// ---- dual-control / four-eyes on the champion payout ----------------------
+test('dual-control: a PAID final PARKS for a second admin; same-admin confirm rejected, a different admin pays out', async () => {
+  const { s, wallet } = svc(1000, true);
+  const t = await s.create('Cup', 1000, 2); // $10 buy-in
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b'); // fills → running
+  // Report the final as admin_A → parks (no money moves yet).
+  const parked = await s.reportResult(t.id, 0, 0, 'a', 'admin_A');
+  assert.equal(parked.status, 'awaiting_confirmation');
+  assert.equal(parked.pendingWinnerId, 'a');
+  assert.deepEqual(wallet.credits, []);
+  assert.deepEqual(wallet.rake, []);
+  // The SAME admin cannot confirm their own report (four-eyes).
+  await assert.rejects(s.confirmChampion(t.id, 'admin_A'), (e: unknown) => e instanceof TournamentError && e.code === 'same_admin');
+  // A DIFFERENT admin confirms → champion paid (pool $20, 10% rake = $2, prize $18).
+  const done = await s.confirmChampion(t.id, 'admin_B');
+  assert.equal(done.status, 'finished');
+  assert.equal(done.winnerId, 'a');
+  assert.equal(done.pendingWinnerId, null);
+  assert.deepEqual(wallet.rake, [200]);
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1800 }]);
+});
+
+test('dual-control: a FREE final finishes immediately (no money → no second admin needed)', async () => {
+  const { s, wallet } = svc(1000, true);
+  const t = await s.create('Cup', 0, 2);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b');
+  const done = await s.reportResult(t.id, 0, 0, 'a', 'admin_A');
+  assert.equal(done.status, 'finished');
+  assert.equal(done.winnerId, 'a');
+  assert.deepEqual(wallet.credits, []); // free → prize 0
+});
+
+test('dual-control: confirmChampion on a non-parked tournament errors not_awaiting', async () => {
+  const { s } = svc(1000, true);
+  const t = await s.create('Cup', 1000, 2);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b'); // running, not awaiting
+  await assert.rejects(s.confirmChampion(t.id, 'admin_B'), (e: unknown) => e instanceof TournamentError && e.code === 'not_awaiting');
+});
+
+test('dual-control: a parked tournament can be cancelled → all buy-ins refunded, no champion paid', async () => {
+  const { s, wallet } = svc(1000, true);
+  const t = await s.create('Cup', 1500, 2);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b');
+  await s.reportResult(t.id, 0, 0, 'a', 'admin_A'); // parked
+  const cancelled = await s.cancel(t.id);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.prizePoolCents, 0);
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1500 }, { userId: 'b', cents: 1500 }]);
+});
+
+test('dual-control: sweepStale voids + refunds a parked-but-unconfirmed tournament past the TTL', async () => {
+  const { s, wallet } = svc(1000, true);
+  const t = await s.create('Cup', 1200, 2);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b');
+  await s.reportResult(t.id, 0, 0, 'a', 'admin_A'); // awaiting_confirmation
+  const voided = await s.sweepStale(0); // createdAt(1000) ≤ cutoff(1000) → swept
+  assert.deepEqual(voided, [t.id]);
+  assert.equal((await s.get(t.id))!.status, 'cancelled');
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1200 }, { userId: 'b', cents: 1200 }]);
+});
+
+test('default (no dual-control): a PAID final still pays the champion immediately', async () => {
+  const { s, wallet } = svc(1000); // dualControl off
+  const t = await s.create('Cup', 1000, 2);
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b');
+  const done = await s.reportResult(t.id, 0, 0, 'a', 'admin_A'); // adminId ignored when off
+  assert.equal(done.status, 'finished');
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1800 }]);
 });
 
 test('SCH-3: with a UnitOfWork, register escrows + persists atomically and finish pays the champion via the tx-bound repo', async () => {

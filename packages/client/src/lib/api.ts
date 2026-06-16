@@ -455,8 +455,9 @@ export const adminApi = {
 export interface BracketMatchDTO { round: number; index: number; aUserId: string | null; bUserId: string | null; winnerId: string | null }
 export interface TournamentDTO {
   id: string; name: string; buyInCents: number; capacity: number;
-  status: 'registering' | 'running' | 'finished' | 'cancelled';
-  playerIds: string[]; bracket: BracketMatchDTO[]; prizePoolCents: number; winnerId: string | null; createdAt: number;
+  status: 'registering' | 'running' | 'awaiting_confirmation' | 'finished' | 'cancelled';
+  playerIds: string[]; bracket: BracketMatchDTO[]; prizePoolCents: number; winnerId: string | null;
+  pendingWinnerId?: string | null; createdAt: number;
 }
 export const tournamentsApi = {
   list: (token: string) => request<{ tournaments: TournamentDTO[] }>('/tournaments', { token }),
@@ -466,6 +467,9 @@ export const tournamentsApi = {
     request<{ tournament: TournamentDTO }>('/tournaments', { method: 'POST', token, body: { name, buyInCents, capacity } }),
   report: (token: string, id: string, round: number, index: number, winnerId: string) =>
     request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}/report`, { method: 'POST', token, body: { round, index, winnerId } }),
+  // Dual-control: a SECOND, distinct admin confirms a parked champion → pays out.
+  confirm: (token: string, id: string) =>
+    request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}/confirm`, { method: 'POST', token }),
   cancel: (token: string, id: string) => request<{ tournament: TournamentDTO }>(`/tournaments/${encodeURIComponent(id)}/cancel`, { method: 'POST', token }),
 };
 

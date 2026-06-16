@@ -32,6 +32,8 @@ export interface AuthServiceDeps {
   verificationTokens?: VerificationTokenRepository;
   appUrl?: string; // base URL used to build email links
   now?: () => number;
+  // Per-identifier (email) failed-login throttle. Defaults to 5 failures / 10 min.
+  loginThrottle?: { maxFailures: number; windowMs: number };
 }
 
 export class AuthError extends Error {
@@ -98,6 +100,7 @@ export class AuthService {
     this.appUrl = deps.appUrl ?? 'http://localhost:5173';
     this.now = deps.now ?? (() => Date.now());
     this.accountState = new AccountStateService(this.now);
+    this.loginThrottle = deps.loginThrottle ?? { maxFailures: 5, windowMs: 10 * 60 * 1000 };
   }
 
   private readonly email: EmailProvider;
@@ -105,6 +108,39 @@ export class AuthService {
   private readonly appUrl: string;
   private readonly now: () => number;
   private readonly accountState: AccountStateService;
+  private readonly loginThrottle: { maxFailures: number; windowMs: number };
+
+  // Per-identifier (email) FAILED-login throttle (MONEY-7/WEB-2). Counts only failures
+  // in a fixed window; a correct password clears it, so a legit user is never locked by
+  // their own logins. Keyed by the submitted email — this defeats the proxy-IP rotation
+  // that bypasses the per-IP HTTP rate-limit (one account can't be hammered no matter how
+  // many IPs an attacker uses). Single-instance (in-memory), like the wallet/tournament
+  // locks; multi-instance would back this with Redis (documented follow-up).
+  private readonly loginFailures = new Map<string, { count: number; windowStart: number }>();
+
+  /** True if this identifier has hit the failure cap within the current window. */
+  private loginThrottled(idKey: string): boolean {
+    const rec = this.loginFailures.get(idKey);
+    if (!rec) return false;
+    if (this.now() - rec.windowStart >= this.loginThrottle.windowMs) { this.loginFailures.delete(idKey); return false; }
+    return rec.count >= this.loginThrottle.maxFailures;
+  }
+
+  /** Record one failed attempt for an identifier (starts/continues its window). */
+  private recordLoginFailure(idKey: string): void {
+    const now = this.now();
+    const rec = this.loginFailures.get(idKey);
+    if (!rec || now - rec.windowStart >= this.loginThrottle.windowMs) {
+      this.loginFailures.set(idKey, { count: 1, windowStart: now });
+    } else {
+      rec.count += 1;
+    }
+    // Opportunistic prune so a spray across many distinct identifiers can't grow the map
+    // without bound — drop every entry whose window has already elapsed.
+    if (this.loginFailures.size > 5000) {
+      for (const [k, v] of this.loginFailures) if (now - v.windowStart >= this.loginThrottle.windowMs) this.loginFailures.delete(k);
+    }
+  }
 
   /** The lifecycle status carried on a user, for the account-state gate. */
   private statusOf(user: User): AccountStatus {
@@ -161,13 +197,23 @@ export class AuthService {
     }
     const { email, password } = parsed.data;
 
+    // Throttle BEFORE the lookup so behavior is identical whether or not the email
+    // exists (no account enumeration) and a locked identifier costs no password hash.
+    if (this.loginThrottled(email)) {
+      throw new AuthError('rate_limited', 'Shumë përpjekje hyrjeje. Prit pak para se të provosh sërish.');
+    }
+
     const user = await this.users.findByEmail(email);
     // Always run the password check shape; use a generic message to avoid
     // revealing whether the email exists.
     const okPassword = user ? await verifyPassword(user.passwordHash, password) : false;
     if (!user || !okPassword) {
+      this.recordLoginFailure(email); // count this miss toward the per-identifier cap
       throw new AuthError('bad_credentials', 'Email ose fjalëkalim i gabuar.');
     }
+    // Correct credentials → clear the failure window (a real user is never locked out
+    // by their own successful login).
+    this.loginFailures.delete(email);
     // Trust & safety: a banned / actively-suspended account cannot sign in.
     const gate = this.accountState.checkLogin(this.statusOf(user));
     if (!gate.allowed) throw new AuthError(gate.code!, gate.message!);

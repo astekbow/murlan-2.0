@@ -551,12 +551,17 @@ model Tournament {
   name           String
   buyInCents     Int
   capacity       Int
-  status         String   @default("registering") // registering|running|finished|cancelled
+  status         String   @default("registering") // registering|running|awaiting_confirmation|finished|cancelled
   playerIds      Json     @default("[]")
   bracket        Json     @default("[]")
   prizePoolCents Int      @default(0)
   rakeBps        Int
   winnerId       String?
+  // Dual-control (four-eyes) for the champion payout: the final was reported but is
+  // awaiting a SECOND, distinct admin's confirmation before money moves. Both null when
+  // not pending. Config-gated (off by default → single-admin/solo operation unaffected).
+  pendingWinnerId   String?
+  reportedByAdminId String?
   createdAt      DateTime @default(now())
 
   @@index([status, createdAt])

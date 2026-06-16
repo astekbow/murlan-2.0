@@ -100,11 +100,32 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
       return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
     }
     try {
-      const t = await tournaments.reportResult(id, b.round, b.index, b.winnerId);
+      const t = await tournaments.reportResult(id, b.round, b.index, b.winnerId, adminCaller.userId);
       const paidPrize = t.status === 'finished' ? t.prizePoolCents - Math.floor((t.prizePoolCents * t.rakeBps) / 10000) : null;
+      const tail = t.status === 'finished' ? ' CHAMPION' : t.status === 'awaiting_confirmation' ? ' AWAITING-CONFIRM' : '';
       await deps.audit?.record({
         adminId: adminCaller.userId, action: 'tournament_report', targetUserId: b.winnerId,
-        amountCents: paidPrize, detail: `${id} r${b.round}#${b.index} winner=${b.winnerId}${t.status === 'finished' ? ' CHAMPION' : ''}`,
+        amountCents: paidPrize, detail: `${id} r${b.round}#${b.index} winner=${b.winnerId}${tail}`,
+      }).catch(() => undefined);
+      return reply.send({ tournament: t });
+    } catch (e) {
+      return fail(reply, e);
+    }
+  });
+
+  // Dual-control: a SECOND, distinct admin confirms a parked champion → triggers the
+  // payout. Only meaningful when dual-control is enabled (TOURNAMENT_DUAL_CONTROL); with
+  // it off, a final never enters 'awaiting_confirmation' so this returns not_awaiting.
+  app.post('/api/tournaments/:id/confirm', async (req, reply) => {
+    const adminCaller = await admin(req, reply);
+    if (!adminCaller) return;
+    const id = (req.params as { id: string }).id;
+    try {
+      const t = await tournaments.confirmChampion(id, adminCaller.userId);
+      const paidPrize = t.status === 'finished' ? t.prizePoolCents - Math.floor((t.prizePoolCents * t.rakeBps) / 10000) : null;
+      await deps.audit?.record({
+        adminId: adminCaller.userId, action: 'tournament_confirm', targetUserId: t.winnerId,
+        amountCents: paidPrize, detail: `${id} confirmed champion=${t.winnerId} CHAMPION`,
       }).catch(() => undefined);
       return reply.send({ tournament: t });
     } catch (e) {

@@ -221,7 +221,10 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   await authRoutes(app, {
     auth: deps.auth,
     isProd: deps.config.isProd,
-    authRateLimit: { max: 10, timeWindow: '1 minute' },
+    // Per-IP. register/verify/forgot/reset: 10 / 5 min. login: tighter 8 / 5 min — and
+    // the per-EMAIL throttle in AuthService stops IP-rotation brute-force (MONEY-7/WEB-2).
+    authRateLimit: { max: 10, timeWindow: '5 minutes' },
+    loginRateLimit: { max: 8, timeWindow: '5 minutes' },
   });
   await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push });
 
@@ -566,7 +569,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     },
   };
   // Pass the uow so register/finish can make escrow+payout atomic with the row write (SCH-3).
-  const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps, undefined, undefined, uow);
+  // dualControl: four-eyes on the champion payout (off by default — solo operation).
+  const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps, undefined, undefined, uow, config.tournamentDualControl);
   // Club chat + moderation. Membership-gated + mute-aware + abuse reports.
   // Foundation ships ON; review moderation POLICY before broad public promotion.
   const chat = new ChatService(chatRepo, clubs);

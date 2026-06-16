@@ -15,8 +15,10 @@ export const REFRESH_COOKIE = 'mrl_refresh';
 export interface AuthRoutesDeps {
   auth: AuthService;
   isProd: boolean;
-  /** stricter rate-limit config applied to register/login, if rate-limit is registered */
+  /** per-IP rate-limit applied to register / verify / forgot / reset, if rate-limit is registered */
   authRateLimit?: { max: number; timeWindow: string };
+  /** stricter per-IP rate-limit for login specifically (brute-force target); falls back to authRateLimit */
+  loginRateLimit?: { max: number; timeWindow: string };
 }
 
 function setRefreshCookie(reply: FastifyReply, token: string, isProd: boolean): void {
@@ -34,6 +36,7 @@ function handleAuthError(reply: FastifyReply, e: unknown): void {
     const status = e.code === 'validation' ? 400
       : e.code === 'unauthorized' || e.code === 'bad_refresh' ? 401
       : e.code === 'bad_credentials' ? 401
+      : e.code === 'rate_limited' ? 429
       : e.code === 'email_taken' || e.code === 'username_taken' ? 409
       : 400;
     reply.code(status).send({ error: { code: e.code, message: e.message } });
@@ -79,6 +82,9 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
   const { auth, isProd } = deps;
   const guard = requireAuth(auth);
   const rl = deps.authRateLimit ? { config: { rateLimit: deps.authRateLimit } } : {};
+  // Login gets its own (tighter) per-IP bucket; the per-EMAIL throttle in AuthService
+  // is the IP-rotation-proof layer on top.
+  const loginRl = (deps.loginRateLimit ?? deps.authRateLimit) ? { config: { rateLimit: deps.loginRateLimit ?? deps.authRateLimit } } : {};
 
   app.post('/api/auth/register', rl, async (req, reply) => {
     try {
@@ -90,7 +96,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
     }
   });
 
-  app.post('/api/auth/login', rl, async (req, reply) => {
+  app.post('/api/auth/login', loginRl, async (req, reply) => {
     try {
       const { user, tokens } = await auth.login(req.body);
       setRefreshCookie(reply, tokens.refreshToken, isProd);
