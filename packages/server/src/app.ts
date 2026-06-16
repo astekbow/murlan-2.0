@@ -634,6 +634,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const gateway = new GameGateway(io, rooms, auth, {
     turnMs: config.turnMs,
     countdownMs: config.countdownMs,
+    handPauseMs: config.handPauseMs, // ~7s inter-hand standings pause (prod); tests default 0
     money,
     rakeBps: config.rakeBps,
     abandonMs: config.abandonMs,

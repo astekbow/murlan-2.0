@@ -26,6 +26,14 @@ export interface SwitchPrompt {
   loser: number;
 }
 
+/** Inter-hand standings: shown after a hand ends (the final board stays frozen behind
+ *  it) until the next hand deals. `finishingOrder[0]` is the hand winner. */
+export interface HandStandings {
+  finishingOrder: number[];
+  scoreboard: ScoreboardDTO;
+  gameIndex: number;
+}
+
 /** A transient emote/chat bubble shown above a seat (auto-expires). */
 export interface Bubble {
   id: number;
@@ -76,6 +84,13 @@ interface GameStore {
   myHand: Card[];
   selected: string[];
   scoreboard: ScoreboardDTO | null;
+  /** Set when a hand ends → drives the inter-hand standings overlay; cleared when the
+   *  next hand deals (game:start) or the match ends. */
+  handStandings: HandStandings | null;
+  /** Seats that have tapped "Continue" on the standings screen + how many humans we wait
+   *  on (for the "X/N ready" indicator). */
+  handReady: number[];
+  handHumans: number;
   switchPrompt: SwitchPrompt | null;
   /** A card switch is in progress (between games) — true on every client until
    *  the next game starts, so non-winners show "opponent is choosing" instead of
@@ -116,6 +131,8 @@ interface GameStore {
   play: () => Promise<void>;
   pass: () => Promise<void>;
   giveSwitch: (card: Card) => Promise<void>;
+  /** Tap "Continue" on the inter-hand standings screen (advances early once all do). */
+  continueHand: () => void;
   dismissToast: () => void;
   dismissResult: () => void;
   sendEmote: (emote: string) => void;
@@ -146,6 +163,9 @@ const emptyRoomState = {
   myHand: [] as Card[],
   selected: [] as string[],
   scoreboard: null,
+  handStandings: null,
+  handReady: [] as number[],
+  handHumans: 0,
   switchPrompt: null,
   switchPending: false,
   noSwapNotice: false,
@@ -213,6 +233,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         selected: [],
         switchPrompt: null,
         switchPending: false,
+        handStandings: null, // the next hand dealt → drop the standings overlay
+        handReady: [],
+        handHumans: 0,
         log: appendLog(s.log, tg('log.gameStarted', { n: dto.gameIndex + 1 })),
       }));
     });
@@ -229,9 +252,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set((s) => ({ log: appendLog(s.log, tg('log.playerFinished', { seat: dto.seat + 1, place: dto.place })) })),
     );
     socket.on('game:end', (dto) =>
-      // Clear the public game so the felt resets and the shuffle splash shows
-      // again before the next game's deal.
-      set((s) => ({ game: null, scoreboard: dto.scoreboard, log: appendLog(s.log, tg('log.gameEnded')) })),
+      // KEEP the public game so the final board (the winning play) stays VISIBLE during
+      // the inter-hand pause — instead of instantly clearing to the shuffle splash. The
+      // standings overlay renders on top until the next hand deals (game:start). match:end
+      // (final hand) clears it right after, so the match-end overlay shows instead.
+      set((s) => ({
+        scoreboard: dto.scoreboard,
+        handStandings: { finishingOrder: dto.finishingOrder, scoreboard: dto.scoreboard, gameIndex: dto.gameIndex },
+        handReady: [],
+        handHumans: 0,
+        log: appendLog(s.log, tg('log.gameEnded')),
+      })),
     );
 
     socket.on('card:switch', (dto) => {
@@ -279,6 +310,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set((s) => ({ fairReveal: dto, log: appendLog(s.log, tg('log.fairReveal')) })),
     );
 
+    // Inter-hand pause progress: who has tapped Continue + how many humans we wait on.
+    socket.on('hand:continueState', (dto) => set({ handReady: dto.ready, handHumans: dto.humans }));
+
     socket.on('match:scoreboard', (sb) => set({ scoreboard: sb }));
 
     socket.on('match:end', (dto) => {
@@ -288,6 +322,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         matchResult: dto,
         scoreboard: dto.scoreboard,
         game: null, // stop the turn timer & clear the board behind the result overlay
+        handStandings: null, // the match-end overlay supersedes the inter-hand standings
+        handReady: [],
         switchPrompt: null,
         switchPending: false,
         noSwapNotice: false,
@@ -480,6 +516,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     } else {
       set({ toast: ackText(res.error, 'err.cardSwitchFailed'), toastKind: 'error' });
     }
+  },
+
+  continueHand() {
+    const { socket, mySeat, handReady } = get();
+    if (!socket) return;
+    socket.emit('game:continue'); // fire-and-forget; the server echoes hand:continueState
+    // Optimistic: mark my own seat ready immediately so the button flips to "waiting…"
+    // without a round-trip (the server echo reconciles).
+    if (mySeat != null && !handReady.includes(mySeat)) set({ handReady: [...handReady, mySeat] });
   },
 
   dismissToast() {

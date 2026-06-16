@@ -31,7 +31,7 @@ interface Harness {
   close: () => Promise<void>;
 }
 
-async function harness(opts: { startTarget: number; scripts: Card[][][]; turnMs?: number }): Promise<Harness> {
+async function harness(opts: { startTarget: number; scripts: Card[][][]; turnMs?: number; handPauseMs?: number }): Promise<Harness> {
   const httpServer: HttpServer = createServer();
   const io = new Server(httpServer);
   const repo = new InMemoryUserRepository();
@@ -42,7 +42,7 @@ async function harness(opts: { startTarget: number; scripts: Card[][][]; turnMs?
     dealerFactory: scripted(opts.scripts),
     idFactory: (() => { let n = 0; return () => `room_${(n += 1)}`; })(),
   });
-  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: opts.turnMs ?? 5_000, provablyFair: false });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: opts.turnMs ?? 5_000, provablyFair: false, handPauseMs: opts.handPauseMs ?? 0 });
 
   await new Promise<void>((res) => httpServer.listen(0, res));
   const port = (httpServer.address() as AddressInfo).port;
@@ -287,6 +287,94 @@ test('reconnection pushes a fresh private hand to the reconnecting socket only',
     const resumed = await once(c2, 'game:start'); // fresh full state to this socket only
     assert.equal(resumed.yourSeat, 1);
     assert.deepEqual(ranksOf(resumed.hand), ['4', '6']); // seat 1's own cards, intact
+  } finally {
+    c1.close();
+    c2.close();
+    await h.close();
+  }
+});
+
+const J = (color: 'red' | 'black'): Card => ({ kind: 'joker', color });
+
+test('inter-hand pause: the next hand WAITS on the standings screen, then deals when all players tap Continue', async () => {
+  // 2 hands to a target of 2. Hand 1: seat0 plays 3♠ and wins. Hand 2's deal gives the
+  // LOSER (seat1) BOTH jokers → noSwap (skips the card-switch step), so the next deal
+  // goes straight through the inter-hand pause gate. handPauseMs is large so the deal can
+  // ONLY come from the Continue gate (not the timer) within the test window.
+  const h = await harness({
+    startTarget: 2,
+    handPauseMs: 5_000,
+    scripts: [
+      [[c('3', 'S')], [c('4', 'S')]],            // hand 1
+      [[c('3', 'S')], [J('red'), J('black')]],   // hand 2 deal: loser (seat1) holds both jokers → noSwap
+    ],
+  });
+  const c1 = connect(h.port, h.tokens.t1);
+  const c2 = connect(h.port, h.tokens.t2);
+  try {
+    await Promise.all([once(c1, 'connect'), once(c2, 'connect')]);
+    await emitAck(c1, 'room:create', { type: '1v1', stakeCents: 0 });
+    await emitAck(c2, 'room:join', { roomId: 'room_1' });
+    const s1 = once(c1, 'game:start');
+    const s2 = once(c2, 'game:start');
+    await emitAck(c1, 'room:ready', true);
+    await emitAck(c2, 'room:ready', true);
+    await Promise.all([s1, s2]); // hand 1 dealt (gameIndex 0)
+
+    const end1 = once(c1, 'game:end');
+    const contState = once(c2, 'hand:continueState');
+    let dealtEarly = false;
+    c1.once('game:start', () => { dealtEarly = true; });
+
+    await emitAck(c1, 'game:play', { cards: [c('3', 'S')] }); // seat0 empties → hand 1 ends
+    assert.equal((await end1).gameIndex, 0);
+    const cs = await contState;
+    assert.equal(cs.humans, 2);
+    assert.deepEqual(cs.ready, []); // nobody has tapped Continue yet
+
+    await new Promise((r) => setTimeout(r, 150)); // the 5s timer is nowhere near
+    assert.equal(dealtEarly, false, 'hand 2 must NOT deal before players continue');
+
+    // Both tap Continue → the gate releases EARLY (well before the 5s timer).
+    const start2a = once(c1, 'game:start', 1_500);
+    const start2b = once(c2, 'game:start', 1_500);
+    c1.emit('game:continue');
+    c2.emit('game:continue');
+    const [g2a] = await Promise.all([start2a, start2b]);
+    assert.equal(g2a.gameIndex, 1); // hand 2 dealt after both continued
+  } finally {
+    c1.close();
+    c2.close();
+    await h.close();
+  }
+});
+
+test('inter-hand pause: auto-advances after the timer even if nobody taps Continue (never stuck)', async () => {
+  // Same 2-hand setup, but a SHORT pause and NO Continue taps → the next hand must still
+  // deal on the timer (a missing/AFK player can never freeze the table).
+  const h = await harness({
+    startTarget: 2,
+    handPauseMs: 80,
+    scripts: [
+      [[c('3', 'S')], [c('4', 'S')]],
+      [[c('3', 'S')], [J('red'), J('black')]],
+    ],
+  });
+  const c1 = connect(h.port, h.tokens.t1);
+  const c2 = connect(h.port, h.tokens.t2);
+  try {
+    await Promise.all([once(c1, 'connect'), once(c2, 'connect')]);
+    await emitAck(c1, 'room:create', { type: '1v1', stakeCents: 0 });
+    await emitAck(c2, 'room:join', { roomId: 'room_1' });
+    const s1 = once(c1, 'game:start');
+    const s2 = once(c2, 'game:start');
+    await emitAck(c1, 'room:ready', true);
+    await emitAck(c2, 'room:ready', true);
+    await Promise.all([s1, s2]);
+
+    const start2 = once(c1, 'game:start', 1_500); // hand 2 should arrive on the ~80ms timer
+    await emitAck(c1, 'game:play', { cards: [c('3', 'S')] });
+    assert.equal((await start2).gameIndex, 1); // dealt without any Continue
   } finally {
     c1.close();
     c2.close();

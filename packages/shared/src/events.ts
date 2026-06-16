@@ -63,6 +63,10 @@ export interface ClientToServerEvents {
   'game:play': (payload: GamePlayPayload, ack: (res: Ack) => void) => void;
   'game:pass': (ack: (res: Ack) => void) => void;
   'game:switchGive': (payload: SwitchGivePayload, ack: (res: Ack) => void) => void;
+  // Inter-hand pause: a player taps "Continue" on the standings screen. When ALL
+  // connected human players have done so the next hand deals early (else it auto-
+  // deals after a short pause). Fire-and-forget (idempotent server-side).
+  'game:continue': () => void;
   // Ranked matchmaking: join/leave a skill-matched queue for a match type.
   'ranked:queue:join': (payload: { matchType: MatchType }, ack: (res: Ack) => void) => void;
   'ranked:queue:leave': (ack: (res: Ack) => void) => void;
@@ -100,6 +104,9 @@ export interface ServerToClientEvents {
   // The previous loser was dealt BOTH jokers → the card switch is skipped and the
   // winner leads. Clients show a "no swap" banner.
   'match:noSwap': (dto: { winner: Seat; loser: Seat }) => void;
+  // Inter-hand pause progress: which seats have tapped Continue + how many humans
+  // we're waiting on (for the "3/4 ready" indicator on the standings screen).
+  'hand:continueState': (dto: { ready: Seat[]; humans: number }) => void;
   'match:scoreboard': (dto: ScoreboardDTO) => void;
   'match:end': (dto: MatchEndDTO) => void;
   'ranked:queue:update': (dto: RankedQueueDTO) => void; // matchmaking status while waiting

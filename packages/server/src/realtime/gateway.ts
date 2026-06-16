@@ -54,6 +54,7 @@ type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEv
 export interface GatewayOptions {
   turnMs?: number;       // per-turn timer; default 30s
   countdownMs?: number;  // ready-check countdown before a match starts; default 3s
+  handPauseMs?: number;  // inter-hand standings pause before the next hand deals; default 0 (off — prod wires it via config); 0 = immediate
   money?: MoneyService;  // when present, stakes are escrowed/settled (Phase 6)
   rakeBps?: number;      // house rake in basis points; default 1000 (10%)
   abandonMs?: number;    // reconnection grace before a disconnect forfeits; default 30s
@@ -106,6 +107,7 @@ export type AdminVoidResult =
 export class GameGateway {
   private readonly turnMs: number;
   private readonly countdownMs: number;
+  private readonly handPauseMs: number;
   private readonly money: MoneyService | null;
   private readonly rakeBps: number;
   private readonly abandonMs: number;
@@ -136,6 +138,10 @@ export class GameGateway {
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
   private botTiers = new Map<string, BotTier>(); // practice roomId -> bot difficulty
   private botTimers = new Map<string, ReturnType<typeof setTimeout>>(); // practice roomId -> pending bot-move timer
+  // Inter-hand pause gate: between hands the next deal is held briefly so players can
+  // see the final play + the standings; it releases EARLY once every connected human
+  // has tapped Continue, else on the timer. roomId -> { timer, who's-ready, release }.
+  private interHandGates = new Map<string, { timer: ReturnType<typeof setTimeout>; ready: Set<number>; release: () => void }>();
   private ghostFillTimers = new Map<string, ReturnType<typeof setTimeout>>(); // free roomId -> pending auto-fill timer
   private readonly ghostFillMs: number;
   private seenCards = new Map<string, Card[]>(); // practice roomId -> cards played this game (bot card-counting)
@@ -154,6 +160,7 @@ export class GameGateway {
   ) {
     this.turnMs = opts.turnMs ?? 30_000;
     this.countdownMs = opts.countdownMs ?? 3_000;
+    this.handPauseMs = opts.handPauseMs ?? 0; // off unless wired (prod sets it via config); keeps tests deterministic
     this.money = opts.money ?? null;
     this.rakeBps = opts.rakeBps ?? 1_000;
     this.abandonMs = opts.abandonMs ?? 30_000;
@@ -251,6 +258,7 @@ export class GameGateway {
     socket.on('game:play', (payload, ack) => this.onPlay(socket, payload, ack));
     socket.on('game:pass', (ack) => this.onPass(socket, ack));
     socket.on('game:switchGive', (payload, ack) => this.onSwitchGive(socket, payload, ack));
+    socket.on('game:continue', () => this.onHandContinue(socket));
     socket.on('ranked:queue:join', (payload, ack) => void this.onRankedQueueJoin(socket, payload, ack));
     socket.on('ranked:queue:leave', (ack) => this.onRankedQueueLeave(socket, ack));
     socket.on('room:spectate', (payload, ack) => this.onSpectate(socket, payload, ack));
@@ -612,8 +620,13 @@ export class GameGateway {
     if (roomState) socket.emit('room:state', roomState);
     const room = this.rooms.getRoom(roomId);
     if (room?.status === 'inMatch') {
-      const pub = this.rooms.publicGameDTO(roomId, this.deadlineFor(roomId));
-      if (pub) socket.emit('game:state', pub);
+      // During the inter-hand pause the next hand is dealt server-side but HELD — don't
+      // leak it to a joining spectator (the players are still on the standings screen).
+      // Skip the live game state this cycle; the next game:state broadcasts when it deals.
+      if (!this.interHandGates.has(roomId)) {
+        const pub = this.rooms.publicGameDTO(roomId, this.deadlineFor(roomId));
+        if (pub) socket.emit('game:state', pub);
+      }
       const sb = this.rooms.scoreboardDTO(roomId);
       if (sb) socket.emit('match:scoreboard', sb);
     }
@@ -1149,6 +1162,7 @@ export class GameGateway {
       else if (ev.kind === 'playerFinished') this.io.to(roomId).emit('game:playerFinished', { seat: ev.seat, place: ev.place });
     }
 
+    let gatedNextHand = false; // a hand just ended → the next deal is paused (see gameStarted)
     for (const ev of res.matchEvents) {
       switch (ev.kind) {
         case 'gameScored': {
@@ -1193,7 +1207,10 @@ export class GameGateway {
           this.io.to(roomId).emit('match:noSwap', { winner: ev.winner, loser: ev.loser });
           break;
         case 'gameStarted':
-          this.startNewGameBroadcast(roomId);
+          // NOT the first hand → pause on the standings screen before dealing the next
+          // hand (so the final play is visible). scheduleNextHand gates; the deal fires
+          // early once everyone taps Continue, else after handPauseMs.
+          if (this.scheduleNextHand(roomId)) gatedNextHand = true;
           break;
         case 'matchEnded':
           // Settle the pot (pay winners, book rake), then emit the result.
@@ -1202,15 +1219,21 @@ export class GameGateway {
       }
     }
 
-    // Refresh public state and (re)arm the turn timer, unless the match ended.
+    // Refresh public state and (re)arm the turn timer, unless the match ended — or the
+    // next hand is paused on the standings screen (gatedNextHand): in that window there's
+    // no active turn yet, and the next hand's state must NOT be revealed until it deals,
+    // so skip both here (startNewGameBroadcast does them when the pause releases).
     const room = this.rooms.getRoom(roomId);
     if (room && room.status === 'inMatch') {
-      this.broadcastPublicState(roomId);
-      this.armTurnTimer(roomId);
+      if (!gatedNextHand) {
+        this.broadcastPublicState(roomId);
+        this.armTurnTimer(roomId);
+      }
     } else {
       // Match ended normally: stop the turn timer and any pending forfeit timers
       // (a player who disconnected mid-match no longer abandons a finished match).
       this.clearTurnTimer(roomId);
+      this.clearInterHandTimer(roomId); // cancel any pending inter-hand pause
       this.clearRoomAbandonTimers(roomId);
       this.clearBotTimer(roomId); // no stray bot move after the match ends
       this.broadcastLobby();
@@ -1242,6 +1265,82 @@ export class GameGateway {
       });
     }
     this.broadcastPublicState(roomId);
+  }
+
+  // ---------- Inter-hand pause (standings screen) ----------------------------
+
+  /** Between hands, hold the next deal briefly on the standings screen so players see
+   *  the final play + the running scores. Returns true if a pause was armed (the caller
+   *  then SKIPS arming the turn timer / revealing the next hand), false if it dealt
+   *  immediately (the first hand, or handPauseMs=0). Releases EARLY once every connected
+   *  human has tapped Continue; otherwise the timer deals after handPauseMs. */
+  private scheduleNextHand(roomId: string): boolean {
+    const room = this.rooms.getRoom(roomId);
+    if (!room || !room.match) { this.startNewGameBroadcast(roomId); return false; }
+    // gameIndex 0 = the first hand (dealt by beginMatch directly), so this only gates
+    // hands 2+. handPauseMs=0 disables the pause entirely.
+    const gameIndex = room.match.snapshot().gameIndex;
+    if (this.handPauseMs <= 0 || gameIndex <= 0) { this.startNewGameBroadcast(roomId); return false; }
+
+    this.clearInterHandTimer(roomId); // never stack two gates on one room
+    const release = () => {
+      // EXACTLY-ONCE: the timer and the all-continue path can both fire (e.g. the timer
+      // callback was already queued when the last Continue arrives) → without this guard
+      // startNewGameBroadcast would run twice and deal two hands. The gate's presence IS
+      // the guard: clearInterHandTimer deletes it, so a second release() no-ops here.
+      if (!this.interHandGates.has(roomId)) return;
+      this.clearInterHandTimer(roomId);
+      // The room may have ended/abandoned during the pause — only deal if still in-match.
+      const r = this.rooms.getRoom(roomId);
+      if (r && r.status === 'inMatch' && r.match) this.startNewGameBroadcast(roomId);
+    };
+    const timer = setTimeout(release, this.handPauseMs);
+    timer.unref?.();
+    this.interHandGates.set(roomId, { timer, ready: new Set(), release });
+    this.emitContinueState(roomId); // initial 0/N
+    return true;
+  }
+
+  /** A player tapped "Continue" on the standings screen. Deal early once EVERY connected
+   *  human has done so; otherwise record it + broadcast progress and let the timer run. */
+  private onHandContinue(socket: IOSocket): void {
+    if (!this.limiter.allow(socket.data.userId)) return;
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    const gate = this.interHandGates.get(roomId);
+    if (!gate) return; // no inter-hand pause active (already dealt / not between hands)
+    const seat = this.rooms.seatOf(roomId, socket.data.userId);
+    if (seat < 0) return;
+    if (gate.ready.has(seat)) return; // idempotent: a double-tap / re-emit changes nothing
+    gate.ready.add(seat);
+    this.emitContinueState(roomId);
+    if (this.allHumansReady(roomId, gate.ready)) gate.release();
+  }
+
+  /** True when every connected, non-bot seat has tapped Continue (or there are none). */
+  private allHumansReady(roomId: string, ready: Set<number>): boolean {
+    const room = this.rooms.getRoom(roomId);
+    if (!room) return true;
+    const humans = room.seats
+      .map((s, i) => ({ i, s }))
+      .filter(({ s }) => s.userId != null && !isBot(s.userId) && s.connected);
+    if (humans.length === 0) return true; // all bots / nobody connected → let it release
+    return humans.every(({ i }) => ready.has(i));
+  }
+
+  /** Push the "X/N ready" progress to the room's standings screens. */
+  private emitContinueState(roomId: string): void {
+    const gate = this.interHandGates.get(roomId);
+    const room = this.rooms.getRoom(roomId);
+    if (!gate || !room) return;
+    const humans = room.seats.filter((s) => s.userId != null && !isBot(s.userId) && s.connected).length;
+    this.io.to(roomId).emit('hand:continueState', { ready: [...gate.ready], humans });
+  }
+
+  /** Cancel any pending inter-hand pause (room ended / abandoned / torn down). */
+  private clearInterHandTimer(roomId: string): void {
+    const g = this.interHandGates.get(roomId);
+    if (g) { clearTimeout(g.timer); this.interHandGates.delete(roomId); }
   }
 
   private emitCardSwitch(roomId: string, dto: CardSwitchDTO): void {
@@ -1466,6 +1565,7 @@ export class GameGateway {
     const anyWinnerSeated = winners.some((s) => room.seats[s]?.userId != null);
 
     this.clearTurnTimer(roomId);
+    this.clearInterHandTimer(roomId); // an abandon during the standings pause ends the match
     this.clearRoomAbandonTimers(roomId);
     this.clearRoomStrikes(roomId);
 
@@ -1769,7 +1869,12 @@ export class GameGateway {
     const hand = seat >= 0 ? this.rooms.handOf(roomId, seat) : null;
     const pub = this.rooms.publicGameDTO(roomId, this.deadlineFor(roomId));
 
-    if (pub && hand) {
+    // During the inter-hand pause the next hand is already dealt server-side but HELD —
+    // a reconnecting player must NOT be sent it (others are still on the standings screen).
+    // Refresh their scoreboard instead; the real game:start reaches everyone when the gate
+    // releases (startNewGameBroadcast broadcasts to the whole room, incl. this socket).
+    const interHandPaused = this.interHandGates.has(roomId);
+    if (pub && hand && !interHandPaused) {
       socket.emit('game:start', {
         yourSeat: seat,
         hand: [...hand],
@@ -1777,6 +1882,9 @@ export class GameGateway {
         state: pub,
         gameIndex: snap.gameIndex,
       });
+    } else if (interHandPaused) {
+      const sb = this.rooms.scoreboardDTO(roomId);
+      if (sb) socket.emit('match:scoreboard', sb);
     } else if (snap.pendingSwitch && hand) {
       // Reconnecting between games during the card switch: re-deliver the private
       // hand, plus a card:switch so the client restores switch UI. The winner
@@ -1805,6 +1913,7 @@ export class GameGateway {
     if (result.roomClosed) {
       this.clearCountdown(roomId);
       this.clearTurnTimer(roomId);
+      this.clearInterHandTimer(roomId); // room gone — drop any pending inter-hand pause
       this.ownership?.release(roomId); // room gone — drop ownership claim
       this.spectatorCount.delete(roomId); // room gone — drop its spectator tally
     } else {

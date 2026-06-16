@@ -29,6 +29,7 @@ const schema = z.object({
   RAKE_BPS: z.coerce.number().int().min(0).max(10_000).default(1_000), // 10.00%
   TURN_MS: z.coerce.number().int().positive().default(30_000),
   COUNTDOWN_MS: z.coerce.number().int().nonnegative().default(3_000),
+  HAND_PAUSE_MS: z.coerce.number().int().min(0).max(60_000).default(7_000), // inter-hand standings pause; 0 = deal next hand immediately
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)
@@ -93,6 +94,7 @@ export interface AppConfig {
   depositPollMs: number; // auto-credit poller cadence for active depositors (0 = off)
   turnMs: number;
   countdownMs: number;
+  handPauseMs: number; // inter-hand standings pause (ms); 0 = immediate next deal
   abandonMs: number;
   paymentWebhookSecret: string;
   paymentWebhookIps: string[];
@@ -199,6 +201,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     depositPollMs: parsed.DEPOSIT_POLL_MS,
     turnMs: parsed.TURN_MS,
     countdownMs: parsed.COUNTDOWN_MS,
+    handPauseMs: parsed.HAND_PAUSE_MS,
     abandonMs: parsed.ABANDON_MS,
     paymentWebhookSecret: parsed.PAYMENT_WEBHOOK_SECRET ?? 'dev-webhook-secret-change-me',
     paymentWebhookIps: (parsed.PAYMENT_WEBHOOK_IPS ?? '')

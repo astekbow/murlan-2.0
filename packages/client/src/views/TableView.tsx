@@ -108,15 +108,15 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
     game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
-    fairReveal, bubbles,
-    toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch,
+    fairReveal, bubbles, handStandings, handReady, handHumans,
+    toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch, continueHand,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
       scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult,
-      fairReveal: s.fairReveal, bubbles: s.bubbles,
+      fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
-      giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch,
+      giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch, continueHand: s.continueHand,
     })),
   );
 
@@ -126,6 +126,16 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const [logOpen, setLogOpen] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const bubbleFor = (seat: number) => bubbles.filter((b) => b.seat === seat).slice(-1)[0];
+
+  // Inter-hand standings: hold ~1.1s after the hand ends so the FINAL play stays clearly
+  // visible on the (frozen) felt before the standings overlay fades in. Cleared when the
+  // next hand deals (handStandings → null via game:start).
+  const [showStandings, setShowStandings] = useState(false);
+  useEffect(() => {
+    if (!handStandings) { setShowStandings(false); return; }
+    const id = setTimeout(() => setShowStandings(true), 1100);
+    return () => clearTimeout(id);
+  }, [handStandings]);
 
   // Warn before a tab close / navigation while a live paid match is in progress —
   // the in-app forfeit confirm is otherwise bypassed by closing the tab, which
@@ -147,7 +157,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const numPlayers = PLAYERS_PER_TYPE[room.type];
   const nameOf = (seat: number) => room.seats[seat]?.username ?? t('table.seatN', { n: seat + 1 });
 
-  const isMyTurn = game !== null && mySeat !== null && game.turn === mySeat;
+  // `!handStandings`: during the inter-hand pause the felt is the FINISHED game (frozen),
+  // so it's nobody's turn — suppress turn UI/announcements until the next hand deals.
+  const isMyTurn = game !== null && mySeat !== null && game.turn === mySeat && !handStandings;
   const canPass = game?.pile != null; // leading (no pile) forbids passing
   const holdsThreeSpades = myHand.some((c) => c.kind === 'standard' && c.rank === '3' && c.suit === 'S');
   const requireThreeSpades = gameIndex === 0 && game?.pile == null && isMyTurn && holdsThreeSpades;
@@ -323,13 +335,14 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             {mySeat !== null &&
               opponents.map((s) => {
                 const pos = seatPosition(numPlayers, mySeat, s.seat);
+                const bub = bubbleFor(s.seat);
                 return (
                   <div key={s.seat} className={`absolute z-[5] ${SEAT_POS[pos]}`}>
-                    {bubbleFor(s.seat) && <SpeechBubble b={bubbleFor(s.seat)!} />}
+                    {bub && <SpeechBubble b={bub} />}
                     <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title={t('table.viewProfile')}>
                       <SeatBadge
                         name={nameOf(s.seat)}
-                        count={game?.handCounts[s.seat] ?? 0}
+                        count={game?.handCounts?.[s.seat] ?? 0}
                         team={room.type === '2v2' ? s.team : null}
                         isTurn={game?.turn === s.seat}
                         connected={s.connected}
@@ -416,6 +429,42 @@ export function TableView({ room }: { room: RoomStateDTO }) {
           <div className="gold-text font-display font-semibold tracking-wide">{t('table.shuffling')}</div>
         </div>
       )}
+
+      {/* Inter-hand standings: after a hand ends the final board stays frozen (~1.1s) so
+          the winning play is visible, then this fades in — players + points ranked
+          most→least, my row highlighted, this hand's winner badged. Everyone taps
+          Continue to advance early; otherwise the server auto-deals after the pause. */}
+      {showStandings && handStandings && !matchResult && !switching && (() => {
+        const sb = handStandings.scoreboard;
+        const handWinner = handStandings.finishingOrder[0];
+        const rows = sb.cumulative
+          .map((pts, seat) => ({ seat, pts, name: nameOf(seat), isMe: seat === mySeat, wonHand: seat === handWinner, team: room.seats[seat]?.team ?? null }))
+          .sort((a, b) => b.pts - a.pts);
+        const iReady = mySeat != null && handReady.includes(mySeat);
+        return (
+          <div className="modal-backdrop !z-[55]" role="dialog" aria-modal="true" aria-label={t('table.standingsTitle')}>
+            <div className="panel-solid w-full max-w-sm max-h-[88vh] overflow-y-auto p-5 text-center animate-pop">
+              <div className="text-3xl mb-1">🏁</div>
+              <h2 className="gold-text font-display font-bold tracking-wide text-xl mb-0.5">{t('table.standingsTitle')}</h2>
+              <p className="text-xs text-muted mb-4">{t('table.handDone', { n: handStandings.gameIndex + 1 })} · {t('table.toTarget', { n: sb.target })}</p>
+              <ol className="text-left space-y-1.5 mb-5">
+                {rows.map((r, i) => (
+                  <li key={r.seat} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
+                    <span className="w-5 text-sm font-display font-bold text-muted tabular-nums">{i + 1}</span>
+                    <span className={`flex-1 truncate text-sm ${r.isMe ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
+                      {r.name}{r.wonHand ? ' 🏆' : ''}{room.type === '2v2' && r.team != null ? ` · ${t('table.squad', { n: r.team + 1 })}` : ''}
+                    </span>
+                    <b className="text-gold-hi tabular-nums text-base">{r.pts}</b>
+                  </li>
+                ))}
+              </ol>
+              <button autoFocus onClick={() => { sound.play('button'); continueHand(); }} disabled={iReady} className="btn btn-gold btn-lg btn-block">
+                {iReady ? t('table.waitingOthers', { n: handReady.length, total: Math.max(handHumans, handReady.length) }) : t('table.continue')}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* "No swap" banner: the previous loser held both jokers, so no card switch
           happened this game and the winner leads. Flashed for a few seconds. */}
