@@ -72,12 +72,10 @@ export class TronDepositVerifier {
     if (!dest) return { ok: false, error: 'Mungon adresa e marrjes.' };
     const want = txId.toLowerCase();
     try {
-      const url = `${this.base}/v1/accounts/${dest}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
-      const res = await this.fetchWithRetry(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
-      if (!res.ok) return { ok: false, error: `TronGrid ${res.status}` };
-      const data = await res.json();
+      const r = await this.fetchTransfers(dest);
+      if ('error' in r) return { ok: false, error: r.error };
       // Compare case-insensitively (TRON hashes are lowercase hex, but don't assume).
-      const tx = (data?.data ?? []).find((t: any) => String(t.transaction_id).toLowerCase() === want);
+      const tx = r.rows.find((t: any) => String(t.transaction_id).toLowerCase() === want);
       if (!tx) return { ok: false, error: 'Transaksioni nuk u gjet ose nuk shkoi te adresa e duhur.' };
       if (tx.to !== dest) return { ok: false, error: 'Marrësi i gabuar.' };
       // REQUIRE the exact USDT contract — a missing/empty token_info.address (a fake
@@ -94,6 +92,57 @@ export class TronDepositVerifier {
       return { ok: true, amountCents, from: tx.from };
     } catch (err) {
       return { ok: false, error: `Gabim verifikimi: ${String(err)}` };
+    }
+  }
+
+  /** Fetch (with transient-retry) the recent incoming USDT-TRC20 transfers TO `dest`.
+   *  Returns the raw rows, or { error } on a non-ok response (callers decide how to
+   *  surface it). Shared by verify() and listIncoming(). */
+  private async fetchTransfers(dest: string): Promise<{ rows: any[] } | { error: string }> {
+    const url = `${this.base}/v1/accounts/${dest}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
+    const res = await this.fetchWithRetry(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
+    if (!res.ok) return { error: `TronGrid ${res.status}` };
+    const data = await res.json();
+    return { rows: Array.isArray(data?.data) ? data.data : [] };
+  }
+
+  /** Validate one TronGrid transfer row as a real USDT-TRC20 credit TO `dest`. Returns
+   *  the normalized {txId, amountCents, from} or null to SKIP (wrong recipient, not the
+   *  USDT contract, bad decimals/amount). Same rules as verify(), but lenient (skip vs.
+   *  granular error) since listIncoming() just filters a batch. */
+  private parseTransfer(tx: any, dest: string): { txId: string; amountCents: number; from: string } | null {
+    if (!tx || tx.to !== dest) return null;
+    if (tx.token_info?.address !== this.contract) return null; // exact USDT contract only (scam-token guard)
+    const value = Number(tx.value);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const decimals = tx.token_info?.decimals == null ? 6 : Number(tx.token_info.decimals);
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
+    const amountCents = Math.floor((value * 100) / 10 ** decimals); // integer math (no float inflation)
+    if (amountCents <= 0) return null;
+    const id = String(tx.transaction_id ?? '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(id)) return null;
+    return { txId: id, amountCents, from: String(tx.from ?? '') };
+  }
+
+  /**
+   * List recent VALID USDT-TRC20 transfers TO `address` — for the auto-credit poller
+   * (no manual TxID needed: the unique address already identifies the player). Each row
+   * is contract/decimals/amount-validated; the caller credits idempotently on txId.
+   * Never throws — returns [] on any error (a transient blip just skips this cycle).
+   */
+  async listIncoming(address: string): Promise<Array<{ txId: string; amountCents: number; from: string }>> {
+    if (!address) return [];
+    try {
+      const r = await this.fetchTransfers(address);
+      if ('error' in r) return [];
+      const out: Array<{ txId: string; amountCents: number; from: string }> = [];
+      for (const tx of r.rows) {
+        const parsed = this.parseTransfer(tx, address);
+        if (parsed) out.push(parsed);
+      }
+      return out;
+    } catch {
+      return [];
     }
   }
 

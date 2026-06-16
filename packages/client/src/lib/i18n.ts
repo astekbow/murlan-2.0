@@ -197,7 +197,9 @@ const STRINGS: Record<string, Entry> = {
   'wallet.withdrawFeeNote': { sq: 'Tarifa e rrjetit (~1 USDT) zbritet nga shuma — do të marrësh: shuma − ~1 USDT.', en: 'A network fee (~1 USDT) is deducted from the amount — you receive: amount − ~1 USDT.' },
   // USDT-TRC20 deposit by TxID
   'wallet.depositTrc20': { sq: 'Depozitë USDT (TRC20)', en: 'Deposit USDT (TRC20)' },
-  'wallet.depositTrc20Steps': { sq: 'Dërgo USDT (rrjeti TRON/TRC20) te adresa më poshtë, pastaj ngjit TxID-në e transaksionit dhe shtyp Konfirmo. Kreditohet pas verifikimit.', en: 'Send USDT (TRON/TRC20 network) to the address below, then paste the transaction TxID and press Confirm. Credited after verification.' },
+  'wallet.depositTrc20Steps': { sq: 'Dërgo USDT në rrjetin TRON (TRC20) te adresa më poshtë. Kreditohet vetvetiu pas pak — s’ke nevojë të bësh asgjë tjetër.', en: 'Send USDT on the TRON (TRC20) network to the address below. It credits automatically shortly — nothing else to do.' },
+  'wallet.autoCreditNote': { sq: 'Kreditohet vetvetiu për ~30–60 sekonda. Mund ta mbyllësh faqen.', en: 'Credits automatically in ~30–60 seconds. You can leave this page.' },
+  'wallet.txidFallback': { sq: 'Po vonohet? Verifiko manualisht me TxID-në', en: 'Taking too long? Verify manually with the TxID' },
   'wallet.yourAddress': { sq: 'Adresa jonë (TRC20)', en: 'Our address (TRC20)' },
   'wallet.txidLabel': { sq: 'TxID i transaksionit', en: 'Transaction TxID' },
   'wallet.txidPlaceholder': { sq: 'hash-i i transaksionit (64 karaktere)', en: 'transaction hash (64 chars)' },

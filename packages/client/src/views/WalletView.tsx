@@ -179,13 +179,21 @@ export function WalletView() {
             </div>
             <p className="text-[11px] text-amber-300/90 mt-1">⚠️ {t('wallet.networkWarn')}</p>
           </div>
-          <label className="block">
-            <span className="field-label">{t('wallet.txidLabel')}</span>
-            <input value={txId} onChange={(e) => setTxId(e.target.value)} placeholder={t('wallet.txidPlaceholder')} className="field font-mono" />
-          </label>
-          <button onClick={() => void onSubmitTxid()} disabled={submittingTxid} className="btn btn-gold w-full sm:w-auto">
-            {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
-          </button>
+          {/* Auto-credit is the primary path now (unique per-player address). */}
+          <p className="text-sm text-emerald-300 bg-emerald-700/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+            ✓ {t('wallet.autoCreditNote')}
+          </p>
+          {/* TxID is now a FALLBACK for when the poller is slow / the page was closed. */}
+          <details className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2">
+            <summary className="text-xs text-muted cursor-pointer select-none">{t('wallet.txidFallback')}</summary>
+            <label className="block mt-2">
+              <span className="field-label">{t('wallet.txidLabel')}</span>
+              <input value={txId} onChange={(e) => setTxId(e.target.value)} placeholder={t('wallet.txidPlaceholder')} aria-label={t('wallet.txidLabel')} className="field font-mono" />
+            </label>
+            <button onClick={() => void onSubmitTxid()} disabled={submittingTxid} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
+              {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
+            </button>
+          </details>
         </section>
       )}
 

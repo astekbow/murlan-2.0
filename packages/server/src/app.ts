@@ -28,7 +28,7 @@ import { InMemoryGames, type GamesRepository } from './fair/gamesRepository.ts';
 import { InMemoryMatchActions, type MatchActionsRepository } from './realtime/matchActions.ts';
 import { InMemoryVerificationTokens, type VerificationTokenRepository } from './auth/verificationTokens.ts';
 import { fairRoutes } from './http/fairRoutes.ts';
-import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded, activeMatches, pendingWithdrawals, treasuryBufferCents as treasuryBufferGauge } from './metrics.ts';
+import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded, activeMatches, pendingWithdrawals, treasuryBufferCents as treasuryBufferGauge, tronDeposits } from './metrics.ts';
 import { authRoutes, requireAdmin } from './http/authRoutes.ts';
 import { walletRoutes } from './http/walletRoutes.ts';
 import { adminRoutes } from './http/adminRoutes.ts';
@@ -40,7 +40,7 @@ import { GameGateway, type AdminVoidResult } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
 import { InMemoryRoomOwnership } from './realtime/roomOwnership.ts';
 import { InMemoryLedger, type LedgerRepository } from './money/ledger.ts';
-import { WalletService } from './money/walletService.ts';
+import { WalletService, DepositCapExceededError } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
@@ -52,6 +52,7 @@ import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
 import { TronHdWallet } from './money/tronHd.ts';
 import { BinanceDepositLister, BinanceAccountReader, checkUnclaimedDeposits } from './money/binanceDeposits.ts';
+import { DepositWatchRegistry, pollDepositsOnce } from './money/depositPoller.ts';
 import { findStaleWithdrawals, pruneAlerted, treasuryBufferCents, reconcileFailedWithdrawals } from './money/paymentMonitor.ts';
 import { BinanceWithdrawReader } from './money/binancePayout.ts';
 import { InMemoryWithdrawals, WithdrawalService, type WithdrawalRepository } from './money/withdrawals.ts';
@@ -105,6 +106,7 @@ export interface HttpDeps {
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via TxID verify
   binanceFreeUsdtCents?: () => Promise<number | null>; // treasury: Binance free-USDT payout pool
   depositWallet?: TronHdWallet; // watch-only HD wallet → unique per-player deposit address
+  depositWatch?: DepositWatchRegistry; // marks active depositors so the auto-credit poller knows whom to watch
   tronDepositAddress?: string | null;
   kickUser?: (userId: string) => void; // force-disconnect a user's live sockets (ban/suspend)
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
@@ -273,7 +275,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,
-      tronDeposit: deps.tronDeposit, depositWallet: deps.depositWallet, tronDepositAddress: deps.config.tronDepositAddress,
+      tronDeposit: deps.tronDeposit, depositWallet: deps.depositWallet, depositWatch: deps.depositWatch, tronDepositAddress: deps.config.tronDepositAddress,
       // Hosted-checkout deposits are disabled in prod when only the mock provider is
       // wired (real deposits use the on-chain TxID flow) — removes dead money surface.
       hostedDepositEnabled: !(deps.config.isProd && deps.provider.name === 'mock' && !deps.config.allowStubProviders),
@@ -459,6 +461,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const tronDeposit = depositWallet || config.tronDepositAddress
     ? new TronDepositVerifier({ depositAddress: config.tronDepositAddress ?? undefined, apiKey: config.tronGridApiKey })
     : undefined;
+  // Auto-credit: players who open the deposit screen are "watched" so the poller
+  // (below) credits their on-chain transfers WITHOUT a manual TxID. Only meaningful
+  // with unique per-player addresses (the xpub) + the poller enabled.
+  const depositWatch = new DepositWatchRegistry();
   if (depositWallet) {
     // eslint-disable-next-line no-console
     console.warn('[deposit] UNIQUE per-player USDT-TRC20 deposit addresses ENABLED (watch-only xpub; no private keys on the server).');
@@ -593,7 +599,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const kickHolder: { fn?: (userId: string) => void } = {};
   const kickUser = (userId: string) => kickHolder.fn?.(userId);
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -779,9 +785,74 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   }, GAUGE_MS);
   gaugeTimer.unref?.();
 
+  // Auto-credit poller: each cycle, credit on-chain USDT deposits for the players who
+  // are ACTIVELY depositing (they opened the deposit screen → "watched"), so they don't
+  // need to paste a TxID. Idempotent on txId (a transfer credits at most once, even
+  // across cycles/restarts); the manual TxID route stays as a "taking too long?" fallback.
+  // Only with unique per-player addresses (xpub) + a positive cadence; watched-set is
+  // usually empty → zero TronGrid calls when nobody is depositing.
+  let depositPollTimer: ReturnType<typeof setInterval> | null = null;
+  if (tronDeposit && depositWallet && config.depositPollMs > 0) {
+    const verifier = tronDeposit; // capture the narrowed (non-undefined) ref for the closure
+    const MIN_AUTO_CREDIT_CENTS = 500; // mirror the manual route's MIN_DEPOSIT_CENTS ($5)
+    const alertedSkipped = new Set<string>();
+    const creditAuto = async (userId: string, amountCents: number, txId: string): Promise<'credited' | 'replay' | 'over_cap' | 'blocked'> => {
+      // SAME GATES as the manual/hosted deposit routes — an on-chain deposit isn't a free
+      // pass around them. A frozen/banned account or a self-excluded / unverified-KYC /
+      // geo-blocked player must NOT be auto-credited; the funds stay on-chain and the
+      // operator is alerted (pollDepositsOnce) to resolve. Account-state is always-on;
+      // compliance gates only when enabled.
+      const acct = await auth.checkAccountRealMoney(userId);
+      if (!acct.allowed) return 'blocked';
+      if (compliance.enabled) {
+        const profile = await auth.getComplianceProfile(userId);
+        if (!profile || !compliance.checkRealMoney(profile).allowed) return 'blocked';
+      }
+      // Respect the player's self-imposed daily deposit cap (same as the manual route):
+      // over cap → DON'T credit, leave for manual review. The cap check EXCLUDES this
+      // txId's providerRef from the day's sum, so a replay still resolves idempotent.
+      const depositCapCents = responsibleGaming ? (await responsibleGaming.getLimits(userId)).dailyDepositLimitCents : null;
+      try {
+        const r = await wallet.credit(userId, amountCents, { type: 'deposit', providerRef: `tron:${txId}`, reason: 'Auto-depozitë USDT-TRC20', depositCapCents });
+        tronDeposits.inc({ outcome: r.idempotent ? 'replay' : 'credited' });
+        return r.idempotent ? 'replay' : 'credited';
+      } catch (e) {
+        if (e instanceof DepositCapExceededError) { tronDeposits.inc({ outcome: 'rejected' }); return 'over_cap'; }
+        throw e;
+      }
+    };
+    depositPollTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const watched = depositWatch.active();
+          if (watched.length === 0) return; // nobody depositing → no TronGrid calls this cycle
+          // Each watched address = 1 TronGrid read per cycle. Surface a high active-depositor
+          // count so the operator can raise the cadence / add an API key before hitting limits.
+          if (watched.length > 50) app.log.warn({ activeDepositors: watched.length }, 'deposit poller: many active depositors — watch TronGrid rate limits');
+          const fresh = await pollDepositsOnce({
+            watched,
+            listIncoming: (addr) => verifier.listIncoming(addr),
+            credit: creditAuto,
+            minCents: MIN_AUTO_CREDIT_CENTS,
+            alertedSkipped,
+            notify: notifier.name !== 'null' ? (text) => notifier.notify(text) : undefined,
+            log: (msg, meta) => app.log.info(meta ?? {}, msg),
+          });
+          if (fresh) app.log.info({ fresh }, 'auto-credited on-chain deposits (poller)');
+        } catch (err) {
+          app.log.error({ err }, 'deposit auto-credit poller failed');
+        }
+      })();
+    }, config.depositPollMs);
+    depositPollTimer.unref?.();
+    // eslint-disable-next-line no-console
+    console.warn(`[deposit] AUTO-CREDIT poller ENABLED (every ${Math.round(config.depositPollMs / 1000)}s for active depositors; manual TxID remains as fallback).`);
+  }
+
   const closeAll = async () => {
     clearInterval(sweepTimer);
     clearInterval(gaugeTimer);
+    if (depositPollTimer) clearInterval(depositPollTimer);
     io.close();
     if (detachRedis) await detachRedis();
     await app.close();

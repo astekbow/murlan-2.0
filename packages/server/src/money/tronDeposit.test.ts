@@ -132,3 +132,24 @@ test('uses integer math (no float-precision inflation)', async () => {
   const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
   assert.equal(r.amountCents, 99_999_999);
 });
+
+test('listIncoming returns only VALID USDT-TRC20 transfers to the address (skips scam/wrong-recipient/bad-id rows)', async () => {
+  const rows = [
+    transfer({ transaction_id: 'a'.repeat(64), value: '5000000' }),                                  // 5 USDT → 500¢ ✓
+    transfer({ transaction_id: 'b'.repeat(64), to: 'TSomeoneElse' }),                                  // wrong recipient → skip
+    transfer({ transaction_id: 'c'.repeat(64), token_info: { decimals: 6, symbol: 'SCAM' } }),         // no contract addr → skip
+    transfer({ transaction_id: 'd'.repeat(64), value: '30000000' }),                                   // 30 USDT → 3000¢ ✓
+    transfer({ transaction_id: 'NOTHEX', value: '1000000' }),                                          // malformed txId → skip
+  ];
+  const { fetchFn } = stub({ data: rows });
+  const out = await new TronDepositVerifier({ depositAddress: MY, fetchFn, retryBaseMs: 0 }).listIncoming(MY);
+  assert.equal(out.length, 2);
+  assert.deepEqual(out.map((o) => o.amountCents).sort((a, b) => a - b), [500, 3000]);
+  assert.ok(out.every((o) => /^[0-9a-f]{64}$/.test(o.txId))); // normalized lowercase 64-hex
+});
+
+test('listIncoming returns [] (never throws) on a TronGrid error', async () => {
+  const { fetchFn } = stub({}, false, 500);
+  const out = await new TronDepositVerifier({ depositAddress: MY, fetchFn, retryBaseMs: 0 }).listIncoming(MY);
+  assert.deepEqual(out, []);
+});

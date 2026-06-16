@@ -22,6 +22,7 @@ import { type Notifier, escapeHtml } from '../notify/notifier.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { TronDepositVerifier } from '../money/tronDeposit.ts';
 import type { TronHdWallet } from '../money/tronHd.ts';
+import type { DepositWatchRegistry } from '../money/depositPoller.ts';
 import { processWithdrawal } from '../money/autoPayout.ts';
 import { isValidTronAddress } from '../money/tronAddress.ts';
 import { autoPayouts, tronDeposits } from '../metrics.ts';
@@ -40,6 +41,7 @@ export interface WalletRoutesDeps {
   dailyAutoWithdrawCapCents?: number; // 0/undefined = off; per-user 24h auto-payout cap
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via on-chain TxID verify
   depositWallet?: TronHdWallet; // watch-only HD wallet → UNIQUE per-player deposit address (preferred)
+  depositWatch?: DepositWatchRegistry; // mark the player as actively depositing → the auto-credit poller watches their address
   tronDepositAddress?: string | null; // legacy SINGLE shared receiving address (used only if no depositWallet)
   hostedDepositEnabled?: boolean; // false → /api/wallet/deposit (hosted checkout) is disabled (mock provider in prod)
   webhookSignatureHeader?: string; // default 'x-signature'
@@ -203,6 +205,9 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     if (!caller) return;
     const address = await resolveDepositAddress(caller.userId);
     if (!address) return reply.send({ address: null });
+    // The player is about to deposit → watch their address so the poller auto-credits
+    // the incoming transfer (no TxID needed). Refreshes the watch TTL on each open.
+    deps.depositWatch?.markWatching(address, caller.userId);
     return reply.send({ address, currency: 'USDT', network: 'TRC20' });
   });
 
@@ -217,6 +222,16 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     // address binding (not the TxID alone) is the anti-claim-jacking guarantee.
     const myAddress = await resolveDepositAddress(caller.userId);
     if (!myAddress) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });
+    // SAME GATES as a hosted-checkout deposit: an on-chain TxID is not a way around them.
+    // A frozen/banned account or a self-excluded / unverified-KYC / geo-blocked player can't
+    // credit on-chain funds either — the money stays on-chain until the block is resolved.
+    const acct = await auth.checkAccountRealMoney(caller.userId);
+    if (!acct.allowed) return reply.code(403).send({ error: { code: acct.code ?? 'account', message: acct.message ?? 'Bllokuar.' } });
+    if (deps.compliance?.enabled) {
+      const profile = await auth.getComplianceProfile(caller.userId);
+      const verdict = profile ? deps.compliance.checkRealMoney(profile) : { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
+      if (!verdict.allowed) return reply.code(403).send({ error: { code: verdict.code ?? 'compliance', message: verdict.message ?? 'Bllokuar.' } });
+    }
     const parsed = txidSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'TxID i pavlefshëm.' } });
     // Normalize to lowercase: TRON tx hashes are lowercase hex on-chain, and the

@@ -47,6 +47,7 @@ const schema = z.object({
   TRON_DEPOSIT_XPUB: z.string().optional(),           // account-level TRON xpub (watch-only) → UNIQUE per-player deposit address (preferred; theft-proof attribution)
   TRON_DEPOSIT_ADDRESS: z.string().optional(),        // legacy SINGLE shared address (claim-jackable) — used only if no xpub is set
   TRONGRID_API_KEY: z.string().optional(),            // free TronGrid key (on-chain deposit verification; higher rate limits)
+  DEPOSIT_POLL_MS: z.coerce.number().int().min(0).max(600_000).default(30_000), // auto-credit poller cadence for active depositors; 0 = OFF (manual TxID only)
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
@@ -89,6 +90,7 @@ export interface AppConfig {
   databaseUrl: string | null;
   rakeBps: number;
   tournamentDualControl: boolean; // require a 2nd distinct admin to confirm a champion payout
+  depositPollMs: number; // auto-credit poller cadence for active depositors (0 = off)
   turnMs: number;
   countdownMs: number;
   abandonMs: number;
@@ -194,6 +196,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: parsed.DATABASE_URL ?? null,
     rakeBps: parsed.RAKE_BPS,
     tournamentDualControl: isTrue(parsed.TOURNAMENT_DUAL_CONTROL),
+    depositPollMs: parsed.DEPOSIT_POLL_MS,
     turnMs: parsed.TURN_MS,
     countdownMs: parsed.COUNTDOWN_MS,
     abandonMs: parsed.ABANDON_MS,
