@@ -636,6 +636,13 @@ select:focus-visible,
 .tv-ls .felt-ring { inset: 14% 22%; }
 .tv-ls .tlogo { font-size: 16px; letter-spacing: 3px; top: 26%; }
 .tv-ls .av { width: 36px; height: 36px; font-size: 11px; border-width: 2px; }
+/* Landscape: pull the opponent seats TIGHT to the felt's top edge. The fixed-px SEAT_POS
+   offsets are tuned for portrait and fling the top seat too far up on short landscape
+   screens — its card-fan detached into the status-bar area (overlapping the top bar). */
+.tv-ls .tv-seat-top { top: -16px !important; }
+.tv-ls .tv-seat-top-left, .tv-ls .tv-seat-top-right { top: -12px !important; }
+.tv-ls .tv-seat-top-left { left: max(6px, env(safe-area-inset-left)) !important; }
+.tv-ls .tv-seat-top-right { right: max(6px, env(safe-area-inset-right)) !important; }
 .tv-ls .seat-nm { max-width: 54px; font-size: 10px; }
 .tv-ls .hand-fan .gcard { width: 40px; height: 58px; }
 .tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }

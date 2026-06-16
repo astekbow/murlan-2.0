@@ -337,7 +337,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 const pos = seatPosition(numPlayers, mySeat, s.seat);
                 const bub = bubbleFor(s.seat);
                 return (
-                  <div key={s.seat} className={`absolute z-[5] ${SEAT_POS[pos]}`}>
+                  <div key={s.seat} className={`tv-seat tv-seat-${pos} absolute z-[5] ${SEAT_POS[pos]}`}>
                     {bub && <SpeechBubble b={bub} />}
                     <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title={t('table.viewProfile')}>
                       <SeatBadge
