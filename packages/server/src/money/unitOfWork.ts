@@ -12,6 +12,7 @@ import type { UserRepository } from '../auth/userRepository.ts';
 import type { LedgerRepository } from './ledger.ts';
 import { type MatchesRepository, InMemoryMatchesRepository } from './matchesRepository.ts';
 import { type WithdrawalRepository, InMemoryWithdrawals } from './withdrawals.ts';
+import { type TournamentRepository, InMemoryTournamentRepository } from '../tournament/tournamentService.ts';
 
 export interface WalletTxContext {
   users: UserRepository;
@@ -22,6 +23,11 @@ export interface WalletTxContext {
   // Bound too, so a withdrawal's hold (debit + ledger) AND its record insert commit
   // or roll back together — no phantom debit with no withdrawal row.
   withdrawals: WithdrawalRepository;
+  // Bound too, so a tournament's buy-in escrow / champion payout AND its row write
+  // (playerIds, status, bracket, prizePool) commit or roll back together — no trapped
+  // buy-in (debit lost with no registration), and no champion paid while the row stays
+  // 'running' (which a later stale-sweep would wrongly refund → double-pay). (SCH-3)
+  tournaments: TournamentRepository;
 }
 
 export interface UnitOfWork {
@@ -35,9 +41,10 @@ export class InMemoryUnitOfWork implements UnitOfWork {
     private readonly ledger: LedgerRepository,
     private readonly matches: MatchesRepository = new InMemoryMatchesRepository(),
     private readonly withdrawals: WithdrawalRepository = new InMemoryWithdrawals(),
+    private readonly tournaments: TournamentRepository = new InMemoryTournamentRepository(),
   ) {}
 
   transaction<T>(fn: (ctx: WalletTxContext) => Promise<T>): Promise<T> {
-    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals });
+    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals, tournaments: this.tournaments });
   }
 }

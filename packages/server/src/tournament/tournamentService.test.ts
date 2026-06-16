@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TournamentService, InMemoryTournamentRepository, TournamentError, type TournamentWallet } from './tournamentService.ts';
+import { InMemoryUserRepository } from '../auth/userRepository.ts';
+import { InMemoryLedger } from '../money/ledger.ts';
+import { WalletService } from '../money/walletService.ts';
+import { InMemoryUnitOfWork } from '../money/unitOfWork.ts';
 
 /** Recording wallet: captures every money movement so we can assert escrow/payout/rake. */
 class FakeWallet implements TournamentWallet {
@@ -120,6 +124,56 @@ test('cancel force-voids a RUNNING tournament and refunds all buy-ins (no champi
   await s.register(t2.id, 'y');
   await s.reportResult(t2.id, 0, 0, 'x'); // finishes
   await assert.rejects(s.cancel(t2.id), (e: unknown) => e instanceof TournamentError && e.code === 'not_cancellable');
+});
+
+test('SCH-3: with a UnitOfWork, register escrows + persists atomically and finish pays the champion via the tx-bound repo', async () => {
+  // Real wallet + the SAME adapter shape app.ts wires, plus an InMemoryUnitOfWork whose
+  // bound tournaments repo IS the service's repo — so escrow/payout AND the row write go
+  // through one ctx. (In-memory has no real rollback, but this proves the ctx threading +
+  // that the tx-bound repo is the one that actually persists — the prod Prisma tx then
+  // gives the real all-or-nothing guarantee.)
+  const users = new InMemoryUserRepository();
+  const ledger = new InMemoryLedger();
+  const wallet = new WalletService(users, ledger);
+  const repo = new InMemoryTournamentRepository();
+  const uow = new InMemoryUnitOfWork(users, ledger, undefined, undefined, repo);
+  const tw: TournamentWallet = {
+    async debit(userId, cents, reason, ctx) { await (ctx ? wallet.bind(ctx) : wallet).debit(userId, cents, { type: 'bet', reason }); },
+    async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
+    async recordRake(cents, ref) { await wallet.recordRake(cents, { providerRef: ref }); },
+    async payoutChampion(winnerId, prizeCents, rakeCents, ref, ctx) {
+      const pay = async (w: typeof wallet) => {
+        if (prizeCents > 0) await w.credit(winnerId, prizeCents, { type: 'payout', reason: `tournament prize:${ref}`, providerRef: `tournament prize:${ref}` });
+        if (rakeCents > 0) await w.recordRake(rakeCents, { providerRef: `tournament-rake:${ref}` });
+      };
+      if (ctx) await pay(wallet.bind(ctx));
+      else await pay(wallet);
+    },
+  };
+  let n = 0;
+  const s = new TournamentService(repo, tw, 1000, () => 1000, () => `trn_${(n += 1)}`, uow);
+
+  const a = await users.create({ username: 'a', email: 'a@x.com', passwordHash: 'h' });
+  const b = await users.create({ username: 'b', email: 'b@x.com', passwordHash: 'h' });
+  await wallet.credit(a.id, 5000, { type: 'deposit' });
+  await wallet.credit(b.id, 5000, { type: 'deposit' });
+
+  const t = await s.create('Cup', 1000, 2); // $10 buy-in, 2 players
+  await s.register(t.id, a.id);
+  assert.equal(await wallet.getBalance(a.id), 4000); // escrowed atomically (debit + row write)
+  const running = await s.register(t.id, b.id);      // fills → running
+  assert.equal(running.status, 'running');
+  assert.equal(running.prizePoolCents, 2000);
+  assert.equal(await wallet.getBalance(b.id), 4000);
+  assert.equal((await s.get(t.id))!.playerIds.length, 2); // persisted via the tx-bound repo
+
+  // Final (capacity 2 → one match): a wins → champion paid + status flipped in ONE tx.
+  const done = await s.reportResult(t.id, 0, 0, a.id);
+  assert.equal(done.status, 'finished');
+  assert.equal(done.winnerId, a.id);
+  // Pool $20, rake 10% = $2, prize $18 → a: 4000 + 1800 = 5800.
+  assert.equal(await wallet.getBalance(a.id), 5800);
+  assert.equal((await s.get(t.id))!.status, 'finished'); // finished status persisted with the payout
 });
 
 test('sweepStale voids + refunds abandoned tournaments past the TTL, leaves fresh ones alone', async () => {

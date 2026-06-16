@@ -12,6 +12,9 @@
 // ============================================================================
 
 import { randomBytes } from 'node:crypto';
+// Type-only (erased at runtime → no import cycle with unitOfWork, which imports our
+// TournamentRepository value). Lets escrow + the tournament-row write share one tx.
+import type { UnitOfWork, WalletTxContext } from '../money/unitOfWork.ts';
 
 export type TournamentStatus = 'registering' | 'running' | 'finished' | 'cancelled';
 
@@ -37,15 +40,18 @@ export interface Tournament {
   createdAt: number;
 }
 
-/** Minimal wallet capability the tournament needs (keeps it decoupled from WalletService). */
+/** Minimal wallet capability the tournament needs (keeps it decoupled from WalletService).
+ *  The optional `ctx` lets the service compose the money move into an OUTER transaction
+ *  it opened (so escrow/payout commit together with the tournament-row write); when
+ *  omitted, the adapter runs the move on its own (its usual single-op path). */
 export interface TournamentWallet {
-  debit(userId: string, amountCents: number, reason: string): Promise<void>;  // buy-in escrow
+  debit(userId: string, amountCents: number, reason: string, ctx?: WalletTxContext): Promise<void>;  // buy-in escrow
   credit(userId: string, amountCents: number, reason: string): Promise<void>; // refund
   recordRake(amountCents: number, ref: string): Promise<void>;                // house cut (non-payout)
   // Pay the champion AND record the house rake ATOMICALLY (one DB transaction in prod),
   // so a crash between them can't credit the prize but lose the rake — which would
   // break the per-tournament ledger invariant sum(in) == sum(out).
-  payoutChampion(winnerId: string, prizeCents: number, rakeCents: number, ref: string): Promise<void>;
+  payoutChampion(winnerId: string, prizeCents: number, rakeCents: number, ref: string, ctx?: WalletTxContext): Promise<void>;
 }
 
 export interface TournamentRepository {
@@ -71,6 +77,9 @@ export class TournamentService {
     private readonly rakeBps: number,
     private readonly now: () => number = () => Date.now(),
     private readonly newId: () => string = () => `trn_${randomBytes(6).toString('hex')}`,
+    // Present in prod (Prisma): wraps escrow/payout + the tournament-row write in ONE
+    // transaction. Absent in-memory (single-threaded → the saga path below is enough).
+    private readonly uow?: UnitOfWork,
   ) {}
 
   async list(): Promise<Tournament[]> { return this.repo.list(); }
@@ -110,8 +119,11 @@ export class TournamentService {
   }
 
   /** Register a player; escrows their buy-in. Auto-starts when the bracket fills.
-   *  Serialized per tournament (no concurrent double-debit), and the escrow is
-   *  rolled back if persisting the registration fails (no trapped buy-in). */
+   *  Serialized per tournament (no concurrent double-debit). The escrow debit and the
+   *  registration-row write are ATOMIC in prod (one tx, SCH-3) — so a failure can't
+   *  leave a debited player with no registration (trapped buy-in). Without a uow
+   *  (in-memory/single-threaded) it falls back to escrow-then-save with a compensating
+   *  refund if the save fails. */
   async register(tournamentId: string, userId: string): Promise<Tournament> {
     return this.withLock(tournamentId, async () => {
       const t = await this.repo.get(tournamentId);
@@ -121,18 +133,35 @@ export class TournamentService {
       // retry/concurrent call can never escrow a second buy-in for the same player.
       if (t.playerIds.includes(userId)) throw new TournamentError('already_in', 'Je tashmë i regjistruar.');
       if (t.playerIds.length >= t.capacity) throw new TournamentError('full', 'Turneu është plot.');
-      // ESCROW first — if the debit fails (insufficient funds), the player is NOT added.
-      if (t.buyInCents > 0) await this.wallet.debit(userId, t.buyInCents, `tournament buy-in:${t.id}:${userId}`);
-      try {
+
+      // Add the player to the (local) tournament + seed the bracket if this fills it.
+      const apply = () => {
         t.playerIds.push(userId);
         t.prizePoolCents += t.buyInCents;
         if (t.playerIds.length === t.capacity) this.seedBracket(t);
-        await this.repo.save(t);
-      } catch (e) {
-        // Persisting the registration failed AFTER the escrow debit — roll the
-        // buy-in back so it isn't trapped (distinct ref from a later cancel-refund).
-        if (t.buyInCents > 0) await this.wallet.credit(userId, t.buyInCents, `tournament buyin-rollback:${t.id}:${userId}`).catch(() => undefined);
-        throw e;
+      };
+      const buyInRef = `tournament buy-in:${t.id}:${userId}`;
+
+      if (this.uow && t.buyInCents > 0) {
+        // ATOMIC: escrow debit + the row write commit (or roll back) together. If the
+        // debit fails (insufficient funds) the row write never runs; if the row write
+        // fails the debit rolls back — never a trapped buy-in.
+        await this.uow.transaction(async (ctx) => {
+          await this.wallet.debit(userId, t.buyInCents, buyInRef, ctx);
+          apply();
+          await ctx.tournaments.save(t);
+        });
+      } else {
+        // No uow (in-memory/single-threaded) or a free entry: escrow then persist, with
+        // a compensating refund if the persist throws (distinct ref from a cancel-refund).
+        if (t.buyInCents > 0) await this.wallet.debit(userId, t.buyInCents, buyInRef);
+        try {
+          apply();
+          await this.repo.save(t);
+        } catch (e) {
+          if (t.buyInCents > 0) await this.wallet.credit(userId, t.buyInCents, `tournament buyin-rollback:${t.id}:${userId}`).catch(() => undefined);
+          throw e;
+        }
       }
       return t;
     });
@@ -163,17 +192,21 @@ export class TournamentService {
       const roundMatches = t.bracket.filter((x) => x.round === round).sort((a, b) => a.index - b.index);
       if (roundMatches.every((x) => x.winnerId)) {
         if (roundMatches.length === 1) {
-          await this.finish(t, roundMatches[0]!.winnerId!); // final decided → champion
-        } else {
-          for (let i = 0; i < roundMatches.length; i += 2) {
-            t.bracket.push({
-              round: round + 1,
-              index: i / 2,
-              aUserId: roundMatches[i]!.winnerId!,
-              bUserId: roundMatches[i + 1]!.winnerId!,
-              winnerId: null,
-            });
-          }
+          // Final decided → pay the champion AND persist the finished status ATOMICALLY
+          // (see finish()), then return. We must NOT fall through to the trailing save:
+          // finish() already persisted, and a second (non-tx) save could land AFTER the
+          // payout, re-opening the very "paid but row still 'running'" window we close.
+          await this.finish(t, roundMatches[0]!.winnerId!);
+          return t;
+        }
+        for (let i = 0; i < roundMatches.length; i += 2) {
+          t.bracket.push({
+            round: round + 1,
+            index: i / 2,
+            aUserId: roundMatches[i]!.winnerId!,
+            bUserId: roundMatches[i + 1]!.winnerId!,
+            winnerId: null,
+          });
         }
       }
       await this.repo.save(t);
@@ -181,14 +214,25 @@ export class TournamentService {
     });
   }
 
+  /** Finish + pay the champion. The prize+rake payout AND the finished-status row write
+   *  commit (or roll back) in ONE transaction in prod (SCH-3) — closing the window where
+   *  a payout commits but the row stays 'running', which a later stale-sweep would wrongly
+   *  refund (double-pay). Prize + rake are themselves atomic via payoutChampion. */
   private async finish(t: Tournament, winnerId: string): Promise<void> {
     t.winnerId = winnerId;
     t.status = 'finished';
     const rake = Math.floor((t.prizePoolCents * t.rakeBps) / 10000);
     const prize = t.prizePoolCents - rake;
-    // Prize + rake in ONE atomic op — a crash between them would leave the ledger short
-    // by `rake` (breaking the per-tournament conservation invariant).
-    await this.wallet.payoutChampion(winnerId, prize, rake, t.id);
+    if (this.uow) {
+      await this.uow.transaction(async (ctx) => {
+        await this.wallet.payoutChampion(winnerId, prize, rake, t.id, ctx);
+        await ctx.tournaments.save(t);
+      });
+    } else {
+      // In-memory/single-threaded: sequential is enough (no real rollback available).
+      await this.wallet.payoutChampion(winnerId, prize, rake, t.id);
+      await this.repo.save(t);
+    }
   }
 
   /** Cancel a tournament and REFUND every escrowed buy-in. Works while REGISTERING

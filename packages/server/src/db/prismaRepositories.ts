@@ -933,6 +933,7 @@ export class PrismaUnitOfWork implements UnitOfWork {
         ledger: new PrismaLedger(tx as unknown as PrismaClient),
         matches: new PrismaMatchesRepository(tx as unknown as PrismaClient),
         withdrawals: new PrismaWithdrawals(tx as unknown as PrismaClient),
+        tournaments: new PrismaTournaments(tx as unknown as PrismaClient),
       }),
     );
   }

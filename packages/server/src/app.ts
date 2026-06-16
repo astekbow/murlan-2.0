@@ -549,21 +549,24 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Tournaments: buy-in escrow + prize payout reuse the proven wallet money paths.
   // Credits carry the reason as a unique providerRef → idempotent (no double-pay).
   const tournamentWallet: TournamentWallet = {
-    async debit(userId, cents, reason) { await wallet.debit(userId, cents, { type: 'bet', reason }); },
+    // `ctx` (when the service opened an outer tx) → escrow on the SAME tx as the row write.
+    async debit(userId, cents, reason, ctx) { await (ctx ? wallet.bind(ctx) : wallet).debit(userId, cents, { type: 'bet', reason }); },
     async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
     async recordRake(cents, ref) { await wallet.recordRake(cents, { providerRef: ref }); },
     // Champion prize + house rake in ONE transaction (Prisma) so a crash can't split
     // them; in-memory falls back to sequential (single-threaded → already safe).
-    async payoutChampion(winnerId, prizeCents, rakeCents, ref) {
+    async payoutChampion(winnerId, prizeCents, rakeCents, ref, ctx) {
       const pay = async (w: typeof wallet) => {
         if (prizeCents > 0) await w.credit(winnerId, prizeCents, { type: 'payout', reason: `tournament prize:${ref}`, providerRef: `tournament prize:${ref}` });
         if (rakeCents > 0) await w.recordRake(rakeCents, { providerRef: `tournament-rake:${ref}` });
       };
-      if (uow) await uow.transaction(async (ctx) => { await pay(wallet.bind(ctx)); });
+      if (ctx) await pay(wallet.bind(ctx));                                   // compose into the service's tx
+      else if (uow) await uow.transaction(async (c) => { await pay(wallet.bind(c)); });
       else await pay(wallet);
     },
   };
-  const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps);
+  // Pass the uow so register/finish can make escrow+payout atomic with the row write (SCH-3).
+  const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps, undefined, undefined, uow);
   // Club chat + moderation. Membership-gated + mute-aware + abuse reports.
   // Foundation ships ON; review moderation POLICY before broad public promotion.
   const chat = new ChatService(chatRepo, clubs);
