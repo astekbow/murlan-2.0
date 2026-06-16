@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { tronAddressToAbiParam } from './tronAddress.ts';
+import { fetchWithRetry } from './transientRetry.ts';
 
 // Mainnet USDT-TRC20 contract.
 export const USDT_TRC20_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
@@ -49,35 +50,13 @@ export class TronDepositVerifier {
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
   }
 
-  /**
-   * Fetch with retry on TRANSIENT failure ONLY — a network throw or HTTP 429/5xx
-   * (the free TronGrid tier is rate-limited and occasionally 5xx's). A definite
-   * answer (2xx, or a 4xx like "not found") is returned immediately and NOT
-   * retried, so a legitimately-missing tx isn't slowed (WEB-7).
-   *
-   * SAFE here because every caller is a READ (verify / balanceOf). It is
-   * deliberately NOT used for the Binance payout SEND — retrying an ambiguous
-   * send response risks a double-pay.
-   */
-  private async fetchWithRetry(
+  /** TronGrid read with transient-retry (shared helper). READS ONLY — never the payout
+   *  send (a retried ambiguous send risks a double-pay). See transientRetry.ts (WEB-7). */
+  private fetchWithRetry(
     url: string,
     init?: { method?: string; headers?: Record<string, string>; body?: string },
-    attempts = 3,
   ): Promise<{ ok: boolean; status: number; json(): Promise<any> }> {
-    let lastErr: unknown;
-    for (let i = 0; i < attempts; i++) {
-      try {
-        const res = await this.fetchFn(url, init);
-        // 429 (rate-limited) or 5xx (server-side) → transient; anything else is a
-        // final answer the caller should handle (ok, or a 4xx like 404/400).
-        if (res.ok || (res.status !== 429 && res.status < 500)) return res;
-        lastErr = new Error(`TronGrid ${res.status}`);
-      } catch (err) {
-        lastErr = err; // network throw — retry
-      }
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, (this.opts.retryBaseMs ?? 400) * (i + 1))); // 400ms, 800ms
-    }
-    throw lastErr ?? new Error('TronGrid unreachable');
+    return fetchWithRetry(this.fetchFn, url, init, { baseMs: this.opts.retryBaseMs ?? 400 });
   }
 
   /**

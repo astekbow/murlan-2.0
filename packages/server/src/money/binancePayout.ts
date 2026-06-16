@@ -20,6 +20,7 @@
 
 import { createHmac } from 'node:crypto';
 import type { PayoutProvider, PayoutRequest, PayoutResult } from './payoutProvider.ts';
+import { fetchWithRetry } from './transientRetry.ts';
 
 const API_PROD = 'https://api.binance.com';
 
@@ -56,7 +57,7 @@ export class BinanceWithdrawReader {
   private readonly fetchFn: FetchLike;
   private readonly now: () => number;
 
-  constructor(private readonly opts: { apiKey: string; apiSecret: string; baseUrl?: string; fetchFn?: FetchLike; now?: () => number }) {
+  constructor(private readonly opts: { apiKey: string; apiSecret: string; baseUrl?: string; fetchFn?: FetchLike; now?: () => number; retryBaseMs?: number }) {
     this.base = opts.baseUrl ?? API_PROD;
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
     this.now = opts.now ?? (() => Date.now());
@@ -67,7 +68,9 @@ export class BinanceWithdrawReader {
       const params = new URLSearchParams({ coin: 'USDT', startTime: String(Math.max(0, Math.floor(sinceMs))), timestamp: String(this.now()), recvWindow: '10000' });
       const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
       params.append('signature', signature);
-      const res = await this.fetchFn(`${this.base}/sapi/v1/capital/withdraw/history?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } });
+      // Reconciler READ → transient-retry (429/5xx/throw) so a Binance blip can't make the
+      // failed-withdrawal detector go blind (WEB-7). The payout SEND below is NOT retried.
+      const res = await fetchWithRetry(this.fetchFn, `${this.base}/sapi/v1/capital/withdraw/history?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } }, { baseMs: this.opts.retryBaseMs ?? 400 });
       if (!res.ok) return [];
       const rows = await res.json();
       if (!Array.isArray(rows)) return [];
@@ -122,6 +125,10 @@ export class BinancePayoutProvider implements PayoutProvider {
       const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
       params.append('signature', signature);
 
+      // SINGLE-SHOT on purpose — NOT wrapped in fetchWithRetry. A retry on an ambiguous
+      // send response (timeout/5xx after Binance may have accepted it) risks a double-pay;
+      // the failed-withdrawal RECONCILER (BinanceWithdrawReader) is how a stuck send is
+      // detected and the player refunded, not a blind resend.
       const res = await this.fetchFn(`${this.base}/sapi/v1/capital/withdraw/apply`, {
         method: 'POST',
         headers: { 'X-MBX-APIKEY': this.opts.apiKey, 'content-type': 'application/x-www-form-urlencoded' },

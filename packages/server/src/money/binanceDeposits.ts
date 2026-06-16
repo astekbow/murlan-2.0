@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { createHmac } from 'node:crypto';
+import { fetchWithRetry } from './transientRetry.ts';
 
 const API_PROD = 'https://api.binance.com';
 
@@ -29,6 +30,7 @@ export interface BinanceDepositListerOptions {
   baseUrl?: string;
   fetchFn?: FetchLike;
   now?: () => number;
+  retryBaseMs?: number; // transient-retry backoff base (default 400; tests pass 0)
 }
 
 /** Lists recent SUCCESSFUL USDT-TRC20 deposits to your Binance account (signed). */
@@ -53,16 +55,21 @@ export class BinanceDepositLister {
     });
     const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
     params.append('signature', signature);
-    const res = await this.fetchFn(`${this.base}/sapi/v1/capital/deposit/hisrec?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } });
-    // Conservative + never-throws: a transient Binance error (429/5xx) → no deposits
-    // this cycle (the 5-min sweep retries shortly). Matches the payout provider's contract.
-    if (!res.ok) return [];
-    const rows = await res.json();
-    if (!Array.isArray(rows)) return [];
-    return rows
-      .filter((r) => String(r.network) === 'TRX') // TRC20 only (the TxID flow is TRON)
-      .map((r) => ({ txId: String(r.txId ?? ''), amountCents: Math.round(Number(r.amount) * 100), address: String(r.address ?? ''), insertTime: Number(r.insertTime ?? 0) }))
-      .filter((d) => d.txId.length > 0 && Number.isFinite(d.amountCents));
+    // Conservative + never-throws: transient Binance errors (429/5xx) are RETRIED a few
+    // times (WEB-7), and only if all retries fail do we return no deposits this cycle (the
+    // 5-min sweep retries shortly). Matches the payout provider's never-throw contract.
+    try {
+      const res = await fetchWithRetry(this.fetchFn, `${this.base}/sapi/v1/capital/deposit/hisrec?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } }, { baseMs: this.opts.retryBaseMs ?? 400 });
+      if (!res.ok) return [];
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return [];
+      return rows
+        .filter((r) => String(r.network) === 'TRX') // TRC20 only (the TxID flow is TRON)
+        .map((r) => ({ txId: String(r.txId ?? ''), amountCents: Math.round(Number(r.amount) * 100), address: String(r.address ?? ''), insertTime: Number(r.insertTime ?? 0) }))
+        .filter((d) => d.txId.length > 0 && Number.isFinite(d.amountCents));
+    } catch {
+      return [];
+    }
   }
 }
 
@@ -84,7 +91,7 @@ export class BinanceAccountReader {
       const params = new URLSearchParams({ timestamp: String(this.now()), recvWindow: '10000' });
       const signature = createHmac('sha256', this.opts.apiSecret).update(params.toString()).digest('hex');
       params.append('signature', signature);
-      const res = await this.fetchFn(`${this.base}/api/v3/account?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } });
+      const res = await fetchWithRetry(this.fetchFn, `${this.base}/api/v3/account?${params.toString()}`, { headers: { 'X-MBX-APIKEY': this.opts.apiKey } }, { baseMs: this.opts.retryBaseMs ?? 400 });
       if (!res.ok) return null;
       const data = await res.json();
       const usdt = (data?.balances ?? []).find((b: any) => b.asset === 'USDT');
