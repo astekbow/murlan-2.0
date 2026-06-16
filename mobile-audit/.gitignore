@@ -1,0 +1,4 @@
+# Audit run artifacts — regenerate with `node mobile-audit/screenshot.cjs`
+shots/
+probe-report.json
+*.log

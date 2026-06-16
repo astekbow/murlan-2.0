@@ -72,8 +72,31 @@ body,
   height: 100%;
 }
 
+/* MOBILE ROOT GUARDS (responsive audit 2026-06):
+   - text-size-adjust:100% — STOP mobile browsers auto-inflating text when the viewport
+     widens on ROTATION. This is the real root cause of the "page zooms in when I rotate"
+     bug (NOT the viewport meta, which is already correct). Not a hack — it disables an
+     unwanted browser heuristic while leaving real pinch-zoom intact.
+   - scrollbar-gutter:stable — reserve the scrollbar lane so the page WIDTH is identical
+     whether a route scrolls or not → no horizontal jump when navigating between screens.
+   - overflow-x:clip — defense-in-depth against a stray over-wide element forcing a
+     horizontal scroll / rotation rescale. `clip` (not `hidden`) so it never becomes a
+     scroll container or breaks position:sticky; inner scrollers (the hand fan) are
+     unaffected. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scrollbar-gutter: stable;
+}
+html,
+body {
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
+  /* Long usernames / chat / URLs can never blow out the layout horizontally. */
+  overflow-wrap: break-word;
   font-family: 'Outfit', system-ui, 'Segoe UI', sans-serif;
   color: var(--txt);
   -webkit-tap-highlight-color: transparent;
@@ -219,7 +242,10 @@ select:focus-visible,
   /* ---- Inputs & selects -------------------------------------------------- */
   .field-label { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.2px; }
   .field {
-    width: 100%; margin-top: 4px; border-radius: 11px; padding: 10px 12px; font-size: 14px; color: var(--txt);
+    /* 16px (not 14px) is REQUIRED everywhere: iOS Safari auto-zooms when you focus an
+       input whose font-size is < 16px. The old 14px base only got bumped to 16px at
+       ≤480px width, so LANDSCAPE (>480px) + tablets still zoomed on focus. */
+    width: 100%; margin-top: 4px; border-radius: 11px; padding: 10px 12px; font-size: 16px; color: var(--txt);
     background: rgba(0, 0, 0, 0.35); border: 1px solid var(--panel-line); outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
@@ -581,8 +607,6 @@ select:focus-visible,
   .rail-outer { padding: 13px; border-radius: 104px / 34%; }
   .rail-inner { min-height: clamp(300px, 42vh, 400px); border-radius: 96px / 30%; }
   .tlogo { font-size: 28px; letter-spacing: 4px; }
-  /* 16px inputs stop iOS Safari from auto-zooming on focus (pinch-zoom is now allowed). */
-  .field { font-size: 16px; }
   /* Lighter hero on phones so the open-rooms list is reachable with less scroll. */
   .mode { min-height: 174px; padding: 16px; }
   .mode .micon { font-size: 42px; }
@@ -703,7 +727,8 @@ select:focus-visible,
   /* WCAG 2.5.5 — keep the smaller button variants tappable (>=44px) on touch. */
   .btn-sm, .btn-xs { min-height: 44px; }
   .btn-icon { min-width: 44px; min-height: 44px; }
-  .seg-tab { padding-top: 11px; padding-bottom: 11px; }
+  .seg-tab { padding-top: 11px; padding-bottom: 11px; min-height: 44px; } /* WCAG 2.5.5 (was ~42px) */
+  .field { min-height: 44px; } /* inputs comfortably tappable on touch (was ~43px) */
 }
 
 /* Respect reduced-motion: kill the decorative loops & reveals. */
