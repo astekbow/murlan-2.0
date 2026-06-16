@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useT } from '../lib/i18n.ts';
+import { AvatarFace } from './ui/AvatarFace.tsx';
 
 interface SeatBadgeProps {
   name: string;
@@ -9,6 +10,7 @@ interface SeatBadgeProps {
   connected: boolean;
   finished: boolean;
   passed: boolean;
+  avatar?: string | null; // cosmetic avatar (preset id or data URL); null → show initials
   lastPlayer?: boolean; // led the current pile
   partner?: boolean;    // 2v2 teammate of the local player
   turnDeadline?: number | null; // epoch ms — when set + isTurn, a depleting ring shows the time left
@@ -43,7 +45,7 @@ function TurnRing({ deadline }: { deadline: number }) {
  * The fan is decorative and capped — opponents' card IDENTITIES are NEVER shown
  * (the server only ever sends counts), only how many they hold.
  */
-function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, lastPlayer, partner, turnDeadline }: SeatBadgeProps) {
+function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, avatar, lastPlayer, partner, turnDeadline }: SeatBadgeProps) {
   const t = useT();
   const ring = isTurn ? 'turn' : lastPlayer ? 'green' : '';
   const fanCount = Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
@@ -58,7 +60,9 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
       </div>
       <div className="relative inline-grid place-items-center">
         {isTurn && turnDeadline != null && <TurnRing deadline={turnDeadline} />}
-        <div className={`av ${ring} ${!connected ? 'off' : ''}`} title={name}>{initials(name)}</div>
+        <div className={`av ${ring} ${!connected ? 'off' : ''}`} title={name}>
+          {avatar ? <AvatarFace id={avatar} fill className="text-2xl leading-none" /> : initials(name)}
+        </div>
       </div>
       <div className={`seat-nm ${partner ? 'partner' : ''} truncate max-w-[110px]`}>
         {name}{partner && ` · ${t('seat.partner')}`}

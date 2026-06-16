@@ -207,6 +207,9 @@ export class GameGateway {
         if (!gate.allowed) return next(new Error(gate.code ?? 'blocked'));
         socket.data.userId = userId;
         socket.data.username = username;
+        // Resolve the cosmetic avatar ONCE here (best-effort) so it can ride onto the
+        // player's seat. A profile-fetch failure must never block the connection.
+        socket.data.avatar = this.profiles ? ((await this.profiles.getProfile(userId).catch(() => null))?.avatar ?? null) : null;
         socket.data.roomId = null;
         socket.data.seat = null;
         socket.data.clientSeed = null;
@@ -759,7 +762,7 @@ export class GameGateway {
     // remain selectable for a gentler game.
     const tier: BotTier = payload?.tier === 'easy' || payload?.tier === 'medium' ? payload.tier : 'hard';
 
-    const created = this.rooms.createRoom({ userId, username: socket.data.username }, { type, stakeCents: 0, practice: true });
+    const created = this.rooms.createRoom({ userId, username: socket.data.username, avatar: socket.data.avatar }, { type, stakeCents: 0, practice: true });
     if (!created.ok || !created.roomId) return reply(ackError('create_failed', created.error?.message ?? 'Nuk u krijua dot.'));
     const roomId = created.roomId;
     this.ownership?.claim(roomId);
@@ -1960,6 +1963,6 @@ export class GameGateway {
   }
 }
 
-function actor(socket: IOSocket): { userId: string; username: string } {
-  return { userId: socket.data.userId, username: socket.data.username };
+function actor(socket: IOSocket): { userId: string; username: string; avatar: string | null } {
+  return { userId: socket.data.userId, username: socket.data.username, avatar: socket.data.avatar };
 }

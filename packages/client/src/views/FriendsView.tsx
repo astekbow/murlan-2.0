@@ -37,9 +37,9 @@ export function FriendsView() {
 
   useEffect(() => {
     void load();
-    // Poll so presence dots and incoming/accepted requests stay fresh while the
-    // page is open (they used to only update on a full remount).
-    const id = setInterval(() => void load(), 20_000);
+    // Poll so presence dots and incoming/accepted requests stay fresh while the page is
+    // open (8s — responsive enough to feel "live" without hammering the API).
+    const id = setInterval(() => void load(), 8_000);
     return () => clearInterval(id);
   }, [load]);
 

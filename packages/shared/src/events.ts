@@ -128,6 +128,8 @@ export interface InterServerEvents {
 export interface SocketData {
   userId: string;
   username: string;
+  avatar: string | null; // cosmetic avatar (resolved once at handshake) → shown on the player's seat
+
   roomId: string | null;
   seat: Seat | null;
   clientSeed: string | null; // provably-fair contribution, if the client sent one

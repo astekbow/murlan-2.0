@@ -23,6 +23,7 @@ import { cryptoRng } from '../util/rng.ts';
 export interface ActingUser {
   userId: string;
   username: string;
+  avatar?: string | null; // cosmetic avatar; carried onto the seat so it shows at the table/room
 }
 
 export interface ManagerResult {
@@ -47,6 +48,7 @@ function genJoinCode(): string {
 interface InternalSeat {
   userId: string | null;
   username: string | null;
+  avatar: string | null;
   team: 0 | 1 | null;
   ready: boolean;
   connected: boolean;
@@ -205,6 +207,7 @@ export class RoomManager {
     if (seat) {
       seat.userId = null;
       seat.username = null;
+      seat.avatar = null;
       seat.team = null;
       seat.ready = false;
       seat.connected = false;
@@ -397,6 +400,7 @@ export class RoomManager {
       seat: i,
       userId: s.userId,
       username: s.username,
+      avatar: s.avatar,
       team: s.team,
       ready: s.ready,
       connected: s.connected,
@@ -458,6 +462,7 @@ export class RoomManager {
     const s = room.seats[idx]!; // pickSeat returns a valid in-bounds seat index (or <0)
     s.userId = user.userId;
     s.username = user.username;
+    s.avatar = user.avatar ?? null;
     s.team = room.type === '2v2' ? (TEAM_SEATS[0].includes(idx) ? 0 : 1) : null;
     s.ready = false;
     s.connected = true;
@@ -479,5 +484,5 @@ export class RoomManager {
 }
 
 function emptySeat(): InternalSeat {
-  return { userId: null, username: null, team: null, ready: false, connected: false };
+  return { userId: null, username: null, avatar: null, team: null, ready: false, connected: false };
 }

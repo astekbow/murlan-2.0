@@ -121,7 +121,9 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                   className="pfp"
                   style={{ width: 54, height: 54, borderColor: s.username ? ring : 'rgba(255,255,255,.12)', opacity: s.username ? 1 : 0.4 }}
                 >
-                  {s.username ? s.username.charAt(0).toUpperCase() : '…'}
+                  {s.username
+                    ? (s.avatar ? <AvatarFace id={s.avatar} fill className="text-2xl leading-none" /> : s.username.charAt(0).toUpperCase())
+                    : '…'}
                 </span>
                 {s.username ? (
                   <div className="text-center">

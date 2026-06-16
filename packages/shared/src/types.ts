@@ -59,6 +59,7 @@ export interface SeatInfo {
   seat: Seat;
   userId: string | null;
   username: string | null;
+  avatar: string | null; // cosmetic avatar (preset id or small data URL); null = show initials
   team: 0 | 1 | null; // 2v2 only
   ready: boolean;
   connected: boolean;

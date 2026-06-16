@@ -342,6 +342,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                     <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title={t('table.viewProfile')}>
                       <SeatBadge
                         name={nameOf(s.seat)}
+                        avatar={s.avatar}
                         count={game?.handCounts?.[s.seat] ?? 0}
                         team={room.type === '2v2' ? s.team : null}
                         isTurn={game?.turn === s.seat}
@@ -388,15 +389,20 @@ export function TableView({ room }: { room: RoomStateDTO }) {
           </div>
         ) : (
           <>
-            {mySeat !== null && bubbleFor(mySeat) && (
-              <div className="text-center pb-1">
-                <span className="inline-block animate-pop panel-solid rounded-xl px-3 py-1 max-w-[220px] truncate">
-                  {bubbleFor(mySeat)!.kind === 'emote'
-                    ? <span className="text-xl leading-none">{bubbleFor(mySeat)!.text}</span>
-                    : <span className="text-sm text-txt">{bubbleFor(mySeat)!.text}</span>}
-                </span>
-              </div>
-            )}
+            {/* My emote/chat bubble FLOATS above the hand (absolute) so sending one never
+                grows the bottom area and shoves the whole table up. */}
+            {(() => {
+              const myBubble = mySeat !== null ? bubbleFor(mySeat) : undefined;
+              return myBubble ? (
+                <div className="absolute left-1/2 bottom-full mb-1 -translate-x-1/2 text-center pointer-events-none z-30">
+                  <span className="inline-block animate-pop panel-solid rounded-xl px-3 py-1 max-w-[220px] truncate">
+                    {myBubble.kind === 'emote'
+                      ? <span className="text-xl leading-none">{myBubble.text}</span>
+                      : <span className="text-sm text-txt">{myBubble.text}</span>}
+                  </span>
+                </div>
+              ) : null;
+            })()}
             {isMyTurn && <LocalTurnBar deadline={game?.turnDeadline ?? null} />}
           </>
         )}
@@ -443,13 +449,18 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         const iReady = mySeat != null && handReady.includes(mySeat);
         return (
           <div className="modal-backdrop !z-[55]" role="dialog" aria-modal="true" aria-label={t('table.standingsTitle')}>
-            <div className="panel-solid w-full max-w-sm max-h-[88vh] overflow-y-auto p-5 text-center animate-pop">
-              <div className="text-3xl mb-1">🏁</div>
-              <h2 className="gold-text font-display font-bold tracking-wide text-xl mb-0.5">{t('table.standingsTitle')}</h2>
-              <p className="text-xs text-muted mb-4">{t('table.handDone', { n: handStandings.gameIndex + 1 })} · {t('table.toTarget', { n: sb.target })}</p>
-              <ol className="text-left space-y-1.5 mb-5">
+            {/* Flex column so the title + Continue button are always visible and the panel
+                stays CENTERED + scroll-free on a short landscape phone (≤4 player rows fit;
+                the list is the only thing that could ever shrink/scroll, never the button). */}
+            <div className="panel-solid w-full max-w-sm max-h-[92dvh] flex flex-col overflow-hidden p-4 text-center animate-pop">
+              <div className="shrink-0">
+                <div className="text-2xl mb-0.5">🏁</div>
+                <h2 className="gold-text font-display font-bold tracking-wide text-lg leading-tight">{t('table.standingsTitle')}</h2>
+                <p className="text-[11px] text-muted mb-2">{t('table.handDone', { n: handStandings.gameIndex + 1 })} · {t('table.toTarget', { n: sb.target })}</p>
+              </div>
+              <ol className="text-left space-y-1 flex-1 min-h-0 overflow-y-auto no-scrollbar">
                 {rows.map((r, i) => (
-                  <li key={r.seat} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
+                  <li key={r.seat} className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
                     <span className="w-5 text-sm font-display font-bold text-muted tabular-nums">{i + 1}</span>
                     <span className={`flex-1 truncate text-sm ${r.isMe ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
                       {r.name}{r.wonHand ? ' 🏆' : ''}{room.type === '2v2' && r.team != null ? ` · ${t('table.squad', { n: r.team + 1 })}` : ''}
@@ -458,7 +469,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                   </li>
                 ))}
               </ol>
-              <button autoFocus onClick={() => { sound.play('button'); continueHand(); }} disabled={iReady} className="btn btn-gold btn-lg btn-block">
+              <button autoFocus onClick={() => { sound.play('button'); continueHand(); }} disabled={iReady} className="btn btn-gold btn-block shrink-0 mt-3">
                 {iReady ? t('table.waitingOthers', { n: handReady.length, total: Math.max(handHumans, handReady.length) }) : t('table.continue')}
               </button>
             </div>

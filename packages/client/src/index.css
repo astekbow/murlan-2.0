@@ -345,7 +345,10 @@ select:focus-visible,
   .av.off { opacity: 0.5; }
 
   /* ---- Turn countdown ring (depletes over the player's remaining time) ------- */
-  .turn-ring { position: absolute; inset: -6px; transform: rotate(-90deg); pointer-events: none; z-index: 2; }
+  /* PROPORTIONAL inset (% of the avatar wrapper) so the ring stays aligned at every
+     responsive avatar size (56 → 46 → 36px). A fixed px inset drifts as the avatar
+     shrinks on mobile/landscape (the ring sat too far out from the small avatar). */
+  .turn-ring { position: absolute; inset: -10%; transform: rotate(-90deg); pointer-events: none; z-index: 2; }
   .turn-ring-track { fill: none; stroke: rgba(0, 0, 0, 0.4); stroke-width: 3.5; }
   .turn-ring-arc {
     fill: none; stroke: var(--gold); stroke-width: 3.5; stroke-linecap: round;
@@ -607,7 +610,14 @@ select:focus-visible,
   max-width: 96vw !important;       /* use most of the wide landscape screen */
   padding-bottom: env(safe-area-inset-bottom) !important;
 }
-.tv-ls .tv-top { padding-top: 4px !important; padding-bottom: 0 !important; }
+/* Clear the top edge AND a side notch (the chat/emoji buttons sit top-right and were
+   clipped under the Dynamic Island / status area in landscape). */
+.tv-ls .tv-top {
+  padding-top: max(8px, env(safe-area-inset-top)) !important;
+  padding-bottom: 0 !important;
+  padding-left: max(4px, env(safe-area-inset-left)) !important;
+  padding-right: max(8px, env(safe-area-inset-right)) !important;
+}
 .tv-ls .tv-score { margin: 2px 0 !important; }
 /* Top padding gives the opponent seat (above the felt) room; the left/right safe-area
    insets shift the felt (and its side seat badges) clear of the Dynamic Island. */
