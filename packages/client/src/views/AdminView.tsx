@@ -224,7 +224,7 @@ function MatchRow({ m }: { m: AdminMatch }) {
         <span className="text-muted"> · {dollars(m.stakeCents)} · {t('admin.target')} {m.target} · {m.players.map((p) => p.username ?? `?${p.seat}`).join(', ')}</span>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('admin.voidReason')} className="field flex-1 min-w-[160px]" />
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('admin.voidReason')} aria-label={t('admin.voidReason')} className="field flex-1 min-w-[160px]" />
         <button onClick={() => void onVoid()} disabled={busy} className="btn btn-danger btn-sm shrink-0">{busy ? t('admin.voiding') : t('admin.voidMatch')}</button>
       </div>
       {dialog}
@@ -443,7 +443,7 @@ export function AdminView() {
         <section className="panel p-5 animate-rise">
           <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('admin.users', { n: users.length })}</h2>
-            <input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder={t('admin.searchUsers')} autoCapitalize="none" autoCorrect="off" spellCheck={false} className="field max-w-[220px]" />
+            <input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder={t('admin.searchUsers')} aria-label={t('admin.searchUsers')} autoCapitalize="none" autoCorrect="off" spellCheck={false} className="field max-w-[220px]" />
           </div>
           <div className="flex items-center gap-2 flex-wrap mb-3">
             <div className="seg">

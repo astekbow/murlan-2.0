@@ -106,6 +106,7 @@ export function LobbyView() {
                 onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ''))}
                 onKeyDown={(e) => { if (e.key === 'Enter') void onJoinByCode(); }}
                 placeholder={t('lobby.joinCodePlaceholder')}
+                aria-label={t('lobby.joinByCode')}
                 maxLength={6}
                 inputMode="numeric"
                 className="field flex-1 tracking-[0.3em] font-mono text-center"

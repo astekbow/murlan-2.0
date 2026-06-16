@@ -130,6 +130,7 @@ export function ClubsView() {
                 autoCorrect="off"
                 spellCheck={false}
                 placeholder={t('clubs.codePlaceholder')}
+                aria-label={t('clubs.joinByCodeTitle')}
                 className="field flex-1 tracking-[0.3em] font-mono uppercase"
               />
               <button disabled={busy || codeInput.trim().length < 4} onClick={() => void act(() => clubsApi.joinByCode(token()!, codeInput.trim()))} className="btn btn-ghost shrink-0">{t('clubs.join')}</button>
@@ -233,7 +234,7 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
         ))}
       </div>
       <form onSubmit={submit} className="flex gap-2">
-        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={280} placeholder={t('clubs.messagePlaceholder')} className="field flex-1" />
+        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={280} placeholder={t('clubs.messagePlaceholder')} aria-label={t('clubs.messagePlaceholder')} className="field flex-1" />
         <button type="submit" disabled={busy || !text.trim()} className="btn btn-gold">{t('clubs.send')}</button>
       </form>
       {dialog}

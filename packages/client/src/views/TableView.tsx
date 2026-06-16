@@ -70,17 +70,36 @@ function LogPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-// Visually-hidden live region so screen-reader users hear turn changes + the result
-// (the table is rendered with CSS transforms, not semantic structure). The trailing
-// space alternates so an identical "your turn" on a later turn re-announces.
+// Visually-hidden live regions for screen-reader users (the felt is CSS transforms,
+// not semantic structure). TWO channels (A11Y-4):
+//  • ASSERTIVE (interrupts): "your turn" + the final result — the things a player must
+//    act on / hear immediately.
+//  • POLITE (queues): every table ACTION — each play/pass, new round, card-switch, score
+//    — sourced from the running game log so a blind player can follow the whole hand.
+// A trailing-space toggle makes an identical consecutive message ("…passed", "your turn")
+// re-announce instead of being silently de-duped by the AT.
 function GameAnnouncer({ isMyTurn, result }: { isMyTurn: boolean; result: string | null }) {
   const t = useT();
-  const [msg, setMsg] = useState('');
+  const log = useGameStore((s) => s.log); // subscribe HERE so appends re-render only this, not the felt
+  const [turnMsg, setTurnMsg] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
+
   useEffect(() => {
-    if (isMyTurn) setMsg((m) => (m === t('table.yourTurn') ? `${t('table.yourTurn')} ` : t('table.yourTurn')));
+    if (isMyTurn) setTurnMsg((m) => (m.trimEnd() === t('table.yourTurn') ? `${t('table.yourTurn')} ` : t('table.yourTurn')));
   }, [isMyTurn, t]);
-  useEffect(() => { if (result) setMsg(result); }, [result]);
-  return <div className="sr-only" role="status" aria-live="assertive">{msg}</div>;
+  useEffect(() => { if (result) setTurnMsg(result); }, [result]); // result overrides the turn line
+
+  useEffect(() => {
+    const last = log[log.length - 1];
+    if (last?.text) setActionMsg((m) => (m.trimEnd() === last.text ? `${last.text} ` : last.text));
+  }, [log]);
+
+  return (
+    <>
+      <div className="sr-only" role="status" aria-live="assertive">{turnMsg}</div>
+      <div className="sr-only" role="log" aria-live="polite" aria-atomic="true">{actionMsg}</div>
+    </>
+  );
 }
 
 export function TableView({ room }: { room: RoomStateDTO }) {
