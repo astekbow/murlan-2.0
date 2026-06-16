@@ -641,11 +641,16 @@ select:focus-visible,
   padding-bottom: 0 !important;
   padding-left: max(4px, env(safe-area-inset-left)) !important;
   padding-right: max(8px, env(safe-area-inset-right)) !important;
+  /* Sit ABOVE the felt: the felt comes later in the DOM (so it stacks higher by default)
+     and, on a short landscape screen, its top edge can reach up toward this bar — without
+     this the Leave / chat / emoji buttons get covered. */
+  position: relative;
+  z-index: 3;
 }
 .tv-ls .tv-score { margin: 2px 0 !important; }
 /* Top padding gives the opponent seat (above the felt) room; the left/right safe-area
    insets shift the felt (and its side seat badges) clear of the Dynamic Island. */
-.tv-ls .tv-table { padding: 18px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
+.tv-ls .tv-table { padding: 6px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
 .tv-ls .tv-felt { padding: 2px 8px !important; max-width: none !important; }
 /* Keep the hand clear of the side Play/Pass buttons. The buttons sit at
    max(14px, env(inset)) from each edge, so the hand padding must include the SAME
@@ -656,7 +661,10 @@ select:focus-visible,
   padding-right: calc(env(safe-area-inset-right) + 124px) !important;
 }
 .tv-ls .rail-outer { padding: 6px; border-radius: 120px / 30%; }
-.tv-ls .rail-inner { min-height: clamp(150px, 56vh, 240px); border-radius: 112px / 26%; }
+/* Felt height must LEAVE ROOM for the top bar + the (now bigger) hand on short landscape
+   screens. 56vh was too greedy: top-bar + felt + hand exceeded 100dvh, so the felt
+   overflowed UP and covered the corner controls. Shrink it so the whole column fits. */
+.tv-ls .rail-inner { min-height: clamp(96px, 34vh, 168px); border-radius: 112px / 26%; }
 .tv-ls .felt-ring { inset: 14% 22%; }
 .tv-ls .tlogo { font-size: 16px; letter-spacing: 3px; top: 26%; }
 .tv-ls .av { width: 36px; height: 36px; font-size: 11px; border-width: 2px; }

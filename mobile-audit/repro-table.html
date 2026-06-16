@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- the REAL built stylesheet so the layout matches production exactly -->
+  <link rel="stylesheet" href="../packages/client/dist/assets/index-BtwzFGJ8.css" />
+  <style> body { margin: 0; } </style>
+</head>
+<body>
+  <!-- Mirrors TableView's tv-root structure (landscape .tv-ls) to test the VERTICAL fit:
+       top bar + felt + (big) hand must all fit 100dvh with the corner buttons visible. -->
+  <div class="tv-root relative z-10 flex flex-col mx-auto w-full max-w-[680px] tv-ls">
+    <div class="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
+      <button class="btn btn-ghost">&larr; Largohu</button>
+      <div class="flex items-center gap-2">
+        <span class="text-xs" style="color:#e8c879">16s</span>
+        <button class="iconbtn">&#9776;</button>
+        <button class="iconbtn">&#128172;</button>
+        <button class="iconbtn">&#128522;</button>
+      </div>
+    </div>
+    <div class="tv-table flex-1 flex items-center justify-center min-h-0 py-1">
+      <div class="tv-felt relative w-full max-w-[640px]">
+        <!-- top opponent seat (absolute) -->
+        <div class="tv-seat tv-seat-top absolute z-[5] left-1/2 -translate-x-1/2 -top-8">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <div style="display:flex;height:20px;align-items:flex-end">
+              <div class="mini" style="height:22px;width:16px"></div>
+              <div class="mini" style="height:22px;width:16px;margin-left:-9px"></div>
+            </div>
+            <div class="relative inline-grid place-items-center">
+              <div class="av turn">G</div>
+            </div>
+            <div class="seat-nm">Geri</div>
+          </div>
+        </div>
+        <div class="rail-outer"><div class="rail-inner">
+          <div class="felt-ring"></div>
+          <div class="tlogo">MURLAN</div>
+        </div></div>
+      </div>
+    </div>
+    <div class="tv-bottom pt-1 relative z-20">
+      <div class="no-scrollbar" style="overflow-x:auto;max-width:100%;padding:0 8px">
+        <div class="hand-stage" style="height:131px;width:560px;position:relative">
+          <!-- a few big cards (CARD_W 78 x CARD_H 109) to simulate the bigger hand -->
+          <div class="gcard lg" style="position:absolute;left:0;bottom:0;width:78px;height:109px"><span class="gc-r">3</span><span class="gc-big">&#9829;</span></div>
+          <div class="gcard lg" style="position:absolute;left:40px;bottom:0;width:78px;height:109px"><span class="gc-r">7</span><span class="gc-big">&#9824;</span></div>
+          <div class="gcard lg" style="position:absolute;left:80px;bottom:0;width:78px;height:109px"><span class="gc-r">K</span><span class="gc-big">&#9827;</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
