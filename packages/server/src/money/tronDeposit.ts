@@ -35,6 +35,7 @@ export interface TronDepositOptions {
   contract?: string;       // token contract (defaults to mainnet USDT)
   baseUrl?: string;
   fetchFn?: FetchLike;
+  retryBaseMs?: number;    // backoff base for transient-read retries (default 400; tests pass 0)
 }
 
 export class TronDepositVerifier {
@@ -46,6 +47,37 @@ export class TronDepositVerifier {
     this.contract = opts.contract ?? USDT_TRC20_CONTRACT;
     this.base = opts.baseUrl ?? API;
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchLike);
+  }
+
+  /**
+   * Fetch with retry on TRANSIENT failure ONLY — a network throw or HTTP 429/5xx
+   * (the free TronGrid tier is rate-limited and occasionally 5xx's). A definite
+   * answer (2xx, or a 4xx like "not found") is returned immediately and NOT
+   * retried, so a legitimately-missing tx isn't slowed (WEB-7).
+   *
+   * SAFE here because every caller is a READ (verify / balanceOf). It is
+   * deliberately NOT used for the Binance payout SEND — retrying an ambiguous
+   * send response risks a double-pay.
+   */
+  private async fetchWithRetry(
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string },
+    attempts = 3,
+  ): Promise<{ ok: boolean; status: number; json(): Promise<any> }> {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const res = await this.fetchFn(url, init);
+        // 429 (rate-limited) or 5xx (server-side) → transient; anything else is a
+        // final answer the caller should handle (ok, or a 4xx like 404/400).
+        if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+        lastErr = new Error(`TronGrid ${res.status}`);
+      } catch (err) {
+        lastErr = err; // network throw — retry
+      }
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, (this.opts.retryBaseMs ?? 400) * (i + 1))); // 400ms, 800ms
+    }
+    throw lastErr ?? new Error('TronGrid unreachable');
   }
 
   /**
@@ -62,7 +94,7 @@ export class TronDepositVerifier {
     const want = txId.toLowerCase();
     try {
       const url = `${this.base}/v1/accounts/${dest}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
-      const res = await this.fetchFn(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
+      const res = await this.fetchWithRetry(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
       if (!res.ok) return { ok: false, error: `TronGrid ${res.status}` };
       const data = await res.json();
       // Compare case-insensitively (TRON hashes are lowercase hex, but don't assume).
@@ -97,7 +129,7 @@ export class TronDepositVerifier {
     try {
       const param = tronAddressToAbiParam(address);
       if (!param) return null;
-      const res = await this.fetchFn(`${this.base}/wallet/triggerconstantcontract`, {
+      const res = await this.fetchWithRetry(`${this.base}/wallet/triggerconstantcontract`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(this.opts.apiKey ? { 'TRON-PRO-API-KEY': this.opts.apiKey } : {}) },
         body: JSON.stringify({

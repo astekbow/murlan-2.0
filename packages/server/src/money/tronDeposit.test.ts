@@ -51,9 +51,52 @@ test('passes the API key header when provided', async () => {
 
 test('non-ok TronGrid response → error, never throws', async () => {
   const { fetchFn } = stub({}, false, 503);
-  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn }).verify(TX);
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn, retryBaseMs: 0 }).verify(TX);
   assert.equal(r.ok, false);
   assert.match(r.error!, /503/);
+});
+
+test('WEB-7: retries a transient 503 then succeeds on the next attempt', async () => {
+  let n = 0;
+  const fetchFn = async () => {
+    n += 1;
+    if (n < 3) return { ok: false, status: 503, async json() { return {}; } }; // flaky twice
+    return { ok: true, status: 200, async json() { return { data: [transfer()] }; } }; // then OK
+  };
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn, retryBaseMs: 0 }).verify(TX);
+  assert.deepEqual(r, { ok: true, amountCents: 3000, from: 'TSenderAddr' });
+  assert.equal(n, 3); // two failures + one success
+});
+
+test('WEB-7: retries a thrown network error, then gives up gracefully after the cap (never throws)', async () => {
+  let n = 0;
+  const fetchFn = async () => { n += 1; throw new Error('ECONNRESET'); };
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn, retryBaseMs: 0 }).verify(TX);
+  assert.equal(r.ok, false);
+  assert.equal(n, 3); // capped at 3 attempts
+});
+
+test('WEB-7: does NOT retry a definite 4xx (e.g. 404) — a missing tx is final', async () => {
+  let n = 0;
+  const fetchFn = async () => { n += 1; return { ok: false, status: 404, async json() { return {}; } }; };
+  const r = await new TronDepositVerifier({ depositAddress: MY, fetchFn, retryBaseMs: 0 }).verify(TX);
+  assert.equal(r.ok, false);
+  assert.equal(n, 1); // single attempt — no wasteful retries on a final answer
+});
+
+test('WEB-7: usdtBalanceCents retries a transient 5xx then returns the balance', async () => {
+  // A real, checksum-valid base58 address (the fake MY can't be ABI-encoded).
+  const ADDR = 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6';
+  let n = 0;
+  // balanceOf(10 USDT) raw = 10_000000 = 0x989680
+  const fetchFn = async () => {
+    n += 1;
+    if (n < 2) return { ok: false, status: 500, async json() { return {}; } };
+    return { ok: true, status: 200, async json() { return { constant_result: ['989680'] }; } };
+  };
+  const bal = await new TronDepositVerifier({ depositAddress: ADDR, fetchFn, retryBaseMs: 0 }).usdtBalanceCents(ADDR);
+  assert.equal(bal, 1000); // $10.00
+  assert.equal(n, 2);
 });
 
 test('REJECTS a transfer with a missing/empty token contract (scam-token guard)', async () => {

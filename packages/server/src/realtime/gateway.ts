@@ -1458,7 +1458,12 @@ export class GameGateway {
       .map((s, i) => ({ seat: i, userId: s.userId }))
       .filter((p): p is { seat: number; userId: string } => p.userId !== null);
     const winners = forfeitWinners(room.type, players, abandonerSeat, DEFAULT_TEAMS);
-    const anyWinnerConnected = winners.some((s) => room.seats[s]?.connected);
+    // Void only if NO winner is still SEATED. "seated" (not "connected") is both more
+    // correct — a winner who's momentarily disconnected but still in their seat (mid-
+    // reconnect, grace not expired) outlasted the abandoner and deserves the pot, not a
+    // void — AND race-free: unlike `connected`, seat occupancy can't flip during the
+    // async settle below (CORRECTNESS-1).
+    const anyWinnerSeated = winners.some((s) => room.seats[s]?.userId != null);
 
     this.clearTurnTimer(roomId);
     this.clearRoomAbandonTimers(roomId);
@@ -1469,7 +1474,7 @@ export class GameGateway {
     const matchId = this.rooms.matchIdOf(roomId);
     if (this.money && matchId) {
       try {
-        if (anyWinnerConnected) {
+        if (anyWinnerSeated) {
           const endTimer = settlementDuration.startTimer();
           const settlement = await this.money.settle({ matchId, winnerSeats: winners });
           endTimer();
