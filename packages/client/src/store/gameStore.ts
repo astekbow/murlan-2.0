@@ -78,6 +78,8 @@ interface GameStore {
   lobby: LobbyRoomInfo[];
   live: LiveMatchInfo[]; // in-match rooms available to spectate
   room: RoomStateDTO | null;
+  /** Live count of people watching this room (0 = none). Drives the table's watcher badge. */
+  spectators: number;
   game: PublicGameStateDTO | null;
   /** Client-only visual stack of the plays already beaten in the CURRENT trick. The server
    *  pile is a single combo (the one to beat); we keep the earlier plays so they stay on the
@@ -175,6 +177,7 @@ function nextPileHistory(hist: Combo[], oldPile: Combo | null, newPile: Combo | 
 
 const emptyRoomState = {
   room: null,
+  spectators: 0,
   game: null,
   pileHistory: [] as Combo[],
   gameIndex: 0,
@@ -233,6 +236,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const seat = state.seats.findIndex((s) => s.userId === get().myUserId);
       set({ room: state, mySeat: seat >= 0 ? seat : get().mySeat, queue: null });
     });
+
+    socket.on('room:spectators', (dto) => set({ spectators: dto.count }));
 
     socket.on('match:start', (room) => {
       set((s) => ({ room, queue: null, log: appendLog(s.log, tg('log.matchStarted')) }));

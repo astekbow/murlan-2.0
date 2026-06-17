@@ -108,13 +108,13 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
     game, pileHistory, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
-    fairReveal, bubbles, handStandings, handReady, handHumans,
+    fairReveal, bubbles, handStandings, handReady, handHumans, spectators,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch, continueHand,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, pileHistory: s.pileHistory, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
       scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult,
-      fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans,
+      fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans, spectators: s.spectators,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
       giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch, continueHand: s.continueHand,
     })),
@@ -296,6 +296,15 @@ export function TableView({ room }: { room: RoomStateDTO }) {
           {t('table.leaveArrow')}
         </button>
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {spectators > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
+              title={t('table.spectators', { n: spectators })}
+              aria-label={t('table.spectators', { n: spectators })}
+            >
+              <span aria-hidden>👁</span>{spectators}
+            </span>
+          )}
           {scoreboard && (
             <span
               className="inline-flex items-center gap-1.5 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2.5 py-1 leading-none whitespace-nowrap"

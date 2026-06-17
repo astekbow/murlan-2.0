@@ -113,6 +113,7 @@ export interface ServerToClientEvents {
   'fair:commit': (dto: FairCommitDTO) => void;  // before the match
   'fair:reveal': (dto: FairRevealDTO) => void;  // after the match (verifiable)
   'error': (err: ErrorDTO) => void;
+  'room:spectators': (dto: { count: number }) => void; // live watcher count for the room
   // Social (§2.5)
   'emote': (dto: { seat: Seat; emote: string }) => void;
   'chat': (dto: { seat: Seat; username: string; text: string }) => void;

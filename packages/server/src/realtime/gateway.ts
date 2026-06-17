@@ -614,9 +614,15 @@ export class GameGateway {
       this.spectatorCount.set(roomId, current + 1);
       socket.data.spectating = roomId;
       void socket.join(roomId);
+      this.emitSpectatorCount(roomId);
     }
     reply({ ok: true, roomId });
     this.pushSpectatorState(socket, roomId); // catch the watcher up to the live state
+  }
+
+  /** Broadcast the room's live spectator count to everyone in it (players + watchers). */
+  private emitSpectatorCount(roomId: string): void {
+    this.io.to(roomId).emit('room:spectators', { count: this.spectatorCount.get(roomId) ?? 0 });
   }
 
   private onUnspectate(socket: IOSocket, ack: (res: Ack) => void): void {
@@ -652,6 +658,7 @@ export class GameGateway {
     const n = (this.spectatorCount.get(roomId) ?? 1) - 1;
     if (n <= 0) this.spectatorCount.delete(roomId);
     else this.spectatorCount.set(roomId, n);
+    if (this.rooms.getRoom(roomId)) this.emitSpectatorCount(roomId); // notify remaining watchers/players
   }
 
   // ---------- Ranked matchmaking ---------------------------------------------
