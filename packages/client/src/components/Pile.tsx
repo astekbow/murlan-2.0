@@ -35,7 +35,10 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
   return (
     <div className="flex flex-col items-center gap-2">
       {pile && (
-        <div className="font-display text-[11px] uppercase tracking-wide text-gold-hi/90">{t(COMBO_LABEL_KEY[pile.type])}</div>
+        <div
+          className="font-display text-[13px] font-bold uppercase tracking-wide text-gold-hi"
+          style={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+        >{t(COMBO_LABEL_KEY[pile.type])}</div>
       )}
       {/* Stack layers: each earlier play is offset up-left and dimmed; the newest sits
           front-and-centre at full opacity. The first layer is in-flow (sizes the box);
@@ -49,8 +52,8 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
               key={i}
               className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' animate-pop' : ''}`}
               style={{
-                transform: `translate(${-back * 7}px, ${-back * 9}px)`,
-                opacity: isTop ? 1 : 0.55,
+                transform: `translate(${-back * 11}px, ${-back * 13}px)`,
+                opacity: isTop ? 1 : 0.5,
                 zIndex: i + 1,
               }}
             >

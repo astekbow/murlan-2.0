@@ -32,11 +32,11 @@ export function LocalTurnBar({ deadline }: { deadline: number | null }) {
   const low = secs <= 5;
   return (
     <div className="px-3 pb-1.5">
-      <div className="flex items-center justify-center gap-2 pb-1">
-        <span className={`animate-pop font-display font-bold tracking-wide text-base uppercase ${low ? 'text-red-200' : 'gold-text'}`}>
+      <div className="flex items-center justify-center gap-2.5 pb-1">
+        <span className={`animate-pop font-display font-bold tracking-wide text-lg uppercase ${low ? 'text-red-200' : 'gold-text'}`}>
           {t('table.yourTurn')}
         </span>
-        <span className={`tabular-nums text-sm font-semibold ${low ? 'text-red-200' : 'text-gold-hi'}`}>{secs}s</span>
+        <span className={`tabular-nums text-xl font-bold leading-none ${low ? 'text-red-300' : 'text-gold-hi'}`}>{secs}s</span>
       </div>
       <div className="local-turn-bar" aria-hidden>
         {/* key={deadline} restarts the depletion animation on each new turn */}

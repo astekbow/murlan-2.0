@@ -337,7 +337,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         <div className={`tv-felt relative w-full max-w-[640px] px-7 py-6 max-[480px]:px-3 ${feltClass} ${cbClass}`}>
           <div className="rail-outer">
           <div className="rail-inner">
-            <div className="felt-ring" aria-hidden />
+            <div className={`felt-ring${game?.pile ? ' live' : ''}`} aria-hidden />
             <div className="tlogo">MURLAN</div>
 
             {/* Opponent seats (counts only — never card identities) */}

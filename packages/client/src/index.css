@@ -172,7 +172,7 @@ select:focus-visible,
   }
   .btn:hover:not(:disabled) { transform: translateY(-1px); }
   .btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:disabled { opacity: 0.4; filter: grayscale(70%); cursor: not-allowed; }
   .btn-gold { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 8px 18px -8px rgba(232, 200, 121, 0.6); }
   .btn-green { color: #06210f; background: linear-gradient(180deg, #4fe08c, #1f9a58); box-shadow: 0 8px 18px -8px rgba(52, 196, 106, 0.6); }
   .btn-ghost { background: transparent; color: var(--txt); border: 1px solid rgba(255, 255, 255, 0.18); }
@@ -344,9 +344,15 @@ select:focus-visible,
   /* The betting ring — a faint gold ellipse where the pile is played. */
   .felt-ring {
     position: absolute; inset: 17% 13%; border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3);
+    border: 2.5px solid var(--gold-line);
+    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 30px rgba(232, 200, 121, 0.18);
     pointer-events: none; z-index: 1;
+    transition: box-shadow 0.4s ease, border-color 0.4s ease;
+  }
+  /* A play is live on the pile → brighten the gold play-zone so it's unmistakable. */
+  .felt-ring.live {
+    border-color: var(--gold);
+    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 50px rgba(232, 200, 121, 0.4);
   }
   .rail-inner::before {
     content: ''; position: absolute; inset: 0; border-radius: inherit; opacity: 0.08;
@@ -367,7 +373,13 @@ select:focus-visible,
     background: linear-gradient(180deg, #dfe9f5, #9fb3cf); box-shadow: 0 8px 18px -8px #000; border: 3px solid var(--blue);
   }
   .av.green { border-color: var(--green); }
-  .av.turn { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(230, 197, 112, 0.5), 0 0 22px rgba(230, 197, 112, 0.6); }
+  /* Active opponent: a thick gold halo that PULSES — readable in peripheral vision even
+     at the 36px landscape avatar, where the thin depleting ring alone was easy to miss. */
+  .av.turn { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(232, 200, 121, 0.78), 0 0 22px rgba(230, 197, 112, 0.7); animation: turn-pulse 1.4s ease-in-out infinite; }
+  @keyframes turn-pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(232, 200, 121, 0.7), 0 0 16px rgba(230, 197, 112, 0.55); }
+    50% { box-shadow: 0 0 0 5px rgba(232, 200, 121, 0.98), 0 0 30px rgba(230, 197, 112, 0.95); }
+  }
   .av.off { opacity: 0.5; }
 
   /* ---- Turn countdown ring (depletes over the player's remaining time) ------- */
@@ -386,9 +398,14 @@ select:focus-visible,
 
   /* ---- Local player's turn bar (the local player has no avatar/ring) ------ */
   .local-turn-bar {
-    height: 7px; border-radius: 9999px; overflow: hidden;
-    background: rgba(0, 0, 0, 0.4);
-    box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.25);
+    height: 14px; border-radius: 9999px; overflow: hidden;
+    background: rgba(0, 0, 0, 0.45);
+    box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.4), 0 0 14px rgba(232, 200, 121, 0.45);
+    animation: turn-bar-glow 1.2s ease-in-out infinite;
+  }
+  @keyframes turn-bar-glow {
+    0%, 100% { box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.4), 0 0 10px rgba(232, 200, 121, 0.32); }
+    50% { box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.6), 0 0 20px rgba(232, 200, 121, 0.62); }
   }
   .local-turn-bar-fill {
     height: 100%; width: 100%; border-radius: 9999px;

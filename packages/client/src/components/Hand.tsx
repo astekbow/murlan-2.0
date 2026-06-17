@@ -106,7 +106,7 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
 
   return (
     <div ref={scrollRef} className="no-scrollbar overflow-x-auto overflow-y-visible max-w-full px-2">
-      <div ref={stageRef} className="hand-stage" style={{ width: stageW, height: CARD_H + 22 }}>
+      <div ref={stageRef} className="hand-stage" style={{ width: stageW, height: CARD_H + 34 }}>
         {ids.map((id, i) => {
           const card = byId.get(id);
           if (!card) return null;
@@ -119,11 +119,13 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
             // Straight row; a small lift while dragging so it reads as "picked up".
             style = { left, bottom: 0, transform: 'translateY(-16px)', zIndex: 50, transition: 'none' };
           } else {
-            // Flat row. A selected card rises a little BUT keeps its natural
-            // stacking (z = i, not on top of everything), so only its raised top
-            // edge (rank + gold ring) peeks above the row — it never covers the
-            // neighbouring cards. Lifting + the gold ring make the pick clear.
-            style = { left: i * step, bottom: 0, transform: `translateY(${isSel ? -22 : 0}px)`, zIndex: i };
+            // Flat row. A selected card rises BUT keeps its natural stacking (z = i,
+            // not on top of everything), so only its raised top edge (rank + gold ring)
+            // peeks above the row — it never covers the neighbouring cards. The bigger
+            // lift + the gold ring make the pick obvious; unselected cards dim while a
+            // selection is active so the chosen combo reads at a glance.
+            const dim = !isSel && selectedSet.size > 0;
+            style = { left: i * step, bottom: 0, transform: `translateY(${isSel ? -32 : 0}px)`, zIndex: i, opacity: dim ? 0.62 : 1, transition: 'transform .12s ease, opacity .12s ease' };
           }
           if (eligibleIds && !eligibleIds.has(id)) style = { ...style, opacity: 0.4 };
           const onKey = (e: KeyboardEvent) => {
