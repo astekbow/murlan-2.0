@@ -125,6 +125,35 @@ test('a player who passed is skipped for the rest of the trick', () => {
   assert.equal(g.currentTurn, 0);
 });
 
+test('4-player turn order is respected end-to-end (no non-passed player is skipped)', () => {
+  // Reproduces the owner-reported scenario: plays + passes around a full table, a player
+  // WINS the trick, and we assert the EXACT turn after every action. A real skip bug
+  // would show as a wrong currentTurn here.
+  const g = new SingleGame({
+    numPlayers: 4,
+    hands: [
+      [c('5', 'S'), c('9', 'S'), c('K', 'D')], // A(0)
+      [c('6', 'S'), c('4', 'D'), c('4', 'C')], // B(1)
+      [c('7', 'S'), c('J', 'S'), c('3', 'C')], // C(2)
+      [c('8', 'S'), c('4', 'H'), c('2', 'C')], // D(3)
+    ],
+    leader: 0,
+  });
+  const turn = () => g.currentTurn;
+  assert.equal(turn(), 0);
+  g.play(0, [c('5', 'S')]); assert.equal(turn(), 1); // A→B
+  g.play(1, [c('6', 'S')]); assert.equal(turn(), 2); // B→C
+  g.play(2, [c('7', 'S')]); assert.equal(turn(), 3); // C→D
+  g.play(3, [c('8', 'S')]); assert.equal(turn(), 0); // D→A (full loop, no skip)
+  g.play(0, [c('9', 'S')]); assert.equal(turn(), 1); // A beats → B
+  g.pass(1);                assert.equal(turn(), 2); // B passes → C (B now out for the trick)
+  g.play(2, [c('J', 'S')]); assert.equal(turn(), 3); // C beats → D (correctly SKIPS passed B)
+  g.pass(3);                assert.equal(turn(), 0); // D passes → A
+  g.pass(0);                                          // A passes → all contenders passed → C wins
+  assert.equal(turn(), 2);                            // trick won by C(owner) → C leads next
+  assert.deepEqual(g.snapshot().passed, []);          // new trick: passes cleared, everyone back in
+});
+
 // ---- finishing & game end ---------------------------------------------------
 test('emptying your hand records a finishing place and removes you from rotation', () => {
   const g = new SingleGame({

@@ -7,7 +7,15 @@ const OUT = path.join(__dirname, 'shots');
 fs.mkdirSync(OUT, { recursive: true });
 const FILE = 'file://' + path.join(__dirname, 'repro-table.html').replace(/\\/g, '/');
 
+// Inject the LATEST built stylesheet (its filename is content-hashed, so resolve it at
+// runtime instead of hardcoding the hash in the HTML).
+const ASSETS = path.join(__dirname, '..', 'packages', 'client', 'dist', 'assets');
+const CSS = fs.existsSync(ASSETS)
+  ? path.join(ASSETS, fs.readdirSync(ASSETS).find((f) => /^index-.*\.css$/.test(f)))
+  : null;
+
 const SIZES = [
+  { name: 'iPhone-14-Pro-Max-LS', w: 932, h: 430 },
   { name: 'iPhone-12-Pro-LS', w: 844, h: 390 },
   { name: 'Android-360-LS', w: 640, h: 360 },
   { name: 'iPhone-SE-LS', w: 667, h: 375 },
@@ -19,6 +27,7 @@ const SIZES = [
     const ctx = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     const page = await ctx.newPage();
     await page.goto(FILE, { waitUntil: 'networkidle' });
+    if (CSS) await page.addStyleTag({ path: CSS });
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT, `repro-${s.name}.png`) });
     // Does the top bar's bottom sit ABOVE the felt's top? (no cover) + is the whole bar on-screen?
@@ -30,6 +39,9 @@ const SIZES = [
       return {
         topBar: { top: Math.round(top.top), bottom: Math.round(top.bottom) },
         feltTop: Math.round(felt.top),
+        feltW: Math.round(felt.width),
+        feltH: Math.round(felt.height),
+        feltAspect: +(felt.width / felt.height).toFixed(2), // lower = less "stretchy"
         handBottom: Math.round(hand.bottom),
         viewportH: window.innerHeight,
         topBarFullyVisible: top.top >= -0.5 && top.bottom <= window.innerHeight,

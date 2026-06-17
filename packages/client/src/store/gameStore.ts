@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Card } from '@murlan/engine';
+import type { Card, Combo } from '@murlan/engine';
 import { cardId } from '@murlan/engine';
 import type {
   LobbyRoomInfo, LiveMatchInfo, LobbyStateDTO, RoomStateDTO, PublicGameStateDTO, ScoreboardDTO, MatchEndDTO, MatchType,
@@ -79,6 +79,10 @@ interface GameStore {
   live: LiveMatchInfo[]; // in-match rooms available to spectate
   room: RoomStateDTO | null;
   game: PublicGameStateDTO | null;
+  /** Client-only visual stack of the plays already beaten in the CURRENT trick. The server
+   *  pile is a single combo (the one to beat); we keep the earlier plays so they stay on the
+   *  felt with newer plays overlaid on top. Cleared on trick win and on a new hand. */
+  pileHistory: Combo[];
   gameIndex: number;
   mySeat: number | null;
   myHand: Card[];
@@ -155,9 +159,24 @@ function appendLog(prev: LogEntry[], text: string): LogEntry[] {
   return [...prev.slice(-29), { id: (logSeq += 1), text }];
 }
 
+/** Signature of a combo by its exact cards — identifies a distinct play within a trick. */
+const comboSig = (c: Combo) => c.cards.map(cardId).join(',');
+/** Maintain the visual pile stack as the authoritative single-combo pile changes:
+ *  - pile cleared (trick won / between)  → empty the felt
+ *  - first lead of a trick (no old pile) → nothing to stack under, keep history
+ *  - a new combo beat the old one        → push the old combo under the new (capped)
+ *  - same pile re-sent (state refresh)   → unchanged */
+function nextPileHistory(hist: Combo[], oldPile: Combo | null, newPile: Combo | null): Combo[] {
+  if (!newPile) return [];
+  if (!oldPile) return hist;
+  if (comboSig(oldPile) === comboSig(newPile)) return hist;
+  return [...hist, oldPile].slice(-10);
+}
+
 const emptyRoomState = {
   room: null,
   game: null,
+  pileHistory: [] as Combo[],
   gameIndex: 0,
   mySeat: null,
   myHand: [] as Card[],
@@ -236,17 +255,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
         handStandings: null, // the next hand dealt → drop the standings overlay
         handReady: [],
         handHumans: 0,
+        pileHistory: [], // fresh hand → clear the felt stack
         log: appendLog(s.log, tg('log.gameStarted', { n: dto.gameIndex + 1 })),
       }));
     });
 
     socket.on('game:hand', (dto) => set({ myHand: dto.hand, mySeat: dto.yourSeat }));
 
-    socket.on('game:state', (state) => set({ game: state }));
-    socket.on('game:yourTurn', (state) => set({ game: state }));
+    socket.on('game:state', (state) =>
+      set((s) => ({ pileHistory: nextPileHistory(s.pileHistory, s.game?.pile ?? null, state.pile ?? null), game: state })),
+    );
+    socket.on('game:yourTurn', (state) =>
+      set((s) => ({ pileHistory: nextPileHistory(s.pileHistory, s.game?.pile ?? null, state.pile ?? null), game: state })),
+    );
 
     socket.on('game:trickWon', (dto) =>
-      set((s) => ({ log: appendLog(s.log, tg('log.trickWon', { seat: dto.winner + 1 })) })),
+      // Trick over → the next game:state will null the pile; clear the felt stack now too.
+      set((s) => ({ pileHistory: [], log: appendLog(s.log, tg('log.trickWon', { seat: dto.winner + 1 })) })),
     );
     socket.on('game:playerFinished', (dto) =>
       set((s) => ({ log: appendLog(s.log, tg('log.playerFinished', { seat: dto.seat + 1, place: dto.place })) })),
@@ -267,6 +292,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     socket.on('card:switch', (dto) => {
       const mySeat = get().mySeat;
+      // The card switch belongs to the NEXT hand: once it begins (after everyone taps
+      // Continue), the standings screen is obsolete. game:start clears it for the other
+      // switch paths; this covers the common "winner returns a card" path, which deals
+      // via game:hand/card:switch instead of game:start.
+      if (get().handStandings) set({ handStandings: null, pileHistory: [] });
       // Track the exchanged cards (revealed only to the winner+loser) so both can
       // be shown on the table. `given` arrives first (loser→winner), `returned` next.
       if (dto.given || dto.returned) {

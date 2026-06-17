@@ -13,10 +13,16 @@ const COMBO_LABEL_KEY: Record<Combo['type'], string> = {
   flush: 'pile.comboFlush',
 };
 
-/** The current pile in the centre of the table — overlapping face-up cards. */
-function PileImpl({ pile }: { pile: Combo | null }) {
+/** The current trick in the centre of the table. Plays already beaten stay on the felt
+ *  (`history`, oldest first) with the current play (`pile`) overlaid on top, so the table
+ *  shows the whole trick instead of cards vanishing on every play. */
+function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[] }) {
   const t = useT();
-  if (!pile) {
+  // Oldest first → current last (rendered on top). Cap the visible depth so the stack
+  // never grows unwieldy in a long trick.
+  const layers = [...history, ...(pile ? [pile] : [])].slice(-6);
+
+  if (layers.length === 0) {
     return (
       <div className="flex flex-col items-center gap-1 text-cream/75 text-center">
         <div className="font-display text-[11px] uppercase tracking-[0.3em] opacity-70">{t('pile.tableLabel')}</div>
@@ -24,18 +30,41 @@ function PileImpl({ pile }: { pile: Combo | null }) {
       </div>
     );
   }
+
+  const top = layers.length - 1;
   return (
-    <div className="flex flex-col items-center gap-2 animate-pop">
-      <div className="font-display text-[11px] uppercase tracking-wide text-gold-hi/90">{t(COMBO_LABEL_KEY[pile.type])}</div>
-      <div className="pile-cards">
-        {sortComboForDisplay(pile).map((card) => (
-          <CardView key={cardKey(card)} card={card} />
-        ))}
+    <div className="flex flex-col items-center gap-2">
+      {pile && (
+        <div className="font-display text-[11px] uppercase tracking-wide text-gold-hi/90">{t(COMBO_LABEL_KEY[pile.type])}</div>
+      )}
+      {/* Stack layers: each earlier play is offset up-left and dimmed; the newest sits
+          front-and-centre at full opacity. The first layer is in-flow (sizes the box);
+          the rest are absolutely positioned relative to it. */}
+      <div className="relative">
+        {layers.map((combo, i) => {
+          const back = top - i; // 0 = newest (front), higher = older (further back)
+          const isTop = i === top;
+          return (
+            <div
+              key={i}
+              className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' animate-pop' : ''}`}
+              style={{
+                transform: `translate(${-back * 7}px, ${-back * 9}px)`,
+                opacity: isTop ? 1 : 0.55,
+                zIndex: i + 1,
+              }}
+            >
+              {sortComboForDisplay(combo).map((card) => (
+                <CardView key={cardKey(card)} card={card} />
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// Memoized: the centre pile only re-renders when the pile itself changes, not on
+// Memoized: the centre pile only re-renders when the pile or its history changes, not on
 // every hand/seat/timer update.
 export const Pile = memo(PileImpl);

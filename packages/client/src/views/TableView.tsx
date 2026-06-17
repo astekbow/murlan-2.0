@@ -107,12 +107,12 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
-    game, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
+    game, pileHistory, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
     fairReveal, bubbles, handStandings, handReady, handHumans,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch, continueHand,
   } = useGameStore(
     useShallow((s) => ({
-      game: s.game, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
+      game: s.game, pileHistory: s.pileHistory, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
       scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult,
       fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
@@ -362,7 +362,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 display never intercepts taps meant for the hand/controls below it
                 (in landscape the tall felt overlaps the bottom controls). */}
             <div className={`absolute inset-0 grid place-items-center z-[3] pointer-events-none${finishFx ? ' finish-pop' : ''}`}>
-              <Pile pile={game?.pile ?? null} />
+              <Pile pile={game?.pile ?? null} history={pileHistory} />
             </div>
           </div>
           </div>

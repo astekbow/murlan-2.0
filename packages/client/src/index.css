@@ -651,7 +651,10 @@ select:focus-visible,
 /* Top padding gives the opponent seat (above the felt) room; the left/right safe-area
    insets shift the felt (and its side seat badges) clear of the Dynamic Island. */
 .tv-ls .tv-table { padding: 6px env(safe-area-inset-right) 0 env(safe-area-inset-left) !important; }
-.tv-ls .tv-felt { padding: 2px 8px !important; max-width: none !important; }
+/* Cap the felt width in landscape so the oval isn't stretched full-width (it looked
+   "super stretchy" on wide phones like the 14 Pro Max). Narrower sides + a little
+   breathing room top/bottom; the flex parent keeps it centered. */
+.tv-ls .tv-felt { padding: 2px 8px !important; max-width: 720px !important; margin: 5px auto !important; }
 /* Keep the hand clear of the side Play/Pass buttons. The buttons sit at
    max(14px, env(inset)) from each edge, so the hand padding must include the SAME
    inset plus the button width + a gap — otherwise the notch inset pushes the buttons
@@ -664,7 +667,9 @@ select:focus-visible,
 /* Felt height must LEAVE ROOM for the top bar + the (now bigger) hand on short landscape
    screens. 56vh was too greedy: top-bar + felt + hand exceeded 100dvh, so the felt
    overflowed UP and covered the corner controls. Shrink it so the whole column fits. */
-.tv-ls .rail-inner { min-height: clamp(96px, 34vh, 168px); border-radius: 112px / 26%; }
+/* A touch taller so the oval reads less flat/stretched — clamped low enough that the
+   shortest landscapes (≈360px) still fit the bigger hand without overflow. */
+.tv-ls .rail-inner { min-height: clamp(96px, 37vh, 184px); border-radius: 120px / 28%; }
 .tv-ls .felt-ring { inset: 14% 22%; }
 .tv-ls .tlogo { font-size: 16px; letter-spacing: 3px; top: 26%; }
 .tv-ls .av { width: 36px; height: 36px; font-size: 11px; border-width: 2px; }

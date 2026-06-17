@@ -61,7 +61,7 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
   // Bigger, easier-to-read cards (esp. on phones). The fan still fits any hand size —
   // `step` below overlaps them to the available width, so a wider card just overlaps more
   // while its readable top-left rank/suit strip stays visible.
-  const CARD_W = w < 420 ? 64 : 78;
+  const CARD_W = w < 420 ? 84 : 98;
   const CARD_H = Math.round(CARD_W * 1.4);
   const maxStep = Math.round(CARD_W * 0.66);
   // Straight row: enough overlap to fit every card, but never less than ~20px so

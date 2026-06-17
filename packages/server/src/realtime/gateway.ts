@@ -1165,7 +1165,22 @@ export class GameGateway {
       else if (ev.kind === 'playerFinished') this.io.to(roomId).emit('game:playerFinished', { seat: ev.seat, place: ev.place });
     }
 
-    let gatedNextHand = false; // a hand just ended → the next deal is paused (see gameStarted)
+    // A hand just ended ⇒ hold the next hand on the standings screen and DEFER every
+    // new-hand reveal (the loser↔winner card switch AND the fresh deal) until everyone
+    // taps Continue (or the pause times out). This is what guarantees new cards never
+    // appear before Continue. The pause is armed on the hand-end (gameScored), so it also
+    // covers the common "winner returns a 3–10" switch, whose game:start arrives later.
+    const handEnded = res.matchEvents.some((e) => e.kind === 'gameScored');
+    const matchEnded = res.matchEvents.some((e) => e.kind === 'matchEnded');
+    const nextGameIndex = this.rooms.getRoom(roomId)?.match?.snapshot().gameIndex ?? 0;
+    const gating = handEnded && !matchEnded && this.handPauseMs > 0 && nextGameIndex > 0;
+
+    let gatedNextHand = false; // a hand just ended → the next deal is paused (see below)
+    const deferred: Array<() => void> = []; // new-hand reveals, replayed on Continue
+    let dealsNextHand = false; // a gameStarted arrived → deal it when the pause releases
+    // Run a reveal now, or queue it for after Continue while the standings pause is active.
+    const reveal = (fn: () => void) => { if (gating) deferred.push(fn); else fn(); };
+
     for (const ev of res.matchEvents) {
       switch (ev.kind) {
         case 'gameScored': {
@@ -1184,42 +1199,67 @@ export class GameGateway {
           if (sb) this.io.to(roomId).emit('match:scoreboard', sb);
           break;
         }
-        case 'cardSwitchAuto':
-          // Loser's strongest card was just moved to the winner: refresh BOTH
-          // private hands so neither board is stale during the switch window.
-          this.pushHand(roomId, ev.loser);
-          this.pushHand(roomId, ev.winner);
-          this.emitCardSwitch(roomId, { winner: ev.winner, loser: ev.loser, given: ev.card, returned: null, awaitingReturn: true });
-          break;
-        case 'awaitingSwitch': {
-          // The winner must choose a 3–10 card to return — prompt them privately.
-          const winnerU = this.userAtSeat(roomId, ev.winner);
-          if (winnerU) {
-            this.io.to(personalRoom(winnerU)).emit('card:switch', {
-              winner: ev.winner, loser: ev.loser, given: null, returned: null, awaitingReturn: true,
-            });
-          }
+        case 'cardSwitchAuto': {
+          // Loser's strongest card was just moved to the winner: refresh BOTH private
+          // hands so neither board is stale. Deferred while gating so the new cards stay
+          // hidden behind the standings screen.
+          const e = ev;
+          reveal(() => {
+            this.pushHand(roomId, e.loser);
+            this.pushHand(roomId, e.winner);
+            this.emitCardSwitch(roomId, { winner: e.winner, loser: e.loser, given: e.card, returned: null, awaitingReturn: true });
+          });
           break;
         }
-        case 'cardSwitchReturn':
-          this.emitCardSwitch(roomId, { winner: ev.winner, loser: ev.loser, given: null, returned: ev.card, awaitingReturn: false });
+        case 'awaitingSwitch': {
+          // The winner must choose a 3–10 card to return — prompt them privately (after
+          // Continue when gating, so the prompt and their fresh hand appear together).
+          const e = ev;
+          reveal(() => {
+            const winnerU = this.userAtSeat(roomId, e.winner);
+            if (winnerU) {
+              this.io.to(personalRoom(winnerU)).emit('card:switch', {
+                winner: e.winner, loser: e.loser, given: null, returned: null, awaitingReturn: true,
+              });
+            }
+          });
           break;
-        case 'noSwap':
-          // Loser holds both jokers → no switch this game; the winner leads. Tell
-          // clients so they can show the "no swap" banner.
-          this.io.to(roomId).emit('match:noSwap', { winner: ev.winner, loser: ev.loser });
+        }
+        case 'cardSwitchReturn': {
+          const e = ev;
+          reveal(() => this.emitCardSwitch(roomId, { winner: e.winner, loser: e.loser, given: null, returned: e.card, awaitingReturn: false }));
           break;
+        }
+        case 'noSwap': {
+          // Loser holds both jokers → no switch this game; the winner leads. Tell clients
+          // so they can show the "no swap" banner.
+          const e = ev;
+          reveal(() => this.io.to(roomId).emit('match:noSwap', { winner: e.winner, loser: e.loser }));
+          break;
+        }
         case 'gameStarted':
-          // NOT the first hand → pause on the standings screen before dealing the next
-          // hand (so the final play is visible). scheduleNextHand gates; the deal fires
-          // early once everyone taps Continue, else after handPauseMs.
-          if (this.scheduleNextHand(roomId)) gatedNextHand = true;
+          // The next hand is ready. While gating, hold it behind Continue (released
+          // below). Otherwise (first hand, or the switch-return step) deal immediately.
+          if (gating) dealsNextHand = true;
+          else this.startNewGameBroadcast(roomId);
           break;
         case 'matchEnded':
           // Settle the pot (pay winners, book rake), then emit the result.
           void this.settleAndEmitMatchEnd(roomId, ev.winnerSide, ev.winnerSeats, ev.finalSideScores);
           break;
       }
+    }
+
+    if (gating) {
+      // Hold on the standings screen; on release replay the deferred reveals, then either
+      // deal the next hand (game:start) or — if the winner still owes a switch-return —
+      // refresh the board + arm the return timeout so the match can never hang.
+      gatedNextHand = true;
+      this.armInterHandGate(roomId, () => {
+        for (const fn of deferred) fn();
+        if (dealsNextHand) this.startNewGameBroadcast(roomId);
+        else { this.broadcastPublicState(roomId); this.armTurnTimer(roomId); }
+      });
     }
 
     // Refresh public state and (re)arm the turn timer, unless the match ended — or the
@@ -1272,36 +1312,26 @@ export class GameGateway {
 
   // ---------- Inter-hand pause (standings screen) ----------------------------
 
-  /** Between hands, hold the next deal briefly on the standings screen so players see
-   *  the final play + the running scores. Returns true if a pause was armed (the caller
-   *  then SKIPS arming the turn timer / revealing the next hand), false if it dealt
-   *  immediately (the first hand, or handPauseMs=0). Releases EARLY once every connected
-   *  human has tapped Continue; otherwise the timer deals after handPauseMs. */
-  private scheduleNextHand(roomId: string): boolean {
-    const room = this.rooms.getRoom(roomId);
-    if (!room || !room.match) { this.startNewGameBroadcast(roomId); return false; }
-    // gameIndex 0 = the first hand (dealt by beginMatch directly), so this only gates
-    // hands 2+. handPauseMs=0 disables the pause entirely.
-    const gameIndex = room.match.snapshot().gameIndex;
-    if (this.handPauseMs <= 0 || gameIndex <= 0) { this.startNewGameBroadcast(roomId); return false; }
-
+  /** Arm the inter-hand standings pause for a room. Holds until every connected human
+   *  taps Continue (or handPauseMs elapses), then runs `onRelease` EXACTLY once. The
+   *  caller decides what release does (replay the deferred reveals, then deal). */
+  private armInterHandGate(roomId: string, onRelease: () => void): void {
     this.clearInterHandTimer(roomId); // never stack two gates on one room
     const release = () => {
       // EXACTLY-ONCE: the timer and the all-continue path can both fire (e.g. the timer
       // callback was already queued when the last Continue arrives) → without this guard
-      // startNewGameBroadcast would run twice and deal two hands. The gate's presence IS
-      // the guard: clearInterHandTimer deletes it, so a second release() no-ops here.
+      // the next hand would be dealt twice. The gate's presence IS the guard:
+      // clearInterHandTimer deletes it, so a second release() no-ops here.
       if (!this.interHandGates.has(roomId)) return;
       this.clearInterHandTimer(roomId);
-      // The room may have ended/abandoned during the pause — only deal if still in-match.
+      // The room may have ended/abandoned during the pause — only proceed if still in-match.
       const r = this.rooms.getRoom(roomId);
-      if (r && r.status === 'inMatch' && r.match) this.startNewGameBroadcast(roomId);
+      if (r && r.status === 'inMatch' && r.match) onRelease();
     };
     const timer = setTimeout(release, this.handPauseMs);
     timer.unref?.();
     this.interHandGates.set(roomId, { timer, ready: new Set(), release });
     this.emitContinueState(roomId); // initial 0/N
-    return true;
   }
 
   /** A player tapped "Continue" on the standings screen. Deal early once EVERY connected
