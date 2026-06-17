@@ -19,7 +19,7 @@ type AdminTab = 'overview' | 'withdrawals' | 'players' | 'matches' | 'support' |
 function UserRow({ user }: { user: AdminUser }) {
   const t = useT();
   const { confirm, dialog } = useConfirm();
-  const { adjust, setKyc, setRole } = useAdminStore();
+  const { adjust, setRole } = useAdminStore();
   const myId = useAuthStore((s) => s.user?.id);
   const isSelf = user.id === myId; // can't edit your own scopes (server rejects too)
   const [open, setOpen] = useState(false);
@@ -89,12 +89,6 @@ function UserRow({ user }: { user: AdminUser }) {
     const token = useAuthStore.getState().accessToken;
     if (token) { try { await adminApi.unmuteUser(token, user.id); } catch { /* surfaced elsewhere */ } }
   };
-  // KYC change confirm: verifying unlocks withdrawals, so make it a deliberate action.
-  const changeKyc = async (s: 'none' | 'pending' | 'verified') => {
-    if (s === user.kycStatus) return; // no-op (clicked the current status)
-    if (!(await confirm({ title: t('admin.kycChange'), message: t('admin.confirmKycM', { user: user.username, status: s }) }))) return;
-    void setKyc(user.id, s);
-  };
 
   return (
     <li className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] overflow-hidden">
@@ -110,19 +104,12 @@ function UserRow({ user }: { user: AdminUser }) {
           {user.role === 'admin' && <span className="tag tag-open ml-2 align-middle">admin</span>}
           <span className="block text-[11px] text-muted/70 truncate">{user.email}</span>
         </span>
-        <span className={`text-[10px] uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded ${user.kycStatus === 'verified' ? 'text-emerald-300 bg-emerald-500/10' : user.kycStatus === 'pending' ? 'text-amber-300 bg-amber-500/10' : 'text-muted bg-white/5'}`}>{user.kycStatus}</span>
         <span className="chip shrink-0"><span className="coin" />{dollars(user.balanceCents)}</span>
       </button>
 
       {open && (
         <div className="px-4 pb-3 space-y-3 border-t border-white/10 pt-3">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="field-label">KYC:</span>
-            <div className="seg">
-              {(['none', 'pending', 'verified'] as const).map((s) => (
-                <button key={s} onClick={() => void changeKyc(s)} className={`seg-tab ${user.kycStatus === s ? 'active' : ''}`}>{s}</button>
-              ))}
-            </div>
             <button onClick={() => void onToggleRole()} className={`btn ml-auto ${user.role === 'admin' ? 'btn-danger' : 'btn-ghost'}`}>
               {user.role === 'admin' ? t('admin.removeAdmin') : t('admin.makeAdmin')}
             </button>
@@ -253,7 +240,6 @@ export function AdminView() {
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
   const [reports, setReports] = useState<AdminChatReport[]>([]);
   const [revenue, setRevenue] = useState<RevenueBreakdown | null>(null);
-  const [kycFilter, setKycFilter] = useState<'all' | 'none' | 'pending' | 'verified'>('all');
   const [sortBy, setSortBy] = useState<'balance' | 'name'>('balance');
 
   const loadDepth = () => {
@@ -282,8 +268,7 @@ export function AdminView() {
 
   const q = userQuery.trim().toLowerCase();
   const filteredUsers = users
-    .filter((u) => !q || u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-    .filter((u) => kycFilter === 'all' || u.kycStatus === kycFilter);
+    .filter((u) => !q || u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
   const shownUsers = [...filteredUsers].sort((a, b) =>
     sortBy === 'balance' ? b.balanceCents - a.balanceCents : a.username.localeCompare(b.username),
   );
@@ -425,7 +410,7 @@ export function AdminView() {
                   <span className="text-sm min-w-0">
                     <b className="text-txt">{dollars(w.amountCents)}</b>
                     <span className="text-muted"> → <span className="break-all">{w.destination}</span></span>
-                    <span className="block text-[11px] text-muted/80">{w.username ?? '?'}{w.kycStatus ? ` · KYC ${w.kycStatus}` : ''} · {new Date(w.createdAt).toLocaleString()}</span>
+                    <span className="block text-[11px] text-muted/80">{w.username ?? '?'} · {new Date(w.createdAt).toLocaleString()}</span>
                   </span>
                   <span className="flex gap-2 shrink-0">
                     <button onClick={async () => { if (await confirm({ title: t('admin.approve'), message: t('admin.confirmApproveM', { amount: dollars(w.amountCents), dest: w.destination }) })) void approve(w.id); }} className="btn btn-green">{t('admin.approve')}</button>
@@ -446,11 +431,6 @@ export function AdminView() {
             <input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder={t('admin.searchUsers')} aria-label={t('admin.searchUsers')} autoCapitalize="none" autoCorrect="off" spellCheck={false} className="field max-w-[220px]" />
           </div>
           <div className="flex items-center gap-2 flex-wrap mb-3">
-            <div className="seg">
-              {(['all', 'none', 'pending', 'verified'] as const).map((s) => (
-                <button key={s} onClick={() => setKycFilter(s)} className={`seg-tab ${kycFilter === s ? 'active' : ''}`}>{s === 'all' ? t('admin.allKyc') : s}</button>
-              ))}
-            </div>
             <button onClick={() => setSortBy(sortBy === 'balance' ? 'name' : 'balance')} className="btn btn-ghost btn-sm">
               {sortBy === 'balance' ? t('admin.sortBalance') : t('admin.sortName')}
             </button>

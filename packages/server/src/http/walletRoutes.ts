@@ -117,16 +117,10 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   app.post('/api/wallet/withdraw', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
-    // ALWAYS-ON KYC gate (independent of the global compliance toggle): a player can
-    // NOT cash out until the operator has verified their identity. Unverified users are
-    // told to complete KYC + wait for admin verification (support ticket for issues).
-    const kyc = (await auth.getComplianceProfile(caller.userId).catch(() => null))?.kycStatus;
-    if (kyc !== 'verified') {
-      return reply.code(403).send({ error: { code: 'kyc_required', message: 'Për të tërhequr duhet të verifikosh identitetin (KYC) dhe të presësh aprovimin e administratorit. Për ndihmë, hap një tiket suporti.' } });
-    }
-    // Withdrawals are gated for KYC/age/geo, but NOT blocked by self-exclusion:
-    // a self-excluded user must still be able to cash out their own balance
-    // (trapping their funds is a consumer-protection violation).
+    // KYC removed (owner decision): no identity verification is required to withdraw.
+    // Age/geo (and NOT self-exclusion — funds must stay withdrawable) are still enforced
+    // when the compliance toggle is on; KYC_REQUIRED stays off so checkWithdrawal never
+    // blocks on KYC. Large/uncapped withdrawals still route to MANUAL operator review.
     if (deps.compliance?.enabled) {
       const profile = await auth.getComplianceProfile(caller.userId);
       const verdict = profile ? deps.compliance.checkWithdrawal(profile) : { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };

@@ -200,41 +200,30 @@ export function WalletView() {
       {/* Withdraw */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.12s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.withdraw')}</h2>
-        {profile?.kycStatus !== 'verified' ? (
-          // Withdrawals are blocked until the admin verifies the player's KYC (the
-          // server enforces this too — this just explains why the form is unavailable).
-          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 space-y-1">
-            <p className="text-sm font-semibold text-amber-200">{t('wallet.kycRequiredTitle')}</p>
-            <p className="text-[12px] text-amber-100/80 leading-snug">{t('wallet.kycRequiredMsg')}</p>
-            <p className="text-[11px] text-muted">{t('wallet.kycStatus')} <span className="text-txt">{profile?.kycStatus ?? '—'}</span></p>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-              <label className="block">
-                <span className="field-label">{t('wallet.amountUsd')}</span>
-                <input type="number" min="1" step="1" value={withdrawAmt} onChange={(e) => setWithdrawAmt(e.target.value)}
-                  className="field" />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="field-label">{t('wallet.addressDest')}</span>
-                <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder={t('wallet.addressPlaceholder')}
-                  className="field" />
-              </label>
-            </div>
-            <p className="text-[11px] text-amber-300/90 flex items-start gap-1.5">
-              <span aria-hidden>⚠️</span><span>{t('wallet.networkWarn')}</span>
-            </p>
-            <p className="text-[11px] text-muted/80">{t('wallet.withdrawFeeNote')}</p>
-            <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
-          </>
-        )}
+        {/* KYC removed (owner decision): no identity verification is required to
+            withdraw. Large/uncapped requests still go to MANUAL operator review. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <label className="block">
+            <span className="field-label">{t('wallet.amountUsd')}</span>
+            <input type="number" min="1" step="1" value={withdrawAmt} onChange={(e) => setWithdrawAmt(e.target.value)}
+              className="field" />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="field-label">{t('wallet.addressDest')}</span>
+            <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder={t('wallet.addressPlaceholder')}
+              className="field" />
+          </label>
+        </div>
+        <p className="text-[11px] text-amber-300/90 flex items-start gap-1.5">
+          <span aria-hidden>⚠️</span><span>{t('wallet.networkWarn')}</span>
+        </p>
+        <p className="text-[11px] text-muted/80">{t('wallet.withdrawFeeNote')}</p>
+        <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
 
       {/* Verification / responsible gaming */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.16s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.verifyRG')}</h2>
-        <p className="text-xs text-muted">{t('wallet.kycStatus')} <span className="text-txt">{profile?.kycStatus ?? '—'}</span></p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <label className="block">
             <span className="field-label">{t('wallet.dob')}</span>

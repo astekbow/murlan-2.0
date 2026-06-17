@@ -46,11 +46,11 @@ test('above the threshold → NO payout attempt, manual review alert', async () 
   assert.match(r.calls.messages[0]!, /rishiko/);
 });
 
-test('KYC not verified → NO payout even if small', async () => {
+test('KYC removed: a small UNVERIFIED withdrawal now auto-pays (kyc no longer blocks)', async () => {
   const r = recorder();
   const out = await processWithdrawal(REC, { username: 'x', kycStatus: 'pending' }, { approve: r.approve, payout: r.payoutProvider({ ok: true }), notifier: r.notifier, autoMaxCents: 5000 });
-  assert.equal(out.tier, 'manual');
-  assert.deepEqual(r.calls.paid, []);
+  assert.equal(out.tier, 'auto');
+  assert.deepEqual(r.calls.paid, ['wd_1']);
 });
 
 test('no payout provider configured → auto-eligible but stays manual (fast-track alert)', async () => {

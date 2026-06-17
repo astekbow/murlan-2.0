@@ -14,10 +14,10 @@ test('manual: above the auto threshold', () => {
   assert.ok(c.reasons.includes('above auto threshold'));
 });
 
-test('manual: KYC not verified even if small', () => {
+test('KYC removed: a small UNVERIFIED withdrawal is now auto (kyc no longer a factor)', () => {
   const c = classifyWithdrawal({ amountCents: 1000, kycStatus: 'pending' }, { autoMaxCents: 5000 });
-  assert.equal(c.tier, 'manual');
-  assert.ok(c.reasons.includes('KYC not verified'));
+  assert.equal(c.tier, 'auto');
+  assert.ok(!c.reasons.includes('KYC not verified'));
 });
 
 test('manual: feature disabled (autoMaxCents = 0) → everything manual', () => {
@@ -31,10 +31,10 @@ test('boundary: amount exactly at the threshold is auto', () => {
   assert.equal(c.tier, 'auto');
 });
 
-test('null kyc is treated as unverified', () => {
+test('KYC removed: null/absent kyc classifies on amount + cap only (still auto)', () => {
   const c = classifyWithdrawal({ amountCents: 100, kycStatus: null }, { autoMaxCents: 5000 });
-  assert.equal(c.tier, 'manual');
-  assert.ok(c.reasons.includes('KYC not verified'));
+  assert.equal(c.tier, 'auto');
+  assert.ok(!c.reasons.includes('KYC not verified'));
 });
 
 test('daily auto cap: within cap → auto; exceeding it → manual', () => {
