@@ -7,7 +7,7 @@
 // store. Purely presentational — touches no game/money state.
 // ============================================================================
 
-export type Sfx = 'deal' | 'card' | 'pass' | 'turn' | 'win' | 'lose' | 'button' | 'select' | 'bomb';
+export type Sfx = 'deal' | 'card' | 'pass' | 'turn' | 'win' | 'lose' | 'button' | 'select' | 'bomb' | 'coin' | 'warn';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -102,6 +102,10 @@ export const sound = {
       case 'lose': tone(440, t, 0.22, 'sine', 0.2); tone(330, t + 0.12, 0.3, 'sine', 0.2); break;
       // A bomb (four-of-a-kind) landing: a sub-bass thump + a low rumble + a crack.
       case 'bomb': tone(70, t, 0.45, 'sine', 0.5); noise(t, 0.4, 0.45, 700); tone(160, t, 0.18, 'sawtooth', 0.22); break;
+      // Money credited (deposit / winnings): a bright "ka-ching" coin sparkle.
+      case 'coin': tone(1047, t, 0.12, 'triangle', 0.26); tone(1568, t + 0.06, 0.18, 'triangle', 0.22); tone(2093, t + 0.12, 0.16, 'sine', 0.14); break;
+      // Turn running out (≤5s): two urgent square beeps so a missed turn never surprises.
+      case 'warn': tone(880, t, 0.09, 'square', 0.2); tone(880, t + 0.16, 0.09, 'square', 0.2); break;
     }
   },
   startMusic(): void {

@@ -7,6 +7,8 @@ import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
+import { sound } from '../lib/sound.ts';
+import { haptics } from '../lib/haptics.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
@@ -94,6 +96,8 @@ export function WalletView() {
     if (!settled.current || balanceCents <= prev) return;
     setGain(balanceCents - prev);
     setCelebrate(true);
+    sound.play('coin'); // money credited → a bright coin chime + a celebratory buzz
+    haptics.win();
     const a = setTimeout(() => setCelebrate(false), 2400);
     const b = setTimeout(() => setGain(0), 1600);
     return () => { clearTimeout(a); clearTimeout(b); };

@@ -35,4 +35,5 @@ export const haptics = {
   win: () => buzz([40, 60, 90]),    // match won — a little celebration
   lose: () => buzz(30),             // match lost — a single soft tick
   bomb: () => buzz([0, 70, 40, 140]), // a bomb lands — a strong double-hit
+  warn: () => buzz([0, 40, 50, 40]),  // turn running out — a sharp double tick
 };
