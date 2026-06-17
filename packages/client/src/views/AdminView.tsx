@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAdminStore } from '../store/adminStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
@@ -232,15 +232,19 @@ function StatCard({ label, value, accent, onClick }: { label: string; value: str
 export function AdminView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
-  const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject, treasury, treasuryLoading, loadTreasury } = useAdminStore();
+  const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject, treasury, treasuryLoading, loadTreasury,
+    userSort, userOffset, userTotal, userPageSize, setUserQuery, setUserSort, setUserPage } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
+  // Captures the (optional) rejection reason typed in the reject confirm dialog. A ref —
+  // not state — so the value read after `await confirm(...)` is the latest, not a stale
+  // closure (the input lives inside the dialog message which re-renders independently).
+  const rejectReasonRef = useRef('');
   const [tab, setTab] = useState<AdminTab>('overview');
-  const [userQuery, setUserQuery] = useState('');
+  const [queryInput, setQueryInput] = useState(''); // local input; debounced into the store search
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
   const [reports, setReports] = useState<AdminChatReport[]>([]);
   const [revenue, setRevenue] = useState<RevenueBreakdown | null>(null);
-  const [sortBy, setSortBy] = useState<'balance' | 'name'>('balance');
 
   const loadDepth = () => {
     const token = useAuthStore.getState().accessToken;
@@ -252,6 +256,12 @@ export function AdminView() {
   };
 
   useEffect(() => { void refresh(); loadDepth(); }, [refresh]);
+
+  // Debounce the search box into the store (which fetches the matching page server-side).
+  useEffect(() => {
+    const id = setTimeout(() => setUserQuery(queryInput.trim()), 300);
+    return () => clearTimeout(id);
+  }, [queryInput, setUserQuery]);
 
   const refreshAll = () => { void refresh(); loadDepth(); };
 
@@ -266,13 +276,9 @@ export function AdminView() {
   const openTickets = tickets.filter((tk) => tk.status === 'open');
   const newReports = reports.filter((r) => !r.reviewed);
 
-  const q = userQuery.trim().toLowerCase();
-  const filteredUsers = users
-    .filter((u) => !q || u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
-  const shownUsers = [...filteredUsers].sort((a, b) =>
-    sortBy === 'balance' ? b.balanceCents - a.balanceCents : a.username.localeCompare(b.username),
-  );
-  const USER_CAP = 60; // client-side cap; server-side pagination needed before large scale
+  // `users` is already the server-filtered/sorted page; pagination is server-side.
+  const pageStart = userTotal === 0 ? 0 : userOffset + 1;
+  const pageEnd = userOffset + users.length;
 
   const TABS: Array<{ id: AdminTab; label: string; badge?: number }> = [
     { id: 'overview', label: t('admin.tab.overview') },
@@ -414,7 +420,30 @@ export function AdminView() {
                   </span>
                   <span className="flex gap-2 shrink-0">
                     <button onClick={async () => { if (await confirm({ title: t('admin.approve'), message: t('admin.confirmApproveM', { amount: dollars(w.amountCents), dest: w.destination }) })) void approve(w.id); }} className="btn btn-green">{t('admin.approve')}</button>
-                    <button onClick={async () => { if (await confirm({ title: t('admin.reject'), message: t('admin.confirmRejectM', { amount: dollars(w.amountCents) }), danger: true })) void reject(w.id); }} className="btn btn-danger">{t('admin.reject')}</button>
+                    <button
+                      onClick={async () => {
+                        rejectReasonRef.current = '';
+                        const ok = await confirm({
+                          title: t('admin.reject'),
+                          danger: true,
+                          message: (
+                            <div className="space-y-2">
+                              <p>{t('admin.confirmRejectM', { amount: dollars(w.amountCents) })}</p>
+                              <input
+                                autoFocus
+                                maxLength={500}
+                                defaultValue=""
+                                onChange={(e) => { rejectReasonRef.current = e.target.value; }}
+                                placeholder={t('admin.rejectReasonPlaceholder')}
+                                className="field w-full"
+                              />
+                            </div>
+                          ),
+                        });
+                        if (ok) void reject(w.id, rejectReasonRef.current.trim() || undefined);
+                      }}
+                      className="btn btn-danger"
+                    >{t('admin.reject')}</button>
                   </span>
                 </li>
               ))}
@@ -423,23 +452,27 @@ export function AdminView() {
         </section>
       )}
 
-      {/* ── Players ── */}
+      {/* ── Players ── (server-side search / sort / pagination) */}
       {tab === 'players' && (
         <section className="panel p-5 animate-rise">
           <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('admin.users', { n: users.length })}</h2>
-            <input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder={t('admin.searchUsers')} aria-label={t('admin.searchUsers')} autoCapitalize="none" autoCorrect="off" spellCheck={false} className="field max-w-[220px]" />
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('admin.users', { n: userTotal })}</h2>
+            <input value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder={t('admin.searchUsers')} aria-label={t('admin.searchUsers')} autoCapitalize="none" autoCorrect="off" spellCheck={false} className="field max-w-[220px]" />
           </div>
           <div className="flex items-center gap-2 flex-wrap mb-3">
-            <button onClick={() => setSortBy(sortBy === 'balance' ? 'name' : 'balance')} className="btn btn-ghost btn-sm">
-              {sortBy === 'balance' ? t('admin.sortBalance') : t('admin.sortName')}
+            <button onClick={() => setUserSort(userSort === 'balance' ? 'name' : 'balance')} className="btn btn-ghost btn-sm">
+              {userSort === 'balance' ? t('admin.sortBalance') : t('admin.sortName')}
             </button>
           </div>
           <ul className="space-y-2">
-            {shownUsers.slice(0, USER_CAP).map((u) => <UserRow key={u.id} user={u} />)}
+            {users.map((u) => <UserRow key={u.id} user={u} />)}
           </ul>
-          {shownUsers.length > USER_CAP && (
-            <p className="text-xs text-muted/70 mt-3 text-center">{t('admin.showingCapped', { shown: USER_CAP, total: shownUsers.length })}</p>
+          {userTotal > userPageSize && (
+            <div className="flex items-center justify-center gap-3 mt-3">
+              <button disabled={userOffset === 0} onClick={() => setUserPage(userOffset - userPageSize)} className="btn btn-ghost btn-sm">{t('admin.prev')}</button>
+              <span className="text-xs text-muted/70">{t('admin.showingRange', { from: pageStart, to: pageEnd, total: userTotal })}</span>
+              <button disabled={pageEnd >= userTotal} onClick={() => setUserPage(userOffset + userPageSize)} className="btn btn-ghost btn-sm">{t('admin.next')}</button>
+            </div>
           )}
         </section>
       )}

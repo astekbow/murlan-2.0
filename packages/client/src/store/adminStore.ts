@@ -20,13 +20,24 @@ interface AdminStore {
   error: string | null;
   notice: string | null;
 
+  // Server-side user-list search / sort / pagination (was all client-side over the full list).
+  userQuery: string;
+  userSort: 'balance' | 'name';
+  userOffset: number;
+  userTotal: number;       // filtered total (for "showing X of Y" + prev/next)
+  userPageSize: number;
+  loadUsers: () => Promise<void>;
+  setUserQuery: (q: string) => void;
+  setUserSort: (s: 'balance' | 'name') => void;
+  setUserPage: (offset: number) => void;
+
   refresh: () => Promise<void>;
   loadTreasury: () => Promise<void>;
   adjust: (id: string, deltaCents: number, reason: string) => Promise<void>;
   setKyc: (id: string, status: 'none' | 'pending' | 'verified') => Promise<void>;
   setRole: (id: string, role: 'user' | 'admin') => Promise<void>;
   approve: (id: string) => Promise<void>;
-  reject: (id: string) => Promise<void>;
+  reject: (id: string, reason?: string) => Promise<void>;
 }
 
 // ApiError.message is already localized by api.ts; localize the non-ApiError fallback key.
@@ -45,13 +56,36 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   error: null,
   notice: null,
 
+  userQuery: '',
+  userSort: 'balance',
+  userOffset: 0,
+  userTotal: 0,
+  userPageSize: 50,
+
+  async loadUsers() {
+    const t = token();
+    if (!t) return;
+    const { userQuery, userSort, userOffset, userPageSize } = get();
+    try {
+      const u = await adminApi.users(t, { q: userQuery || undefined, sort: userSort, limit: userPageSize, offset: userOffset });
+      set({ users: u.users, userTotal: u.total });
+    } catch (e) {
+      set({ error: err(e, 'err.adminPanelLoadFailed') });
+    }
+  },
+
+  setUserQuery(q) { set({ userQuery: q, userOffset: 0 }); void get().loadUsers(); },
+  setUserSort(s) { set({ userSort: s }); void get().loadUsers(); },
+  setUserPage(offset) { set({ userOffset: Math.max(0, offset) }); void get().loadUsers(); },
+
   async refresh() {
     const t = token();
     if (!t) return;
     set({ loading: true, error: null });
     try {
-      const [u, w, m, r] = await Promise.all([adminApi.users(t), adminApi.withdrawals(t), adminApi.matches(t), adminApi.revenue(t)]);
-      set({ users: u.users, withdrawals: w.withdrawals, matches: m.matches, revenueCents: r.totalRakeCents, loading: false });
+      const [w, m, r] = await Promise.all([adminApi.withdrawals(t), adminApi.matches(t), adminApi.revenue(t)]);
+      set({ withdrawals: w.withdrawals, matches: m.matches, revenueCents: r.totalRakeCents, loading: false });
+      await get().loadUsers();
     } catch (e) {
       set({ loading: false, error: err(e, 'err.adminPanelLoadFailed') });
     }
@@ -116,11 +150,11 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     }
   },
 
-  async reject(id) {
+  async reject(id, reason) {
     const t = token();
     if (!t) return;
     try {
-      await adminApi.rejectWithdrawal(t, id);
+      await adminApi.rejectWithdrawal(t, id, reason);
       set({ notice: tr('msg.withdrawRejected') });
       await get().refresh();
     } catch (e) {

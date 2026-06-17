@@ -263,6 +263,7 @@ export interface WithdrawalRecord {
   destination: string;
   status: 'pending' | 'completed' | 'rejected';
   createdAt: number;
+  failureReason?: string | null; // why a rejection/failed payout happened (shown to the user)
 }
 
 export interface DepositIntent {
@@ -419,7 +420,15 @@ export interface TreasurySnapshot {
 }
 
 export const adminApi = {
-  users: (token: string) => request<{ users: AdminUser[] }>('/admin/users', { token }),
+  users: (token: string, opts?: { q?: string; sort?: 'balance' | 'name'; limit?: number; offset?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.q) p.set('q', opts.q);
+    if (opts?.sort) p.set('sort', opts.sort);
+    if (opts?.limit != null) p.set('limit', String(opts.limit));
+    if (opts?.offset != null) p.set('offset', String(opts.offset));
+    const qs = p.toString();
+    return request<{ users: AdminUser[]; total: number }>(`/admin/users${qs ? `?${qs}` : ''}`, { token });
+  },
   treasury: (token: string) => request<TreasurySnapshot>('/admin/treasury', { token }),
   matches: (token: string) => request<{ matches: AdminMatch[] }>('/admin/matches', { token }),
   withdrawals: (token: string) => request<{ withdrawals: AdminWithdrawal[] }>('/admin/withdrawals', { token }),
@@ -428,7 +437,8 @@ export const adminApi = {
   setKyc: (token: string, id: string, status: 'none' | 'pending' | 'verified') =>
     request<{ user: AdminUser }>(`/admin/users/${id}/kyc`, { method: 'POST', token, body: { status } }),
   approveWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/approve`, { method: 'POST', token }),
-  rejectWithdrawal: (token: string, id: string) => request<unknown>(`/admin/withdrawals/${id}/reject`, { method: 'POST', token }),
+  rejectWithdrawal: (token: string, id: string, reason?: string) =>
+    request<unknown>(`/admin/withdrawals/${id}/reject`, { method: 'POST', token, body: reason ? { reason } : {} }),
   setRole: (token: string, id: string, role: 'user' | 'admin') =>
     request<{ user: AdminUser }>(`/admin/users/${id}/role`, { method: 'POST', token, body: { role } }),
   setPermissions: (token: string, id: string, permissions: string[]) =>

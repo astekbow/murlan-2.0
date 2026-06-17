@@ -75,7 +75,17 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
 
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await admin(req, reply))) return;
-    return reply.send({ users: await auth.listUsers() });
+    // Server-side search + sort + pagination so the panel scales past a few-screens cap
+    // (was: send EVERY user, filter/sort/cap on the client). Returns the page + the
+    // filtered total so the client can render "showing X of Y" + prev/next.
+    const { q, sort, limit, offset } = req.query as { q?: string; sort?: string; limit?: string; offset?: string };
+    const lim = Math.min(100, Math.max(1, Number(limit) || 50));
+    const off = Math.max(0, Number(offset) || 0);
+    const needle = (q ?? '').trim().toLowerCase();
+    let list = await auth.listUsers();
+    if (needle) list = list.filter((u) => u.username.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle));
+    list = [...list].sort((a, b) => (sort === 'name' ? a.username.localeCompare(b.username) : b.balanceCents - a.balanceCents));
+    return reply.send({ users: list.slice(off, off + lim), total: list.length });
   });
 
   app.get('/api/admin/audit', async (req, reply) => {

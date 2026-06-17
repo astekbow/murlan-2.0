@@ -287,11 +287,16 @@ export function WalletView() {
             {withdrawals.map((w) => (
               <li
                 key={w.id}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
+                className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
               >
-                <span className="font-display font-semibold tracking-wide text-txt">{dollars(w.amountCents)}</span>
-                <span className="text-sm text-muted flex-1 truncate">→ {w.destination}</span>
-                <span className="tag tag-live ml-auto">{w.status}</span>
+                <div className="flex items-center gap-3">
+                  <span className="font-display font-semibold tracking-wide text-txt">{dollars(w.amountCents)}</span>
+                  <span className="text-sm text-muted flex-1 truncate">→ {w.destination}</span>
+                  <span className={`tag ml-auto ${w.status === 'rejected' ? 'tag-live text-red-300' : 'tag-live'}`}>{w.status}</span>
+                </div>
+                {w.status === 'rejected' && w.failureReason && (
+                  <p className="text-[12px] text-red-300/90 mt-1.5">{t('wallet.rejectedReason')} {w.failureReason}</p>
+                )}
               </li>
             ))}
           </ul>

@@ -28,6 +28,7 @@ test('request creates a directed pending edge (outgoing for sender, incoming for
 test('accept makes a mutual friendship; areFriends becomes true', async () => {
   const { friends, a, b } = await setup();
   const edge = await friends.requestByUsername(a.id, 'bob');
+  assert.ok(edge); // 'bob' exists → a real request row
   assert.equal(await friends.areFriends(a.id, b.id), false); // pending != friends
   const res = await friends.respond(b.id, edge.id, true);
   assert.ok(res);
@@ -38,20 +39,23 @@ test('accept makes a mutual friendship; areFriends becomes true', async () => {
 test('only the addressee can accept; the requester accepting is a no-op (null)', async () => {
   const { friends, a } = await setup();
   const edge = await friends.requestByUsername(a.id, 'bob');
+  assert.ok(edge);
   assert.equal(await friends.respond(a.id, edge.id, true), null);
 });
 
 test('decline removes the request', async () => {
   const { friends, a, b } = await setup();
   const edge = await friends.requestByUsername(a.id, 'bob');
+  assert.ok(edge);
   await friends.respond(b.id, edge.id, false);
   assert.equal((await friends.list(a.id)).length, 0);
 });
 
-test('requestByUsername rejects self and unknown users', async () => {
+test('requestByUsername rejects self but is enumeration-safe (null) for unknown users', async () => {
   const { friends, a } = await setup();
   await assert.rejects(friends.requestByUsername(a.id, 'alice'), (e: unknown) => e instanceof FriendsError && e.code === 'self');
-  await assert.rejects(friends.requestByUsername(a.id, 'ghost'), (e: unknown) => e instanceof FriendsError && e.code === 'not_found');
+  // Unknown username → null (NOT a distinct error), so existence can't be enumerated.
+  assert.equal(await friends.requestByUsername(a.id, 'ghost'), null);
 });
 
 test('block: severs the friendship, suppresses requests, and is one-directional (hidden from the blocked user)', async () => {
@@ -59,8 +63,9 @@ test('block: severs the friendship, suppresses requests, and is one-directional 
   await friends.block(a.id, b.id);
   assert.equal(await friends.areFriends(a.id, b.id), false);
 
-  // The blocked user cannot send a request back (generic error — no who-blocked-whom leak).
-  await assert.rejects(friends.requestByUsername(b.id, 'alice'), (e: unknown) => e instanceof FriendsError && e.code === 'blocked');
+  // The blocked user's request back is silently dropped — returns null (NOT a distinct
+  // error), so it reveals neither that 'alice' exists nor that a block is in place.
+  assert.equal(await friends.requestByUsername(b.id, 'alice'), null);
 
   // The blocker sees the block (to be able to unblock); the blocked user sees nothing.
   assert.equal((await friends.list(a.id)).find((f) => f.user.id === b.id)?.direction, 'blocked');
@@ -77,6 +82,7 @@ test('unblock restores the ability to send a request', async () => {
 test('list reflects live presence (online dot)', async () => {
   const { friends, presence, a, b } = await setup();
   const edge = await friends.requestByUsername(a.id, 'bob');
+  assert.ok(edge);
   await friends.respond(b.id, edge.id, true);
   presence.add(b.id);
   assert.equal((await friends.list(a.id))[0]!.online, true);

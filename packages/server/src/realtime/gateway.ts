@@ -151,6 +151,10 @@ export class GameGateway {
   private clientSeeds = new Map<string, string>(); // userId -> clientSeed (submitted AFTER the commit)
   // Per-user token bucket: 40 burst, 20/s sustained — ample for real play, caps abuse.
   private readonly limiter: RateLimiter;
+  // Dedicated, MUCH tighter bucket for room join-by-code: ~6 attempts then 1 every 5s,
+  // so the short share codes can't be brute-force enumerated (the general limiter at
+  // 40 burst / 20-per-sec is far too loose for guessing). Keyed by userId.
+  private readonly joinCodeLimiter = new RateLimiter(6, 0.2);
 
   constructor(
     private readonly io: IO,
@@ -391,6 +395,10 @@ export class GameGateway {
   private onJoinByCode(socket: IOSocket, payload: { code?: unknown }, ack: (res: Ack) => void): void {
     const reply = safeAck(ack);
     if (!this.rateOk(socket, reply)) return;
+    // Extra anti-enumeration throttle specific to code guessing.
+    if (!this.joinCodeLimiter.allow(socket.data.userId)) {
+      return reply(ackError('rate', 'Shumë përpjekje me kod — prit pak.'));
+    }
     if (this.rejectIfDraining(reply)) return;
     const code = typeof payload?.code === 'string' ? payload.code : '';
     const roomId = this.rooms.roomIdForCode(code);

@@ -40,14 +40,21 @@ export class FriendsService {
     this.notifier = fn;
   }
 
-  async requestByUsername(requesterId: string, username: string): Promise<Friendship> {
+  /**
+   * Send a friend request by username. ENUMERATION-SAFE: returns null (instead of a
+   * distinct error) when the username doesn't exist OR a block is in place, so the route
+   * can respond IDENTICALLY to a real send — an attacker can't tell which usernames exist
+   * (same approach as forgot-password). Adding yourself is the only distinct error, and
+   * that leaks nothing (you already know your own username).
+   */
+  async requestByUsername(requesterId: string, username: string): Promise<Friendship | null> {
     const target = await this.users.findByUsername(username.trim());
-    if (!target) throw new FriendsError('not_found', 'Përdoruesi nuk u gjet.');
-    if (target.id === requesterId) throw new FriendsError('self', 'Nuk mund të shtosh veten.');
-    // A block in EITHER direction stops a new request (and the message is generic
-    // so it doesn't reveal who blocked whom).
+    if (target && target.id === requesterId) throw new FriendsError('self', 'Nuk mund të shtosh veten.');
+    if (!target) return null; // unknown username → uniform "sent" response (no leak)
+    // A block in EITHER direction stops a new request — also returned as null so it
+    // doesn't reveal that the user exists or that a block is in place.
     const edge = await this.friends.findBetween(requesterId, target.id);
-    if (edge?.status === 'blocked') throw new FriendsError('blocked', 'Nuk mund të dërgosh kërkesë te ky përdorues.');
+    if (edge?.status === 'blocked') return null;
     const row = await this.friends.request(requesterId, target.id);
     // Real-time ping to the recipient (best-effort; ignore if they're offline).
     if (this.notifier) {

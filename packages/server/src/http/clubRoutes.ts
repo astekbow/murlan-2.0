@@ -75,8 +75,9 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
     }
   });
 
-  // Join a PRIVATE club by its share code.
-  app.post('/api/clubs/joinByCode', async (req, reply) => {
+  // Join a PRIVATE club by its share code. Tighter per-IP rate-limit than the global
+  // 300/min so the share codes can't be brute-force enumerated.
+  app.post('/api/clubs/joinByCode', { config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     const code = (req.body as { code?: unknown } | undefined)?.code;
