@@ -54,16 +54,32 @@ const k3_8  = [c('3','S'),c('4','H'),c('5','D'),c('6','C'),c('7','S'),c('8','H')
 check('3->7 is a kolor', identifyCombo(k3_7)?.type === 'kolor');
 check('4->8 beats 3->7 (same length, +1 rank)', B(k4_8, k3_7));
 check('A2345 is the lowest kolor', identifyCombo(kA_5)?.type === 'kolor');
-check('3->7 beats A2345', B(k3_7, kA_5));
 check('10JQKA is a valid kolor (Ace high)', identifyCombo(k10_A)?.type === 'kolor');
 check('no same-length kolor beats 10JQKA', !B(k4_8, k10_A) && !B(k3_7, k10_A));
 // RUN LENGTH RULE: a run is beaten ONLY by a same-length run with a higher top.
 check('a LONGER kolor does NOT beat a shorter one (same length only)', !B(k3_8, k10_A));
 check('a SHORTER kolor does NOT beat a longer one', !B(k10_A, k3_8));
-check('a same-length higher kolor still beats (6 vs 6)', B([c('4','S'),c('5','H'),c('6','D'),c('7','C'),c('8','S'),c('9','H')], k3_8));
 check('JQKA2 is NOT a valid straight', identifyCombo([c('J','S'),c('Q','H'),c('K','D'),c('A','C'),c('2','S')]) === null);
 check('bomb beats a kolor', B(bomb6, k3_7));
 check('kolor cannot beat a bomb', !B(k4_8, bomb5));
+
+console.log('\n— KOLOR +1 RULE: beaten ONLY by the IMMEDIATE next run (same length, top exactly +1) —');
+const k5_9 = [c('5','S'),c('6','H'),c('7','D'),c('8','C'),c('9','S')]; // top 9
+const k8_Q = [c('8','S'),c('9','H'),c('10','D'),c('J','C'),c('Q','S')]; // top 12
+const k23456 = [c('2','S'),c('3','H'),c('4','D'),c('5','C'),c('6','S')]; // top 6
+// 9-card runs (the owner's "4–Q can only be beaten by 5–K" example):
+const k4_Q = [c('4','S'),c('5','H'),c('6','D'),c('7','C'),c('8','S'),c('9','H'),c('10','D'),c('J','C'),c('Q','S')]; // top 12
+const k5_K = [c('5','D'),c('6','C'),c('7','S'),c('8','H'),c('9','D'),c('10','C'),c('J','S'),c('Q','H'),c('K','D')]; // top 13
+const k6_A = [c('6','D'),c('7','C'),c('8','S'),c('9','H'),c('10','D'),c('J','C'),c('Q','S'),c('K','H'),c('A','D')]; // top 14
+check('5->9 does NOT beat 3->7 (gap of 2)', !B(k5_9, k3_7));
+check('8->Q does NOT beat 3->7 (the owner\'s example — unrelated higher run)', !B(k8_Q, k3_7));
+check('5->9 beats 4->8 (+1)', B(k5_9, k4_8));
+check('4->8 does NOT beat 4->8 (not higher)', !B(k4_8, k4_8));
+check('23456 beats A2345 (+1)', B(k23456, kA_5));
+check('3->7 does NOT beat A2345 (gap of 2, was wrongly allowed before)', !B(k3_7, kA_5));
+check('long run: 5->K beats 4->Q (+1)', B(k5_K, k4_Q));
+check('long run: 6->A does NOT beat 4->Q (gap of 2)', !B(k6_A, k4_Q));
+check('long run: a same-length non-adjacent higher run never beats', !B(k6_A, k4_Q) && B(k5_K, k4_Q));
 
 console.log('\n— FLUSH (same-suit straight) — strongest —');
 const f3_7 = [c('3','S'),c('4','S'),c('5','S'),c('6','S'),c('7','S')];

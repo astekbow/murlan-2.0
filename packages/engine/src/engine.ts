@@ -139,11 +139,13 @@ export function identifyCombo(cards: Card[]): Combo | null {
 //   BOMB  beats everything EXCEPT flush (and a higher bomb).
 //   Otherwise a play must match the current combo's category.
 //
-// RUN LENGTH RULE (kolor + flush): a run is beaten ONLY by a run of the SAME
-// length with a higher top card. A run of a DIFFERENT length — shorter OR longer
-// — can never be played on it (you must match the length, just as you must match
-// the category). A flush is still the ultimate trump over OTHER categories
-// (bomb/kolor/…); the same-length rule applies only flush-vs-flush.
+// RUN RULES (kolor vs flush differ):
+//   KOLOR (mixed-suit run): beaten ONLY by a kolor of the SAME length shifted up by
+//   EXACTLY ONE rank — i.e. its top card is exactly one higher. 3–7 is beaten only by
+//   4–8 (not 5–9, not 8–Q); 4–Q only by 5–K. A run of a different length, or any
+//   higher run that is NOT the immediate next one, can never be played on it.
+//   FLUSH (same-suit run): the ultimate trump over OTHER categories (bomb/kolor/…);
+//   flush-vs-flush only requires the same length + a higher top (NOT the +1 rule).
 
 export function beats(candidate: Combo, current: Combo): boolean {
   // --- Flush: the ultimate trump over other categories ---
@@ -172,7 +174,7 @@ export function beats(candidate: Combo, current: Combo): boolean {
       return candidate.power! > current.power!;
     case 'kolor':
       if (candidate.size !== current.size) return false; // runs must match length
-      return candidate.topSeq! > current.topSeq!;
+      return candidate.topSeq! === current.topSeq! + 1; // ONLY the immediate next run (+1)
     default:
       return false;
   }
