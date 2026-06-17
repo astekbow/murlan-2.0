@@ -77,6 +77,7 @@ const STRINGS: Record<string, Entry> = {
   'lobby.quickName': { sq: 'Lojë e Shpejtë', en: 'Quick Match' },
   'lobby.quickDesc': { sq: '1v1 · 1v1v1 · 2v2 — gjej kundërshtar në sekonda', en: '1v1 · 1v1v1 · 2v2 — find an opponent in seconds' },
   'lobby.quickCta': { sq: 'LUAJ TANI', en: 'PLAY NOW' },
+  'lobby.instant': { sq: 'TANI', en: 'INSTANT' },
   'lobby.tournName': { sq: 'Turne', en: 'Tournaments' },
   'lobby.tournDesc': { sq: 'Single-elimination · çmim total minus 10%', en: 'Single-elimination · prize pool minus 10%' },
   'lobby.tournCta': { sq: 'HYR', en: 'ENTER' },

@@ -115,7 +115,11 @@ export function LobbyView() {
             </div>
 
             {lobby.length === 0 ? (
-              <EmptyState message={t('lobby.noRooms')} hint={t('lobby.noRoomsHint')} />
+              <EmptyState
+                message={t('lobby.noRooms')}
+                hint={t('lobby.noRoomsHint')}
+                action={<button onClick={() => { sound.play('button'); haptics.tap(); setCreateOpen(true); }} className="btn btn-gold btn-sm">{t('lobby.createRoom')}</button>}
+              />
             ) : (
               <ul className="space-y-2.5">
                 {lobby.map((r, i) => {
@@ -181,7 +185,8 @@ export function LobbyView() {
           <RailNav items={RAIL_LEFT} side="left" />
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4 order-1 md:order-2">
-            <button className="mode casual animate-rise text-inherit" style={{ animationDelay: '.05s' }} onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
+            <button className="mode casual mode-hero animate-rise text-inherit" style={{ animationDelay: '.05s' }} onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
+              <span className="mode-badge" aria-hidden>⚡ {t('lobby.instant')}</span>
               <div className="art" />
               <span className="micon" aria-hidden>🎴</span>
               <div className="mname gold-text">{t('lobby.quickName')}</div>

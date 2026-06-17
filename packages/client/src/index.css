@@ -306,6 +306,19 @@ select:focus-visible,
   }
   .mode:hover { transform: translateY(-4px); box-shadow: var(--e5), 0 0 34px rgba(232, 200, 121, 0.3); }
   .mode:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 3px; }
+  /* The primary "start here" card — a 2px gold border + a soft pulsing glow so the eye
+     lands on it first instead of scanning four identical cards. */
+  .mode.mode-hero { border: 2px solid var(--gold); box-shadow: var(--e5), 0 0 0 1px var(--gold-line), 0 0 30px rgba(232, 200, 121, 0.34); animation: hero-glow 2.4s ease-in-out infinite; }
+  @keyframes hero-glow {
+    0%, 100% { box-shadow: var(--e4), 0 0 0 1px var(--gold-line), 0 0 22px rgba(232, 200, 121, 0.26); }
+    50% { box-shadow: var(--e5), 0 0 0 1px var(--gold), 0 0 38px rgba(232, 200, 121, 0.5); }
+  }
+  .mode .mode-badge {
+    position: absolute; top: 10px; right: 10px; z-index: 2;
+    font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase;
+    color: #1a1207; background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+    padding: 3px 8px; border-radius: 999px; box-shadow: 0 4px 10px -3px rgba(0, 0, 0, 0.6);
+  }
   .mode .art { position: absolute; inset: 0; z-index: 0; }
   .mode.casual .art { background: radial-gradient(120% 90% at 50% 25%, #234a6e, #122336 68%, #0b1622); }
   .mode.tourn .art { background: radial-gradient(120% 90% at 50% 25%, #245a3c, #123524 68%, #0b1f15); }
