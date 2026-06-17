@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, Suspense, type ReactNode } from 'react';
 import { useAuthStore } from './store/authStore.ts';
 import { useGameStore } from './store/gameStore.ts';
 import { useUiStore } from './store/uiStore.ts';
@@ -18,6 +18,9 @@ import { OnboardingModal } from './components/ui/OnboardingModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
+import { useExitGuard } from './lib/useExitGuard.ts';
+import { ConfirmDialog } from './components/ui/ConfirmDialog.tsx';
+import { dollars } from './lib/money.ts';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
 import { useCosmeticsStore } from './store/cosmeticsStore.ts';
@@ -87,6 +90,16 @@ export function App() {
   const onboarded = useOnboardingStore((s) => s.done);
   const t = useT();
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
+
+  // Android/browser BACK guard: while at a table, back must not exit the PWA or abandon a
+  // staked match. Absorb it and prompt to leave instead (the explicit Leave button remains
+  // the real exit). Spectators are excluded — they can back out freely.
+  const [backLeave, setBackLeave] = useState(false);
+  useExitGuard(!!room && !spectating, useCallback(() => {
+    const r = useGameStore.getState().room;
+    if (r && r.status === 'inMatch') setBackLeave(true); // mid-match → confirm (stake at risk)
+    else void useGameStore.getState().leaveRoom();        // waiting/finished → just leave to lobby
+  }, []));
 
   // Email-link entry points (?resetPassword=… / ?verifyEmail=…). Captured once on
   // load; the param is stripped from the URL after handling.
@@ -177,6 +190,16 @@ export function App() {
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <RealityCheckModal />}
       {status === 'authed' && <ReconnectOverlay />}
+      {backLeave && room && (
+        <ConfirmDialog
+          title={t('table.leaveConfirm')}
+          message={room.stakeCents > 0 ? t('table.leaveStakeWarn', { amount: dollars(room.stakeCents) }) : t('table.leaveWarn')}
+          confirmLabel={t('table.leave')}
+          danger
+          onConfirm={() => { setBackLeave(false); void useGameStore.getState().leaveRoom(); }}
+          onClose={() => setBackLeave(false)}
+        />
+      )}
       <Toast message={toast} kind={toastKind} onDismiss={dismissToast} />
     </ErrorBoundary>
   );
