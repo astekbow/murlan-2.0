@@ -12,6 +12,24 @@ import { useT, translate, useLangStore } from '../lib/i18n.ts';
 /** For errors set OUTSIDE React render (store.setState) — translate with the live lang. */
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
+const WITHDRAW_FEE_CENTS = 100; // ~1 USDT network/Binance fee deducted from the sent amount
+/** Cheap client-side TRON address shape check (T + 33 base58 chars) for live ✓/✗ feedback;
+ *  the server still does the real checksum validation before any payout. */
+const isLikelyTron = (a: string) => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(a.trim());
+
+/** Prominent, repeated "TRON-only / wrong network = lost funds" card. Crypto sends are
+ *  irreversible, so this is a bordered badge at the top of deposit AND withdraw — not a
+ *  muted footnote that's easy to skip. */
+function TronWarning() {
+  const t = useT();
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2.5">
+      <span aria-hidden className="text-base leading-none">⚠️</span>
+      <p className="text-[12px] font-medium text-amber-200 leading-snug">{t('wallet.networkWarn')}</p>
+    </div>
+  );
+}
+
 export function WalletView() {
   const {
     balanceCents, transactions, withdrawals, profile, error, notice,
@@ -170,6 +188,7 @@ export function WalletView() {
       {depAddr && (
         <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.06s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
+          <TronWarning />
           <p className="text-sm text-muted">{t('wallet.depositTrc20Steps')}</p>
           <div>
             <span className="field-label">{t('wallet.yourAddress')}</span>
@@ -177,7 +196,6 @@ export function WalletView() {
               <code className="field flex-1 font-mono text-xs break-all select-all">{depAddr}</code>
               <button onClick={() => void navigator.clipboard?.writeText(depAddr)} className="btn btn-ghost btn-sm shrink-0">{t('common.copy')}</button>
             </div>
-            <p className="text-[11px] text-amber-300/90 mt-1">⚠️ {t('wallet.networkWarn')}</p>
           </div>
           {/* Auto-credit is the primary path now (unique per-player address). */}
           <p className="text-sm text-emerald-300 bg-emerald-700/10 border border-emerald-500/30 rounded-lg px-3 py-2">
@@ -202,6 +220,7 @@ export function WalletView() {
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.withdraw')}</h2>
         {/* KYC removed (owner decision): no identity verification is required to
             withdraw. Large/uncapped requests still go to MANUAL operator review. */}
+        <TronWarning />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <label className="block">
             <span className="field-label">{t('wallet.amountUsd')}</span>
@@ -210,14 +229,23 @@ export function WalletView() {
           </label>
           <label className="block sm:col-span-2">
             <span className="field-label">{t('wallet.addressDest')}</span>
-            <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder={t('wallet.addressPlaceholder')}
-              className="field" />
+            <div className="relative">
+              <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder={t('wallet.addressPlaceholder')}
+                className="field pr-8" />
+              {destination.trim().length > 0 && (
+                <span
+                  className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-sm font-bold ${isLikelyTron(destination) ? 'text-emerald-400' : 'text-red-400'}`}
+                  aria-label={isLikelyTron(destination) ? t('wallet.addrValid') : t('wallet.addrInvalid')}
+                >{isLikelyTron(destination) ? '✓' : '✗'}</span>
+              )}
+            </div>
           </label>
         </div>
-        <p className="text-[11px] text-amber-300/90 flex items-start gap-1.5">
-          <span aria-hidden>⚠️</span><span>{t('wallet.networkWarn')}</span>
-        </p>
-        <p className="text-[11px] text-muted/80">{t('wallet.withdrawFeeNote')}</p>
+        {(parseDollarsToCents(withdrawAmt) ?? 0) > 0 && (
+          <p className="text-[12px] font-medium text-emerald-300">
+            {t('wallet.youReceive', { amount: dollars(Math.max(0, (parseDollarsToCents(withdrawAmt) ?? 0) - WITHDRAW_FEE_CENTS)) })}
+          </p>
+        )}
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
 
@@ -270,7 +298,10 @@ export function WalletView() {
                 className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
               >
                 <span className="tag tag-open">{txLabel(t.type)}</span>
-                {t.reason && <span className="text-xs text-muted flex-1 truncate">{t.reason}</span>}
+                <span className="flex-1 min-w-0">
+                  {t.reason && <span className="block text-xs text-muted truncate">{t.reason}</span>}
+                  <span className="block text-[11px] text-muted/70">{new Date(t.createdAt).toLocaleString()}</span>
+                </span>
                 <span className={`ml-auto font-display font-semibold tracking-wide ${t.amountCents >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
                   {t.amountCents >= 0 ? '+' : '−'}{dollars(Math.abs(t.amountCents))}
                 </span>

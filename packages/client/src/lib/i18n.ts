@@ -195,6 +195,9 @@ const STRINGS: Record<string, Entry> = {
   'wallet.addressPlaceholder': { sq: 'adresa jote USDT (TRC20)', en: 'your USDT (TRC20) address' },
   'wallet.networkWarn': { sq: 'Dërgo VETËM një adresë USDT në rrjetin TRON (TRC20). Rrjeti i gabuar = fonde të humbura.', en: 'Use ONLY a USDT address on the TRON (TRC20) network. Wrong network = lost funds.' },
   'wallet.withdrawFeeNote': { sq: 'Tarifa e rrjetit (~1 USDT) zbritet nga shuma — do të marrësh: shuma − ~1 USDT.', en: 'A network fee (~1 USDT) is deducted from the amount — you receive: amount − ~1 USDT.' },
+  'wallet.youReceive': { sq: 'Do të marrësh: {amount} (pas ~$1 tarifë rrjeti)', en: 'You will receive: {amount} (after ~$1 network fee)' },
+  'wallet.addrValid': { sq: 'Adresa duket e vlefshme (TRON)', en: 'Address looks valid (TRON)' },
+  'wallet.addrInvalid': { sq: 'Adresa s’duket e vlefshme — TRON fillon me T, 34 karaktere', en: 'Address doesn’t look valid — TRON starts with T, 34 chars' },
   // USDT-TRC20 deposit by TxID
   'wallet.depositTrc20': { sq: 'Depozitë USDT (TRC20)', en: 'Deposit USDT (TRC20)' },
   'wallet.depositTrc20Steps': { sq: 'Dërgo USDT në rrjetin TRON (TRC20) te adresa më poshtë. Kreditohet vetvetiu pas pak — s’ke nevojë të bësh asgjë tjetër.', en: 'Send USDT on the TRON (TRC20) network to the address below. It credits automatically shortly — nothing else to do.' },
