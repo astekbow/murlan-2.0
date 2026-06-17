@@ -27,6 +27,7 @@
 
   /* Gold — the signature accent. */
   --gold: #e8c879; --gold-hi: #fff3cf; --gold-deep: #a9842f; --gold-line: #c9a14d;
+  --gold-accessible: #f5e4a6;                 /* higher-contrast gold (~9:1) for text < 16px (badges/tags) */
   --gold-04: rgba(232, 200, 121, 0.04); --gold-08: rgba(232, 200, 121, 0.08);
   --gold-14: rgba(232, 200, 121, 0.14); --gold-28: rgba(232, 200, 121, 0.28);
   --bulb: #ffe6a3;
@@ -38,6 +39,7 @@
   /* Text contrast ladder (cooler/cleaner than the old warm beige). */
   --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #b8b0c8; --txt-faint: rgba(184, 176, 200, 0.80);
   --muted: #b8b0c8;                           /* = --txt-lo — lightened to meet WCAG AA (~4.5:1+) on the dark bg */
+  --muted-sm: #d0c8de;                        /* brighter tier for small text (< 14px labels) to keep AA headroom */
 
   /* Semantic (chrome). */
   --success: #34d39a; --danger: #ff5d5d; --info: #5b8cff; --live: #ff7a4d;
@@ -121,6 +123,17 @@ select:focus-visible,
   outline: 2px solid var(--gold-hi);
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+/* Gold surfaces: a gold-hi outline is invisible ON gold. Use a "black-gold sandwich" —
+   a near-black outline hugging the button + a bright gold ring just outside it — so
+   keyboard focus is obvious on the most important (primary) buttons. */
+.btn-gold:focus-visible,
+.mcta:focus-visible,
+.seg-tab.active:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--gold-hi);
 }
 
 @layer components {
@@ -240,7 +253,7 @@ select:focus-visible,
   .iconbtn:hover { border-color: var(--gold); transform: translateY(-1px); }
 
   /* ---- Inputs & selects -------------------------------------------------- */
-  .field-label { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.2px; }
+  .field-label { font-size: 12px; font-weight: 500; color: var(--muted-sm); letter-spacing: 0.2px; }
   .field {
     /* 16px (not 14px) is REQUIRED everywhere: iOS Safari auto-zooms when you focus an
        input whose font-size is < 16px. The old 14px base only got bumped to 16px at
@@ -697,7 +710,7 @@ select:focus-visible,
 .tv-ls .tv-seat-top-left, .tv-ls .tv-seat-top-right { top: -12px !important; }
 .tv-ls .tv-seat-top-left { left: max(6px, env(safe-area-inset-left)) !important; }
 .tv-ls .tv-seat-top-right { right: max(6px, env(safe-area-inset-right)) !important; }
-.tv-ls .seat-nm { max-width: 54px; font-size: 10px; }
+.tv-ls .seat-nm { max-width: 56px; font-size: 11px; }
 .tv-ls .hand-fan .gcard { width: 40px; height: 58px; }
 .tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }
 .tv-ls .hand-fan .gcard .gc-big { font-size: 20px; }
