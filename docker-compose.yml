@@ -101,7 +101,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.client
-    ports: ['8080:80']
+    # Localhost only. In production Caddy (deploy overlay) reaches the client over the
+    # internal Docker network and terminates TLS; publishing 8080 on 0.0.0.0 would let
+    # anyone hit the site over plain HTTP, bypassing Caddy's HTTPS. 127.0.0.1 keeps it
+    # reachable for local dev (http://localhost:8080) but never from outside the host.
+    ports: ['127.0.0.1:8080:80']
     depends_on: ['server']
 
 volumes:
