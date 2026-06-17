@@ -1741,8 +1741,13 @@ export class GameGateway {
     // match can NEVER hang waiting on the switch (real money is at stake).
     if (snap.pendingSwitch) {
       const winnerSeat = snap.pendingSwitch.winner;
-      // A bot winner returns its card itself (no human timer needed).
-      if (isBot(this.userAtSeat(roomId, winnerSeat))) { this.scheduleBot(roomId, winnerSeat); return; }
+      // A bot winner returns its card itself. ALSO arm a watchdog: if driveBot hits a
+      // transient early-return the seat must not stall (no human timer would rescue it).
+      if (isBot(this.userAtSeat(roomId, winnerSeat))) {
+        this.scheduleBot(roomId, winnerSeat);
+        this.timers.armTurn(roomId, this.turnMs, () => this.onBotWatchdog(roomId, winnerSeat));
+        return;
+      }
       this.timers.armTurn(roomId, this.turnMs, () => this.onSwitchTimeout(roomId, winnerSeat));
       return;
     }
@@ -1750,9 +1755,49 @@ export class GameGateway {
     const turn = snap.game?.turn;
     if (turn === null || turn === undefined) return;
     // A bot acts on its own turn (server-side); humans get the turn timer + push.
-    if (isBot(this.userAtSeat(roomId, turn))) { this.scheduleBot(roomId, turn); return; }
+    // The watchdog guarantees a bot can NEVER hang the match if driveBot early-returns
+    // (e.g. transient null state): scheduleBot normally moves it in ~1s; if the seat is
+    // still the bot's after the full turn budget, the watchdog forces a legal move.
+    if (isBot(this.userAtSeat(roomId, turn))) {
+      this.scheduleBot(roomId, turn);
+      this.timers.armTurn(roomId, this.turnMs, () => this.onBotWatchdog(roomId, turn));
+      return;
+    }
     this.notifyTurnIfAway(roomId, turn); // re-engagement push (isolated, fire-and-forget)
     this.timers.armTurn(roomId, this.turnMs, () => this.onTurnTimeout(roomId, turn));
+  }
+
+  /**
+   * Watchdog for a bot seat. scheduleBot normally moves the bot within ~1s, which
+   * re-arms the timer for the next seat and clears this. If the bot is STILL on turn
+   * after the full turn budget, driveBot must have hit a transient early-return and no
+   * human timer exists to rescue the seat — so retry once, then GUARANTEE progress with
+   * a legal fallback (forced lead when leading, else pass). A bot never idle-forfeits.
+   */
+  private onBotWatchdog(roomId: string, seat: number): void {
+    const room = this.rooms.getRoom(roomId);
+    if (!room?.match || room.status !== 'inMatch') return;
+    const userId = this.userAtSeat(roomId, seat);
+    if (!isBot(userId)) return; // seat changed hands — not our concern
+    const snap = room.match.snapshot();
+
+    // Owed a card-switch return: driveBot returns the weakest eligible card itself.
+    if (snap.pendingSwitch?.winner === seat) { this.driveBot(roomId, seat); return; }
+
+    const g = snap.game;
+    if (!g || g.turn !== seat) return; // bot already acted — nothing to rescue
+
+    console.warn('[bot] watchdog: seat stalled, forcing a move', { roomId, seat });
+    this.driveBot(roomId, seat); // let the normal path retry (clears most transient stalls)
+
+    // Still owed after the retry → force a guaranteed-legal action (mirrors onTurnTimeout).
+    if (this.rooms.getRoom(roomId)?.status !== 'inMatch') return;
+    const after = this.rooms.getRoom(roomId)?.match?.snapshot().game;
+    if (after && after.turn === seat && userId) {
+      const res = after.pile === null ? this.forcedLead(roomId, userId, seat) : this.rooms.pass(userId);
+      if (res.ok && res.roomId) this.applyResult(res.roomId, res);
+      else this.armTurnTimer(roomId); // nothing legal happened — re-arm defensively
+    }
   }
 
   /**
