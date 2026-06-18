@@ -164,6 +164,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const requireThreeSpades = gameIndex === 0 && game?.pile == null && isMyTurn && holdsThreeSpades;
   const passedSet = new Set(game?.passed ?? []);
   const finishedSet = new Set(game?.finishingOrder ?? []);
+  const goneSet = new Set(game?.gone ?? []); // seats whose player abandoned (auto-passed, last)
   const myTeam = mySeat !== null ? room.seats[mySeat]?.team ?? null : null;
   const iWon = matchResult ? matchResult.winnerSeats.includes(mySeat ?? -1) : false;
   // Ranked transparency: my own MMR change for this match (present only when a
@@ -372,6 +373,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                         connected={s.connected}
                         finished={finishedSet.has(s.seat)}
                         passed={passedSet.has(s.seat)}
+                        gone={goneSet.has(s.seat)}
                         lastPlayer={game?.pileOwner === s.seat}
                         partner={room.type === '2v2' && myTeam !== null && s.team === myTeam}
                         turnDeadline={game?.turn === s.seat ? game?.turnDeadline ?? null : null}

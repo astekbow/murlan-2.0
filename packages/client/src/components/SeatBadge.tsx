@@ -10,6 +10,7 @@ interface SeatBadgeProps {
   connected: boolean;
   finished: boolean;
   passed: boolean;
+  gone?: boolean; // player abandoned the match (auto-passed, placed last) — greyed + "Larguar"
   avatar?: string | null; // cosmetic avatar (preset id or data URL); null → show initials
   lastPlayer?: boolean; // led the current pile
   partner?: boolean;    // 2v2 teammate of the local player
@@ -46,11 +47,14 @@ function TurnRing({ deadline }: { deadline: number }) {
  * The fan is decorative and capped — opponents' card IDENTITIES are NEVER shown
  * (the server only ever sends counts), only how many they hold.
  */
-function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, avatar, lastPlayer, partner, turnDeadline, placement }: SeatBadgeProps) {
+function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, gone, avatar, lastPlayer, partner, turnDeadline, placement }: SeatBadgeProps) {
   const t = useT();
   const ring = isTurn ? 'turn' : lastPlayer ? 'green' : '';
   const fanCount = Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
-  const status = finished ? t('seat.finished') : passed ? t('seat.passed') : !connected ? t('seat.offline') : isTurn ? t('seat.turn') : '';
+  // A player who abandoned the match takes priority over every other status — the
+  // seat plays on auto-passed (placed last), so show it greyed with a clear label.
+  const dimmed = gone || !connected;
+  const status = gone ? t('seat.left') : finished ? t('seat.finished') : passed ? t('seat.passed') : !connected ? t('seat.offline') : isTurn ? t('seat.turn') : '';
 
   const fan = (
     <div className="flex h-5 items-end" aria-hidden="true">
@@ -62,7 +66,7 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   const avatarEl = (
     <div className="relative inline-grid place-items-center">
       {isTurn && turnDeadline != null && <TurnRing deadline={turnDeadline} />}
-      <div className={`av ${ring} ${!connected ? 'off' : ''}`} title={name}>
+      <div className={`av ${ring} ${dimmed ? 'off' : ''}`} title={name}>
         {avatar ? <AvatarFace id={avatar} fill className="text-2xl leading-none" /> : initials(name)}
       </div>
     </div>
@@ -80,7 +84,7 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   // The "led last" badge sits inline for the side seats but goes to the SIDE (absolute)
   // for the TOP seat, so it never hangs down over the felt / pile.
   return (
-    <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${!connected ? 'opacity-60' : ''}`}>
+    <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${dimmed ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-1.5">
         {fan}
         <span className="seat-cnt">({count})</span>

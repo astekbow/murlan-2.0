@@ -344,6 +344,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
       setTimeout(() => set({ noSwapNotice: false }), 4000);
     });
 
+    socket.on('match:playerLeft', (dto) => {
+      // A player abandoned but the match CONTINUES (they're auto-passed, placed last,
+      // and forfeit their stake). Survivors get a notice; the seat shows greyed via
+      // the public game state (`gone`). The match ends normally only when too few remain.
+      const mine = dto.seat === get().mySeat;
+      const name = dto.username ?? tg('common.aPlayer');
+      set((s) => ({
+        toast: mine ? tg('msg.youLeftMatch') : tg('msg.playerLeftContinues', { name }),
+        toastKind: 'info',
+        log: appendLog(s.log, tg('log.playerLeft', { name })),
+      }));
+    });
+
     socket.on('fair:commit', (dto) => {
       // Contribute fresh entropy AFTER the commitment — this is what makes the
       // deal un-grindable (the server fixed serverSeed before seeing this seed).
