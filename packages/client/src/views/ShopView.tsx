@@ -186,7 +186,6 @@ export function ShopView() {
                           <span className="font-display font-semibold tracking-wide text-txt truncate">
                             {item.name}
                           </span>
-                          {isEquipped && <span className="tag tag-open">{t('shop.equipped')}</span>}
                         </div>
                         <div className="text-xs text-muted mt-0.5">{costLabel(item.cost)}</div>
                       </div>

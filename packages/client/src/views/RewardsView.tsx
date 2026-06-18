@@ -127,7 +127,7 @@ export function RewardsView() {
                   +{status.daily.rewardXp} XP
                 </div>
                 <div className="text-xs text-muted mt-1">
-                  {t('rewards.currentStreak', { n: status.daily.streak })} {status.daily.streak === 1 ? t('rewards.days') : t('rewards.days')}
+                  {t('rewards.currentStreak', { n: status.daily.streak })} {status.daily.streak === 1 ? t('rewards.day') : t('rewards.days')}
                 </div>
               </div>
             </div>
@@ -214,7 +214,7 @@ function ChallengeRow({ challenge, busy, index, onClaim }: ChallengeRowProps) {
       </div>
 
       <div className="flex items-center gap-3 mt-2.5">
-        <div className="xpbar flex-1" style={{ width: 'auto' }}>
+        <div className="xpbar flex-1" style={{ width: 'auto' }} role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={goal}>
           <i style={{ width: `${pct}%` }} />
         </div>
         <span className="text-xs font-display font-semibold tracking-wide text-muted whitespace-nowrap">

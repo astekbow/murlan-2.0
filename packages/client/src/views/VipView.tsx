@@ -1,13 +1,15 @@
 // VIP / loyalty: your tier (from lifetime staked volume), progress to the next
 // tier, and the full ladder with each tier's rake-back rate. Rake-back CASHOUT is
 // real money → shown as "coming soon" until a payment provider is wired.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { vipApi, ApiError, type VipStatusDTO, type VipTierInfo } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { dollars } from '../lib/money.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
-import { useT } from '../lib/i18n.ts';
+import { useT, translate, useLangStore } from '../lib/i18n.ts';
+
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 function Badge({ tier, size = 'md' }: { tier: VipTierInfo; size?: 'sm' | 'md' }) {
   const pad = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-sm';
@@ -27,19 +29,21 @@ export function VipView() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const load = useCallback(() => {
+    setStatus('loading');
+    setError(null);
     const token = useAuthStore.getState().accessToken;
     Promise.all([token ? vipApi.status(token) : Promise.resolve({ vip: null }), vipApi.tiers()])
-      .then(([s, t]) => {
-        if (!alive) return;
+      .then(([s, tt]) => {
         setVip((s as { vip: VipStatusDTO | null }).vip);
-        setTiers(t.tiers);
+        setTiers(tt.tiers);
         setStatus('ready');
       })
-      .catch((e: unknown) => { if (alive) { setError(e instanceof ApiError ? e.message : t('vip.loadFailed')); setStatus('error'); } });
-    return () => { alive = false; };
+      // tr() (live-lang) not the t() hook — avoids a stale-closure translation here.
+      .catch((e: unknown) => { setError(e instanceof ApiError ? e.message : tr('vip.loadFailed')); setStatus('error'); });
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const pct = vip && vip.next ? Math.min(100, Math.round((vip.stakedCents / vip.next.minStakedCents) * 100)) : 100;
 
@@ -58,7 +62,11 @@ export function VipView() {
       {status === 'loading' ? (
         <section className="panel p-5 animate-rise"><SkeletonList count={4} /></section>
       ) : status === 'error' ? (
-        <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300">{error}</p></div>
+        <div className="panel p-10 text-center">
+          <div className="text-4xl mb-2 opacity-60">⚠️</div>
+          <p className="text-sm text-red-300 mb-4">{error}</p>
+          <button onClick={load} className="btn btn-gold btn-sm">{t('app.retry')}</button>
+        </div>
       ) : (
         <>
           {vip && (
@@ -69,12 +77,19 @@ export function VipView() {
               </div>
               {vip.next ? (
                 <>
-                  <div className="xpbar" style={{ width: '100%' }}><i style={{ width: `${pct}%` }} /></div>
+                  <div
+                    className="h-2.5 w-full rounded-full bg-black/40 overflow-hidden"
+                    role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+                    style={{ boxShadow: 'inset 0 0 0 1px rgba(232,200,121,0.25)' }}
+                  >
+                    <i className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--gold), var(--gold-hi))' }} />
+                  </div>
                   <p className="text-xs text-muted">{t('vip.more')} <b className="text-gold-hi">{dollars(vip.toNextCents)}</b> {t('vip.stakeFor')} <b style={{ color: vip.next.color }}>{vip.next.name}</b>.</p>
                 </>
               ) : (
                 <p className="text-xs text-emerald-300">{t('vip.maxTier')}</p>
               )}
+              <p className="text-[11px] text-amber-300/90">{t('vip.rakebackSoon')}</p>
             </section>
           )}
 
@@ -95,6 +110,7 @@ export function VipView() {
               })}
             </ul>
             <p className="text-[11px] text-muted/70 mt-3">{t('vip.statusNote')}</p>
+            <p className="text-[11px] text-muted/70 mt-1">{t('vip.rakebackNote')}</p>
           </section>
         </>
       )}

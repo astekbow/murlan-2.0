@@ -8,7 +8,9 @@ import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
-import { useT } from '../lib/i18n.ts';
+import { useT, translate, useLangStore } from '../lib/i18n.ts';
+
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 export function ClubsView() {
   const t = useT();
@@ -76,7 +78,7 @@ export function ClubsView() {
             <div className="rounded-xl px-4 py-3 border border-gold/40 bg-gold/[.06] text-center">
               <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-0.5">{t('clubs.shareCode')}</div>
               <button
-                onClick={() => { void navigator.clipboard?.writeText(mine.joinCode!).catch(() => {}); }}
+                onClick={() => { void navigator.clipboard?.writeText(mine.joinCode!).then(() => useGameStore.setState({ toast: t('clubs.codeCopied'), toastKind: 'success' })).catch(() => {}); }}
                 className="font-mono text-2xl tracking-[0.35em] gold-text font-bold"
                 title={t('clubs.shareCodeHint')}
               >
@@ -182,7 +184,10 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
   useEffect(() => {
     const tk = token();
     if (!tk) return;
-    clubsApi.messages(tk, club.id).then((r) => setClubChat(r.messages)).catch(() => setClubChat([]));
+    clubsApi.messages(tk, club.id).then((r) => setClubChat(r.messages)).catch(() => {
+      setClubChat([]);
+      useGameStore.setState({ toast: tr('clubs.chatLoadFailed'), toastKind: 'error' });
+    });
   }, [club.id, setClubChat]);
 
   // Keep the view pinned to the newest message.
@@ -208,6 +213,7 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
   const mute = async (userId: string) => {
     const tk = token();
     if (!tk) return;
+    if (!(await confirm({ title: t('clubs.mute'), message: t('clubs.muteConfirmM') }))) return;
     await clubsApi.mute(tk, userId).then(() => useGameStore.setState({ toast: t('clubs.muteSuccess'), toastKind: 'success' })).catch(() => useGameStore.setState({ toast: t('clubs.muteFailed'), toastKind: 'error' }));
   };
 
@@ -223,10 +229,11 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
               <div className="flex items-baseline gap-2">
                 <span className="font-display font-semibold tracking-wide text-gold-hi text-sm truncate">{m.username}</span>
                 {m.userId === myId && <span className="text-[10px] text-muted">{t('clubs.you')}</span>}
+                <span className="text-[10px] text-muted/60 ml-auto shrink-0">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
               <p className="text-sm text-txt break-words">{m.text}</p>
             </div>
-            <div className="flex flex-col items-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+            <div className="flex flex-col items-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
               {m.userId !== myId && <button onClick={() => void report(m.id)} className="text-[10px] text-muted hover:text-red-300" title={t('clubs.report')}>⚑</button>}
               {isFounder && m.userId !== myId && <button onClick={() => void mute(m.userId)} className="text-[10px] text-muted hover:text-gold-hi" title={t('clubs.mute')}>🔇</button>}
             </div>
