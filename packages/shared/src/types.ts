@@ -259,8 +259,8 @@ export interface ReplayActionDTO {
   seq: number;       // turn order within the match
   gameIndex: number; // which game within the match
   seat: Seat;
-  type: 'play' | 'pass' | 'switch';
-  cards: Card[] | null; // played cards / given card; null for a pass
+  type: 'play' | 'pass' | 'switch' | 'forfeit'; // 'forfeit' = the player abandoned the match here
+  cards: Card[] | null; // played cards / given card; null for a pass / forfeit
 }
 
 export interface ReplayGameDTO {

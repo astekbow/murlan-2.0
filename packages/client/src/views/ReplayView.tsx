@@ -30,7 +30,9 @@ function ActionRow({ a }: { a: ReplayActionDTO }) {
     <div className="flex items-start gap-2 py-1.5 border-b border-white/5 last:border-0">
       <span className="shrink-0 text-xs text-muted font-display w-16">{t('replay.seatN', { n: a.seat + 1 })}</span>
       <div className="flex-1 flex flex-wrap items-center gap-1">
-        {a.type === 'pass' ? (
+        {a.type === 'forfeit' ? (
+          <span className="text-xs text-red-300/80 italic">{t('replay.left')}</span>
+        ) : a.type === 'pass' ? (
           <span className="text-xs text-muted italic">{t('replay.pass')}</span>
         ) : a.type === 'switch' ? (
           <>

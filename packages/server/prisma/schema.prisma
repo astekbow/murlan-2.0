@@ -328,8 +328,8 @@ model GameAction {
   seq       Int // monotonic within the match (turn order)
   gameIndex Int
   seat      Int
-  type      String // 'play' | 'pass' | 'switch'
-  cards     Json? // played cards / given card; null for a pass
+  type      String // 'play' | 'pass' | 'switch' | 'forfeit' (free-text; no enum/migration)
+  cards     Json? // played cards / given card; null for a pass / forfeit
   createdAt DateTime @default(now())
 
   @@id([matchId, seq])

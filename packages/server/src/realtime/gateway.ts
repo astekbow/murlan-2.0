@@ -1690,6 +1690,10 @@ export class GameGateway {
     const res = this.rooms.forfeitSeat(userId);
     if (!res.ok || !res.roomId) return;
 
+    // Audit/replay: log the departure in turn order (an explicit "left" marker) BEFORE
+    // applyResult — a terminal forfeit finalizes the match there and drops the seq counter.
+    this.recordAction(roomId, abandonerSeat, { gameIndex: room.match?.snapshot().gameIndex ?? 0, type: 'forfeit', cards: null });
+
     // Tell the table a player left. Survivors show "X u largua — loja vazhdon"; the
     // abandoner's own client (seat === my seat) returns them to the lobby.
     this.io.to(roomId).emit('match:playerLeft', { seat: abandonerSeat, username });

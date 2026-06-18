@@ -591,6 +591,7 @@ const STRINGS: Record<string, Entry> = {
   'replay.seatN': { sq: 'Vendi {n}', en: 'Seat {n}' },
   'replay.pass': { sq: 'pas', en: 'pass' },
   'replay.switched': { sq: 'ndërroi', en: 'switched' },
+  'replay.left': { sq: 'u largua nga ndeshja', en: 'left the match' },
   'replay.back': { sq: '← Kthehu', en: '← Back' },
   'replay.title': { sq: 'RIPRODHIM & VERIFIKIM', en: 'REPLAY & VERIFICATION' },
   'replay.loading': { sq: 'Po ngarkohet…', en: 'Loading…' },

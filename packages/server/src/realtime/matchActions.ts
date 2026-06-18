@@ -14,7 +14,11 @@
 
 import type { Card } from '@murlan/engine';
 
-export type MatchActionType = 'play' | 'pass' | 'switch';
+// 'forfeit' marks the turn-ordered point at which a seat's player abandoned the
+// match (left / disconnected past grace / idled out). It carries no cards and lets
+// a replay/audit show an explicit "left" marker instead of the seat silently
+// ceasing to act. The match continues without them (see Match.forfeit).
+export type MatchActionType = 'play' | 'pass' | 'switch' | 'forfeit';
 
 export interface MatchActionRecord {
   matchId: string;

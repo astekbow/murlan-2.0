@@ -84,3 +84,53 @@ test('move-log: a finished match records each applied move in turn order, keyed 
     await new Promise<void>((res) => httpServer.close(() => res()));
   }
 });
+
+test('move-log: an abandon is recorded as a turn-ordered "forfeit" marker (replay/audit)', async () => {
+  const httpServer: HttpServer = createServer();
+  const io = new Server(httpServer);
+  const repo = new InMemoryUserRepository();
+  const matchLog = new InMemoryMatchActions();
+  const auth = new AuthService(repo, new TokenService({ accessSecret: 'a', refreshSecret: 'r' }));
+  const rooms = new RoomManager({
+    startTarget: 100, // high target → the match would otherwise continue
+    dealerFactory: () => () => [[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]].map((h) => h.map((x) => ({ ...x }))),
+    idFactory: (() => { let n = 0; return () => `room_${(n += 1)}`; })(),
+  });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, matchLog, provablyFair: false });
+
+  await new Promise<void>((res) => httpServer.listen(0, res));
+  const port = (httpServer.address() as AddressInfo).port;
+  const us = [];
+  for (let i = 0; i < 3; i += 1) us.push(await auth.register({ username: `plyr${i}`, email: `plyr${i}@a.com`, password: `password${i}` }));
+  const clients: any[] = us.map((u) => ioClient(`http://localhost:${port}`, { auth: { token: u.tokens.accessToken }, transports: ['websocket'], forceNew: true }));
+  try {
+    await Promise.all(clients.map((cl) => once(cl, 'connect')));
+    await emitAck(clients[0], 'room:create', { type: '1v1v1', stakeCents: 0 });
+    await emitAck(clients[1], 'room:join', { roomId: 'room_1' });
+    await emitAck(clients[2], 'room:join', { roomId: 'room_1' });
+    const started = once(clients[0], 'game:start');
+    for (const cl of clients) await emitAck(cl, 'room:ready', true);
+    await started;
+    const matchId = rooms.matchIdOf('room_1');
+    assert.ok(matchId);
+
+    // Seat 1 abandons → the match continues; an explicit forfeit marker is logged.
+    const left = once(clients[0], 'match:playerLeft');
+    await emitAck(clients[1], 'room:leave');
+    await left;
+
+    let log = await matchLog.listByMatch(matchId!);
+    for (let i = 0; i < 20 && !log.some((a) => a.type === 'forfeit'); i += 1) {
+      await new Promise((r) => setTimeout(r, 25));
+      log = await matchLog.listByMatch(matchId!);
+    }
+    const ff = log.find((a) => a.type === 'forfeit');
+    assert.ok(ff, 'a forfeit action was recorded in the move-log');
+    assert.equal(ff!.seat, 1);   // the seat that left
+    assert.equal(ff!.cards, null); // a forfeit carries no cards
+  } finally {
+    for (const cl of clients) cl.close();
+    io.close();
+    await new Promise<void>((res) => httpServer.close(() => res()));
+  }
+});
