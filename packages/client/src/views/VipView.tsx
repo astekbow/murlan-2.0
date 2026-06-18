@@ -5,8 +5,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { vipApi, ApiError, type VipStatusDTO, type VipTierInfo } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
+import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
+import { Confetti } from '../components/ui/Confetti.tsx';
+import { sound } from '../lib/sound.ts';
+import { haptics } from '../lib/haptics.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
@@ -47,8 +51,31 @@ export function VipView() {
 
   const pct = vip && vip.next ? Math.min(100, Math.round((vip.stakedCents / vip.next.minStakedCents) * 100)) : 100;
 
+  // Tier-up celebration: when the player's tier is HIGHER than the last one we recorded
+  // (they climbed since their last visit), fire confetti + a sound. localStorage-backed
+  // so it fires once per actual climb, never on a first visit.
+  const [celebrate, setCelebrate] = useState(false);
+  useEffect(() => {
+    if (status !== 'ready' || !vip || tiers.length === 0) return;
+    const rank = tiers.findIndex((x) => x.key === vip.tier.key);
+    if (rank < 0) return;
+    let prev: number | null = null;
+    try { const s = localStorage.getItem('murlan:vipRank'); prev = s === null ? null : Number(s); } catch { /* private mode */ }
+    if (prev !== null && rank > prev) {
+      setCelebrate(true);
+      sound.play('win');
+      haptics.win();
+      useGameStore.setState({ toast: tr('vip.tierUp'), toastKind: 'success' });
+      const id = window.setTimeout(() => setCelebrate(false), 2600);
+      try { localStorage.setItem('murlan:vipRank', String(rank)); } catch { /* ignore */ }
+      return () => window.clearTimeout(id);
+    }
+    try { localStorage.setItem('murlan:vipRank', String(rank)); } catch { /* ignore */ }
+  }, [status, vip, tiers]);
+
   return (
     <div className="space-y-5">
+      {celebrate && <Confetti />}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">

@@ -180,7 +180,9 @@ export function ShopView() {
               <ul className="space-y-2.5">
                 {items.map((item) => {
                   const isEquipped = status.equipped[item.type] === item.id;
-                  const canAfford = balanceCents >= item.cost;
+                  const isDeal = status.dailyDeal?.id === item.id && !item.owned;
+                  const price = isDeal ? status.dailyDeal!.priceCents : item.cost;
+                  const canAfford = balanceCents >= price;
                   const busy = busyId === item.id;
                   return (
                     <li
@@ -206,8 +208,17 @@ export function ShopView() {
                           <span className="font-display font-semibold tracking-wide text-txt truncate">
                             {item.name}
                           </span>
+                          {item.featured && !item.owned && <span className="tag tag-live shrink-0 text-[10px]">{t('shop.new')}</span>}
+                          {isDeal && <span className="tag tag-open shrink-0 text-[10px] text-emerald-300">−{status.dailyDeal!.pct}%</span>}
                         </div>
-                        <div className="text-xs text-muted mt-0.5">{costLabel(item.cost)}</div>
+                        <div className="text-xs text-muted mt-0.5">
+                          {isDeal ? (
+                            <>
+                              <span className="line-through opacity-60 mr-1.5">{costLabel(item.cost)}</span>
+                              <span className="text-emerald-300 font-semibold">{costLabel(price)}</span>
+                            </>
+                          ) : costLabel(item.cost)}
+                        </div>
                       </div>
 
                       <div className="ml-auto flex items-center gap-2">

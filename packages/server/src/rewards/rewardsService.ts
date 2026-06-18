@@ -24,6 +24,20 @@ export interface Cosmetic {
   name: string;
   type: CosmeticType;
   cost: number; // PRICE IN CENTS (wallet money); 0 = free/default (always owned)
+  featured?: boolean; // show a "NEW" badge (owner-curated, not date-based)
+}
+
+// Daily deal: one paid cosmetic per UTC day at a fixed % off. Deterministic (day-indexed)
+// so the client + server agree, and the discount is enforced in buy() — never trusted
+// from the client.
+const DEAL_PCT = 20;
+function dealPriceCents(cost: number): number {
+  return Math.round((cost * (100 - DEAL_PCT)) / 100);
+}
+function dailyDealId(now: number): string | null {
+  const paid = COSMETICS.filter((c) => c.cost > 0);
+  if (paid.length === 0) return null;
+  return paid[Math.floor(now / DAY_MS) % paid.length]!.id;
 }
 
 export const COSMETICS: Cosmetic[] = [
@@ -34,14 +48,14 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'cb_sapphire', name: 'Pas safir', type: 'cardBack', cost: 350 },
   { id: 'cb_rose', name: 'Pas trëndafili', type: 'cardBack', cost: 450 },
   { id: 'cb_carbon', name: 'Pas karboni', type: 'cardBack', cost: 500 },
-  { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600 },
+  { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600, featured: true },
   // Table felts
   { id: 'felt_red', name: 'Çoha e kuqe', type: 'tableFelt', cost: 0 },
   { id: 'felt_emerald', name: 'Çoha smerald', type: 'tableFelt', cost: 400 },
   { id: 'felt_sapphire', name: 'Çoha safir', type: 'tableFelt', cost: 400 },
   { id: 'felt_wine', name: 'Çoha verë', type: 'tableFelt', cost: 450 },
   { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },
-  { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700 },
+  { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700, featured: true },
 ];
 
 type Metric = 'gamesPlayed' | 'wins' | 'level' | 'currentStreak';
@@ -75,8 +89,10 @@ export interface RewardsStatus {
   level: number;
   daily: { canClaim: boolean; streak: number; rewardXp: number };
   challenges: Array<{ id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number }>;
-  shop: Array<{ id: string; name: string; type: CosmeticType; cost: number; owned: boolean }>;
+  shop: Array<{ id: string; name: string; type: CosmeticType; cost: number; owned: boolean; featured: boolean }>;
   equipped: { cardBack: string | null; tableFelt: string | null };
+  // Today's discounted cosmetic (null if none). priceCents is the ENFORCED deal price.
+  dailyDeal: { id: string; pct: number; priceCents: number } | null;
 }
 
 export class RewardsService {
@@ -106,8 +122,13 @@ export class RewardsService {
         const progress = Math.min(metricValue(u, c.metric), c.goal);
         return { id: c.id, title: c.title, goal: c.goal, progress, done: progress >= c.goal, claimed: u.claimedChallenges.includes(c.id), rewardXp: c.rewardXp };
       }),
-      shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, owned: this.owns(u, c) })),
+      shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, owned: this.owns(u, c), featured: !!c.featured })),
       equipped: { cardBack: u.cardBack, tableFelt: u.tableFelt },
+      dailyDeal: (() => {
+        const id = dailyDealId(now);
+        const c = id ? COSMETICS.find((x) => x.id === id) : null;
+        return c ? { id: c.id, pct: DEAL_PCT, priceCents: dealPriceCents(c.cost) } : null;
+      })(),
     };
   }
 
@@ -139,16 +160,18 @@ export class RewardsService {
 
   /** Buy a cosmetic with the wallet balance (real money). Debits the ledger, then
    *  grants the cosmetic. Cosmetics are non-refundable owned flags. */
-  async buy(userId: string, cosmeticId: string): Promise<{ ok: boolean; code?: string }> {
+  async buy(userId: string, cosmeticId: string, now: number = Date.now()): Promise<{ ok: boolean; code?: string }> {
     const c = COSMETICS.find((x) => x.id === cosmeticId);
     if (!c) return { ok: false, code: 'not_found' };
     if (c.cost === 0) return { ok: false, code: 'owned' }; // free/default — always owned
     const u = await this.users.findById(userId);
     if (!u) return { ok: false, code: 'not_found' };
     if (u.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
-    // Charge the wallet first (money is the critical step); insufficient → typed error.
+    // The PRICE is computed server-side: today's daily-deal item gets the discount, never
+    // trusted from the client. Charge the wallet first (money is the critical step).
+    const charge = cosmeticId === dailyDealId(now) ? dealPriceCents(c.cost) : c.cost;
     try {
-      await this.wallet.debit(userId, c.cost, { type: 'purchase', reason: `cosmetic:${cosmeticId}` });
+      await this.wallet.debit(userId, charge, { type: 'purchase', reason: `cosmetic:${cosmeticId}` });
     } catch (e) {
       if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
       throw e;
@@ -160,10 +183,10 @@ export class RewardsService {
     try {
       granted = await this.users.purchaseCosmetic(userId, cosmeticId, 0);
     } catch (e) {
-      await this.refundPurchase(userId, c.cost, cosmeticId);
+      await this.refundPurchase(userId, charge, cosmeticId);
       throw e;
     }
-    if (!granted.ok) await this.refundPurchase(userId, c.cost, cosmeticId);
+    if (!granted.ok) await this.refundPurchase(userId, charge, cosmeticId);
     return granted;
   }
 

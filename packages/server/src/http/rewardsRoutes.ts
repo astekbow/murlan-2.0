@@ -61,7 +61,7 @@ export async function rewardsRoutes(app: FastifyInstance, deps: RewardsRoutesDep
     // can't spend). No loss-cap — a cosmetic purchase isn't a gambling wager.
     const gate = await checkRealMoneyAccess({ auth, compliance: deps.compliance, rg: deps.rg }, caller.userId);
     if (!gate.allowed) return reply.code(403).send({ error: { code: gate.code ?? 'blocked', message: gate.message ?? 'Bllokuar.' } });
-    const res = await rewards.buy(caller.userId, String(id));
+    const res = await rewards.buy(caller.userId, String(id), Date.now());
     if (!res.ok) {
       if (res.code === 'insufficient_funds') return reply.code(402).send({ error: { code: 'insufficient_funds', message: 'Fonde të pamjaftueshme.' } });
       return reply.code(400).send({ error: { code: res.code ?? 'failed', message: 'Blerja dështoi.' } });

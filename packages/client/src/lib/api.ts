@@ -202,7 +202,7 @@ export interface RewardChallenge {
   id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number;
 }
 export interface ShopItem {
-  id: string; name: string; type: CosmeticType; cost: number; owned: boolean;
+  id: string; name: string; type: CosmeticType; cost: number; owned: boolean; featured: boolean;
 }
 export interface RewardsStatus {
   enabled: boolean;
@@ -212,6 +212,7 @@ export interface RewardsStatus {
   challenges: RewardChallenge[];
   shop: ShopItem[];
   equipped: { cardBack: string | null; tableFelt: string | null };
+  dailyDeal: { id: string; pct: number; priceCents: number } | null;
 }
 
 export const rewardsApi = {
