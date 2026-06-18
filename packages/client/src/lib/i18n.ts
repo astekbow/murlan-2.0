@@ -245,6 +245,7 @@ const STRINGS: Record<string, Entry> = {
   // Leaderboard
   'lb.section': { sq: 'RENDITJA', en: 'RANKINGS' },
   'lb.title': { sq: 'KLASIFIKIMI', en: 'LEADERBOARD' },
+  'lb.refresh': { sq: 'Rifresko', en: 'Refresh' },
   'lb.globalTab': { sq: 'Globale (XP)', en: 'Global (XP)' },
   'lb.rankedTab': { sq: 'Ranked', en: 'Ranked' },
   'lb.globalTable': { sq: 'TABELA GLOBALE', en: 'GLOBAL TABLE' },

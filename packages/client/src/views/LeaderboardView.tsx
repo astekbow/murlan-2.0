@@ -36,11 +36,14 @@ export function LeaderboardView() {
   const [season, setSeason] = useState<SeasonDTO | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const refresh = () => setReloadKey((k) => k + 1);
 
   useEffect(() => {
     let alive = true;
     setStatus('loading');
     setError(null);
+    window.scrollTo({ top: 0 }); // tab switch / refresh → show the podium from the top (mobile)
     const work =
       tab === 'global'
         ? profileApi.leaderboard().then(({ rows }) => { if (alive) setRows(rows); })
@@ -57,7 +60,7 @@ export function LeaderboardView() {
         setStatus('error');
       });
     return () => { alive = false; };
-  }, [tab]);
+  }, [tab, reloadKey]);
 
   return (
     <div className="space-y-5">
@@ -94,13 +97,16 @@ export function LeaderboardView() {
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">
             {tab === 'global' ? t('lb.globalTable') : t('lb.rankedLadder')}
           </h2>
-          <span className="text-xs text-muted">
-            {tab === 'global'
-              ? t('lb.globalSub')
-              : season
-                ? t('lb.seasonSub', { n: season.number, name: season.name })
-                : t('lb.rankedSeasonSub')}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">
+              {tab === 'global'
+                ? t('lb.globalSub')
+                : season
+                  ? t('lb.seasonSub', { n: season.number, name: season.name })
+                  : t('lb.rankedSeasonSub')}
+            </span>
+            <button onClick={refresh} disabled={status === 'loading'} className="btn btn-ghost btn-icon btn-sm" title={t('lb.refresh')} aria-label={t('lb.refresh')}>↻</button>
+          </div>
         </div>
 
         {status === 'loading' ? (
@@ -111,7 +117,8 @@ export function LeaderboardView() {
         ) : status === 'error' ? (
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60">⚠️</div>
-            <p className="text-sm text-red-300">{error}</p>
+            <p className="text-sm text-red-300 mb-4">{error}</p>
+            <button onClick={refresh} className="btn btn-gold btn-sm">{t('app.retry')}</button>
           </div>
         ) : tab === 'ranked' && !season ? (
           <div className="text-center py-10">
