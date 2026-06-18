@@ -1607,6 +1607,7 @@ export class GameGateway {
         console.error(`[settlement] FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
         this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
         this.clearBotTimer(roomId);
+        this.rooms.clearGoneSeats(roomId); // match is 'finished' — free abandoned seats (no in-memory leak)
         this.broadcastLobby();
         return;
       }
@@ -1673,11 +1674,15 @@ export class GameGateway {
     if (!userId) return;
     const username = room.seats[abandonerSeat]?.username ?? null;
 
-    // The abandoner is out: stop their re-engagement / abandon timer + idle strikes,
-    // and cancel any inter-hand standings pause (the board is about to change).
+    // The abandoner is out: stop their re-engagement / abandon timer + idle strikes.
     this.clearAbandonTimer(userId);
     this.idleStrikes.delete(userId);
-    this.clearInterHandTimer(roomId);
+    // If an inter-hand standings pause is active, RELEASE it first so the held next
+    // hand actually deals (its game:start + deferred reveals live only in the gate's
+    // closure). Clearing it instead would orphan that deal and freeze the survivors
+    // on the standings screen — the forfeit then applies to the live next hand.
+    const gate = this.interHandGates.get(roomId);
+    if (gate) gate.release();
 
     // Mark the seat gone in the engine + free them from the room (keeping the seat
     // for display/stats/pot until the match ends). A failed result means the seat

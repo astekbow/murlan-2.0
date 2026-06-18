@@ -158,13 +158,18 @@ test('disconnect mid-match: after the abandon grace expires, the pot forfeits to
 async function stakedRoom(
   type: '1v1v1' | '2v2',
   startTarget: number,
-  gatewayOpts: { abandonMs?: number } = {},
+  gatewayOpts: { abandonMs?: number; handPauseMs?: number; scripts?: Card[][][] } = {},
 ): Promise<{ port: number; wallet: WalletService; type: typeof type; n: number; users: Array<{ id: string; token: string }>; close: () => Promise<void> }> {
   const n = type === '1v1v1' ? 3 : 4;
   const handsByType: Record<string, Card[][]> = {
     '1v1v1': [[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]],
     '2v2': [[c('3', 'S'), c('7', 'S')], [c('4', 'S'), c('8', 'S')], [c('5', 'S'), c('9', 'S')], [c('6', 'S'), c('10', 'S')]],
   };
+  const { scripts, handPauseMs, ...gOpts } = gatewayOpts;
+  let dealIdx = 0;
+  const dealer = scripts
+    ? () => { const s = scripts[Math.min(dealIdx, scripts.length - 1)]!; dealIdx += 1; return s.map((h) => h.map((x) => ({ ...x }))); }
+    : () => handsByType[type]!.map((h) => h.map((x) => ({ ...x })));
   const httpServer: HttpServer = createServer();
   const io = new Server(httpServer);
   const repo = new InMemoryUserRepository();
@@ -174,10 +179,10 @@ async function stakedRoom(
   const auth = new AuthService(repo, new TokenService({ accessSecret: 'a', refreshSecret: 'r' }));
   const rooms = new RoomManager({
     startTarget,
-    dealerFactory: () => () => handsByType[type]!.map((h) => h.map((x) => ({ ...x }))),
+    dealerFactory: () => dealer,
     idFactory: (() => { let k = 0; return () => `room_${(k += 1)}`; })(),
   });
-  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, money, rakeBps: 1_000, abandonMs: 60_000, provablyFair: false, ...gatewayOpts });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, money, rakeBps: 1_000, abandonMs: 60_000, handPauseMs: handPauseMs ?? 0, provablyFair: false, ...gOpts });
   await new Promise<void>((res) => httpServer.listen(0, res));
   const port = (httpServer.address() as AddressInfo).port;
   const users: Array<{ id: string; token: string }> = [];
@@ -251,6 +256,39 @@ test('staked 2v2: play continues when one leaves; a whole team leaving makes the
     assert.equal(await h.wallet.getBalance(h.users[1]!.id), 0); // quitter loses
     assert.equal(await h.wallet.getBalance(h.users[3]!.id), 0); // quitter loses
     assert.equal((await h.wallet.reconcile()).ok, true);
+  } finally {
+    for (const cl of clients) cl.close();
+    await h.close();
+  }
+});
+
+test('a forfeit DURING the inter-hand standings pause still deals the held next hand (match never freezes)', async () => {
+  const BJ: Card = { kind: 'joker', color: 'black' };
+  const RJ: Card = { kind: 'joker', color: 'red' };
+  const h = await stakedRoom('1v1v1', 100, {
+    handPauseMs: 5_000, // long pause so hand 2 is genuinely HELD behind the standings gate
+    scripts: [
+      [[c('3', 'S')], [c('4', 'S')], [c('5', 'S')]],                       // hand 1: seat0 wins, seat1 2nd, seat2 loser
+      [[c('6', 'S'), c('7', 'S')], [c('8', 'S'), c('9', 'S')], [BJ, RJ]],   // hand 2: loser seat2 holds BOTH jokers → no-swap, winner leads
+    ],
+  });
+  const clients = await startMatchN(h);
+  try {
+    // Play hand 1 to completion → the inter-hand pause arms and holds hand 2's deal.
+    const end1 = once(clients[0], 'game:end');
+    await emitAck(clients[0], 'game:play', { cards: [c('3', 'S')] }); // seat0 opens with 3♠, empties (1st)
+    await emitAck(clients[1], 'game:play', { cards: [c('4', 'S')] }); // seat1 empties (2nd) → hand 1 ends
+    await end1;
+
+    // Seat 2 leaves WHILE the pause holds hand 2. The bug was: this orphaned the held
+    // deal and froze the survivors on the standings screen forever. Now hand 2 must
+    // still deal to seats 0 & 1, and the match continues.
+    const start2a = once(clients[0], 'game:start');
+    const start2b = once(clients[1], 'game:start');
+    await emitAck(clients[2], 'room:leave');
+    const [s2a] = await Promise.all([start2a, start2b]);
+    assert.equal(s2a.gameIndex, 1); // the held hand 2 dealt — the match did NOT freeze
+    for (const u of h.users) assert.equal(await h.wallet.getBalance(u.id), 0); // continues → nobody paid yet
   } finally {
     for (const cl of clients) cl.close();
     await h.close();
