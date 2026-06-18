@@ -185,7 +185,10 @@ select:focus-visible,
   }
   .btn:hover:not(:disabled) { transform: translateY(-1px); }
   .btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
-  .btn:disabled { opacity: 0.4; filter: grayscale(70%); cursor: not-allowed; }
+  .btn:disabled { opacity: 0.45; filter: grayscale(100%); cursor: not-allowed; }
+  /* A disabled gold button must not animate its sheen — a shimmer on a dead control reads
+     as "loading / about to enable". Kill all decorative motion while disabled. */
+  .btn:disabled::after, .btn-gold:disabled::after, .mcta:disabled::after { display: none !important; animation: none !important; }
   .btn-gold { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 8px 18px -8px rgba(232, 200, 121, 0.6); }
   .btn-green { color: #06210f; background: linear-gradient(180deg, #4fe08c, #1f9a58); box-shadow: 0 8px 18px -8px rgba(52, 196, 106, 0.6); }
   .btn-ghost { background: transparent; color: var(--txt); border: 1px solid rgba(255, 255, 255, 0.18); }
@@ -370,12 +373,14 @@ select:focus-visible,
   /* The betting ring — a faint gold ellipse where the pile is played. */
   .felt-ring {
     position: absolute; inset: 17% 13%; border-radius: 50%;
-    border: 2.5px solid var(--gold-line);
-    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 30px rgba(232, 200, 121, 0.18);
+    border: 2.5px solid rgba(232, 200, 121, 0.45);
+    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 22px rgba(232, 200, 121, 0.14);
     pointer-events: none; z-index: 1;
-    transition: box-shadow 0.4s ease, border-color 0.4s ease;
+    /* Border + glow ramp TOGETHER (softer idle → solid gold) so the zone 'glows in' as
+       the cards land, instead of the border snapping ahead of the shadow. */
+    transition: box-shadow 0.7s cubic-bezier(0.22, 0.61, 0.36, 1), border-color 0.7s cubic-bezier(0.22, 0.61, 0.36, 1);
   }
-  /* A play is live on the pile → brighten the gold play-zone so it's unmistakable. */
+  /* A play is live on the pile → the gold play-zone glows in, unmistakable. */
   .felt-ring.live {
     border-color: var(--gold);
     box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 50px rgba(232, 200, 121, 0.4);
@@ -431,7 +436,14 @@ select:focus-visible,
   }
   @keyframes turn-bar-glow {
     0%, 100% { box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.4), 0 0 10px rgba(232, 200, 121, 0.32); }
-    50% { box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.6), 0 0 20px rgba(232, 200, 121, 0.62); }
+    50% { box-shadow: inset 0 0 0 1px rgba(230, 197, 112, 0.6), 0 0 16px rgba(232, 200, 121, 0.55); }
+  }
+  /* Final 5s: the bar itself goes RED and pulses faster — a non-color-only urgency cue
+     (the depleting fill alone relied on red text, which colour-blind players can miss). */
+  .local-turn-bar.low { animation: turn-bar-glow-low 0.7s ease-in-out infinite; }
+  @keyframes turn-bar-glow-low {
+    0%, 100% { box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.5), 0 0 12px rgba(239, 68, 68, 0.45); }
+    50% { box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.85), 0 0 24px rgba(239, 68, 68, 0.8); }
   }
   .local-turn-bar-fill {
     height: 100%; width: 100%; border-radius: 9999px;
@@ -446,7 +458,7 @@ select:focus-visible,
   }
   @keyframes deplete-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   .seat-cnt { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 13px; color: #7cffa8; text-shadow: 0 1px 2px #000; }
-  .seat-nm { font-size: 12px; font-weight: 600; text-shadow: 0 1px 3px #000; }
+  .seat-nm { font-size: 12px; font-weight: 600; color: var(--muted-sm); text-shadow: 0 1px 3px #000; }
   .seat-nm.partner { color: #9bd0f5; }
   .lastp { font-size: 10px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 2px 8px; letter-spacing: 0.3px; }
 
@@ -480,7 +492,12 @@ select:focus-visible,
   .gcard.sel { box-shadow: 0 26px 44px -14px rgba(230, 197, 112, 0.6), 0 0 0 2px var(--gold); z-index: 9; }
 
   /* ---- Hand (drag-to-reorder fan; cards absolutely placed by JS) ---------- */
-  .hand-stage { position: relative; margin: 0 auto; }
+  .hand-stage { position: relative; margin: 0 auto; --card-lift: 32px; }
+  /* On a short landscape (small phone), a 32px selected-lift eats too much vertical
+     room — clamp it so the raised card never peeks into the top bar. */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .hand-stage { --card-lift: 20px; }
+  }
   .hand-card {
     position: absolute; transform-origin: bottom center; cursor: grab; touch-action: none;
     transition: left 0.18s ease, transform 0.18s ease;

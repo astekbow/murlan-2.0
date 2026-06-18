@@ -36,8 +36,8 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
     <div className="flex flex-col items-center gap-2">
       {pile && (
         <div
-          className="font-display text-[13px] font-bold uppercase tracking-wide text-gold-hi"
-          style={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+          className="relative z-10 font-display text-[13px] font-bold uppercase tracking-wide text-gold-hi rounded px-1.5 py-0.5"
+          style={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)', background: 'rgba(0,0,0,0.4)' }}
         >{t(COMBO_LABEL_KEY[pile.type])}</div>
       )}
       {/* Stack layers: each earlier play is offset up-left and dimmed; the newest sits

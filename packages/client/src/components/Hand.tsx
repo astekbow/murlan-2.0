@@ -125,7 +125,7 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
             // lift + the gold ring make the pick obvious; unselected cards dim while a
             // selection is active so the chosen combo reads at a glance.
             const dim = !isSel && selectedSet.size > 0;
-            style = { left: i * step, bottom: 0, transform: `translateY(${isSel ? -32 : 0}px)`, zIndex: i, opacity: dim ? 0.62 : 1, transition: 'transform .12s ease, opacity .12s ease' };
+            style = { left: i * step, bottom: 0, transform: isSel ? 'translateY(calc(var(--card-lift, 32px) * -1))' : 'none', zIndex: i, opacity: dim ? 0.72 : 1, transition: 'transform .12s ease, opacity .12s ease' };
           }
           if (eligibleIds && !eligibleIds.has(id)) style = { ...style, opacity: 0.4 };
           const onKey = (e: KeyboardEvent) => {
