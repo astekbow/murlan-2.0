@@ -41,12 +41,19 @@ export function FriendsView() {
 
   useEffect(() => {
     void load();
-    // Poll so presence dots and incoming/accepted requests stay fresh while the page is
-    // open (8s). Skip a tick while a mutation is in flight so it can't overwrite the
-    // just-changed state with a stale snapshot.
+    // Poll so presence dots stay fresh while the page is open (8s). Skip a tick while a
+    // mutation is in flight so it can't overwrite the just-changed state with a stale
+    // snapshot. (Friend request/answer/unfriend also push a socket event for INSTANT
+    // refresh — see socialRev below — so the poll is now just a presence backstop.)
     const id = setInterval(() => { if (!actingRef.current) void load(); }, 8_000);
     return () => clearInterval(id);
   }, [load]);
+
+  // Instant refresh when a friend event concerning me arrives over the socket.
+  const socialRev = useGameStore((s) => s.socialRev);
+  useEffect(() => {
+    if (socialRev > 0 && !actingRef.current) void load();
+  }, [socialRev, load]);
 
   // Run one mutating friend action at a time (guard + busy flag), then refresh.
   const act = useCallback(async (fn: () => Promise<void>, errKey: string) => {

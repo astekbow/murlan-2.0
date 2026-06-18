@@ -180,6 +180,11 @@ export class GameGateway {
     this.friends?.setNotifier((targetUserId, fromUsername) => {
       this.io.to(personalRoom(targetUserId)).emit('friend:request', { fromUsername });
     });
+    // Tell a user their friends list changed (request answered / unfriended) so their open
+    // Friends page reloads instantly instead of waiting up to 8s for the next poll.
+    this.friends?.setSocialNotifier((userId) => {
+      this.io.to(personalRoom(userId)).emit('social:refresh');
+    });
     this.presence = opts.presence ?? null;
     this.games = opts.games ?? null;
     this.matchLog = opts.matchLog ?? null;

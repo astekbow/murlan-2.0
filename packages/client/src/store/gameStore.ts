@@ -74,6 +74,7 @@ interface GameStore {
   socket: MurlanSocket | null;
   connected: boolean;
   myUserId: string | null;
+  socialRev: number; // bumps on a friend:request / social:refresh → the Friends page reloads
 
   lobby: LobbyRoomInfo[];
   live: LiveMatchInfo[]; // in-match rooms available to spectate
@@ -203,6 +204,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   socket: null,
   connected: false,
   myUserId: null,
+  socialRev: 0,
   lobby: [],
   live: [],
   ...emptyRoomState,
@@ -386,7 +388,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
     socket.on('friend:request', (dto) => {
       useNotifications.getState().push(`👥 ${tg('msg.friendRequestFrom', { name: dto.fromUsername })}`, 'invite');
+      set((s) => ({ socialRev: s.socialRev + 1 })); // refresh an open Friends page instantly
     });
+    // A friends-list change concerning me (my request was answered / I was unfriended).
+    socket.on('social:refresh', () => set((s) => ({ socialRev: s.socialRev + 1 })));
     socket.on('club:chat', (dto) => {
       // Append live; dedup by id (the sender also receives their own message).
       set((s) => (s.clubChat.some((m) => m.id === dto.id) ? s : { clubChat: [...s.clubChat, dto].slice(-100) }));

@@ -29,6 +29,9 @@ export class FriendsService {
   /** Optional real-time hook: notify a user that they received a friend request.
    *  Wired by the gateway (which has the socket io) so this stays io-agnostic. */
   private notifier: ((targetUserId: string, fromUsername: string) => void) | null = null;
+  /** Tells a user their friends list changed (request answered / unfriended) so the
+   *  client can reload instantly instead of waiting for its poll. Wired by the gateway. */
+  private socialNotifier: ((userId: string) => void) | null = null;
 
   constructor(
     private readonly users: UserRepository,
@@ -38,6 +41,10 @@ export class FriendsService {
 
   setNotifier(fn: (targetUserId: string, fromUsername: string) => void): void {
     this.notifier = fn;
+  }
+
+  setSocialNotifier(fn: (userId: string) => void): void {
+    this.socialNotifier = fn;
   }
 
   /**
@@ -66,11 +73,22 @@ export class FriendsService {
 
   /** respond returns the row (or null when not actionable by this user). */
   async respond(userId: string, friendshipId: string, accept: boolean): Promise<Friendship | null> {
-    return this.friends.respond(friendshipId, userId, accept);
+    // Capture the requester BEFORE responding (a decline deletes the row + returns null),
+    // so we can ping them either way to refresh their pending list.
+    const before = (await this.friends.listFor(userId)).find((f) => f.id === friendshipId);
+    const row = await this.friends.respond(friendshipId, userId, accept);
+    if (before && before.requesterId !== userId) this.socialNotifier?.(before.requesterId);
+    return row;
   }
 
   async remove(userId: string, friendshipId: string): Promise<boolean> {
-    return this.friends.remove(friendshipId, userId);
+    const before = (await this.friends.listFor(userId)).find((f) => f.id === friendshipId);
+    const ok = await this.friends.remove(friendshipId, userId);
+    if (ok && before) {
+      const other = before.requesterId === userId ? before.addresseeId : before.requesterId;
+      this.socialNotifier?.(other);
+    }
+    return ok;
   }
 
   /** Block another user by their id (removes any friendship/request first). */
