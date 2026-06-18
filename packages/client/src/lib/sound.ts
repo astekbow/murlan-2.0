@@ -91,21 +91,23 @@ export const sound = {
     const c = ensure();
     if (!c || muted) return;
     const t = c.currentTime;
+    // All SFX kept SOFT + musical: sine/triangle only (no harsh square clicks), mid-range
+    // pitches (no shrill highs), gentle peaks — pleasant on every tap, not fatiguing.
     switch (name) {
-      case 'card': tone(660, t, 0.08, 'triangle', 0.25); break;
-      case 'select': tone(880, t, 0.06, 'triangle', 0.18); break;
-      case 'pass': tone(200, t, 0.16, 'sine', 0.22); break;
-      case 'turn': tone(1320, t, 0.18, 'sine', 0.22); tone(1760, t + 0.08, 0.18, 'sine', 0.16); break;
-      case 'button': tone(1200, t, 0.035, 'square', 0.08); break;
-      case 'deal': for (let i = 0; i < 5; i++) noise(t + i * 0.045, 0.05, 0.18, 2600); break;
-      case 'win': [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, t + i * 0.1, 0.28, 'triangle', 0.26)); break;
-      case 'lose': tone(440, t, 0.22, 'sine', 0.2); tone(330, t + 0.12, 0.3, 'sine', 0.2); break;
-      // A bomb (four-of-a-kind) landing: a sub-bass thump + a low rumble + a crack.
-      case 'bomb': tone(70, t, 0.45, 'sine', 0.5); noise(t, 0.4, 0.45, 700); tone(160, t, 0.18, 'sawtooth', 0.22); break;
-      // Money credited (deposit / winnings): a bright "ka-ching" coin sparkle.
-      case 'coin': tone(1047, t, 0.12, 'triangle', 0.26); tone(1568, t + 0.06, 0.18, 'triangle', 0.22); tone(2093, t + 0.12, 0.16, 'sine', 0.14); break;
-      // Turn running out (≤5s): two urgent square beeps so a missed turn never surprises.
-      case 'warn': tone(880, t, 0.09, 'square', 0.2); tone(880, t + 0.16, 0.09, 'square', 0.2); break;
+      case 'card': tone(523.25, t, 0.07, 'sine', 0.15); tone(392, t, 0.05, 'sine', 0.07); break;     // soft card place (C5 + G4)
+      case 'select': tone(784, t, 0.05, 'sine', 0.1); break;                                          // gentle pluck (G5)
+      case 'pass': tone(330, t, 0.12, 'sine', 0.15); tone(246.94, t + 0.07, 0.15, 'sine', 0.12); break; // soft descend (E4→B3)
+      case 'turn': tone(587.33, t, 0.16, 'sine', 0.17); tone(880, t + 0.1, 0.24, 'sine', 0.13); break;  // gentle rising chime (D5→A5)
+      case 'button': tone(440, t, 0.045, 'sine', 0.06); break;                                         // soft, quiet tick (A4)
+      case 'deal': for (let i = 0; i < 5; i++) noise(t + i * 0.045, 0.05, 0.13, 2200); break;           // softer shuffle
+      case 'win': [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, t + i * 0.11, 0.3, 'sine', 0.22)); break; // warm major arpeggio
+      case 'lose': tone(440, t, 0.22, 'sine', 0.17); tone(311.13, t + 0.13, 0.32, 'sine', 0.17); break; // soft descend
+      // A bomb (four-of-a-kind) landing: a sub-bass thump + a low rumble + a crack (kept impactful).
+      case 'bomb': tone(70, t, 0.45, 'sine', 0.48); noise(t, 0.4, 0.4, 700); tone(160, t, 0.18, 'sawtooth', 0.2); break;
+      // Money credited (deposit / winnings): a gentle bright rising chime (A5→E6→A6).
+      case 'coin': tone(880, t, 0.1, 'sine', 0.18); tone(1318.5, t + 0.07, 0.16, 'sine', 0.13); tone(1760, t + 0.14, 0.2, 'sine', 0.08); break;
+      // Turn running out (≤5s): a soft two-note "ding-ding" — noticeable but not harsh.
+      case 'warn': tone(659.25, t, 0.11, 'triangle', 0.17); tone(523.25, t + 0.16, 0.14, 'triangle', 0.15); break;
     }
   },
   startMusic(): void {

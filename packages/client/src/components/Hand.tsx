@@ -123,11 +123,9 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
           } else {
             // Flat row. A selected card rises BUT keeps its natural stacking (z = i,
             // not on top of everything), so only its raised top edge (rank + gold ring)
-            // peeks above the row — it never covers the neighbouring cards. The bigger
-            // lift + the gold ring make the pick obvious; unselected cards dim while a
-            // selection is active so the chosen combo reads at a glance.
-            const dim = !isSel && selectedSet.size > 0;
-            style = { left: i * step, bottom: 0, transform: isSel ? 'translateY(calc(var(--card-lift, 32px) * -1))' : 'none', zIndex: i, opacity: dim ? 0.72 : 1, transition: 'transform .12s ease, opacity .12s ease' };
+            // peeks above the row — it never covers the neighbouring cards. The lift +
+            // gold ring alone signal the pick (no dimming of the other cards).
+            style = { left: i * step, bottom: 0, transform: isSel ? 'translateY(calc(var(--card-lift, 32px) * -1))' : 'none', zIndex: i, transition: 'transform .12s ease' };
           }
           if (eligibleIds && !eligibleIds.has(id)) style = { ...style, opacity: 0.4 };
           const onKey = (e: KeyboardEvent) => {

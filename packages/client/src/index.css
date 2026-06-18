@@ -744,7 +744,7 @@ select:focus-visible,
 /* Landscape: pull the opponent seats TIGHT to the felt's top edge. The fixed-px SEAT_POS
    offsets are tuned for portrait and fling the top seat too far up on short landscape
    screens — its card-fan detached into the status-bar area (overlapping the top bar). */
-.tv-ls .tv-seat-top { top: -24px !important; }
+.tv-ls .tv-seat-top { top: -52px !important; }
 .tv-ls .tv-seat-top-left, .tv-ls .tv-seat-top-right { top: -12px !important; }
 .tv-ls .tv-seat-top-left { left: max(6px, env(safe-area-inset-left)) !important; }
 .tv-ls .tv-seat-top-right { right: max(6px, env(safe-area-inset-right)) !important; }
