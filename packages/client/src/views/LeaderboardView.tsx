@@ -109,6 +109,27 @@ export function LeaderboardView() {
           </div>
         </div>
 
+        {/* Pinned "your standing" card — personalises the otherwise impersonal ladder. */}
+        {status === 'ready' && myId && (() => {
+          const meG = tab === 'global' ? rows.find((r) => r.id === myId) : undefined;
+          const meR = tab === 'ranked' ? ranked.find((r) => r.userId === myId) : undefined;
+          const rank = meG?.rank ?? meR?.rank ?? null;
+          return (
+            <div className="rounded-xl px-4 py-2.5 mb-3 border border-gold bg-gradient-to-b from-gold/[.16] to-gold/[.05] flex items-center gap-3">
+              <span className="text-[11px] uppercase tracking-wider text-gold-hi/80 shrink-0">{t('lb.yourRank')}</span>
+              {rank !== null ? (
+                <>
+                  <span className={`font-display font-bold text-lg ${rankClass(rank)}`}>{rankLabel(rank)}</span>
+                  <span className="text-sm text-txt truncate flex-1">{meG?.username ?? meR?.username}</span>
+                  <span className="font-display font-semibold text-gold-hi tabular-nums shrink-0">{meG ? `${meG.xp} XP` : meR?.rating}</span>
+                </>
+              ) : (
+                <span className="text-sm text-muted">{t('lb.notInList')}</span>
+              )}
+            </div>
+          );
+        })()}
+
         {status === 'loading' ? (
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60 animate-pulse">{tab === 'ranked' ? '👑' : '🏆'}</div>

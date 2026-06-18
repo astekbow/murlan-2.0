@@ -20,6 +20,14 @@ function costLabel(cost: number): string {
   return cost === 0 ? tr('shop.free') : dollars(cost);
 }
 
+// A subtle price-tier accent (left edge) so the value spread reads at a glance.
+function rarityAccent(cost: number): string {
+  if (cost === 0) return 'rgba(255,255,255,0.10)'; // free / default
+  if (cost <= 350) return '#9aa4b2';               // common — slate
+  if (cost <= 500) return '#5b8cff';               // rare — blue
+  return '#b07cff';                                // epic — violet
+}
+
 export function ShopView() {
   const t = useT();
   const setView = useUiStore((s) => s.setView);
@@ -29,6 +37,7 @@ export function ShopView() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ tableFelt?: string; cardBack?: string }>({});
+  const [priceSort, setPriceSort] = useState<'default' | 'asc' | 'desc'>('default');
   // The previewed cosmetics fall back to whatever is currently equipped.
   const previewFelt = preview.tableFelt ?? status?.equipped.tableFelt ?? '';
   const previewCb = preview.cardBack ?? status?.equipped.cardBack ?? '';
@@ -143,9 +152,19 @@ export function ShopView() {
             </div>
             <p className="text-center text-xs text-muted mt-2">{t('shop.previewHint')}</p>
           </section>
+          {/* Sort-by-price toggle (cycles default → cheapest → priciest). */}
+          <div className="flex justify-end -mt-1">
+            <button
+              onClick={() => setPriceSort((s) => (s === 'default' ? 'asc' : s === 'asc' ? 'desc' : 'default'))}
+              className="btn btn-ghost btn-sm"
+            >
+              {t('shop.sortPrice')} {priceSort === 'asc' ? '↑' : priceSort === 'desc' ? '↓' : '—'}
+            </button>
+          </div>
           <div className="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
           {GROUPS.map((group, gi) => {
-          const items = status.shop.filter((it) => it.type === group.type);
+          const base = status.shop.filter((it) => it.type === group.type);
+          const items = priceSort === 'default' ? base : [...base].sort((a, b) => priceSort === 'asc' ? a.cost - b.cost : b.cost - a.cost);
           if (items.length === 0) return null;
           return (
             <section
@@ -166,6 +185,7 @@ export function ShopView() {
                   return (
                     <li
                       key={item.id}
+                      style={{ borderLeftColor: rarityAccent(item.cost), borderLeftWidth: item.cost > 0 ? 3 : 1 }}
                       className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all ${
                         isEquipped
                           ? 'border-gold bg-gradient-to-b from-gold/[.14] to-gold/[.04]'

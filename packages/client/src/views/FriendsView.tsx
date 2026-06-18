@@ -150,7 +150,7 @@ export function FriendsView() {
           {/* Incoming requests */}
           {incoming.length > 0 && (
             <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.requests')}</h2>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.requests')} <span className="text-muted font-normal">({incoming.length})</span></h2>
               <ul className="space-y-2.5">
                 {incoming.map((f) => (
                   <FriendRow key={f.id} entry={f}>
@@ -166,7 +166,7 @@ export function FriendsView() {
           {/* Outgoing / pending */}
           {outgoing.length > 0 && (
             <section className="panel p-5 animate-rise" style={{ animationDelay: '.16s' }}>
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.pending')}</h2>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.pending')} <span className="text-muted font-normal">({outgoing.length})</span></h2>
               <ul className="space-y-2.5">
                 {outgoing.map((f) => (
                   <FriendRow key={f.id} entry={f}>
@@ -180,7 +180,7 @@ export function FriendsView() {
 
           {/* Friends */}
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
-            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.friendsSection')}</h2>
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.friendsSection')} <span className="text-muted font-normal">({accepted.length})</span></h2>
             {accepted.length === 0 ? (
               <div className="text-center py-8">
                 <div className="text-4xl mb-2 opacity-60">🫂</div>
@@ -207,7 +207,7 @@ export function FriendsView() {
           {/* Blocked */}
           {blocked.length > 0 && (
             <section className="panel p-5 animate-rise" style={{ animationDelay: '.24s' }}>
-              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.blocked')}</h2>
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.blocked')} <span className="text-muted font-normal">({blocked.length})</span></h2>
               <ul className="space-y-2.5">
                 {blocked.map((f) => (
                   <FriendRow key={f.id} entry={f}>

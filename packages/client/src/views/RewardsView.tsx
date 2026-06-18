@@ -77,6 +77,27 @@ export function RewardsView() {
     }
   };
 
+  const claimAll = async () => {
+    if (busy) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token || !status) return;
+    const claimable = status.challenges.filter((c) => c.done && !c.claimed);
+    if (claimable.length === 0) return;
+    setBusy('all');
+    try {
+      // Claim each sequentially; ignore individual races (a concurrent claim) — the
+      // reload reflects the true state.
+      for (const c of claimable) await rewardsApi.claimChallenge(token, c.id).catch(() => undefined);
+      await load();
+      await useAuthStore.getState().refreshMe();
+      useNotifications.getState().push(t('rewards.allClaimed'), 'info');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const claimableCount = status?.challenges.filter((c) => c.done && !c.claimed).length ?? 0;
+
   return (
     <div className="space-y-5">
       {/* Back to lobby */}
@@ -151,7 +172,13 @@ export function RewardsView() {
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.challenges')}</h2>
-              <span className="text-xs text-muted">{t('rewards.challengesHint')}</span>
+              {claimableCount > 1 ? (
+                <button onClick={() => void claimAll()} disabled={!!busy} className="btn btn-gold btn-sm">
+                  {busy === 'all' ? t('rewards.claiming') : t('rewards.claimAll', { n: claimableCount })}
+                </button>
+              ) : (
+                <span className="text-xs text-muted">{t('rewards.challengesHint')}</span>
+              )}
             </div>
 
             {status.challenges.length === 0 ? (
