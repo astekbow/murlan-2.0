@@ -19,7 +19,6 @@ import { Pile } from '../components/Pile.tsx';
 import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
-import { LocalTurnBar } from '../components/LocalTurnBar.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
 import { useForceLandscape } from '../lib/useForceLandscape.ts';
 import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
@@ -217,6 +216,17 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     wasMyTurn.current = isMyTurn;
   }, [isMyTurn]);
 
+  // 5s-before-deadline warning (the on-screen bar was removed, but a missed turn auto-
+  // passes and can cost real money). Only on MY turn; the top timer shows the countdown.
+  useEffect(() => {
+    const deadline = game?.turnDeadline ?? null;
+    if (!isMyTurn || deadline === null) return;
+    const fireIn = deadline - 5000 - Date.now();
+    if (fireIn <= 0) return;
+    const id = window.setTimeout(() => { sound.play('warn'); haptics.warn(); }, fireIn);
+    return () => window.clearTimeout(id);
+  }, [isMyTurn, game?.turnDeadline]);
+
   useEffect(() => {
     const has = matchResult !== null;
     if (has && !hadResult.current) {
@@ -289,25 +299,17 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {forced && <RotateOverlay />}
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
-        <button
-          onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
-          className="btn btn-ghost"
-        >
-          {t('table.leaveArrow')}
-        </button>
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {spectators > 0 && (
-            <span
-              className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
-              title={t('table.spectators', { n: spectators })}
-              aria-label={t('table.spectators', { n: spectators })}
-            >
-              <span aria-hidden>👁</span>{spectators}
-            </span>
-          )}
+        {/* Left: back + the running score (compact text, like a scoreboard header). */}
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
+            className="btn btn-ghost shrink-0"
+          >
+            {t('table.leaveArrow')}
+          </button>
           {scoreboard && (
             <span
-              className="inline-flex items-center gap-1.5 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2.5 py-1 leading-none whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 text-sm leading-none whitespace-nowrap font-display"
               title={t('scoreboard.result')}
             >
               {(scoreboard.type === '2v2' && scoreboard.teamTotals
@@ -320,7 +322,19 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                   <b className="text-gold-hi tabular-nums">{s.val}</b>
                 </span>
               ))}
-              <span className="opacity-50 ml-0.5">→ {scoreboard.target}</span>
+              <span className="opacity-50 ml-0.5 text-xs">→ {scoreboard.target}</span>
+            </span>
+          )}
+        </div>
+        {/* Right: spectators + the single turn timer + the icon buttons. */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {spectators > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
+              title={t('table.spectators', { n: spectators })}
+              aria-label={t('table.spectators', { n: spectators })}
+            >
+              <span aria-hidden>👁</span>{spectators}
             </span>
           )}
           <TurnTimer deadline={game?.turnDeadline ?? null} />
@@ -412,7 +426,6 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 </div>
               ) : null;
             })()}
-            {isMyTurn && <LocalTurnBar deadline={game?.turnDeadline ?? null} />}
           </>
         )}
         <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate />

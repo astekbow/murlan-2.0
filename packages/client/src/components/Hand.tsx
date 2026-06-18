@@ -100,8 +100,10 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
     setDrag(null);
   };
 
+  // Empty hand → render nothing (no "you have no cards" placeholder); keep the row's
+  // height reserved so the layout doesn't jump when the deal arrives.
   if (n === 0) {
-    return <div className="flex justify-center items-center min-h-[124px]"><span className="text-muted text-sm">Nuk ke letra.</span></div>;
+    return <div className="min-h-[124px]" aria-hidden />;
   }
 
   return (
