@@ -73,37 +73,30 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
     </div>
   );
   const teamEl = team !== null && !partner ? <span className="text-[11px] text-cream/80">{t('seat.team', { n: team + 1 })}</span> : null;
+  const top = placement === 'top';
 
-  // TOP seat: a COMPACT layout that hugs the avatar — the card-fan + count sit together
-  // at the very top, the name tucks right under the avatar, and the "led last" badge goes
-  // to the SIDE (absolute) — so nothing hangs down over the felt / pile.
-  if (placement === 'top') {
-    return (
-      <div className={`relative flex flex-col items-center gap-0.5 ${!connected ? 'opacity-60' : ''}`}>
-        <div className="flex items-center gap-1.5">
-          {fan}
-          <span className="seat-cnt">({count})</span>
-          {teamEl}
-        </div>
-        {avatarEl}
-        {nameEl}
-        {lastPlayer && <span className="lastp absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap">{t('seat.ledLast')}</span>}
-        {status && <div className="text-[11px] text-cream/80 leading-tight">{status}</div>}
-      </div>
-    );
-  }
-
+  // Unified layout: the card-fan + count "(N)" sit TOGETHER at the top (count next to the
+  // cards for EVERY avatar), the name tucks directly under the avatar, then the team tag.
+  // The "led last" badge sits inline for the side seats but goes to the SIDE (absolute)
+  // for the TOP seat, so it never hangs down over the felt / pile.
   return (
-    <div className={`flex flex-col items-center gap-1 ${!connected ? 'opacity-60' : ''}`}>
-      {fan}
+    <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${!connected ? 'opacity-60' : ''}`}>
+      <div className="flex items-center gap-1.5">
+        {fan}
+        <span className="seat-cnt">({count})</span>
+      </div>
       {avatarEl}
       {nameEl}
-      <div className="flex items-center gap-1.5">
-        <span className="seat-cnt">({count})</span>
-        {lastPlayer && <span className="lastp">{t('seat.ledLast')}</span>}
-        {teamEl}
-      </div>
-      {status && <div className="text-[11px] text-cream/80 h-3.5 leading-tight">{status}</div>}
+      {(teamEl || (lastPlayer && !top)) && (
+        <div className="flex items-center gap-1.5">
+          {lastPlayer && !top && <span className="lastp">{t('seat.ledLast')}</span>}
+          {teamEl}
+        </div>
+      )}
+      {lastPlayer && top && (
+        <span className="lastp absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap">{t('seat.ledLast')}</span>
+      )}
+      {status && <div className="text-[11px] text-cream/80 leading-tight">{status}</div>}
     </div>
   );
 }
