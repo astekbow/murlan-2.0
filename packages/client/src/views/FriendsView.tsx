@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { friendsApi, ApiError, type FriendEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
@@ -17,6 +17,10 @@ export function FriendsView() {
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
+  // One mutating action at a time: disables the row buttons + pauses the poll so a rapid
+  // click can't double-fire and a stale 8s refetch can't clobber a just-made change.
+  const [acting, setActing] = useState(false);
+  const actingRef = useRef(false);
 
   const load = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
@@ -38,10 +42,28 @@ export function FriendsView() {
   useEffect(() => {
     void load();
     // Poll so presence dots and incoming/accepted requests stay fresh while the page is
-    // open (8s — responsive enough to feel "live" without hammering the API).
-    const id = setInterval(() => void load(), 8_000);
+    // open (8s). Skip a tick while a mutation is in flight so it can't overwrite the
+    // just-changed state with a stale snapshot.
+    const id = setInterval(() => { if (!actingRef.current) void load(); }, 8_000);
     return () => clearInterval(id);
   }, [load]);
+
+  // Run one mutating friend action at a time (guard + busy flag), then refresh.
+  const act = useCallback(async (fn: () => Promise<void>, errKey: string) => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || actingRef.current) return;
+    actingRef.current = true;
+    setActing(true);
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t(errKey), toastKind: 'error' });
+    } finally {
+      actingRef.current = false;
+      setActing(false);
+    }
+  }, [load, t]);
 
   const addFriend = async () => {
     const name = username.trim();
@@ -61,51 +83,22 @@ export function FriendsView() {
     }
   };
 
-  const respond = async (id: string, accept: boolean) => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    try {
-      await friendsApi.respond(token, id, accept);
-      await load();
-    } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errAction'), toastKind: 'error' });
-    }
-  };
+  const respond = (id: string, accept: boolean) =>
+    act(() => friendsApi.respond(useAuthStore.getState().accessToken!, id, accept).then(() => undefined), 'friends.errAction');
 
-  const remove = async (id: string) => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    try {
-      await friendsApi.remove(token, id);
-      await load();
-    } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errRemove'), toastKind: 'error' });
-    }
-  };
+  const remove = (id: string) =>
+    act(() => friendsApi.remove(useAuthStore.getState().accessToken!, id).then(() => undefined), 'friends.errRemove');
 
   const block = async (userId: string) => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
     if (!(await confirm({ title: t('friends.block'), message: t('friends.confirmBlockM'), danger: true, confirmLabel: t('friends.block') }))) return;
-    try {
-      await friendsApi.block(token, userId);
+    await act(async () => {
+      await friendsApi.block(useAuthStore.getState().accessToken!, userId);
       useGameStore.setState({ toast: t('friends.userBlocked'), toastKind: 'success' });
-      await load();
-    } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errBlock'), toastKind: 'error' });
-    }
+    }, 'friends.errBlock');
   };
 
-  const unblock = async (userId: string) => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    try {
-      await friendsApi.unblock(token, userId);
-      await load();
-    } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errUnblock'), toastKind: 'error' });
-    }
-  };
+  const unblock = (userId: string) =>
+    act(() => friendsApi.unblock(useAuthStore.getState().accessToken!, userId).then(() => undefined), 'friends.errUnblock');
 
   const incoming = friends.filter((f) => f.direction === 'incoming');
   const outgoing = friends.filter((f) => f.direction === 'outgoing');
@@ -161,9 +154,9 @@ export function FriendsView() {
               <ul className="space-y-2.5">
                 {incoming.map((f) => (
                   <FriendRow key={f.id} entry={f}>
-                    <button onClick={() => void respond(f.id, true)} className="btn btn-green">{t('friends.accept')}</button>
-                    <button onClick={() => void respond(f.id, false)} className="btn btn-ghost">{t('friends.decline')}</button>
-                    <button onClick={() => void block(f.user.id)} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
+                    <button onClick={() => void respond(f.id, true)} disabled={acting} className="btn btn-green">{t('friends.accept')}</button>
+                    <button onClick={() => void respond(f.id, false)} disabled={acting} className="btn btn-ghost">{t('friends.decline')}</button>
+                    <button onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
                   </FriendRow>
                 ))}
               </ul>
@@ -178,6 +171,7 @@ export function FriendsView() {
                 {outgoing.map((f) => (
                   <FriendRow key={f.id} entry={f}>
                     <span className="tag tag-open">{t('friends.sent')}</span>
+                    <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost btn-sm" title={t('common.cancel')}>{t('common.cancel')}</button>
                   </FriendRow>
                 ))}
               </ul>
@@ -198,12 +192,12 @@ export function FriendsView() {
                 {accepted.map((f) => (
                   <FriendRow key={f.id} entry={f} showOnline>
                     {inRoom && (
-                      <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} className="btn btn-gold">
+                      <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} disabled={acting} className="btn btn-gold">
                         {t('friends.invite')}
                       </button>
                     )}
-                    <button onClick={() => void remove(f.id)} className="btn btn-ghost">{t('common.remove')}</button>
-                    <button onClick={() => void block(f.user.id)} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
+                    <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
+                    <button onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
                   </FriendRow>
                 ))}
               </ul>
@@ -217,7 +211,7 @@ export function FriendsView() {
               <ul className="space-y-2.5">
                 {blocked.map((f) => (
                   <FriendRow key={f.id} entry={f}>
-                    <button onClick={() => void unblock(f.user.id)} className="btn btn-ghost">{t('friends.unblock')}</button>
+                    <button onClick={() => void unblock(f.user.id)} disabled={acting} className="btn btn-ghost">{t('friends.unblock')}</button>
                   </FriendRow>
                 ))}
               </ul>

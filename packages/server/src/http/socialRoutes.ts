@@ -88,9 +88,10 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
       return reply.code(400).send({ error: { code: 'bad_request', message: 'Fusha "accept" duhet të jetë true/false.' } });
     }
     // respond returns null when the request is unknown / not addressed to this
-    // user / no longer pending — surface that as 404 instead of a misleading ok.
+    // user / no longer pending — surface that as 404 (for BOTH accept and decline)
+    // instead of a misleading ok, so a stale decline isn't silently masked.
     const row = await friends.respond(caller.userId, id, body.accept);
-    if (body.accept && !row) {
+    if (!row) {
       return reply.code(404).send({ error: { code: 'not_actionable', message: 'Kërkesa nuk u gjet ose nuk është për ty.' } });
     }
     return { ok: true };
