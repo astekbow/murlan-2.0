@@ -52,6 +52,7 @@ interface InternalSeat {
   team: 0 | 1 | null;
   ready: boolean;
   connected: boolean;
+  gone: boolean; // player abandoned the match (kept seated for display/stats/pot; freed at match end)
 }
 
 interface Room {
@@ -211,6 +212,7 @@ export class RoomManager {
       seat.team = null;
       seat.ready = false;
       seat.connected = false;
+      seat.gone = false;
     }
     this.userRoom.delete(userId);
 
@@ -299,6 +301,53 @@ export class RoomManager {
       room.target = room.match.currentTarget;
     }
     return { ...res, roomId: room.id };
+  }
+
+  /**
+   * A seated player abandons the LIVE match (left / disconnect grace expired /
+   * idled out). Mark the seat `gone` in the engine — the match plays on without
+   * them (auto-passed, placed last) or ends if too few remain — and free them
+   * from `userRoom` so they can join another room. The seat KEEPS its userId so
+   * the quitter still appears at the table, is counted in the pot, and takes the
+   * loss/MMR hit at settlement; it is freed (nulled) after the match ends via
+   * clearGoneSeats. Returns the match events to broadcast (with `roomId`).
+   */
+  forfeitSeat(userId: string): MatchActionResult & { roomId?: string } {
+    const room = this.roomOf(userId);
+    if (!room || !room.match || room.status !== 'inMatch') {
+      return { ok: false, reason: 'Nuk je në një ndeshje aktive.', code: 'not_in_match', gameEvents: [], matchEvents: [] };
+    }
+    const seatIdx = room.seats.findIndex((s) => s.userId === userId);
+    if (seatIdx < 0) return { ok: false, reason: 'Nuk ke vend në dhomë.', code: 'no_seat', gameEvents: [], matchEvents: [] };
+    const res = room.match.forfeit(seatIdx);
+    if (res.ok) {
+      const seat = room.seats[seatIdx]!;
+      seat.gone = true;
+      seat.connected = false;
+      seat.ready = false;
+      this.userRoom.delete(userId); // free them to join elsewhere; seat kept for display/stats/pot
+    }
+    if (room.match.currentState === 'matchOver') room.status = 'finished';
+    room.target = room.match.currentTarget;
+    return { ...res, roomId: room.id };
+  }
+
+  /** After a match ends, free every seat whose player had abandoned (so a rematch
+   *  starts clean). Present players keep their seats. */
+  clearGoneSeats(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    for (const s of room.seats) {
+      if (s.gone) {
+        s.userId = null;
+        s.username = null;
+        s.avatar = null;
+        s.team = null;
+        s.ready = false;
+        s.connected = false;
+        s.gone = false;
+      }
+    }
   }
 
   // ---------- Connection tracking (reconnection support) ----------------------
@@ -404,6 +453,7 @@ export class RoomManager {
       team: s.team,
       ready: s.ready,
       connected: s.connected,
+      gone: s.gone,
     }));
     return {
       id: room.id,
@@ -431,6 +481,7 @@ export class RoomManager {
       active: snap.active,
       passed: snap.passed,
       finishingOrder: snap.finishingOrder,
+      gone: snap.gone,
       turnDeadline,
     };
   }
@@ -466,6 +517,7 @@ export class RoomManager {
     s.team = room.type === '2v2' ? (TEAM_SEATS[0].includes(idx) ? 0 : 1) : null;
     s.ready = false;
     s.connected = true;
+    s.gone = false;
     this.userRoom.set(user.userId, room.id);
     if (this.isFull(room.id)) room.status = 'ready';
     return true;
@@ -484,5 +536,5 @@ export class RoomManager {
 }
 
 function emptySeat(): InternalSeat {
-  return { userId: null, username: null, avatar: null, team: null, ready: false, connected: false };
+  return { userId: null, username: null, avatar: null, team: null, ready: false, connected: false, gone: false };
 }

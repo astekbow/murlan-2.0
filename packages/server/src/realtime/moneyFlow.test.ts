@@ -151,6 +151,112 @@ test('disconnect mid-match: after the abandon grace expires, the pot forfeits to
   }
 });
 
+// ---- match continuation when a player abandons (1v1v1 / 2v2) ----------------
+
+/** A staked N-player server (1v1v1 = 3, 2v2 = 4), each player funded exactly the
+ *  stake so post-escrow balances are 0 and payouts read directly. Seat 0 holds 3♠. */
+async function stakedRoom(
+  type: '1v1v1' | '2v2',
+  startTarget: number,
+  gatewayOpts: { abandonMs?: number } = {},
+): Promise<{ port: number; wallet: WalletService; type: typeof type; n: number; users: Array<{ id: string; token: string }>; close: () => Promise<void> }> {
+  const n = type === '1v1v1' ? 3 : 4;
+  const handsByType: Record<string, Card[][]> = {
+    '1v1v1': [[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]],
+    '2v2': [[c('3', 'S'), c('7', 'S')], [c('4', 'S'), c('8', 'S')], [c('5', 'S'), c('9', 'S')], [c('6', 'S'), c('10', 'S')]],
+  };
+  const httpServer: HttpServer = createServer();
+  const io = new Server(httpServer);
+  const repo = new InMemoryUserRepository();
+  const ledger = new InMemoryLedger();
+  const wallet = new WalletService(repo, ledger);
+  const money = new MoneyService(wallet, new InMemoryMatchesRepository());
+  const auth = new AuthService(repo, new TokenService({ accessSecret: 'a', refreshSecret: 'r' }));
+  const rooms = new RoomManager({
+    startTarget,
+    dealerFactory: () => () => handsByType[type]!.map((h) => h.map((x) => ({ ...x }))),
+    idFactory: (() => { let k = 0; return () => `room_${(k += 1)}`; })(),
+  });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, money, rakeBps: 1_000, abandonMs: 60_000, provablyFair: false, ...gatewayOpts });
+  await new Promise<void>((res) => httpServer.listen(0, res));
+  const port = (httpServer.address() as AddressInfo).port;
+  const users: Array<{ id: string; token: string }> = [];
+  for (let i = 0; i < n; i++) {
+    const u = await auth.register({ username: `plyr${i}`, email: `plyr${i}@a.com`, password: `password${i}` });
+    await wallet.credit(u.user.id, 1000, { type: 'deposit' });
+    users.push({ id: u.user.id, token: u.tokens.accessToken });
+  }
+  return { port, wallet, type, n, users, close: () => new Promise<void>((res) => { io.close(); httpServer.close(() => res()); }) };
+}
+
+async function startMatchN(h: { port: number; type: string; n: number; users: Array<{ token: string }> }): Promise<any[]> {
+  const clients = h.users.map((u) => ioClient(`http://localhost:${h.port}`, { auth: { token: u.token }, transports: ['websocket'], forceNew: true }));
+  await Promise.all(clients.map((cl) => once(cl, 'connect')));
+  await emitAck(clients[0], 'room:create', { type: h.type, stakeCents: 1000 });
+  for (let i = 1; i < h.n; i++) await emitAck(clients[i], 'room:join', { roomId: 'room_1' });
+  const started = once(clients[0], 'game:start');
+  for (let i = 0; i < h.n; i++) await emitAck(clients[i], 'room:ready', true);
+  await started;
+  return clients;
+}
+
+test('staked 1v1v1: one leaving CONTINUES the match; a second quit pays the lone survivor (quitters lose)', async () => {
+  const h = await stakedRoom('1v1v1', 100); // high target → won't end on points
+  const clients = await startMatchN(h);
+  try {
+    for (const u of h.users) assert.equal(await h.wallet.getBalance(u.id), 0); // all escrowed
+
+    // Seat 1 leaves → the match CONTINUES (match:playerLeft, NOT match:end). No payout yet.
+    const left = once(clients[0], 'match:playerLeft');
+    await emitAck(clients[1], 'room:leave');
+    assert.equal((await left).seat, 1);
+    for (const u of h.users) assert.equal(await h.wallet.getBalance(u.id), 0); // still escrowed
+
+    // Seat 2 leaves too → only seat 0 remains → match ends, seat 0 takes the 3-stake pot − 10%.
+    const end = once(clients[0], 'match:end');
+    await emitAck(clients[2], 'room:leave');
+    const result = await end;
+    assert.deepEqual(result.winnerSeats, [0]);
+    assert.equal(result.payoutCents, 2700); // 3000 pot − 300 rake
+    assert.equal(await h.wallet.getBalance(h.users[0]!.id), 2700);
+    assert.equal(await h.wallet.getBalance(h.users[1]!.id), 0); // quitter loses
+    assert.equal(await h.wallet.getBalance(h.users[2]!.id), 0); // quitter loses
+    assert.equal((await h.wallet.reconcile()).ok, true);
+  } finally {
+    for (const cl of clients) cl.close();
+    await h.close();
+  }
+});
+
+test('staked 2v2: play continues when one leaves; a whole team leaving makes the other team split the pot', async () => {
+  const h = await stakedRoom('2v2', 100);
+  const clients = await startMatchN(h); // seats: 0&2 = team0, 1&3 = team1
+  try {
+    for (const u of h.users) assert.equal(await h.wallet.getBalance(u.id), 0);
+
+    // Seat 1 (team1) leaves → continue (team1 still has seat 3).
+    const left = once(clients[0], 'match:playerLeft');
+    await emitAck(clients[1], 'room:leave');
+    assert.equal((await left).seat, 1);
+    assert.equal(await h.wallet.getBalance(h.users[0]!.id), 0); // still escrowed
+
+    // Seat 3 (team1) leaves → team1 fully gone → team0 wins; seats 0 & 2 split pot − rake.
+    const end = once(clients[0], 'match:end');
+    await emitAck(clients[3], 'room:leave');
+    const result = await end;
+    assert.deepEqual([...result.winnerSeats].sort((a: number, b: number) => a - b), [0, 2]);
+    // pot = 4 × 1000 = 4000; − 10% rake = 3600; split two ways = 1800 each.
+    assert.equal(await h.wallet.getBalance(h.users[0]!.id), 1800);
+    assert.equal(await h.wallet.getBalance(h.users[2]!.id), 1800);
+    assert.equal(await h.wallet.getBalance(h.users[1]!.id), 0); // quitter loses
+    assert.equal(await h.wallet.getBalance(h.users[3]!.id), 0); // quitter loses
+    assert.equal((await h.wallet.reconcile()).ok, true);
+  } finally {
+    for (const cl of clients) cl.close();
+    await h.close();
+  }
+});
+
 test('rate limiter: once a user’s bucket is empty, further intents are rejected with rate_limited', async () => {
   // capacity 1, refill 0/s → exactly one intent allowed, the next is rejected
   // deterministically (no time-based refill to race).

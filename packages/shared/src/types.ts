@@ -63,6 +63,7 @@ export interface SeatInfo {
   team: 0 | 1 | null; // 2v2 only
   ready: boolean;
   connected: boolean;
+  gone?: boolean; // the player abandoned the match (left/disconnected): auto-passed + last, can't win
 }
 
 export interface RoomStateDTO {
@@ -90,6 +91,7 @@ export interface PublicGameStateDTO {
   active: boolean[];
   passed: Seat[];
   finishingOrder: Seat[];
+  gone: Seat[];             // seats whose player abandoned (auto-passed, placed last)
   turnDeadline: number | null; // epoch ms when the current turn auto-resolves
 }
 

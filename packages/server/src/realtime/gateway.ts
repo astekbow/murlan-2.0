@@ -23,10 +23,8 @@ import type {
 import { PLAYERS_PER_TYPE } from '@murlan/shared';
 import type { RoomManager } from '../room/roomManager.ts';
 import type { MatchActionResult } from '../match/match.ts';
-import { DEFAULT_TEAMS } from '../match/scoring.ts';
 import type { AuthService } from '../auth/authService.ts';
 import type { MoneyService } from '../money/moneyService.ts';
-import { forfeitWinners } from '../money/moneyService.ts';
 import { createFairShuffle, combineClientSeeds, generateServerSeed, sha256Hex, type FairShuffle } from '../fair/provablyFair.ts';
 import type { GamesRepository } from '../fair/gamesRepository.ts';
 import type { MatchActionsRepository, MatchActionType } from './matchActions.ts';
@@ -481,12 +479,11 @@ export class GameGateway {
     socket.data.seat = null;
 
     if (room && room.status === 'inMatch' && seat >= 0) {
-      // Mid-match leave is a forfeit. AWAIT settlement + free the seat BEFORE
-      // acking, so membership (userRoom) is released by the time the client gets
-      // ok — otherwise an instant re-create/join would hit 'already_in_room'.
+      // Mid-match leave: the match CONTINUES without them (or ends if too few remain).
+      // forfeitMatch marks the seat gone in the engine and releases room membership
+      // synchronously (before any await), so an instant re-create/join won't hit
+      // 'already_in_room', and it broadcasts the lobby itself.
       await this.forfeitMatch(roomId, seat);
-      this.rooms.leaveRoom(userId);
-      this.broadcastLobby();
     } else {
       this.leaveAndNotify(userId, roomId);
     }
@@ -1559,8 +1556,41 @@ export class GameGateway {
     finalSideScores: number[],
   ): Promise<void> {
     if (!this.claimFinalize(roomId)) return; // already finalized by a racing forfeit
-    let payoutCents: number | null = null;
     const matchId = this.rooms.matchIdOf(roomId);
+
+    // No winner — EVERY player abandoned (an all-gone forfeit). Void + refund all
+    // stakes (no payout, no rake, no XP/MMR), then end cleanly. Defensive: normally
+    // a forfeit always leaves a survivor, but this guards the empty-winnerSeats path
+    // against a division-by-zero in settle().
+    if (winnerSeats.length === 0) {
+      if (this.money && matchId) {
+        try {
+          await this.money.refund(matchId);
+        } catch (err) {
+          settlementFailures.inc();
+          // eslint-disable-next-line no-console
+          console.error(`[settlement] all-gone REFUND FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
+          this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
+          this.clearBotTimer(roomId);
+          this.rooms.clearGoneSeats(roomId);
+          this.broadcastLobby();
+          return;
+        }
+      }
+      this.clearRoomStrikes(roomId);
+      const sbV = this.rooms.scoreboardDTO(roomId);
+      this.io.to(roomId).emit('match:end', {
+        winnerSide: -1, winnerSeats: [], finalSideScores,
+        scoreboard: sbV ?? { type: this.rooms.getRoom(roomId)?.type ?? '1v1', target: 0, cumulative: [], teamTotals: null },
+        payoutCents: null,
+      });
+      this.revealFair(roomId);
+      this.rooms.clearGoneSeats(roomId);
+      this.broadcastLobby();
+      return;
+    }
+
+    let payoutCents: number | null = null;
     if (this.money && matchId) {
       try {
         const endTimer = settlementDuration.startTimer();
@@ -1592,6 +1622,7 @@ export class GameGateway {
       ...(ratingDeltas.length ? { ratingDeltas } : {}),
     });
     this.revealFair(roomId);
+    this.rooms.clearGoneSeats(roomId); // free any abandoned seats so a rematch starts clean
   }
 
   /** Publish the serverSeed so players can verify every deal, then drop it. */
@@ -1627,82 +1658,41 @@ export class GameGateway {
   }
 
   /**
-   * End an in-progress match because `abandonerSeat` left/abandoned. The pot
-   * (minus rake) goes to the other side — unless NO winner-side player is still
-   * connected (everyone bailed), in which case the match is voided and all
-   * stakes refunded. Idempotent: only acts while the room is still in-match.
+   * A seated player (`abandonerSeat`) left / disconnected past grace / idled out.
+   * The match CONTINUES without them — they're auto-passed and placed last every
+   * game, forfeiting their stake — UNLESS too few players remain (1v1/1v1v1 down to
+   * one, or a whole 2v2 team gone): then the engine emits a terminal `matchEnded`
+   * that applyResult settles (pays the survivor side, minus rake) or, if everyone
+   * left, voids + refunds. The quitter is excluded from the winners, so they can
+   * never be paid. Idempotent: a no-op once the seat is already gone / match over.
    */
   private async forfeitMatch(roomId: string, abandonerSeat: number): Promise<void> {
     const room = this.rooms.getRoom(roomId);
-    if (!room || !this.claimFinalize(roomId)) return; // bail if already finalized
+    if (!room || !room.match || room.status !== 'inMatch') return;
+    const userId = this.userAtSeat(roomId, abandonerSeat);
+    if (!userId) return;
+    const username = room.seats[abandonerSeat]?.username ?? null;
 
-    const players = room.seats
-      .map((s, i) => ({ seat: i, userId: s.userId }))
-      .filter((p): p is { seat: number; userId: string } => p.userId !== null);
-    const winners = forfeitWinners(room.type, players, abandonerSeat, DEFAULT_TEAMS);
-    // Void only if NO winner is still SEATED. "seated" (not "connected") is both more
-    // correct — a winner who's momentarily disconnected but still in their seat (mid-
-    // reconnect, grace not expired) outlasted the abandoner and deserves the pot, not a
-    // void — AND race-free: unlike `connected`, seat occupancy can't flip during the
-    // async settle below (CORRECTNESS-1).
-    const anyWinnerSeated = winners.some((s) => room.seats[s]?.userId != null);
+    // The abandoner is out: stop their re-engagement / abandon timer + idle strikes,
+    // and cancel any inter-hand standings pause (the board is about to change).
+    this.clearAbandonTimer(userId);
+    this.idleStrikes.delete(userId);
+    this.clearInterHandTimer(roomId);
 
-    this.clearTurnTimer(roomId);
-    this.clearInterHandTimer(roomId); // an abandon during the standings pause ends the match
-    this.clearRoomAbandonTimers(roomId);
-    this.clearRoomStrikes(roomId);
+    // Mark the seat gone in the engine + free them from the room (keeping the seat
+    // for display/stats/pot until the match ends). A failed result means the seat
+    // was already gone or the match already finalized (a racing forfeit) → no-op.
+    const res = this.rooms.forfeitSeat(userId);
+    if (!res.ok || !res.roomId) return;
 
-    let payoutCents: number | null = null;
-    let winnerSeats = winners;
-    const matchId = this.rooms.matchIdOf(roomId);
-    if (this.money && matchId) {
-      try {
-        if (anyWinnerSeated) {
-          const endTimer = settlementDuration.startTimer();
-          const settlement = await this.money.settle({ matchId, winnerSeats: winners });
-          endTimer();
-          if (settlement) payoutCents = settlement.payouts.reduce((a, p) => a + p.amountCents, 0);
-        } else {
-          // No one left to take the pot — void the match and refund every stake.
-          await this.money.refund(matchId);
-          winnerSeats = [];
-        }
-      } catch (err) {
-        // Forfeit settlement threw — same net as the normal end: the match row stays
-        // 'active', so the crash-recovery sweep refunds it; surface it (PAGE counter)
-        // and tell players it's delayed, not lost, instead of leaving them hanging.
-        settlementFailures.inc();
-        // eslint-disable-next-line no-console
-        console.error(`[settlement] FORFEIT settle/refund FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
-        this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
-        this.clearBotTimer(roomId);
-        this.broadcastLobby();
-        return;
-      }
-    }
-    this.recordMatchStats(roomId, winnerSeats); // cosmetic XP/stats (isolated)
-    const ratingDeltas = await this.recordRankedResult(roomId, winnerSeats); // MMR/season ladder (isolated, fail-safe)
-    this.recordAntiCheat(roomId, winnerSeats); // heuristic flags for review (isolated)
-    // (room already flipped to 'finished' synchronously by claimFinalize)
+    // Tell the table a player left. Survivors show "X u largua — loja vazhdon"; the
+    // abandoner's own client (seat === my seat) returns them to the lobby.
+    this.io.to(roomId).emit('match:playerLeft', { seat: abandonerSeat, username });
 
-    const sb = this.rooms.scoreboardDTO(roomId);
-    const winnerSide =
-      winnerSeats.length === 0 ? -1 : room.type === '2v2' ? (DEFAULT_TEAMS[0].includes(winnerSeats[0]!) ? 0 : 1) : winnerSeats[0]!; // length>0 in these branches
-    this.io.to(roomId).emit('match:end', {
-      winnerSide,
-      winnerSeats,
-      finalSideScores: sb?.cumulative ?? [],
-      scoreboard: sb ?? { type: room.type, target: room.target, cumulative: [], teamTotals: null },
-      payoutCents,
-      ...(ratingDeltas.length ? { ratingDeltas } : {}),
-    });
-    // Tell only the NON-winners why the match ended — never the winners, whose
-    // victory overlay must not be covered by a red "opponent left" error toast.
-    for (const p of players) {
-      if (winnerSeats.includes(p.seat)) continue;
-      this.io.to(personalRoom(p.userId)).emit('error', { code: 'opponent_left', message: 'Një lojtar u largua — ndeshja u mbyll.' });
-    }
-    this.revealFair(roomId);
+    // Broadcast the continuation (game events + re-armed turn timer) OR settle a
+    // terminal forfeit (matchEnded → settleAndEmitMatchEnd pays / voids + frees the
+    // gone seats). applyResult handles both, including the once-per-match finalize.
+    this.applyResult(roomId, res);
     this.broadcastLobby();
   }
 

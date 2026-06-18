@@ -109,6 +109,11 @@ export interface ServerToClientEvents {
   // The previous loser was dealt BOTH jokers → the card switch is skipped and the
   // winner leads. Clients show a "no swap" banner.
   'match:noSwap': (dto: { winner: Seat; loser: Seat }) => void;
+  // A player abandoned (left / disconnected past grace / idled out) but the match
+  // CONTINUES without them (they're auto-passed, placed last, and forfeit their
+  // stake). Survivors show a brief "X u largua — loja vazhdon" notice. The match
+  // ends normally (match:end) only when too few players remain.
+  'match:playerLeft': (dto: { seat: Seat; username: string | null }) => void;
   // Inter-hand pause progress: which seats have tapped Continue + how many humans
   // we're waiting on (for the "3/4 ready" indicator on the standings screen).
   'hand:continueState': (dto: { ready: Seat[]; humans: number }) => void;
