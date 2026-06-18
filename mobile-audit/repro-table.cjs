@@ -16,6 +16,7 @@ const CSS = fs.existsSync(ASSETS)
 
 const SIZES = [
   { name: 'iPhone-14-Pro-Max-LS', w: 932, h: 430 },
+  { name: 'iPhone-XR-LS', w: 896, h: 414 },
   { name: 'iPhone-12-Pro-LS', w: 844, h: 390 },
   { name: 'Android-360-LS', w: 640, h: 360 },
   { name: 'iPhone-SE-LS', w: 667, h: 375 },
