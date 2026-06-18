@@ -238,3 +238,114 @@ test('1v1 fallback: when NO start-suit card is dealt at all, seat 0 leads with a
   assert.equal(m.snapshot().game?.turn, 0);     // seat0 leads by fallback
   assert.ok(m.play(0, [c('5', 'H')]).ok);        // opening is free (no start-suit card exists)
 });
+
+// ---- forfeit: a player abandons the match (leave / disconnect / idle) --------
+test('1v1 forfeit ends the match immediately and the other player wins', () => {
+  const m = new Match({
+    type: '1v1',
+    startTarget: 100,
+    deal: dealer([[[c('3', 'S'), c('9', 'S')], [c('4', 'S'), c('8', 'S')]]]),
+  });
+  const r = m.forfeit(1); // seat1 quits → seat0 wins
+  assert.ok(r.ok);
+  const ended = find(r.matchEvents, 'matchEnded');
+  assert.ok(ended, 'matchEnded emitted');
+  assert.equal(ended.winnerSide, 0);
+  assert.deepEqual(ended.winnerSeats, [0]);
+  assert.equal(m.snapshot().state, 'matchOver');
+});
+
+test('1v1v1 forfeit: the two others keep playing; a second quit ends it for the survivor', () => {
+  const m = new Match({
+    type: '1v1v1',
+    startTarget: 100,
+    deal: dealer([[[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]]]),
+  });
+  const r1 = m.forfeit(1); // seat1 quits → seats 0 & 2 remain → CONTINUE
+  assert.ok(r1.ok);
+  assert.equal(find(r1.matchEvents, 'matchEnded'), undefined); // not terminal
+  assert.equal(m.snapshot().state, 'playing');
+  assert.deepEqual(m.snapshot().gone, [1]);
+
+  const r2 = m.forfeit(2); // second quit → only seat0 left → seat0 wins
+  const ended = find(r2.matchEvents, 'matchEnded');
+  assert.ok(ended, 'matchEnded emitted on the second quit');
+  assert.equal(ended.winnerSide, 0);
+  assert.deepEqual(ended.winnerSeats, [0]);
+  assert.equal(m.snapshot().state, 'matchOver');
+});
+
+test('2v2 forfeit: play continues until a WHOLE team is gone, then the other team wins', () => {
+  const m = new Match({
+    type: '2v2',
+    startTarget: 100,
+    deal: dealer([[[c('9', 'S')], [c('4', 'S')], [c('3', 'S')], [c('6', 'S')]]]), // seat2 holds 3♠
+  });
+  m.forfeit(1); // team1 (seats 1&3) loses seat1 → seat3 remains → CONTINUE
+  assert.equal(m.snapshot().state, 'playing');
+  const r = m.forfeit(3); // team1 now fully gone → team0 wins
+  const ended = find(r.matchEvents, 'matchEnded');
+  assert.ok(ended, 'matchEnded emitted');
+  assert.equal(ended.winnerSide, 0);
+  assert.deepEqual(ended.winnerSeats, [0, 2]); // both team0 members present → both split
+  assert.equal(m.snapshot().state, 'matchOver');
+});
+
+test('2v2 forfeit: a quitter teammate is EXCLUDED from the winners (only present members are paid)', () => {
+  const m = new Match({
+    type: '2v2',
+    startTarget: 100,
+    deal: dealer([[[c('9', 'S')], [c('4', 'S')], [c('3', 'S')], [c('6', 'S')]]]),
+  });
+  m.forfeit(0); // team0 keeps seat2 → continue
+  assert.equal(m.snapshot().state, 'playing');
+  m.forfeit(1); // team1 keeps seat3 → continue
+  assert.equal(m.snapshot().state, 'playing');
+  const r = m.forfeit(3); // team1 gone → team0 wins, but seat0 quit → only seat2 is paid
+  const ended = find(r.matchEvents, 'matchEnded');
+  assert.equal(ended.winnerSide, 0);
+  assert.deepEqual(ended.winnerSeats, [2]); // gone seat0 excluded
+});
+
+test('forfeit is idempotent before the match ends, and rejected after', () => {
+  const m = new Match({
+    type: '1v1v1',
+    startTarget: 100,
+    deal: dealer([[[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]]]),
+  });
+  m.forfeit(1);
+  const dup = m.forfeit(1); // same seat again → no-op, no double-counting
+  assert.ok(dup.ok);
+  assert.equal(dup.matchEvents.length, 0);
+  assert.deepEqual(m.snapshot().gone, [1]);
+
+  m.forfeit(2); // ends the match (seat0 wins)
+  const after = m.forfeit(0); // match already over → rejected
+  assert.equal(after.ok, false);
+  assert.match(after.reason ?? '', /mbaruar/i);
+});
+
+test('the card switch is skipped when the previous game’s loser had abandoned (winner leads)', () => {
+  const m = new Match({
+    type: '1v1v1',
+    startTarget: 100,
+    deal: dealer([
+      [[c('3', 'S')], [c('4', 'S')], [c('5', 'S')]],                       // game1
+      [[c('3', 'S'), c('6', 'S')], [c('7', 'S')], [c('8', 'S'), c('9', 'S')]], // game2 deal
+    ]),
+  });
+  m.forfeit(1); // seat1 quits → continue (seats 0 & 2)
+  const r1 = m.play(0, [c('3', 'S')]); // seat0 empties → game ends (seat2 then gone seat1 placed)
+  const scored = find(r1.matchEvents, 'gameScored');
+  assert.deepEqual(scored.finishingOrder, [0, 2, 1]); // quitter seat1 is last
+  // loser = seat1 (gone) → NO card switch, the winner just leads the next game
+  assert.equal(find(r1.matchEvents, 'awaitingSwitch'), undefined);
+  assert.equal(find(r1.matchEvents, 'cardSwitchAuto'), undefined);
+  const started = find(r1.matchEvents, 'gameStarted');
+  assert.ok(started, 'next game started');
+  assert.equal(started.leader, 0); // the winner leads
+  const s = m.snapshot();
+  assert.equal(s.state, 'playing');
+  assert.deepEqual(s.gone, [1]);          // still gone in the new game
+  assert.equal(s.game?.active[1], false); // auto-passed again
+});

@@ -67,6 +67,7 @@ export interface MatchSnapshot {
   lastFinishingOrder: Seat[] | null;
   pendingSwitch: { winner: Seat; loser: Seat } | null;
   matchWinner: { side: number; seats: Seat[] } | null;
+  gone: Seat[];                    // seats whose player abandoned the match
 }
 
 const ok = (gameEvents: GameEvent[], matchEvents: MatchEvent[]): MatchActionResult =>
@@ -88,6 +89,10 @@ export class Match {
   private game: SingleGame | null;
   private lastFinishingOrder: Seat[] | null;
   private matchWinner: { side: number; seats: Seat[] } | null;
+  // Seats whose player abandoned the match. They are re-applied to every freshly
+  // dealt game (auto-passed, placed last) so the match can play on without them,
+  // and they are EXCLUDED from winnerSeats so a quitter is never paid.
+  private goneSeats: Set<Seat>;
 
   // Pending state while a game is being set up / awaiting the winner's return card.
   private pendingHands: Card[][] | null;
@@ -115,6 +120,7 @@ export class Match {
     this.pendingWinner = null;
     this.pendingLoser = null;
     this.pendingReceivedId = null;
+    this.goneSeats = new Set();
 
     this.startFirstGame();
   }
@@ -164,6 +170,7 @@ export class Match {
           ? { winner: this.pendingWinner, loser: this.pendingLoser }
           : null,
       matchWinner: this.matchWinner ? { side: this.matchWinner.side, seats: [...this.matchWinner.seats] } : null,
+      gone: [...this.goneSeats].sort((a, b) => a - b),
     };
   }
 
@@ -204,6 +211,99 @@ export class Match {
     ];
     matchEvents.push(this.beginPendingGame(this.pendingLoser)); // the loser leads the next game
     return ok([], matchEvents);
+  }
+
+  /**
+   * A player abandoned the match (left / disconnected past grace / idled out).
+   * The match CONTINUES with that seat auto-passed and placed last every game,
+   * UNLESS too few players remain for a contest:
+   *   - 1v1 / 1v1v1: ≤1 player left → the lone survivor wins immediately.
+   *   - 2v2: a whole team gone → the other team wins immediately.
+   *   - everyone gone → the match ends with no winner (caller voids + refunds).
+   * The quitter is EXCLUDED from winnerSeats here and in onGameEnd, so they can
+   * never be paid. Idempotent. Returns the events to broadcast (and, when the
+   * match ends, a `matchEnded` the server settles through the normal path).
+   */
+  forfeit(seat: Seat): MatchActionResult {
+    if (this.state === 'matchOver') return fail('Ndeshja ka mbaruar.', 'match_over');
+    if (!Number.isInteger(seat) || seat < 0 || seat >= this.numPlayers) return fail('Vend i pavlefshëm.', 'bad_seat');
+    if (this.goneSeats.has(seat)) return ok([], []); // already gone — idempotent
+
+    this.goneSeats.add(seat);
+    const remaining = this.remainingSeats();
+
+    if (this.mustEndAfterForfeit()) {
+      return ok([], this.endByForfeit(remaining));
+    }
+
+    // Non-terminal: keep playing without the quitter.
+    const gameEvents: GameEvent[] = [];
+    const matchEvents: MatchEvent[] = [];
+    if (this.state === 'playing' && this.game) {
+      gameEvents.push(...this.game.forfeitSeat(seat));
+      if (this.game.isOver) matchEvents.push(...this.onGameEnd());
+    } else if (this.state === 'awaitingSwitch') {
+      matchEvents.push(...this.onSwitchForfeit(seat));
+    }
+    // (between games with no pending switch — pendingHands set but not begun —
+    //  the seat is applied when beginPendingGame deals the next game.)
+    return ok(gameEvents, matchEvents);
+  }
+
+  /** Seats whose player has NOT abandoned the match. */
+  private remainingSeats(): Seat[] {
+    const out: Seat[] = [];
+    for (let s = 0; s < this.numPlayers; s++) if (!this.goneSeats.has(s)) out.push(s);
+    return out;
+  }
+
+  /** Is the outcome already decided because too few players (or a whole 2v2 team) remain? */
+  private mustEndAfterForfeit(): boolean {
+    if (this.type === '2v2') {
+      const t0 = this.teams[0].filter((s) => !this.goneSeats.has(s)).length;
+      const t1 = this.teams[1].filter((s) => !this.goneSeats.has(s)).length;
+      return t0 === 0 || t1 === 0; // a whole team gone (or both) → decided
+    }
+    return this.remainingSeats().length < 2; // 1v1 / 1v1v1: ≤1 player left → decided
+  }
+
+  /** End the match by forfeit: the surviving side wins (its PRESENT members split
+   *  the pot); if everyone is gone there is no winner (winnerSeats empty → void). */
+  private endByForfeit(remaining: Seat[]): MatchEvent[] {
+    let winnerSide: number;
+    let winnerSeats: Seat[];
+    if (this.type === '2v2') {
+      const t0 = this.teams[0].filter((s) => !this.goneSeats.has(s));
+      const t1 = this.teams[1].filter((s) => !this.goneSeats.has(s));
+      if (t0.length > 0 && t1.length === 0) { winnerSide = 0; winnerSeats = t0; }
+      else if (t1.length > 0 && t0.length === 0) { winnerSide = 1; winnerSeats = t1; }
+      else { winnerSide = -1; winnerSeats = []; } // both teams gone → void
+    } else if (remaining.length === 1) {
+      winnerSide = remaining[0]!; // per-seat side
+      winnerSeats = [remaining[0]!];
+    } else {
+      winnerSide = -1; winnerSeats = []; // everyone gone → void
+    }
+    this.matchWinner = winnerSide >= 0 ? { side: winnerSide, seats: winnerSeats } : null;
+    this.state = 'matchOver';
+    this.game = null;
+    return [{ kind: 'matchEnded', winnerSide, winnerSeats, finalSideScores: this.sideScores() }];
+  }
+
+  /** A forfeit arrived while waiting for the winner's card-switch return. */
+  private onSwitchForfeit(seat: Seat): MatchEvent[] {
+    // The winner who owes a return left → skip the return, begin the next game
+    // (loser leads). The loser leaving is harmless (the winner still returns; the
+    // gone loser is re-applied when the game begins). A third seat leaving applies
+    // when the next game is dealt.
+    if (seat === this.pendingWinner && this.pendingLoser !== null) {
+      const loser = this.pendingLoser;
+      return [
+        { kind: 'cardSwitchReturn', winner: seat, loser, card: null },
+        this.beginPendingGame(loser),
+      ];
+    }
+    return [];
   }
 
   // ---------- Internals -------------------------------------------------------
@@ -264,7 +364,9 @@ export class Match {
     const evaln = evaluateMatch(sideScores, this.target);
 
     if (evaln.over && evaln.winnerSide !== null) {
-      const winnerSeats = this.seatsOfSide(evaln.winnerSide);
+      // Exclude any abandoned seat from the winners (a 2v2 team can win on its
+      // present member's points alone — the quitter teammate is never paid).
+      const winnerSeats = this.seatsOfSide(evaln.winnerSide).filter((s) => !this.goneSeats.has(s));
       this.matchWinner = { side: evaln.winnerSide, seats: winnerSeats };
       this.state = 'matchOver';
       this.game = null;
@@ -301,6 +403,14 @@ export class Match {
     this.pendingLoser = loser;
     this.pendingReceivedId = null;
     this.gameIndex += 1;
+
+    // If the loser abandoned the match there's no one to penalise → skip the card
+    // switch entirely and the winner (always a present player — quitters finish
+    // last) leads the next game. The gone seat is re-applied in beginPendingGame.
+    if (this.goneSeats.has(loser)) {
+      events.push(this.beginPendingGame(winner));
+      return;
+    }
 
     // NO-SWAP rule: if the loser was dealt BOTH jokers, the switch is cancelled
     // (they keep both jokers) and the WINNER leads the next game instead of the
@@ -348,7 +458,11 @@ export class Match {
     this.pendingWinner = null;
     this.pendingLoser = null;
     this.pendingReceivedId = null;
-    return { kind: 'gameStarted', index: this.gameIndex, leader };
+    // Re-apply abandonment to the freshly dealt game so quitters stay auto-passed
+    // and last. (We continue only with ≥2 present players, so this never empties
+    // the table.) If the intended leader had quit, the turn advances off them.
+    for (const s of this.goneSeats) this.game.forfeitSeat(s);
+    return { kind: 'gameStarted', index: this.gameIndex, leader: this.game.currentTurn ?? leader };
   }
 
   private sideScores(): number[] {

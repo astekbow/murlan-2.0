@@ -63,6 +63,7 @@ export interface GameSnapshot {
   active: boolean[];            // seats that still hold cards
   passed: Seat[];               // seats that have passed in the current trick
   finishingOrder: Seat[];       // seats in the order they emptied their hands
+  gone: Seat[];                 // seats whose player abandoned (auto-passed, placed last)
   // The card the opening lead MUST include (e.g. 3♠ in game 1), or null once the
   // game has opened / when there is no opening constraint. Public info — lets the
   // timeout forced-lead lead it explicitly instead of relying on power ordering.
@@ -84,6 +85,10 @@ export class SingleGame {
   private active: boolean[];
   private passed: Set<Seat>;
   private finishingOrder: Seat[];
+  // Seats whose player abandoned the match. They auto-pass (never act) and are
+  // placed LAST in the finishing order (see endGame), so a quitter can never
+  // profit. Insertion order = abandon order (earliest-gone ranks most-last).
+  private gone: Set<Seat>;
   private pile: Combo | null;
   private pileOwner: Seat | null;
   private turn: Seat | null;
@@ -104,6 +109,7 @@ export class SingleGame {
     this.active = hands.map((h) => h.length > 0);
     this.passed = new Set();
     this.finishingOrder = [];
+    this.gone = new Set();
     this.pile = null;
     this.pileOwner = null;
     this.turn = leader;
@@ -156,6 +162,7 @@ export class SingleGame {
       active: [...this.active],
       passed: [...this.passed].sort((a, b) => a - b),
       finishingOrder: [...this.finishingOrder],
+      gone: [...this.gone].sort((a, b) => a - b),
       openingCard: this.opened ? null : this.openingCard,
     };
   }
@@ -236,6 +243,46 @@ export class SingleGame {
     return { ok: true, events };
   }
 
+  /**
+   * Remove a seat from the game because its player abandoned the match. The seat
+   * is deactivated (auto-passes for the rest of THIS game) and recorded as `gone`
+   * so endGame places it LAST — a quitter can never finish ahead of a player who
+   * stayed. Idempotent; safe to call on a seat that already finished (it just
+   * keeps the place it earned). If it was the gone seat's turn, play advances
+   * (resolving the trick if no one is left to contest it). The caller decides
+   * whether the MATCH should end (too few players left) BEFORE calling this — see
+   * Match.forfeit; here we only end the single game when ≤1 seat still holds cards.
+   */
+  forfeitSeat(seat: Seat): GameEvent[] {
+    const events: GameEvent[] = [];
+    if (this.status === 'finished') return events;
+    if (seat < 0 || seat >= this.numPlayers) return events;
+    if (this.gone.has(seat)) return events; // already abandoned
+    this.gone.add(seat);
+    if (!this.active[seat]) return events; // already emptied their hand — keep their place
+
+    this.active[seat] = false;
+    this.passed.delete(seat);
+    const wasTurn = this.turn === seat;
+
+    if (wasTurn) {
+      if (this.pile === null) {
+        // They were leading a fresh trick → the lead passes to the next holder.
+        const next = this.nextActiveAfter(seat);
+        this.turn = next;
+        if (next === null) this.endGame(events);
+      } else {
+        // They owed a response → mirror a pass: resolve if no contender remains.
+        if (this.contendersExcludingOwner().length === 0) this.resolveTrick(events);
+        else this.turn = this.nextEligible(seat);
+      }
+    }
+    // Removing a player can leave only one holder of cards → end the game.
+    // (`isOver` re-reads status, which resolveTrick/endGame above may have flipped.)
+    if (!this.isOver && this.activeCount() <= 1) this.endGame(events);
+    return events;
+  }
+
   // ---------- Internals -------------------------------------------------------
 
   /**
@@ -283,14 +330,25 @@ export class SingleGame {
     }
   }
 
-  /** Conclude the game: append the lone remaining player as last place. */
+  /** Conclude the game: append the lone remaining player, then any abandoned
+   *  seats LAST (worst places). Among abandoned seats, the earliest to leave
+   *  ranks most-last, so we append them in reverse abandon order. */
   private endGame(events: GameEvent[]): void {
     if (this.status === 'finished') return;
+    // Players who still hold cards but didn't abandon: appended in seat order
+    // (normally just the single last holder once activeCount hit 1).
     for (let s = 0; s < this.numPlayers; s++) {
-      if (this.active[s]) {
+      if (this.active[s] && !this.gone.has(s)) {
         this.active[s] = false;
         this.finishingOrder.push(s);
       }
+    }
+    // Abandoned seats fill the remaining (worst) places. Reverse insertion order
+    // ⇒ the first player to quit ends up at the very bottom.
+    const goneList = [...this.gone];
+    for (let i = goneList.length - 1; i >= 0; i--) {
+      const s = goneList[i]!;
+      if (!this.finishingOrder.includes(s)) this.finishingOrder.push(s);
     }
     this.status = 'finished';
     this.turn = null;

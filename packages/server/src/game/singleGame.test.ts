@@ -304,3 +304,67 @@ test('no actions accepted once the game is finished', () => {
   assert.equal(r.ok, false);
   assert.match(r.reason!, /mbaruar/i);
 });
+
+// ---- forfeitSeat: abandon mid-game (player left the match) -------------------
+test('forfeitSeat in 1v1 ends the game; the player who stayed is 1st, the quitter last', () => {
+  const g = new SingleGame({ numPlayers: 2, hands: [[c('7', 'S'), c('9', 'S')], [c('8', 'S'), c('10', 'S')]], leader: 0 });
+  const ev = g.forfeitSeat(1); // seat 1 abandons; only seat 0 holds cards → game ends
+  const s = g.snapshot();
+  assert.equal(s.status, 'finished');
+  assert.deepEqual(s.gone, [1]);
+  assert.deepEqual(s.finishingOrder, [0, 1]); // stayer 1st, quitter last
+  assert.ok(evkinds(ev).includes('gameEnded'));
+});
+
+test('forfeitSeat on the current leader passes the lead and the game continues (1v1v1)', () => {
+  const g = new SingleGame({
+    numPlayers: 3,
+    hands: [[c('3', 'S')], [c('4', 'S'), c('4', 'H')], [c('5', 'S'), c('5', 'H')]],
+    leader: 0,
+  });
+  g.forfeitSeat(0); // it was seat 0's turn (leading) → lead moves to seat 1
+  const s = g.snapshot();
+  assert.equal(s.status, 'playing'); // two players still hold cards
+  assert.equal(s.turn, 1);
+  assert.deepEqual(s.gone, [0]);
+  assert.equal(s.active[0], false);
+});
+
+test('forfeitSeat on a responder advances the turn without resolving prematurely', () => {
+  const g = new SingleGame({
+    numPlayers: 3,
+    hands: [[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]],
+    leader: 0,
+  });
+  g.play(0, [c('3', 'S')]); // pile = 3♠, turn → seat 1
+  g.forfeitSeat(1); // seat 1 (whose turn it was) abandons → turn moves to seat 2
+  const s = g.snapshot();
+  assert.equal(s.status, 'playing');
+  assert.equal(s.turn, 2);
+  assert.deepEqual(s.gone, [1]);
+});
+
+test('two quitters: the earliest to leave is placed most-last', () => {
+  const g = new SingleGame({
+    numPlayers: 3,
+    hands: [[c('3', 'S'), c('6', 'S')], [c('4', 'S'), c('7', 'S')], [c('5', 'S'), c('8', 'S')]],
+    leader: 0,
+  });
+  g.forfeitSeat(0); // quits first
+  g.forfeitSeat(1); // quits second → only seat 2 active → game ends
+  const s = g.snapshot();
+  assert.equal(s.status, 'finished');
+  // seat 2 stayed (1st), seat 1 quit second (2nd), seat 0 quit first (last)
+  assert.deepEqual(s.finishingOrder, [2, 1, 0]);
+});
+
+test('forfeitSeat is idempotent and keeps a finished seat in its earned place', () => {
+  const g = new SingleGame({ numPlayers: 3, hands: [[c('3', 'S')], [c('4', 'S'), c('4', 'H')], [c('5', 'S'), c('5', 'H')]], leader: 0 });
+  g.play(0, [c('3', 'S')]); // seat 0 empties → finishes 1st, turn moves on, game continues (2 active)
+  assert.deepEqual(g.snapshot().finishingOrder, [0]);
+  g.forfeitSeat(0); // already finished → records gone but must NOT change its place
+  g.forfeitSeat(0); // idempotent
+  const s = g.snapshot();
+  assert.equal(s.finishingOrder[0], 0); // still 1st
+  assert.ok(s.gone.includes(0));
+});
