@@ -716,7 +716,7 @@ select:focus-visible,
 /* Cap the felt width in landscape so the oval isn't stretched full-width (it looked
    "super stretchy" on wide phones like the 14 Pro Max). Narrower sides + a little
    breathing room top/bottom; the flex parent keeps it centered. */
-.tv-ls .tv-felt { padding: 2px 8px !important; max-width: 720px !important; margin: 5px auto !important; }
+.tv-ls .tv-felt { padding: 2px 8px !important; max-width: 700px !important; margin: 5px auto !important; }
 /* Keep the hand clear of the side Play/Pass buttons. The buttons sit at
    max(14px, env(inset)) from each edge, so the hand padding must include the SAME
    inset plus the button width + a gap — otherwise the notch inset pushes the buttons
@@ -745,6 +745,10 @@ select:focus-visible,
 .tv-ls .tv-seat-top-left, .tv-ls .tv-seat-top-right { top: -12px !important; }
 .tv-ls .tv-seat-top-left { left: max(6px, env(safe-area-inset-left)) !important; }
 .tv-ls .tv-seat-top-right { right: max(6px, env(safe-area-inset-right)) !important; }
+/* Push the side seats (avatar + card-fan + name) OUT onto the felt's edge instead of
+   sitting inside the green play area. */
+.tv-ls .tv-seat-left { left: -26px !important; }
+.tv-ls .tv-seat-right { right: -26px !important; }
 .tv-ls .seat-nm { max-width: 56px; font-size: 11px; }
 .tv-ls .hand-fan .gcard { width: 40px; height: 58px; }
 .tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }

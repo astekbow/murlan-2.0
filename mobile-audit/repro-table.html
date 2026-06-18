@@ -22,22 +22,32 @@
     </div>
     <div class="tv-table flex-1 flex items-center justify-center min-h-0 py-1">
       <div class="tv-felt relative w-full max-w-[640px]">
-        <!-- top opponent seat (absolute) -->
-        <div class="tv-seat tv-seat-top absolute z-[5] left-1/2 -translate-x-1/2 -top-8">
-          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
-            <div style="display:flex;height:20px;align-items:flex-end">
-              <div class="mini" style="height:22px;width:16px"></div>
-              <div class="mini" style="height:22px;width:16px;margin-left:-9px"></div>
-            </div>
-            <div class="relative inline-grid place-items-center">
-              <div class="av turn">G</div>
-            </div>
-            <div class="seat-nm">Geri</div>
-          </div>
-        </div>
         <div class="rail-outer"><div class="rail-inner">
           <div class="felt-ring"></div>
           <div class="tlogo">MURLAN</div>
+          <!-- Opponent seats are children of rail-inner in the real app, so position them
+               here too (top-center, left, right) to check they sit on the felt EDGE. -->
+          <div class="tv-seat tv-seat-top absolute z-[5] left-1/2 -translate-x-1/2 -top-8">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div style="display:flex;height:20px;align-items:flex-end"><div class="mini" style="height:22px;width:16px"></div><div class="mini" style="height:22px;width:16px;margin-left:-9px"></div></div>
+              <div class="av turn">G</div>
+              <div class="seat-nm">Geri</div>
+            </div>
+          </div>
+          <div class="tv-seat tv-seat-left absolute z-[5] -left-3 top-1/2 -translate-y-1/2">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div style="display:flex;height:20px;align-items:flex-end"><div class="mini" style="height:22px;width:16px"></div><div class="mini" style="height:22px;width:16px;margin-left:-9px"></div></div>
+              <div class="av">A</div>
+              <div class="seat-nm">Andi</div>
+            </div>
+          </div>
+          <div class="tv-seat tv-seat-right absolute z-[5] -right-3 top-1/2 -translate-y-1/2">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div style="display:flex;height:20px;align-items:flex-end"><div class="mini" style="height:22px;width:16px"></div><div class="mini" style="height:22px;width:16px;margin-left:-9px"></div></div>
+              <div class="av">I</div>
+              <div class="seat-nm">Iris</div>
+            </div>
+          </div>
         </div></div>
       </div>
     </div>
