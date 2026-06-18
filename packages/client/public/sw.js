@@ -68,10 +68,23 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// Resolve a notification's deep-link to a SAFE same-origin path. A push payload is
+// attacker-influenceable, so never navigate to an off-origin / non-http target —
+// fall back to the lobby ('/'). Also drops a stale path that can't resolve.
+function safePath(raw) {
+  try {
+    const u = new URL(raw || '/', self.location.origin);
+    if (u.origin !== self.location.origin) return '/'; // off-origin (incl. protocol-relative //) → home
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return '/';
+  }
+}
+
 // Clicking a notification focuses an existing tab (or opens one) at the deep link.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/';
+  const target = safePath(event.notification.data && event.notification.data.url);
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of all) {

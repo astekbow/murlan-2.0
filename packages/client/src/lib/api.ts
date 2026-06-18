@@ -80,7 +80,7 @@ async function rawRequest<T>(path: string, opts: RequestOptions = {}): Promise<T
     });
   } catch {
     // fetch rejects only on a network/CORS failure — distinguish from a 4xx/5xx.
-    throw new ApiError(errText('network', 'Lidhja me serverin dështoi. Kontrollo internetin.'), 'network', 0);
+    throw new ApiError(errText('network'), 'network', 0); // localized via the err.network catalog key
   }
 
   const data = (await res.json().catch(() => ({}))) as Record<string, any>;
@@ -109,7 +109,7 @@ async function request<T>(path: string, opts: RequestOptions = {}, _retried = fa
         return await request<T>(path, { ...opts, token: newToken }, true);
       } catch {
         onSessionLost?.();
-        throw new ApiError(errText('session_expired', 'Sesioni skadoi — hyr përsëri.'), 'session_expired', 401);
+        throw new ApiError(errText('session_expired'), 'session_expired', 401); // localized via err.session_expired
       }
     }
     throw e;

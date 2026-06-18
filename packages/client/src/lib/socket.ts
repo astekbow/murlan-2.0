@@ -3,6 +3,7 @@
 
 import { io, type Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@murlan/shared';
+import { errText } from './errors.ts';
 
 export type MurlanSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -49,7 +50,7 @@ export function request<T = { ok: boolean; error?: { code: string; message: stri
     // If the ack is dropped (e.g. on a flaky connection) surface a failure ack
     // instead of leaving the UI waiting forever.
     const timer = window.setTimeout(
-      () => done({ ok: false, error: { code: 'timeout', message: 'Serveri nuk u përgjigj. Provo sërish.' } } as T),
+      () => done({ ok: false, error: { code: 'timeout', message: errText('timeout') } } as T), // localized via err.timeout
       ACK_TIMEOUT_MS,
     );
     (socket as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit(event, ...args, (res: T) => done(res));

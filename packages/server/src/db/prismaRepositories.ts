@@ -285,7 +285,7 @@ export class PrismaFriends implements FriendsRepository {
   async respond(id: string, userId: string, accept: boolean) {
     const row = await this.db.friendship.findUnique({ where: { id } });
     if (!row || row.addresseeId !== userId || row.status !== 'pending') return null;
-    if (!accept) { await this.db.friendship.delete({ where: { id } }).catch(() => undefined); return null; }
+    if (!accept) { await this.db.friendship.delete({ where: { id } }).catch((e) => console.error('[friends] decline-delete failed', e)); return null; }
     return toFriendship(await this.db.friendship.update({ where: { id }, data: { status: 'accepted' } }));
   }
   async remove(id: string, userId: string) {

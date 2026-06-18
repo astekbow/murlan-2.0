@@ -36,16 +36,29 @@ export class TelegramNotifier implements Notifier {
   ) {}
 
   async notify(text: string): Promise<void> {
-    try {
-      const res = await this.fetchFn(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chat_id: this.chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-      });
-      if (!res.ok) console.error(`[notify] telegram sendMessage failed: HTTP ${res.status}`);
-    } catch (err) {
-      // Best-effort: a Telegram/network hiccup must never bubble into the caller.
-      console.error('[notify] telegram send error:', err);
+    // Retry a few times with backoff so a transient Telegram/network hiccup doesn't
+    // silently drop an important alert (e.g. a large-withdrawal notice). Still
+    // best-effort: after the last attempt we log and return — NEVER throw into the
+    // caller (an alert failure must not affect a money flow).
+    const ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+      try {
+        const res = await this.fetchFn(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat_id: this.chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+        });
+        if (res.ok) return;
+        // 4xx (bad token/chat id) won't fix on retry — log and stop; 5xx/429 may, so retry.
+        if (res.status < 500 && res.status !== 429) {
+          console.error(`[notify] telegram sendMessage failed: HTTP ${res.status} (not retryable)`);
+          return;
+        }
+        console.error(`[notify] telegram sendMessage HTTP ${res.status} (attempt ${attempt}/${ATTEMPTS})`);
+      } catch (err) {
+        console.error(`[notify] telegram send error (attempt ${attempt}/${ATTEMPTS}):`, err);
+      }
+      if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, 500 * attempt)); // 0.5s, then 1s
     }
   }
 }
