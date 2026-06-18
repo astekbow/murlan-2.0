@@ -75,6 +75,8 @@ interface GameStore {
   connected: boolean;
   myUserId: string | null;
   socialRev: number; // bumps on a friend:request / social:refresh → the Friends page reloads
+  rewardRev: number; // bumps on reward:refresh (a finished match changed my stats) → Challenges reloads
+  lbRev: number;     // bumps on leaderboard:refresh (any finished match) → an open Leaderboard reloads
 
   lobby: LobbyRoomInfo[];
   live: LiveMatchInfo[]; // in-match rooms available to spectate
@@ -156,6 +158,9 @@ interface GameStore {
   startPractice: (type: MatchType, tier?: 'easy' | 'medium' | 'hard') => Promise<boolean>;
   spectate: (roomId: string) => Promise<boolean>;
   stopSpectate: () => void;
+  /** Join/leave the leaderboard live-refresh channel (call while the page is open). */
+  watchLeaderboard: () => void;
+  unwatchLeaderboard: () => void;
 }
 
 function appendLog(prev: LogEntry[], text: string): LogEntry[] {
@@ -205,6 +210,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   connected: false,
   myUserId: null,
   socialRev: 0,
+  rewardRev: 0,
+  lbRev: 0,
   lobby: [],
   live: [],
   ...emptyRoomState,
@@ -392,6 +399,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
     // A friends-list change concerning me (my request was answered / I was unfriended).
     socket.on('social:refresh', () => set((s) => ({ socialRev: s.socialRev + 1 })));
+    // A finished match changed my stats → refresh an open Challenges/Rewards page.
+    socket.on('reward:refresh', () => set((s) => ({ rewardRev: s.rewardRev + 1 })));
+    // A finished match (anyone's) may have moved ranks → refresh an open Leaderboard.
+    socket.on('leaderboard:refresh', () => set((s) => ({ lbRev: s.lbRev + 1 })));
     socket.on('club:chat', (dto) => {
       // Append live; dedup by id (the sender also receives their own message).
       set((s) => (s.clubChat.some((m) => m.id === dto.id) ? s : { clubChat: [...s.clubChat, dto].slice(-100) }));
@@ -600,6 +611,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (res.ok) set({ toast: tg('msg.inviteSent'), toastKind: 'success' });
     else set({ toast: ackText(res.error, 'err.inviteFailed'), toastKind: 'error' });
     return res.ok;
+  },
+  watchLeaderboard() {
+    get().socket?.emit('leaderboard:watch'); // idempotent; no-op if not connected yet
+  },
+  unwatchLeaderboard() {
+    get().socket?.emit('leaderboard:unwatch');
   },
   async acceptInvite() {
     const inv = get().invite;

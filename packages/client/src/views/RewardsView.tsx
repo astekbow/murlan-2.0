@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { rewardsApi, ApiError } from '../lib/api.ts';
 import type { RewardsStatus, RewardChallenge } from '../lib/api.ts';
 import { useAuthStore } from '../store/authStore.ts';
@@ -42,6 +42,17 @@ export function RewardsView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live refresh: a finished match updated my stats (XP/wins/streak) → reload so
+  // challenge progress + newly-claimable rewards appear without a manual refresh.
+  // Skip while a claim is in flight so a stale refetch can't clobber the optimistic
+  // post-claim state (the claim path reloads itself on completion).
+  const rewardRev = useGameStore((s) => s.rewardRev);
+  const busyRef = useRef(false);
+  useEffect(() => { busyRef.current = busy !== null; }, [busy]);
+  useEffect(() => {
+    if (rewardRev > 0 && !busyRef.current) void load();
+  }, [rewardRev, load]);
 
   const claimDaily = async () => {
     if (busy) return;

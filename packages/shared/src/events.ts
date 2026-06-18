@@ -85,6 +85,11 @@ export interface ClientToServerEvents {
   // rate-limited, mute-aware server-side). clubId is derived from membership, never
   // client-supplied.
   'club:message': (payload: { text: string }, ack: (res: Ack) => void) => void;
+  // Leaderboard live view: join/leave the shared broadcast channel while the
+  // Leaderboard page is open, so finished matches elsewhere push a refresh (live
+  // rank movement). Idempotent + fire-and-forget (no money/game state).
+  'leaderboard:watch': () => void;
+  'leaderboard:unwatch': () => void;
 }
 
 // ---------- Server -> Client -------------------------------------------------
@@ -121,6 +126,12 @@ export interface ServerToClientEvents {
   'friend:request': (dto: { fromUsername: string }) => void; // someone sent you a friend request
   'social:refresh': () => void; // your friends list changed (answered/unfriended) — reload it
   'club:chat': (dto: ChatMessageDTO) => void; // a new message in your club channel
+  // A finished match updated YOUR stats (XP/wins/streak) → reload your open
+  // Challenges/Rewards page so progress + claimable rewards stay live.
+  'reward:refresh': () => void;
+  // A finished match (anyone's) may have moved the rankings → everyone watching
+  // the leaderboard reloads it for live rank movement.
+  'leaderboard:refresh': () => void;
 }
 
 // Optional typed inter-server / socket-data shapes (used by Socket.IO generics).

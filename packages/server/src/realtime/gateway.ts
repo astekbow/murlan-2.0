@@ -46,7 +46,7 @@ import type { ChatService } from '../chat/chatService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
 import { settlementFailures, socketConnections, settlementDuration } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
-import { personalRoom, clubRoom, isBot, BOT_PREFIX, pickGhostNames, BOT_MIN_DELAY, BOT_MAX_DELAY } from './gatewayHelpers.ts';
+import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, BOT_MIN_DELAY, BOT_MAX_DELAY } from './gatewayHelpers.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -275,6 +275,11 @@ export class GameGateway {
     socket.on('ranked:queue:leave', (ack) => this.onRankedQueueLeave(socket, ack));
     socket.on('room:spectate', (payload, ack) => this.onSpectate(socket, payload, ack));
     socket.on('room:unspectate', (ack) => this.onUnspectate(socket, ack));
+    // Leaderboard live view: join/leave the shared channel while the page is open
+    // (idempotent; auto-cleaned on disconnect by Socket.IO). A finished match then
+    // pushes a 'leaderboard:refresh' here for live rank movement.
+    socket.on('leaderboard:watch', () => void socket.join(LEADERBOARD_ROOM));
+    socket.on('leaderboard:unwatch', () => void socket.leave(LEADERBOARD_ROOM));
     socket.on('fair:clientSeed', (seed) => {
       if (!this.limiter.allow(socket.data.userId)) return;
       if (typeof seed === 'string' && seed.length > 0 && seed.length <= 128) {
@@ -1443,7 +1448,32 @@ export class GameGateway {
       .map((s, i) => ({ userId: s.userId, i }))
       .filter((x): x is { userId: string; i: number } => x.userId !== null)
       .map((x) => ({ userId: x.userId, won: winSet.has(x.i), potCents }));
-    void this.profiles.recordMatch(seats).catch(() => undefined);
+    // Push live-refresh signals AFTER the stats write commits (so a reload reads the
+    // fresh totals, not a stale snapshot). Best-effort + isolated — a notify failure
+    // never affects settlement/scoring. Practice rooms returned early above, so this
+    // only fires for real (XP-earning) matches.
+    void this.profiles.recordMatch(seats)
+      .then(() => this.notifyStatsChanged(seats.map((s) => s.userId)))
+      .catch(() => undefined);
+  }
+
+  /**
+   * A finished match updated player stats. Push two live-refresh signals (no
+   * payload — the client refetches): each seated HUMAN reloads their Challenges/
+   * Rewards page (XP/wins/streak changed), and everyone watching the leaderboard
+   * reloads it (ranks may have moved). Bots are skipped (no socket). Wrapped so a
+   * socket error can never escape into the settlement path.
+   */
+  private notifyStatsChanged(userIds: string[]): void {
+    try {
+      for (const userId of userIds) {
+        if (isBot(userId)) continue;
+        this.io.to(personalRoom(userId)).emit('reward:refresh');
+      }
+      this.io.to(LEADERBOARD_ROOM).emit('leaderboard:refresh');
+    } catch {
+      // never throws into the fire-and-forget stats path
+    }
   }
 
   /**

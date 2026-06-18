@@ -12,6 +12,10 @@ export function personalRoom(userId: string): string {
 export function clubRoom(clubId: string): string {
   return `club:${clubId}`;
 }
+/** Shared broadcast channel for every client currently viewing the leaderboard
+ *  (joined while the page is open). A finished match pushes a refresh here so
+ *  ranks move live without polling. */
+export const LEADERBOARD_ROOM = 'leaderboard';
 
 // ---- Fill players (a.k.a. practice bots) -----------------------------------
 // Synthetic, socket-less "players" seated ONLY in zero-stake rooms (escrow is gated

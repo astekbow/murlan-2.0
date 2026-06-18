@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { profileApi, rankedApi, ApiError } from '../lib/api.ts';
 import type { LeaderboardRow, RankedLeaderboardRow, SeasonDTO } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
+import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { TierBadge } from '../components/ui/TierBadge.tsx';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
@@ -39,28 +40,54 @@ export function LeaderboardView() {
   const [reloadKey, setReloadKey] = useState(0);
   const refresh = () => setReloadKey((k) => k + 1);
 
-  useEffect(() => {
-    let alive = true;
-    setStatus('loading');
+  // One fetcher used by both the intentional load (tab switch / manual refresh →
+  // shows the loader + scrolls to the podium) and the silent live refresh (a match
+  // finished anywhere → swap data in place, no loader flash, no scroll jump, and a
+  // transient error keeps the current board instead of blanking it). A seq guard
+  // drops a stale in-flight response when a newer load supersedes it.
+  const loadSeq = useRef(0);
+  const load = useCallback(async (opts?: { scroll?: boolean; silent?: boolean }) => {
+    const seq = ++loadSeq.current;
     setError(null);
-    window.scrollTo({ top: 0 }); // tab switch / refresh → show the podium from the top (mobile)
-    const work =
-      tab === 'global'
-        ? profileApi.leaderboard().then(({ rows }) => { if (alive) setRows(rows); })
-        : Promise.all([rankedApi.season(), rankedApi.leaderboard()]).then(([s, l]) => {
-            if (!alive) return;
-            setSeason(s.season);
-            setRanked(l.rows);
-          });
-    work
-      .then(() => { if (alive) setStatus('ready'); })
-      .catch((e: unknown) => {
-        if (!alive) return;
-        setError(e instanceof ApiError ? e.message : tr('lb.errLoad'));
-        setStatus('error');
-      });
-    return () => { alive = false; };
-  }, [tab, reloadKey]);
+    if (opts?.scroll) window.scrollTo({ top: 0 });
+    try {
+      if (tab === 'global') {
+        const { rows } = await profileApi.leaderboard();
+        if (seq !== loadSeq.current) return;
+        setRows(rows);
+      } else {
+        const [s, l] = await Promise.all([rankedApi.season(), rankedApi.leaderboard()]);
+        if (seq !== loadSeq.current) return;
+        setSeason(s.season);
+        setRanked(l.rows);
+      }
+      if (seq === loadSeq.current) setStatus('ready');
+    } catch (e) {
+      if (seq !== loadSeq.current || opts?.silent) return; // live blip → keep showing the board
+      setError(e instanceof ApiError ? e.message : tr('lb.errLoad'));
+      setStatus('error');
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    setStatus('loading');
+    void load({ scroll: true });
+  }, [load, reloadKey]); // `load` changes with `tab`, so a tab switch re-runs this too
+
+  // Live: join the leaderboard channel while open; a finished match (anyone's) bumps
+  // lbRev → silently refresh (debounced so a burst of endings collapses to one fetch).
+  const lbRev = useGameStore((s) => s.lbRev);
+  const watchLeaderboard = useGameStore((s) => s.watchLeaderboard);
+  const unwatchLeaderboard = useGameStore((s) => s.unwatchLeaderboard);
+  useEffect(() => {
+    watchLeaderboard();
+    return () => unwatchLeaderboard();
+  }, [watchLeaderboard, unwatchLeaderboard]);
+  useEffect(() => {
+    if (lbRev === 0) return;
+    const id = setTimeout(() => void load({ silent: true }), 1500);
+    return () => clearTimeout(id);
+  }, [lbRev, load]);
 
   return (
     <div className="space-y-5">
