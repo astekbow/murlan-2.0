@@ -375,6 +375,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                         lastPlayer={game?.pileOwner === s.seat}
                         partner={room.type === '2v2' && myTeam !== null && s.team === myTeam}
                         turnDeadline={game?.turn === s.seat ? game?.turnDeadline ?? null : null}
+                        placement={pos}
                       />
                     </button>
                   </div>

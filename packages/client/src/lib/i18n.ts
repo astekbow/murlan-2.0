@@ -169,7 +169,7 @@ const STRINGS: Record<string, Entry> = {
   'seat.passed': { sq: 'Pas', en: 'Pass' },
   'seat.turn': { sq: 'Radha…', en: 'Turn…' },
   'seat.offline': { sq: 'Offline', en: 'Offline' },
-  'seat.partner': { sq: 'shoku', en: 'partner' },
+  'seat.partner': { sq: 'ortaku', en: 'partner' },
   'seat.ledLast': { sq: 'Hodhi i fundit', en: 'Led last' },
   'seat.team': { sq: 'Ek.{n}', en: 'Tm.{n}' },
 
