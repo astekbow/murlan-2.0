@@ -750,6 +750,10 @@ export class PrismaMatchActions implements MatchActionsRepository {
       at: ms(row.createdAt),
     }));
   }
+  async deleteOlderThan(cutoffMs: number): Promise<number> {
+    const res = await this.db.gameAction.deleteMany({ where: { createdAt: { lt: new Date(cutoffMs) } } });
+    return res.count;
+  }
 }
 
 function toTicket(row: any): SupportTicket {

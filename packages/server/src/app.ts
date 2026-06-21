@@ -705,6 +705,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         const now = Date.now();
         const purged = (await refreshTokensRepo.deleteExpired(now)) + (await verificationTokensRepo.deleteExpired(now));
         if (purged > 0) app.log.info({ purged }, 'purged expired tokens');
+        // Move-log retention (opt-in via MOVELOG_RETENTION_DAYS; 0 = keep forever):
+        // prune game_actions older than the window so the move-log can't grow unbounded.
+        if (config.movelogRetentionDays > 0) {
+          const cutoff = now - config.movelogRetentionDays * 24 * 60 * 60 * 1000;
+          const prunedLogs = await matchLogRepo.deleteOlderThan(cutoff);
+          if (prunedLogs > 0) app.log.info({ prunedLogs, retentionDays: config.movelogRetentionDays }, 'pruned old move-logs (retention)');
+        }
         // Safety net: ping the operator about Binance deposits that arrived but were
         // never claimed via the TxID flow (so a forgotten deposit isn't lost).
         if (depositWatcher) {

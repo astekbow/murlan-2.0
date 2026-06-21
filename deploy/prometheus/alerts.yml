@@ -1,0 +1,62 @@
+# Prometheus alerting rules for Crypto-Murlan.
+#
+# Wire into your Prometheus config:
+#   rule_files:
+#     - /etc/prometheus/alerts.yml
+# and point Alertmanager at your Telegram/email/PagerDuty receiver.
+#
+# The server already exposes these metrics at GET /metrics (see packages/server/
+# src/metrics.ts). The money-integrity alerts are the ones that page; the rest warn.
+
+groups:
+  - name: murlan-money-integrity
+    rules:
+      # A settled pot failed to pay out (escrow is stuck until the recovery sweep
+      # refunds it). ANY occurrence pages — real money is affected.
+      - alert: MurlanSettlementFailure
+        expr: increase(murlan_settlement_failures_total[5m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Settlement/payout failure ({{ $value }} in 5m)"
+          description: "A match pot could not be settled or refunded. The crash-recovery sweep should refund the stakes; verify the ledger reconciles and no player is left short. Runbook: deploy/OBSERVABILITY.md."
+
+      # The wallet ledger stopped balancing — the most serious money signal.
+      - alert: MurlanLedgerMismatch
+        expr: increase(murlan_reconcile_mismatches_total[10m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Ledger reconcile mismatch detected"
+          description: "wallet.reconcile() found a discrepancy between balances and the ledger. Freeze payouts and investigate immediately. Runbook: deploy/OBSERVABILITY.md."
+
+      # Orphaned matches are being auto-refunded — expected on a crash, but a steady
+      # stream means matches are dying mid-settlement.
+      - alert: MurlanOrphanRefundsElevated
+        expr: increase(murlan_orphaned_matches_refunded_total[15m]) > 3
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Orphaned-match refunds elevated ({{ $value }} in 15m)"
+          description: "Matches are being refunded by the recovery sweep more than usual — check for settlement errors or crashes."
+
+  - name: murlan-ops
+    rules:
+      # Pending withdrawals piling up (operator not approving, or auto-payout broken /
+      # Binance underfunded). 10 pending for 30m → warn.
+      - alert: MurlanPendingWithdrawalsBacklog
+        expr: murlan_pending_withdrawals > 10
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} withdrawals pending > 30m"
+          description: "Approve them in the admin panel, or check the auto-payout provider / Binance balance (payouts fail-safe to refund if underfunded)."
+
+      # The API is down / not scraping.
+      - alert: MurlanServerDown
+        expr: up{job="murlan"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Murlan API is not responding to scrapes"
+          description: "The server is unreachable for >2m. Check the container (docker compose ps / logs)."

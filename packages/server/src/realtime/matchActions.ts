@@ -45,6 +45,8 @@ export interface MatchActionsRepository {
   append(a: NewMatchAction): Promise<void>;
   /** Every action of a match, ascending by seq. */
   listByMatch(matchId: string): Promise<MatchActionRecord[]>;
+  /** Data retention: delete moves recorded before `cutoffMs`. Returns rows removed. */
+  deleteOlderThan(cutoffMs: number): Promise<number>;
 }
 
 const cloneCards = (cards: Card[] | null): Card[] | null => (cards ? cards.map((c) => ({ ...c })) : null);
@@ -65,5 +67,16 @@ export class InMemoryMatchActions implements MatchActionsRepository {
       .slice()
       .sort((x, y) => x.seq - y.seq)
       .map((r) => ({ ...r, cards: cloneCards(r.cards) }));
+  }
+
+  async deleteOlderThan(cutoffMs: number): Promise<number> {
+    let removed = 0;
+    for (const [matchId, rows] of this.byMatch) {
+      const kept = rows.filter((r) => r.at >= cutoffMs);
+      removed += rows.length - kept.length;
+      if (kept.length === 0) this.byMatch.delete(matchId);
+      else this.byMatch.set(matchId, kept);
+    }
+    return removed;
   }
 }

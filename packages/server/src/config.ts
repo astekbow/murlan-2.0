@@ -50,6 +50,9 @@ const schema = z.object({
   TRONGRID_API_KEY: z.string().optional(),            // free TronGrid key (on-chain deposit verification; higher rate limits)
   DEPOSIT_POLL_MS: z.coerce.number().int().min(0).max(600_000).default(30_000), // auto-credit poller cadence for active depositors; 0 = OFF (manual TxID only)
   ALLOW_STUB_PROVIDERS: z.string().optional(), // staging/demo escape: allow the mock payment + console email stubs in production (NEVER for real money)
+  // Data retention: prune match move-logs (game_actions) older than N days during the
+  // periodic sweep. 0 = keep forever (the safe default — replays/audit stay available).
+  MOVELOG_RETENTION_DAYS: z.coerce.number().int().min(0).default(0),
   // Compliance switches (spec §13) — OFF by default; flip on per jurisdiction.
   KYC_REQUIRED: z.string().optional(),
   MIN_AGE: z.coerce.number().int().min(0).default(0),
@@ -92,6 +95,7 @@ export interface AppConfig {
   rakeBps: number;
   tournamentDualControl: boolean; // require a 2nd distinct admin to confirm a champion payout
   depositPollMs: number; // auto-credit poller cadence for active depositors (0 = off)
+  movelogRetentionDays: number; // prune move-logs older than this many days (0 = keep forever)
   turnMs: number;
   countdownMs: number;
   handPauseMs: number; // inter-hand standings pause (ms); 0 = immediate next deal
@@ -199,6 +203,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rakeBps: parsed.RAKE_BPS,
     tournamentDualControl: isTrue(parsed.TOURNAMENT_DUAL_CONTROL),
     depositPollMs: parsed.DEPOSIT_POLL_MS,
+    movelogRetentionDays: parsed.MOVELOG_RETENTION_DAYS,
     turnMs: parsed.TURN_MS,
     countdownMs: parsed.COUNTDOWN_MS,
     handPauseMs: parsed.HAND_PAUSE_MS,

@@ -27,6 +27,20 @@ test('InMemoryMatchActions: lists in seq order regardless of append order; idemp
   assert.deepEqual(await repo.listByMatch('nope'), []);
 });
 
+test('InMemoryMatchActions: deleteOlderThan prunes by timestamp (data retention)', async () => {
+  const repo = new InMemoryMatchActions();
+  await repo.append({ matchId: 'old', seq: 0, gameIndex: 0, seat: 0, type: 'play', cards: [c('3', 'S')], at: 100 });
+  await repo.append({ matchId: 'mix', seq: 0, gameIndex: 0, seat: 0, type: 'play', cards: [c('4', 'S')], at: 100 }); // pruned
+  await repo.append({ matchId: 'mix', seq: 1, gameIndex: 0, seat: 1, type: 'pass', cards: null, at: 500 });          // kept
+  await repo.append({ matchId: 'new', seq: 0, gameIndex: 0, seat: 0, type: 'play', cards: [c('5', 'S')], at: 900 });
+
+  const removed = await repo.deleteOlderThan(300); // drop everything recorded before t=300
+  assert.equal(removed, 2);
+  assert.deepEqual(await repo.listByMatch('old'), []);          // fully pruned → match dropped
+  assert.deepEqual((await repo.listByMatch('mix')).map((a) => a.seq), [1]); // only the recent move remains
+  assert.equal((await repo.listByMatch('new')).length, 1);      // newer than the cutoff → untouched
+});
+
 async function buildApp() {
   const repo = new InMemoryUserRepository();
   const auth = new AuthService(repo, new TokenService({ accessSecret: 'a', refreshSecret: 'r' }));
