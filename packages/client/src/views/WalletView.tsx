@@ -50,6 +50,7 @@ export function WalletView() {
   // double-click can't double-submit.
   const [withdrawing, setWithdrawing] = useState(false);
   const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
+  const [exporting, setExporting] = useState(false); // GDPR data export in flight
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
   const [depAddr, setDepAddr] = useState<string | null>(null);
   const [txId, setTxId] = useState('');
@@ -144,6 +145,30 @@ export function WalletView() {
     }))) return;
     setExcluding(true);
     try { await selfExclude(days); } finally { setExcluding(false); }
+  };
+
+  // GDPR Art.15/20: download everything we hold about you as one JSON file.
+  const onExportData = async () => {
+    if (exporting) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setExporting(true);
+    try {
+      const data = await accountApi.exportData(token);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'murlan-data.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      useWalletStore.setState({ error: e instanceof ApiError ? e.message : tr('wallet.exportFailed') });
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -287,6 +312,15 @@ export function WalletView() {
         )}
 
         <RgLimitsControls />
+
+        {/* GDPR data export (Art.15/20): the player downloads all their data. */}
+        <div className="pt-2 mt-1 border-t border-white/10 space-y-2">
+          <div className="field-label">{t('wallet.yourData')}</div>
+          <button onClick={() => void onExportData()} disabled={exporting} className="btn btn-ghost btn-sm">
+            {exporting ? t('wallet.exporting') : t('wallet.exportData')}
+          </button>
+          <p className="text-[11px] text-muted/70">{t('wallet.exportHint')}</p>
+        </div>
       </section>
 
       {/* History */}

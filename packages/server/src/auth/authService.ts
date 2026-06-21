@@ -365,6 +365,30 @@ export class AuthService {
     };
   }
 
+  /** GDPR Art.15/20: the personal data we hold about a user, for self-service export.
+   *  Returns null if the user no longer exists. (Financial activity — transactions and
+   *  withdrawals — is assembled by the route from the money repos.) */
+  async exportPersonalData(userId: string): Promise<{
+    id: string;
+    username: string;
+    email: string;
+    emailVerified: boolean;
+    dateOfBirth: string | null;
+    country: string | null;
+    kycStatus: string;
+    selfExcludedUntil: number | null;
+    createdAt: number;
+    xp: number;
+  } | null> {
+    const u = await this.users.findById(userId);
+    if (!u) return null;
+    return {
+      id: u.id, username: u.username, email: u.email, emailVerified: u.emailVerified,
+      dateOfBirth: u.dateOfBirth, country: u.country, kycStatus: u.kycStatus,
+      selfExcludedUntil: u.selfExcludedUntil, createdAt: u.createdAt, xp: u.xp,
+    };
+  }
+
   /** All users for the admin panel (includes KYC + account state). */
   async listUsers(): Promise<Array<PublicUser & { kycStatus: string; accountState: string }>> {
     return (await this.users.list()).map((u) => ({ ...toPublicUser(u), kycStatus: u.kycStatus, accountState: u.accountState }));

@@ -13,12 +13,16 @@ import { requireAuth } from './authRoutes.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 import type { PushService } from '../push/pushService.ts';
+import type { WalletService } from '../money/walletService.ts';
+import type { WithdrawalRecord } from '../money/withdrawals.ts';
 
 export interface AccountRoutesDeps {
   auth: AuthService;
   audit?: AdminAuditRepository; // records self-service compliance (DOB/country) changes
   rg?: ResponsibleGamingService; // responsible-gaming daily limits (self-service)
   push?: PushService; // Web Push re-engagement subscriptions
+  wallet?: WalletService; // for the GDPR data export (the user's own transactions)
+  withdrawals?: { listByUser(userId: string): Promise<WithdrawalRecord[]> }; // GDPR export (own withdrawals)
 }
 
 const profileSchema = z.object({
@@ -46,6 +50,23 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     const profile = await deps.auth.getComplianceProfile(caller.userId);
     if (!profile) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
     return reply.send({ profile });
+  });
+
+  // GDPR Art.15/20: a player downloads ALL the data we hold about them (personal
+  // profile + their own financial activity + responsible-gaming settings) as one JSON
+  // file. Self-only (the auth guard scopes it to the caller) — never another user.
+  app.get('/api/account/export', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const account = await deps.auth.exportPersonalData(caller.userId);
+    if (!account) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    const [transactions, withdrawals, limits] = await Promise.all([
+      deps.wallet ? deps.wallet.listTransactions(caller.userId) : Promise.resolve([]),
+      deps.withdrawals ? deps.withdrawals.listByUser(caller.userId) : Promise.resolve([]),
+      deps.rg ? deps.rg.getLimits(caller.userId) : Promise.resolve(null),
+    ]);
+    reply.header('content-disposition', `attachment; filename="murlan-data-${caller.userId}.json"`);
+    return reply.send({ exportedAt: Date.now(), account, transactions, withdrawals, limits });
   });
 
   app.post('/api/account/profile', async (req, reply) => {

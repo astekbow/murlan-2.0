@@ -228,7 +228,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     authRateLimit: { max: 10, timeWindow: '5 minutes' },
     loginRateLimit: { max: 8, timeWindow: '5 minutes' },
   });
-  await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push });
+  await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push, wallet: deps.wallet, withdrawals: deps.withdrawals });
 
   if (deps.profiles && deps.friends) {
     await socialRoutes(app, { auth: deps.auth, profiles: deps.profiles, friends: deps.friends });

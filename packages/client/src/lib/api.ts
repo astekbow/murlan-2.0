@@ -314,6 +314,10 @@ export const accountApi = {
     request<{ ok: boolean }>('/account/push-subscription', { method: 'POST', token, body: sub }),
   unsubscribePush: (token: string, endpoint: string) =>
     request<{ ok: boolean }>('/account/push-subscription', { method: 'DELETE', token, body: { endpoint } }),
+  /** GDPR Art.15/20: the full bundle of the caller's own data (profile + transactions
+   *  + withdrawals + RG settings), for a self-service download. */
+  exportData: (token: string) =>
+    request<Record<string, unknown>>('/account/export', { token }),
 };
 
 // ---------- Clubs (social) --------------------------------------------------
