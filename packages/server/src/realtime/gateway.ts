@@ -41,6 +41,7 @@ import type { RankedService } from '../ranked/rankedService.ts';
 import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
 import type { PushService } from '../push/pushService.ts';
 import type { ChatService } from '../chat/chatService.ts';
+import type { TournamentService } from '../tournament/tournamentService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
 import { settlementFailures, socketConnections, settlementDuration } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
@@ -69,6 +70,7 @@ export interface GatewayOptions {
   matchmaking?: MatchmakingService;  // ranked skill-matched queue (requires `ranked` to rate the result)
   push?: PushService; // Web Push re-engagement nudges (isolated; never affects play)
   chat?: ChatService; // club chat (membership-gated, rate-limited, mute-aware)
+  tournaments?: TournamentService; // runs tournament-bracket pairings as live matches (self-running)
   botDelayMs?: number; // practice-bot "thinking" delay (ms); injectable for deterministic tests
   ghostFillMs?: number; // free-lobby auto-fill delay (ms); injectable for deterministic tests
   isDraining?: () => boolean; // graceful shutdown: reject NEW matches/queue joins while true
@@ -121,6 +123,15 @@ export class GameGateway {
   private readonly matchLog: MatchActionsRepository | null;
   private readonly push: PushService | null;
   private readonly chat: ChatService | null;
+  private readonly tournaments: TournamentService | null;
+  // Tournament pairing → its live room id, so we never spin up two rooms for the
+  // same bracket match (and can clean up on result). Key: `${tid}:${round}:${index}`.
+  private tournamentMatchRooms = new Map<string, string>();
+  // Per tournament-room no-show timers: if a paired player never joins, the match
+  // is walked over to whoever did, so the bracket can't stall. roomId → timer.
+  private tournamentNoShowTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // How long to wait for both paired players to join before a walkover (ms).
+  private readonly tournamentJoinMs = 45_000;
   private readonly botDelayMs: number | null;
   private readonly isDraining: () => boolean;
   private readonly ownership: RoomOwnership | null;
@@ -188,6 +199,7 @@ export class GameGateway {
     this.matchLog = opts.matchLog ?? null;
     this.push = opts.push ?? null;
     this.chat = opts.chat ?? null;
+    this.tournaments = opts.tournaments ?? null;
     this.botDelayMs = opts.botDelayMs ?? null;
     this.ghostFillMs = opts.ghostFillMs ?? GHOST_FILL_MS;
     this.isDraining = opts.isDraining ?? (() => false);
@@ -451,6 +463,9 @@ export class GameGateway {
       socket.data.roomId = payload.roomId;
       socket.data.seat = this.rooms.seatOf(payload.roomId, socket.data.userId);
       void socket.join(payload.roomId);
+      // A tournament pairing room auto-readies on join (no manual ready-check) so the
+      // match starts the moment BOTH paired players have joined.
+      if (this.rooms.tournamentMetaOf(payload.roomId)) this.rooms.setReady(socket.data.userId, true);
       reply({ ok: true, roomId: payload.roomId });
       this.broadcastRoomState(payload.roomId);
       this.broadcastLobby();
@@ -965,6 +980,9 @@ export class GameGateway {
     }
     if (this.timers.hasCountdown(roomId)) return; // already counting down
     this.clearGhostFill(roomId); // the room is starting → cancel any pending free-lobby auto-fill
+    // A tournament pairing is starting (both joined) → cancel its no-show walkover.
+    const noShow = this.tournamentNoShowTimers.get(roomId);
+    if (noShow) { clearTimeout(noShow); this.tournamentNoShowTimers.delete(roomId); }
 
     // Provably-fair COMMIT happens here — BEFORE clientSeeds are collected for
     // this match. We generate+commit the serverSeed, discard any pre-commit
@@ -1612,8 +1630,16 @@ export class GameGateway {
         return;
       }
     }
+    // Capture the tournament pairing (if any) + its winner userId BEFORE clearGoneSeats
+    // nulls a forfeited seat — so we can advance the bracket below.
+    const tourn = this.rooms.tournamentMetaOf(roomId);
+    const tournWinner = tourn
+      ? (winnerSeats.length > 0 ? this.userAtSeat(roomId, winnerSeats[0]!) || tourn.players[0] : tourn.players[0])
+      : null;
+
     this.recordMatchStats(roomId, winnerSeats); // cosmetic XP/stats (isolated)
-    const ratingDeltas = await this.recordRankedResult(roomId, winnerSeats); // MMR/season ladder (isolated, fail-safe)
+    // Tournament matches never touch the ranked MMR ladder (they're their own bracket).
+    const ratingDeltas = tourn ? [] : await this.recordRankedResult(roomId, winnerSeats);
     this.recordAntiCheat(roomId, winnerSeats); // heuristic flags for review (isolated)
     this.clearRoomStrikes(roomId);
     const sb = this.rooms.scoreboardDTO(roomId);
@@ -1624,6 +1650,12 @@ export class GameGateway {
     });
     this.revealFair(roomId);
     this.rooms.clearGoneSeats(roomId); // free any abandoned seats so a rematch starts clean
+
+    // Self-running tournament: this pairing is decided → advance the bracket (build the
+    // next round's rooms, or finish + pay the champion). Isolated from settlement above.
+    if (tourn && tournWinner) {
+      void this.advanceTournament(tourn.tournamentId, tourn.round, tourn.index, tournWinner);
+    }
   }
 
   /** Publish the serverSeed so players can verify every deal, then drop it. */
@@ -1703,6 +1735,83 @@ export class GameGateway {
     // gone seats). applyResult handles both, including the once-per-match finalize.
     this.applyResult(roomId, res);
     this.broadcastLobby();
+  }
+
+  // ---------- Tournaments: self-running bracket -------------------------------
+
+  /** A tournament reached 'running' (just filled) or advanced a round — spin up a
+   *  live room for every ready, unplayed pairing. Both players are pulled into their
+   *  match (the client auto-joins on 'tournament:matchReady'); an offline/busy player
+   *  forfeits by walkover so the bracket never stalls and the pool is never stranded. */
+  async runTournamentMatches(tournamentId: string): Promise<void> {
+    if (!this.tournaments) return;
+    const t = await this.tournaments.get(tournamentId).catch(() => null);
+    if (!t || t.status !== 'running') return;
+    for (const m of t.bracket) {
+      if (m.winnerId || !m.aUserId || !m.bUserId) continue; // decided, or not yet ready
+      const key = `${tournamentId}:${m.round}:${m.index}`;
+      if (this.tournamentMatchRooms.has(key)) continue; // already running
+      await this.startTournamentMatch(tournamentId, m.round, m.index, m.aUserId, m.bUserId);
+    }
+  }
+
+  /** Either pull both online players into a fresh room, or walk the match over when a
+   *  player can't play (offline, or already busy in another room). */
+  private async startTournamentMatch(tournamentId: string, round: number, index: number, a: string, b: string): Promise<void> {
+    const canPlay = (uid: string) => this.socketCountFor(uid) > 0 && !this.rooms.roomIdOf(uid);
+    const aReady = canPlay(a);
+    const bReady = canPlay(b);
+    if (!aReady && !bReady) return void this.advanceTournament(tournamentId, round, index, a); // both out → seed a
+    if (!aReady) return void this.advanceTournament(tournamentId, round, index, b);
+    if (!bReady) return void this.advanceTournament(tournamentId, round, index, a);
+
+    const roomId = this.rooms.createTournamentRoom('1v1', [a, b], { tournamentId, round, index });
+    this.tournamentMatchRooms.set(`${tournamentId}:${round}:${index}`, roomId);
+    this.ownership?.claim(roomId);
+    for (const uid of [a, b]) this.io.to(personalRoom(uid)).emit('tournament:matchReady', { roomId, tournamentId });
+    const timer = setTimeout(() => void this.onTournamentNoShow(roomId, tournamentId, round, index, a, b), this.tournamentJoinMs);
+    timer.unref?.();
+    this.tournamentNoShowTimers.set(roomId, timer);
+  }
+
+  /** A paired player never joined in time → walk the match over to whoever did (seed a
+   *  if neither), discard the un-started room. */
+  private async onTournamentNoShow(roomId: string, tournamentId: string, round: number, index: number, a: string, b: string): Promise<void> {
+    this.tournamentNoShowTimers.delete(roomId);
+    const room = this.rooms.getRoom(roomId);
+    if (!room || room.status !== 'waiting') return; // already started → the match decides it
+    const winner = this.rooms.seatOf(roomId, a) >= 0 ? a : this.rooms.seatOf(roomId, b) >= 0 ? b : a;
+    this.discardTournamentRoom(roomId);
+    await this.advanceTournament(tournamentId, round, index, winner);
+  }
+
+  /** Tear down an un-started tournament room: detach + free any player who had joined. */
+  private discardTournamentRoom(roomId: string): void {
+    const room = this.rooms.getRoom(roomId);
+    if (!room) return;
+    for (const s of room.seats) {
+      if (!s.userId) continue;
+      const uid = s.userId;
+      void this.io.in(personalRoom(uid)).socketsLeave(roomId);
+      this.io.to(personalRoom(uid)).emit('error', { code: 'tournament_walkover', message: 'Ndeshja e turneut u vendos — kalon në raundin tjetër.' });
+      this.rooms.leaveRoom(uid); // frees the seat + membership (closes the room if it empties)
+    }
+    this.rooms.deleteRoom(roomId); // ensure a never-joined room doesn't linger
+  }
+
+  /** Record a pairing's winner (self-running — no admin), then create the next round's
+   *  rooms (or finish + pay the champion via reportResult/finish). Isolated + logged. */
+  private async advanceTournament(tournamentId: string, round: number, index: number, winnerUserId: string): Promise<void> {
+    if (!this.tournaments) return;
+    this.tournamentMatchRooms.delete(`${tournamentId}:${round}:${index}`);
+    try {
+      await this.tournaments.reportResult(tournamentId, round, index, winnerUserId);
+    } catch (err) {
+      // already-decided (a race with a no-show walkover) is benign; log the rest.
+      console.error(`[tournament] reportResult failed for ${tournamentId} r${round}#${index}:`, err);
+      return;
+    }
+    await this.runTournamentMatches(tournamentId);
   }
 
   /**

@@ -24,6 +24,9 @@ export interface TournamentRoutesDeps {
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService;
   audit?: AdminAuditRepository; // append-only trail for admin create/report/cancel
+  // Fired when a tournament fills + starts running, so the gateway can spin up the
+  // bracket's live matches (self-running — no admin reporting). No-op if unwired.
+  onTournamentRunning?: (tournamentId: string) => void;
 }
 
 const createSchema = z.object({
@@ -68,28 +71,36 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
       if (!gate.allowed) return reply.code(403).send({ error: { code: gate.code ?? 'blocked', message: gate.message ?? 'Bllokuar.' } });
     }
     try {
-      return reply.send({ tournament: await tournaments.register(id, caller.userId) });
+      const t2 = await tournaments.register(id, caller.userId);
+      // Just filled → the bracket is seeded + 'running'. Kick off the live matches.
+      if (t2.status === 'running') deps.onTournamentRunning?.(t2.id);
+      return reply.send({ tournament: t2 });
     } catch (e) {
       return fail(reply, e);
     }
   });
 
-  // ----- Admin: create / report a pairing winner / cancel(+refund) -----------
-  // Every admin action is recorded to the append-only audit trail (WHO did WHAT),
-  // since reporting a winner moves a real prize pool (audit 2026-06-08, finding H4).
+  // ----- Create (ANY player) -------------------------------------------------
+  // Tournaments are self-running (the gateway plays the bracket + advances it), so any
+  // authenticated player may open one — the house still takes its rake at the final.
+  // The creator is recorded to the audit trail (a real-money pool is about to form).
   app.post('/api/tournaments', async (req, reply) => {
-    const adminCaller = await admin(req, reply);
-    if (!adminCaller) return;
+    const caller = await guard(req, reply);
+    if (!caller) return;
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna turneu të pavlefshme.' } });
     try {
       const t = await tournaments.create(parsed.data.name, parsed.data.buyInCents, parsed.data.capacity);
-      await deps.audit?.record({ adminId: adminCaller.userId, action: 'tournament_create', detail: `${t.id} "${t.name}" buyIn=${t.buyInCents} cap=${t.capacity}` }).catch(() => undefined);
+      await deps.audit?.record({ adminId: caller.userId, action: 'tournament_create', detail: `${t.id} "${t.name}" buyIn=${t.buyInCents} cap=${t.capacity} (creator)` }).catch(() => undefined);
       return reply.code(201).send({ tournament: t });
     } catch (e) {
       return fail(reply, e);
     }
   });
+
+  // ----- Admin: report a pairing winner / cancel(+refund) --------------------
+  // Reporting is now done automatically by the gateway as matches finish, but the
+  // admin report route stays as a manual override (e.g. to resolve a stuck pairing).
 
   app.post('/api/tournaments/:id/report', async (req, reply) => {
     const adminCaller = await admin(req, reply);

@@ -56,22 +56,22 @@ export function TournamentsView() {
         <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('tourn.title')}</h1>
       </section>
 
-      {isAdmin && (
-        <section className="panel p-5 animate-rise space-y-3">
-          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('tourn.adminCreate')}</h2>
-          <div className="flex flex-wrap gap-3 items-end">
-            <label className="flex-1 min-w-[140px]"><span className="field-label">{t('tourn.name')}</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className="field" /></label>
-            <label><span className="field-label">{t('tourn.buyIn')} ($)</span>
-              <input type="number" min="0" step="1" value={buyIn} onChange={(e) => setBuyIn(e.target.value)} className="field w-24" /></label>
-            <label><span className="field-label">{t('tourn.players')}</span>
-              <select value={cap} onChange={(e) => setCap(Number(e.target.value) as 2 | 4 | 8)} className="field w-20">
-                <option value={2}>2</option><option value={4}>4</option><option value={8}>8</option>
-              </select></label>
-            <button disabled={busy} onClick={() => void act(() => tournamentsApi.create(tk()!, name.trim() || 'Turne', Math.round((parseFloat(buyIn) || 0) * 100), cap))} className="btn btn-gold">{t('tourn.create')}</button>
-          </div>
-        </section>
-      )}
+      {/* ANY player can open a tournament — it runs itself (the bracket plays in the
+          live game) and the house takes its rake at the final. */}
+      <section className="panel p-5 animate-rise space-y-3">
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('tourn.create')}</h2>
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="flex-1 min-w-[140px]"><span className="field-label">{t('tourn.name')}</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className="field" /></label>
+          <label><span className="field-label">{t('tourn.buyIn')} ($)</span>
+            <input type="number" min="0" step="1" value={buyIn} onChange={(e) => setBuyIn(e.target.value)} className="field w-24" /></label>
+          <label><span className="field-label">{t('tourn.players')}</span>
+            <select value={cap} onChange={(e) => setCap(Number(e.target.value) as 2 | 4 | 8)} className="field w-20">
+              <option value={2}>2</option><option value={4}>4</option><option value={8}>8</option>
+            </select></label>
+          <button disabled={busy} onClick={() => void act(() => tournamentsApi.create(tk()!, name.trim() || 'Turne', Math.round((parseFloat(buyIn) || 0) * 100), cap))} className="btn btn-gold">{t('tourn.create')}</button>
+        </div>
+      </section>
 
       {list.length === 0 ? (
         <section className="panel p-8 text-center"><div className="text-4xl mb-2 opacity-60">🏆</div><p className="text-sm text-muted">{t('tourn.none')}</p></section>

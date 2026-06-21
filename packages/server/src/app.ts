@@ -109,6 +109,7 @@ export interface HttpDeps {
   depositWatch?: DepositWatchRegistry; // marks active depositors so the auto-credit poller knows whom to watch
   tronDepositAddress?: string | null;
   kickUser?: (userId: string) => void; // force-disconnect a user's live sockets (ban/suspend)
+  tournamentRunner?: (tournamentId: string) => void; // start a filled tournament's live matches
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
   profiles?: ProfileService;
@@ -249,7 +250,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
   }
   if (deps.tournaments) {
-    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit });
+    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit, onTournamentRunning: deps.tournamentRunner });
   }
   if (deps.antiCheat) {
     // Admin-only review list of anti-collusion/anti-bot heuristic flags (never auto-action).
@@ -599,7 +600,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const kickHolder: { fn?: (userId: string) => void } = {};
   const kickUser = (userId: string) => kickHolder.fn?.(userId);
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  // Late-bind "run a tournament's live matches" to the gateway: when a tournament
+  // fills, the register route calls this to start the self-running bracket.
+  const tournamentRunHolder: { fn?: (id: string) => void } = {};
+  const tournamentRunner = (id: string) => tournamentRunHolder.fn?.(id);
+
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -650,6 +656,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     matchLog: matchLogRepo,
     push,
     chat,
+    tournaments,
     isDraining,
     // Room-ownership registry. In-memory = single-instance no-op; swap for a
     // Redis-backed impl (DEPLOYMENT.md §7) to make horizontal scaling safe.
@@ -658,6 +665,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Now the gateway exists, point the admin match-void + kick-user routes at it.
   voidHolder.fn = (roomId, meta) => gateway.adminVoidMatch(roomId, meta);
   kickHolder.fn = (userId) => gateway.disconnectUser(userId);
+  tournamentRunHolder.fn = (id) => void gateway.runTournamentMatches(id);
 
   // Crash recovery: refund any match a previous (crashed) process left 'active'
   // with stakes still escrowed. At boot no room is live yet, so every active row

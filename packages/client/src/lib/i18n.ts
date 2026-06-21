@@ -919,6 +919,7 @@ const STRINGS: Record<string, Entry> = {
   'msg.playerLeftContinues': { sq: '{name} u largua — loja vazhdon.', en: '{name} left — the game continues.' },
   'msg.youLeftMatch': { sq: 'U largove nga ndeshja — humbe bastin.', en: 'You left the match — you forfeited your stake.' },
   'msg.invitedToGame': { sq: '{name} të ftoi në një lojë!', en: '{name} invited you to a game!' },
+  'msg.tournamentMatchReady': { sq: '🏆 Ndeshja jote e turneut filloi!', en: '🏆 Your tournament match is starting!' },
   'msg.friendRequestFrom': { sq: '{name} të dërgoi kërkesë miqësie.', en: '{name} sent you a friend request.' },
   'msg.inviteSent': { sq: 'Ftesa u dërgua.', en: 'The invite was sent.' },
   'msg.depositAddressCreated': { sq: 'Adresa e pagesës u krijua. Pagesa kreditohet automatikisht pas konfirmimit.', en: 'Payment address created. The payment is credited automatically after confirmation.' },

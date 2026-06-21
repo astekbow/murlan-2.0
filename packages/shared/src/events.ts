@@ -128,6 +128,10 @@ export interface ServerToClientEvents {
   'emote': (dto: { seat: Seat; emote: string }) => void;
   'chat': (dto: { seat: Seat; username: string; text: string }) => void;
   'invited': (dto: { roomId: string; fromUsername: string; type: MatchType; stakeCents: number }) => void;
+  // A tournament pairing is ready: the client auto-joins `roomId` to play it. The
+  // bracket runs in the live gateway (no admin reporting) — the match result advances
+  // it automatically, and a disconnect forfeits to the opponent.
+  'tournament:matchReady': (dto: { roomId: string; tournamentId: string }) => void;
   'friend:request': (dto: { fromUsername: string }) => void; // someone sent you a friend request
   'social:refresh': () => void; // your friends list changed (answered/unfriended) — reload it
   'club:chat': (dto: ChatMessageDTO) => void; // a new message in your club channel

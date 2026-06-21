@@ -70,6 +70,17 @@ interface Room {
   practice: boolean; // vs-bot practice room; zero-stake, hidden from lobby + spectators
   private: boolean; // invite/code-only; hidden from the public lobby
   joinCode: string | null; // share code for a private room (null otherwise)
+  // When set, this room is one pairing of a running tournament bracket: zero-stake
+  // (the buy-ins are escrowed in the tournament pool), join-restricted to the two
+  // paired players, and its result advances the bracket (see the gateway runner).
+  tournament: TournamentRoomMeta | null;
+}
+
+export interface TournamentRoomMeta {
+  tournamentId: string;
+  round: number;
+  index: number;
+  players: [string, string]; // the only two userIds allowed to join this room
 }
 
 const err = (code: string, message: string): ManagerResult => ({ ok: false, error: { code, message } });
@@ -169,6 +180,7 @@ export class RoomManager {
       practice: !!payload.practice,
       private: isPrivate,
       joinCode: isPrivate ? genJoinCode() : null,
+      tournament: null,
     };
     this.rooms.set(room.id, room);
     if (!this.seat(room, user, payload.team)) {
@@ -176,6 +188,38 @@ export class RoomManager {
       return err('seat_failed', 'Nuk u ul dot në dhomë.');
     }
     return { ok: true, roomId: room.id, joinCode: room.joinCode ?? undefined };
+  }
+
+  /** Create an EMPTY 2-seat zero-stake room for ONE tournament pairing. The two paired
+   *  players join it via the normal join flow (gateway-gated to them); the match result
+   *  advances the bracket. Buy-ins are escrowed in the tournament pool, so the room
+   *  itself never escrows. Returns the new room id. */
+  createTournamentRoom(type: MatchType, players: [string, string], meta: { tournamentId: string; round: number; index: number }): string {
+    const n = PLAYERS_PER_TYPE[type];
+    const room: Room = {
+      id: this.newId(),
+      type,
+      stakeCents: 0,
+      status: 'waiting',
+      seats: Array.from({ length: n }, () => emptySeat()),
+      target: this.startTarget,
+      match: null,
+      matchId: null,
+      matchSeq: 0,
+      createdAt: Date.now(),
+      ranked: false,
+      practice: false,
+      private: true, // never in the public lobby
+      joinCode: null,
+      tournament: { tournamentId: meta.tournamentId, round: meta.round, index: meta.index, players: [...players] as [string, string] },
+    };
+    this.rooms.set(room.id, room);
+    return room.id;
+  }
+
+  /** The tournament pairing this room is running, or null for a normal room. */
+  tournamentMetaOf(roomId: string): TournamentRoomMeta | null {
+    return this.rooms.get(roomId)?.tournament ?? null;
   }
 
   /** Resolve a private-room share code → its room id (case-insensitive). */
@@ -190,6 +234,8 @@ export class RoomManager {
     if (this.userRoom.has(user.userId)) return err('already_in_room', 'Je tashmë në një dhomë.');
     const room = this.rooms.get(roomId);
     if (!room) return err('no_room', 'Dhoma nuk ekziston.');
+    // A tournament pairing room only admits its two paired players (no walk-ins).
+    if (room.tournament && !room.tournament.players.includes(user.userId)) return err('not_your_match', 'Kjo ndeshje turneu nuk është e jotja.');
     if (room.status !== 'waiting') return err('room_unavailable', 'Dhoma nuk pranon lojtarë të rinj.');
     if (!this.seat(room, user, team)) return err('room_full', 'Dhoma është plot ose ekipi është plot.');
     return okResult;
@@ -403,6 +449,15 @@ export class RoomManager {
       if (room.matchId && room.status === 'inMatch') ids.add(room.matchId);
     }
     return ids;
+  }
+
+  /** Force-remove a room (e.g. a never-started tournament pairing walked over). Frees
+   *  any lingering userRoom mapping defensively so its players aren't trapped. */
+  deleteRoom(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    for (const s of room.seats) if (s.userId) this.userRoom.delete(s.userId);
+    this.rooms.delete(roomId);
   }
 
   /** Force a room to the finished state (e.g. on forfeit). */

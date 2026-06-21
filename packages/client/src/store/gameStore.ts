@@ -406,6 +406,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       useNotifications.getState().push(`📨 ${tg('msg.invitedToGame', { name: dto.fromUsername })}`, 'invite');
       set({ invite: dto, toast: tg('msg.invitedToGame', { name: dto.fromUsername }), toastKind: 'info' });
     });
+    socket.on('tournament:matchReady', (dto) => {
+      // The bracket paired us — auto-join our tournament match (the gateway gated the
+      // room to us; the match plays + advances the bracket automatically).
+      set({ toast: tg('msg.tournamentMatchReady'), toastKind: 'info' });
+      void get().joinRoom(dto.roomId);
+    });
     socket.on('friend:request', (dto) => {
       useNotifications.getState().push(`👥 ${tg('msg.friendRequestFrom', { name: dto.fromUsername })}`, 'invite');
       set((s) => ({ socialRev: s.socialRev + 1 })); // refresh an open Friends page instantly
