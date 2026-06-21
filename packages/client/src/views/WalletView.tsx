@@ -49,6 +49,7 @@ export function WalletView() {
   // In-flight guards: disable money buttons while a request is pending so a
   // double-click can't double-submit.
   const [withdrawing, setWithdrawing] = useState(false);
+  const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
   const [depAddr, setDepAddr] = useState<string | null>(null);
   const [txId, setTxId] = useState('');
@@ -132,6 +133,7 @@ export function WalletView() {
   };
 
   const onSelfExclude = async () => {
+    if (excluding) return;
     const days = Number(exclDays) || 0;
     if (days <= 0) return;
     if (!(await confirm({
@@ -140,7 +142,8 @@ export function WalletView() {
       danger: true,
       confirmLabel: t('wallet.selfExclude'),
     }))) return;
-    void selfExclude(days);
+    setExcluding(true);
+    try { await selfExclude(days); } finally { setExcluding(false); }
   };
 
   return (
@@ -275,8 +278,8 @@ export function WalletView() {
             <input type="number" min="1" value={exclDays} onChange={(e) => setExclDays(e.target.value)}
               className="field w-28" />
           </label>
-          <button onClick={() => void onSelfExclude()} className="btn btn-danger w-full sm:w-auto">
-            {t('wallet.selfExclude')}
+          <button onClick={() => void onSelfExclude()} disabled={excluding} className="btn btn-danger w-full sm:w-auto">
+            {excluding ? t('wallet.sending') : t('wallet.selfExclude')}
           </button>
         </div>
         {profile?.selfExcludedUntil && profile.selfExcludedUntil > Date.now() && (

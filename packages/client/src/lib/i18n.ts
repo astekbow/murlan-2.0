@@ -380,6 +380,7 @@ const STRINGS: Record<string, Entry> = {
   'friends.decline': { sq: 'Refuzo', en: 'Decline' },
   'friends.block': { sq: 'Blloko', en: 'Block' },
   'friends.confirmBlockM': { sq: 'Blloko këtë lojtar? Nuk do të mund t\'ju ftojë apo shkruajë.', en: 'Block this player? They won\'t be able to invite or message you.' },
+  'friends.confirmRemoveM': { sq: 'Ta heqësh këtë mik nga lista?', en: 'Remove this friend from your list?' },
   'friends.pending': { sq: 'NË PRITJE', en: 'PENDING' },
   'friends.sent': { sq: 'Dërguar', en: 'Sent' },
   'friends.friendsSection': { sq: 'MIQTË', en: 'FRIENDS' },

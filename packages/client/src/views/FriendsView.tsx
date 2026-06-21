@@ -93,8 +93,10 @@ export function FriendsView() {
   const respond = (id: string, accept: boolean) =>
     act(() => friendsApi.respond(useAuthStore.getState().accessToken!, id, accept).then(() => undefined), 'friends.errAction');
 
-  const remove = (id: string) =>
-    act(() => friendsApi.remove(useAuthStore.getState().accessToken!, id).then(() => undefined), 'friends.errRemove');
+  const remove = async (id: string) => {
+    if (!(await confirm({ title: t('common.remove'), message: t('friends.confirmRemoveM'), danger: true, confirmLabel: t('common.remove') }))) return;
+    await act(() => friendsApi.remove(useAuthStore.getState().accessToken!, id).then(() => undefined), 'friends.errRemove');
+  };
 
   const block = async (userId: string) => {
     if (!(await confirm({ title: t('friends.block'), message: t('friends.confirmBlockM'), danger: true, confirmLabel: t('friends.block') }))) return;
