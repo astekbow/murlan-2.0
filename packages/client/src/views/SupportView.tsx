@@ -88,8 +88,8 @@ export function SupportView() {
             <input value={matchId} onChange={(e) => setMatchId(e.target.value)} maxLength={128} placeholder={t('support.matchIdPlaceholder')} className="field font-mono" />
           </label>
         )}
-        {error && <p className="text-xs text-red-300">{error}</p>}
-        {notice && <p className="text-xs text-emerald-300">{notice}</p>}
+        {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
+        {notice && <p role="status" className="text-xs text-emerald-300">{notice}</p>}
         <button onClick={() => void submit()} disabled={busy || subject.trim().length < 3 || message.trim().length < 5} className="btn btn-gold">
           {busy ? t('support.sending') : t('support.submit')}
         </button>

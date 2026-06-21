@@ -107,12 +107,14 @@ export function LeaderboardView() {
       <div className="flex gap-2">
         <button
           onClick={() => setTab('global')}
+          aria-current={tab === 'global' ? 'page' : undefined}
           className={`btn flex-1 ${tab === 'global' ? 'btn-gold' : 'btn-ghost'}`}
         >
           🏆 {t('lb.globalTab')}
         </button>
         <button
           onClick={() => setTab('ranked')}
+          aria-current={tab === 'ranked' ? 'page' : undefined}
           className={`btn flex-1 ${tab === 'ranked' ? 'btn-gold' : 'btn-ghost'}`}
         >
           👑 {t('lb.rankedTab')}

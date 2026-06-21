@@ -155,7 +155,7 @@ export function WalletView() {
 
       {/* Balance hero */}
       <section className="panel-solid p-6 animate-rise text-center relative overflow-hidden">
-        <div className="font-serif text-xs tracking-[0.4em] text-muted mb-2">{t('wallet.balance')}</div>
+        <h1 className="font-serif text-xs tracking-[0.4em] text-muted mb-2">{t('wallet.balance')}</h1>
         <div className="flex items-center justify-center gap-3">
           <span
             className="coin-anim shrink-0 rounded-full"
@@ -184,7 +184,7 @@ export function WalletView() {
               ? 'text-red-300 bg-suit/15 border-suit/40'
               : 'text-emerald-200 bg-emerald-700/15 border-emerald-500/40'
           }`}
-          role="status"
+          role={error ? 'alert' : 'status'}
           onClick={clearMessages}
         >
           {error || notice}
