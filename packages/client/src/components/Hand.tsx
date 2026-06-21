@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Card } from '@murlan/engine';
 import { singlePower } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
@@ -24,7 +24,10 @@ const sortIds = (cards: Card[]): string[] =>
  * available space so EVERY card is visible (it never overflows off-screen).
  * Display/order only — moves are sent to the server by card id.
  */
-export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
+// Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips
+// re-rendering on unrelated table updates (an opponent's move, a timer tick) — it
+// only re-renders when the cards/selection/eligibility actually change.
+export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
   const byId = new Map(cards.map((c) => [cardKey(c), c] as const));
   const selectedSet = new Set(selected);
 
@@ -155,4 +158,4 @@ export function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
       </div>
     </div>
   );
-}
+});

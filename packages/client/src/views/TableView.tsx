@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { RoomStateDTO } from '@murlan/shared';
 import type { Card } from '@murlan/engine';
@@ -180,7 +180,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // accidental tap never sends a card. Cleared once the switch is over.
   const [switchPick, setSwitchPick] = useState<Card | null>(null);
   useEffect(() => { if (!switching) setSwitchPick(null); }, [switching]);
-  const onCardTap = (id: string) => {
+  // useCallback'd so the memoized <Hand> only re-renders when the hand/selection/switch
+  // state actually changes — not on every unrelated table update.
+  const onCardTap = useCallback((id: string) => {
     if (switching) {
       const card = myHand.find((c) => cardKey(c) === id);
       if (card && isReturnEligible(card)) { sound.play('select'); setSwitchPick(card); } // pick → confirm (no instant send)
@@ -189,7 +191,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     }
     sound.play('select');
     toggleCardSel(id);
-  };
+  }, [switching, myHand, t, toggleCardSel]);
   const confirmSwitch = () => { if (switchPick) { sound.play('card'); void giveSwitch(switchPick); setSwitchPick(null); } };
 
   const opponents = room.seats.filter((s) => s.seat !== mySeat);
