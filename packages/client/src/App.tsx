@@ -18,6 +18,7 @@ import { OnboardingModal } from './components/ui/OnboardingModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
+import { takePendingJoinCode } from './lib/deepLink.ts';
 import { useExitGuard } from './lib/useExitGuard.ts';
 import { ConfirmDialog } from './components/ui/ConfirmDialog.tsx';
 import { dollars } from './lib/money.ts';
@@ -89,7 +90,19 @@ export function App() {
   const replayMatchId = useUiStore((s) => s.replayMatchId);
   const onboarded = useOnboardingStore((s) => s.done);
   const t = useT();
+  const connected = useGameStore((s) => s.connected);
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
+
+  // Shareable room invite (/join/<CODE>): once the player is authenticated AND the
+  // socket is connected and they're not already in a room, consume the captured code
+  // and join. Fires at most once (takePendingJoinCode nulls it); joinByCode surfaces
+  // a toast if the room is full/gone.
+  useEffect(() => {
+    if (status !== 'authed' || !connected) return;
+    if (useGameStore.getState().room) return;
+    const code = takePendingJoinCode();
+    if (code) void useGameStore.getState().joinByCode(code);
+  }, [status, connected]);
 
   // Android/browser BACK guard: while at a table, back must not exit the PWA or abandon a
   // staked match. Absorb it and prompt to leave instead (the explicit Leave button remains

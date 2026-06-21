@@ -5,6 +5,7 @@ import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
+import { roomInviteLink } from '../lib/deepLink.ts';
 import { sound } from '../lib/sound.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
@@ -87,7 +88,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
         </div>
       </section>
 
-      {/* Private room: the shareable join code (tap to copy). */}
+      {/* Private room: the shareable join code (tap to copy) + a one-tap invite LINK. */}
       {room.private && room.joinCode && (
         <section className="panel p-4 text-center animate-rise" style={{ animationDelay: '.04s' }}>
           <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-1">{t('room.shareCode')}</div>
@@ -97,6 +98,14 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           >
             {room.joinCode}
           </button>
+          <div className="mt-2">
+            <button
+              onClick={() => { void navigator.clipboard?.writeText(roomInviteLink(room.joinCode!)).catch(() => {}); useGameStore.setState({ toast: tr('room.linkCopied'), toastKind: 'success' }); }}
+              className="btn btn-ghost btn-sm"
+            >
+              {t('room.copyInviteLink')}
+            </button>
+          </div>
           <p className="text-[11px] text-muted/70 mt-1">{t('room.shareCodeHint')}</p>
         </section>
       )}
