@@ -71,6 +71,14 @@ services:
       # Ops alerts (Telegram) — set BOTH to ping the owner on a withdrawal request.
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # ALSO set this → the INTERACTIVE admin bot turns on: withdrawal alerts gain
+      # Approve/Reject buttons + /stats /user /credit … commands. The inbound webhook
+      # (/api/telegram/webhook) verifies this secret (fail-closed). Leave empty = alerts
+      # only. Requires CLIENT_ORIGIN to be your real https domain (webhook self-registers).
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      # Data retention: prune match move-logs older than N days during the sweep
+      # (0 = keep forever — replays/audit stay available).
+      MOVELOG_RETENTION_DAYS: ${MOVELOG_RETENTION_DAYS:-0}
       # Semi-auto / automatic crypto payout. AUTO_WITHDRAW_MAX_CENTS>0 + a payout
       # provider's creds = auto-pay small KYC-verified withdrawals (rest manual).
       AUTO_WITHDRAW_MAX_CENTS: ${AUTO_WITHDRAW_MAX_CENTS:-0}
