@@ -40,6 +40,10 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
   const stateCalls: Array<{ userId: string; state: string; until: number | null }> = [];
   const resolved: string[] = [];
   const tickets = [{ id: 't1', userId: 'u9', category: 'payment', subject: 'S’më erdhi depozita', message: 'help', status: 'open', matchId: null, adminNote: null, createdAt: 0, resolvedAt: null }];
+  const adjustCalls: Array<{ userId: string; deltaCents: number; reason: string }> = [];
+  const voidCalls: Array<{ roomId: string; reason: string }> = [];
+  const tCreate: Array<{ name: string; buyInCents: number; capacity: number }> = [];
+  const tCancel: string[] = [];
   const deps: AdminBotDeps = {
     bot: bot as never,
     authorizedChatId: CHAT,
@@ -55,9 +59,14 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     kickUser: (userId: string) => { kicked.push(userId); },
     support: { list: async () => tickets, get: async () => tickets[0], resolve: async (id: string) => { resolved.push(id); return { ...tickets[0]!, status: 'resolved' }; }, create: async () => tickets[0], listByUser: async () => tickets } as never,
     digest: async () => ({ players: 12, newSignups24h: 3, rake24hCents: 4200, pendingWithdrawals: 1, pendingWithdrawalsCents: 5000, liabilitiesCents: 9000 }),
+    // Phase 3 fakes
+    adminAdjust: async (userId: string, deltaCents: number, reason: string) => { adjustCalls.push({ userId, deltaCents, reason }); return { ok: true as const, balanceCents: 1500 + deltaCents }; },
+    voidMatch: async (roomId: string, meta: { adminId: string; reason: string }) => { voidCalls.push({ roomId, reason: meta.reason }); return { ok: true as const, matchId: 'm1', refunded: true }; },
+    tournamentCreate: async (name: string, buyInCents: number, capacity: number) => { tCreate.push({ name, buyInCents, capacity }); return { ok: true as const, id: 'trn1', name }; },
+    tournamentCancel: async (id: string) => { tCancel.push(id); return { ok: true as const }; },
     ...over,
   };
-  return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets };
+  return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets, adjustCalls, voidCalls, tCreate, tCancel };
 }
 
 test('ignores messages from an unauthorized chat', async () => {
@@ -217,4 +226,105 @@ test('Phase-2 commands degrade gracefully when their deps are absent', async () 
   // /user with no findUser → a friendly "not active" (no throw)
   await botz.handleUpdate({ message: { message_id: 6, chat: { id: CHAT }, text: '/user x' } });
   assert.match(calls.sent.at(-1)!.text, /s’është aktive/);
+});
+
+// ---- Phase 3 ----
+
+/** Pull the `pa:ok:*` / `pa:x:*` callback from the last confirm message. */
+function confirmCbs(calls: { sent: Array<{ buttons?: unknown }> }): { ok: string; cancel: string } {
+  const rows = calls.sent.at(-1)!.buttons as Array<Array<{ callbackData: string }>>;
+  return { ok: rows[0]![0]!.callbackData, cancel: rows[0]![1]!.callbackData };
+}
+const cbq = (data: string, mid: number) => ({ callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: mid, chat: { id: CHAT } }, data } });
+
+test('/credit stages a confirm, then executes the adjust + audits on confirm', async () => {
+  const { deps, calls, audit, adjustCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 7, chat: { id: CHAT }, text: '/credit lojtari 5 goodwill' } });
+  assert.equal(adjustCalls.length, 0, 'no adjust before the confirm tap');
+  const { ok } = confirmCbs(calls);
+  assert.match(ok, /^pa:ok:/);
+  await bot.handleUpdate(cbq(ok, 70));
+  assert.equal(adjustCalls.length, 1);
+  assert.equal(adjustCalls[0]!.deltaCents, 500);
+  assert.equal(audit.at(-1)!.action, 'balance_adjust');
+  assert.equal(audit.at(-1)!.amountCents, 500);
+});
+
+test('/debit stages a NEGATIVE adjust', async () => {
+  const { deps, calls, adjustCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 8, chat: { id: CHAT }, text: '/debit lojtari 2.50 penalty' } });
+  await bot.handleUpdate(cbq(confirmCbs(calls).ok, 80));
+  assert.equal(adjustCalls.at(-1)!.deltaCents, -250);
+});
+
+test('cancel tap on a staged adjust does NOT execute it', async () => {
+  const { deps, calls, adjustCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 9, chat: { id: CHAT }, text: '/credit lojtari 5 x' } });
+  await bot.handleUpdate(cbq(confirmCbs(calls).cancel, 90));
+  assert.equal(adjustCalls.length, 0);
+  assert.match(calls.edits.at(-1)!.text, /Anuluar/);
+});
+
+test('a double confirm tap executes at most once', async () => {
+  const { deps, calls, adjustCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 10, chat: { id: CHAT }, text: '/credit lojtari 5 x' } });
+  const { ok } = confirmCbs(calls);
+  await bot.handleUpdate(cbq(ok, 100));
+  await bot.handleUpdate(cbq(ok, 100));
+  assert.equal(adjustCalls.length, 1);
+});
+
+test('a debit that overdraws shows an insufficient-funds message', async () => {
+  const { deps, calls } = makeDeps({ adminAdjust: async () => ({ ok: false, reason: 'insufficient_funds' }) });
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 11, chat: { id: CHAT }, text: '/debit lojtari 5 x' } });
+  await bot.handleUpdate(cbq(confirmCbs(calls).ok, 110));
+  assert.match(calls.edits.at(-1)!.text, /pamjaftueshëm/);
+});
+
+test('/void stages a confirm then voids the match + audits match_void', async () => {
+  const { deps, calls, audit, voidCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 12, chat: { id: CHAT }, text: '/void room42 collusion suspected' } });
+  assert.equal(voidCalls.length, 0);
+  await bot.handleUpdate(cbq(confirmCbs(calls).ok, 120));
+  assert.equal(voidCalls.at(-1)!.roomId, 'room42');
+  assert.equal(voidCalls.at(-1)!.reason, 'collusion suspected');
+  assert.equal(audit.at(-1)!.action, 'match_void');
+});
+
+test('/tournament new creates + audits tournament_create', async () => {
+  const { deps, calls, audit, tCreate } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 13, chat: { id: CHAT }, text: '/tournament new 5 8' } });
+  assert.equal(tCreate.at(-1)!.buyInCents, 500);
+  assert.equal(tCreate.at(-1)!.capacity, 8);
+  assert.equal(audit.at(-1)!.action, 'tournament_create');
+  assert.match(calls.sent.at(-1)!.text, /krijuar/);
+});
+
+test('/tournament new rejects an invalid capacity', async () => {
+  const { deps, calls, tCreate } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 14, chat: { id: CHAT }, text: '/tournament new 5 5' } });
+  assert.equal(tCreate.length, 0);
+  assert.match(calls.sent.at(-1)!.text, /2, 4 ose 8/);
+});
+
+test('/tournament cancel cancels + audits tournament_cancel', async () => {
+  const { deps, audit, tCancel } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 15, chat: { id: CHAT }, text: '/tournament cancel trn1' } });
+  assert.deepEqual(tCancel, ['trn1']);
+  assert.equal(audit.at(-1)!.action, 'tournament_cancel');
+});
+
+test('an unauthorized confirm tap never executes the staged action', async () => {
+  const { deps, calls, adjustCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 16, chat: { id: CHAT }, text: '/credit lojtari 5 x' } });
+  const { ok } = confirmCbs(calls);
+  await bot.handleUpdate({ callback_query: { id: 'c', from: { id: 'evil' }, message: { message_id: 160, chat: { id: 'evil' } }, data: ok } });
+  assert.equal(adjustCalls.length, 0);
 });

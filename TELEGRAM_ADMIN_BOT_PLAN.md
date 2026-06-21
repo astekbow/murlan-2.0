@@ -1,5 +1,14 @@
 # Plan — Telegram admin bot ("run the casino from your phone")
 
+> ✅ **STATUS: SHIPPED (Phases 1–3, on `main`, not yet deployed).** Activate by setting
+> `TELEGRAM_WEBHOOK_SECRET` (alongside the existing `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`)
+> and pointing `CLIENT_ORIGIN` at your real https domain — the webhook self-registers on
+> boot. Code: `notify/telegramBot.ts` (Bot API client), `telegram/adminBot.ts` (dispatcher),
+> `http/telegramRoutes.ts` (webhook). Phase 1 = interactive withdrawals + /stats /withdrawals
+> /treasury. Phase 2 = /user (freeze/suspend/ban) + /tickets + nightly digest. Phase 3 =
+> /credit /debit /void /tournament (all confirm-gated). Every action reuses the audited
+> panel services and is written to the admin audit trail.
+
 > Goal: do the time-sensitive admin work (above all, **approving withdrawals**) straight
 > from Telegram — tap a button on your phone instead of opening the admin panel. Reuses
 > the **existing** Telegram bot you already get alerts from and the **existing, audited**

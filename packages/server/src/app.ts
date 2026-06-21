@@ -40,7 +40,7 @@ import { GameGateway, type AdminVoidResult } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
 import { InMemoryRoomOwnership } from './realtime/roomOwnership.ts';
 import { InMemoryLedger, type LedgerRepository } from './money/ledger.ts';
-import { WalletService, DepositCapExceededError, HOUSE_ACCOUNT_ID } from './money/walletService.ts';
+import { WalletService, DepositCapExceededError, HOUSE_ACCOUNT_ID, InsufficientFundsError } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
@@ -88,7 +88,7 @@ import { InMemoryChatRepository, type ChatRepository } from './chat/chatReposito
 import { ChatService } from './chat/chatService.ts';
 import { clubRoutes } from './http/clubRoutes.ts';
 import { tournamentRoutes } from './http/tournamentRoutes.ts';
-import { TournamentService, InMemoryTournamentRepository, type TournamentRepository, type TournamentWallet } from './tournament/tournamentService.ts';
+import { TournamentService, TournamentError, InMemoryTournamentRepository, type TournamentRepository, type TournamentWallet } from './tournament/tournamentService.ts';
 
 export interface HttpDeps {
   auth: AuthService;
@@ -678,6 +678,32 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           pendingWithdrawalsCents: pending.reduce((s, w) => s + w.amountCents, 0),
           liabilitiesCents: users.filter((u) => u.role !== 'admin').reduce((s, u) => s + u.balanceCents, 0),
         };
+      },
+      // ---- Phase 3: balance adjust / void / tournaments (confirm-gated) ----
+      adminAdjust: async (userId, deltaCents, reason) => {
+        try {
+          const res = await wallet.adminAdjust(userId, deltaCents, reason);
+          return { ok: true, balanceCents: res.balanceCents };
+        } catch (e) {
+          return { ok: false, reason: e instanceof InsufficientFundsError ? 'insufficient_funds' : 'error' };
+        }
+      },
+      voidMatch, // same audited gateway path the panel uses; result is structurally compatible
+      tournamentCreate: async (name, buyInCents, capacity) => {
+        try {
+          const t = await tournaments.create(name, buyInCents, capacity);
+          return { ok: true, id: t.id, name: t.name };
+        } catch (e) {
+          return { ok: false, reason: e instanceof TournamentError ? e.message : 'gabim' };
+        }
+      },
+      tournamentCancel: async (id) => {
+        try {
+          await tournaments.cancel(id);
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, reason: e instanceof TournamentError ? e.message : 'gabim' };
+        }
       },
     });
   }

@@ -23,6 +23,14 @@ import type { SupportRepository, SupportTicket } from '../support/supportReposit
 const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 const SUSPEND_MS = 7 * 24 * 60 * 60 * 1000; // /user suspend = 7 days
 
+/** Parse a USD amount ("5", "5.00", "$5") to positive integer cents, or null. */
+function parseUsdToCents(s: string): number | null {
+  const n = Number(String(s).replace(/^\$/, '').trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const cents = Math.round(n * 100);
+  return cents > 0 ? cents : null;
+}
+
 /** The four admin-settable account states (mirrors accountStateSchema). */
 export type AccountStateValue = 'active' | 'frozen' | 'suspended' | 'banned';
 
@@ -89,13 +97,46 @@ export interface AdminBotDeps {
   support?: SupportRepository;
   /** At-a-glance stats for the nightly digest + /digest. */
   digest?: () => Promise<DigestStats>;
+
+  // ---- Phase 3 (sensitive / occasional) — all optional, all confirm-gated ----
+  /** Manual balance adjust (credit/debit). deltaCents>0 credits, <0 debits. */
+  adminAdjust?: (userId: string, deltaCents: number, reason: string) => Promise<{ ok: true; balanceCents: number } | { ok: false; reason: string }>;
+  /** Void + refund a live match (collusion). */
+  voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<{ ok: true; matchId: string | null; refunded: boolean } | { ok: false; reason: string }>;
+  /** Create a tournament (empty; players join via the app — buy-ins debit on join). */
+  tournamentCreate?: (name: string, buyInCents: number, capacity: number) => Promise<{ ok: true; id: string; name: string } | { ok: false; reason: string }>;
+  /** Cancel + refund a tournament. */
+  tournamentCancel?: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 }
+
+/** A money-moving action staged for a confirm tap (its reason text is too long /
+ *  unsafe to round-trip through Telegram's 64-byte callback_data, so we hold it
+ *  server-side keyed by a short id). */
+interface PendingAction {
+  kind: 'adjust' | 'void';
+  summary: string; // human echo shown on the confirm prompt
+  createdAt: number;
+  run: () => Promise<string>; // executes the action, returns the result line
+}
+const PENDING_TTL_MS = 10 * 60 * 1000; // a staged confirm expires after 10 min
 
 /** Where to edit the message a callback came from. */
 interface MessageRef { chatId: number | string; messageId: number | null }
 
 export class TelegramAdminBot {
+  private readonly pending = new Map<string, PendingAction>();
+  private pendingSeq = 0;
+
   constructor(private readonly deps: AdminBotDeps) {}
+
+  /** Stage a confirm-gated action; returns its short key for the confirm callback. */
+  private stagePending(a: PendingAction): string {
+    const now = Date.now();
+    for (const [k, v] of this.pending) if (now - v.createdAt > PENDING_TTL_MS) this.pending.delete(k);
+    const key = `p${(this.pendingSeq += 1)}`;
+    this.pending.set(key, a);
+    return key;
+  }
 
   private isAuthorized(chatId: number | string | undefined): boolean {
     return chatId !== undefined && String(chatId) === this.deps.authorizedChatId;
@@ -133,6 +174,14 @@ export class TelegramAdminBot {
         return void (await this.sendTickets());
       case '/digest':
         return void (await this.sendDigest());
+      case '/credit':
+        return void (await this.stageAdjust(arg, +1));
+      case '/debit':
+        return void (await this.stageAdjust(arg, -1));
+      case '/void':
+        return void (await this.stageVoid(arg));
+      case '/tournament':
+        return void (await this.handleTournament(arg));
       default:
         return void (await this.deps.bot.sendMessage(`Urdhër i panjohur. ${escapeHtml('/help')} për listën.`));
     }
@@ -150,6 +199,9 @@ export class TelegramAdminBot {
     if (this.deps.findUser) lines.push('/user &lt;email|username&gt; — llogaria + butona Ngrij/Pezullo/Blloko');
     if (this.deps.support) lines.push('/tickets — biletat e hapura të suportit');
     if (this.deps.digest) lines.push('/digest — përmbledhja e 24 orëve');
+    if (this.deps.adminAdjust) lines.push('/credit &lt;user&gt; &lt;shuma&gt; &lt;arsye&gt; · /debit … — rregullim bilanci (me konfirmim)');
+    if (this.deps.voidMatch) lines.push('/void &lt;roomId&gt; &lt;arsye&gt; — anulo + rikthe një ndeshje (me konfirmim)');
+    if (this.deps.tournamentCreate) lines.push('/tournament new &lt;buyin&gt; &lt;cap&gt; · /tournament cancel &lt;id&gt;');
     lines.push('/help — kjo listë');
     return lines.join('\n');
   }
@@ -257,6 +309,98 @@ export class TelegramAdminBot {
     );
   }
 
+  // ---- Phase 3: balance adjust (/credit /debit) — confirm-gated ---------------
+  /** sign = +1 for credit, -1 for debit. arg = "user amount reason…". */
+  private async stageAdjust(arg: string, sign: 1 | -1): Promise<void> {
+    if (!this.deps.adminAdjust || !this.deps.findUser) return void (await this.deps.bot.sendMessage('Komanda s’është aktive.'));
+    const parts = arg.split(/\s+/).filter(Boolean);
+    const verb = sign > 0 ? 'credit' : 'debit';
+    if (parts.length < 2) return void (await this.deps.bot.sendMessage(`Përdorimi: <code>/${verb} user shuma arsye</code>`));
+    const cents = parseUsdToCents(parts[1]!);
+    if (cents === null) return void (await this.deps.bot.sendMessage('Shumë e pavlefshme (p.sh. 5 ose 5.00).'));
+    const reason = parts.slice(2).join(' ').trim() || `${verb} (Telegram)`;
+    const u = await this.deps.findUser(parts[0]!).catch(() => null);
+    if (!u) return void (await this.deps.bot.sendMessage(`Nuk u gjet përdoruesi “${escapeHtml(parts[0]!)}”.`));
+    const delta = sign * cents;
+    const adjust = this.deps.adminAdjust;
+    const key = this.stagePending({
+      kind: 'adjust',
+      summary: `${sign > 0 ? '➕ Kredito' : '➖ Debito'} <b>${usd(cents)}</b> ${sign > 0 ? '→' : 'nga'} ${escapeHtml(u.username)}\nArsyeja: ${escapeHtml(reason)}`,
+      createdAt: Date.now(),
+      run: async () => {
+        const adminId = await this.deps.resolveAdminUserId();
+        if (!adminId) return '⚠️ S’u gjet llogaria admin — veprimi u ndal.';
+        const res = await adjust(u.id, delta, reason).catch(() => ({ ok: false, reason: 'gabim' } as const));
+        if (!res.ok) return `⚠️ ${res.reason === 'insufficient_funds' ? 'Bilanc i pamjaftueshëm për debitim.' : escapeHtml(res.reason)}`;
+        await this.deps.audit.record({ adminId, action: 'balance_adjust', targetUserId: u.id, amountCents: delta, detail: `${reason} (telegram)` });
+        return `✅ <b>${sign > 0 ? 'Kredituar' : 'Debituar'}</b> ${usd(cents)} · ${escapeHtml(u.username)} · bilanci: <b>${usd(res.balanceCents)}</b>`;
+      },
+    });
+    await this.sendConfirm(key);
+  }
+
+  // ---- Phase 3: void a live match (/void) — confirm-gated --------------------
+  private async stageVoid(arg: string): Promise<void> {
+    if (!this.deps.voidMatch) return void (await this.deps.bot.sendMessage('Komanda /void s’është aktive.'));
+    const parts = arg.split(/\s+/).filter(Boolean);
+    if (parts.length < 2) return void (await this.deps.bot.sendMessage('Përdorimi: <code>/void roomId arsye</code>'));
+    const roomId = parts[0]!;
+    const reason = parts.slice(1).join(' ').trim();
+    const voidMatch = this.deps.voidMatch;
+    const key = this.stagePending({
+      kind: 'void',
+      summary: `🛑 Anulo + rikthe ndeshjen <code>${escapeHtml(roomId)}</code>\nArsyeja: ${escapeHtml(reason)}`,
+      createdAt: Date.now(),
+      run: async () => {
+        const adminId = await this.deps.resolveAdminUserId();
+        if (!adminId) return '⚠️ S’u gjet llogaria admin — veprimi u ndal.';
+        const res = await voidMatch(roomId, { adminId, reason }).catch(() => ({ ok: false, reason: 'gabim' } as const));
+        if (!res.ok) return `⚠️ Nuk u anulua (${escapeHtml(res.reason)}).`;
+        await this.deps.audit.record({ adminId, action: 'match_void', detail: `${roomId} (telegram, refunded=${res.refunded}): ${reason}` });
+        return `✅ <b>Anuluar</b> · ndeshja <code>${escapeHtml(roomId)}</code> · rikthim: ${res.refunded ? 'po' : 'jo'}`;
+      },
+    });
+    await this.sendConfirm(key);
+  }
+
+  private async sendConfirm(key: string): Promise<void> {
+    const a = this.pending.get(key);
+    if (!a) return;
+    await this.deps.bot.sendMessage(
+      `⚠️ <b>Konfirmo</b>\n${a.summary}`,
+      { buttons: [[{ text: '✅ Konfirmo', callbackData: `pa:ok:${key}` }, { text: '✖️ Anulo', callbackData: `pa:x:${key}` }]] },
+    );
+  }
+
+  // ---- Phase 3: tournaments (/tournament new|cancel) -------------------------
+  private async handleTournament(arg: string): Promise<void> {
+    if (!this.deps.tournamentCreate || !this.deps.tournamentCancel) return void (await this.deps.bot.sendMessage('Komanda /tournament s’është aktive.'));
+    const parts = arg.split(/\s+/).filter(Boolean);
+    const sub = (parts[0] ?? '').toLowerCase();
+    if (sub === 'new') {
+      const cents = parseUsdToCents(parts[1] ?? '');
+      const cap = Number(parts[2]);
+      if (cents === null) return void (await this.deps.bot.sendMessage('Buy-in i pavlefshëm (p.sh. 5).'));
+      if (![2, 4, 8].includes(cap)) return void (await this.deps.bot.sendMessage('Kapaciteti duhet të jetë 2, 4 ose 8.'));
+      const name = parts.slice(3).join(' ').trim() || `Turne $${(cents / 100).toFixed(0)}`;
+      const res = await this.deps.tournamentCreate(name, cents, cap).catch(() => ({ ok: false, reason: 'gabim' } as const));
+      if (!res.ok) return void (await this.deps.bot.sendMessage(`⚠️ Nuk u krijua (${escapeHtml(res.reason)}).`));
+      const adminId = await this.deps.resolveAdminUserId();
+      if (adminId) await this.deps.audit.record({ adminId, action: 'tournament_create', detail: `${res.id} "${res.name}" buyIn=${cents} cap=${cap} (telegram)` });
+      return void (await this.deps.bot.sendMessage(`✅ <b>Turne i krijuar</b> · ${escapeHtml(res.name)} · buy-in ${usd(cents)} · ${cap} lojtarë\nID: <code>${escapeHtml(res.id)}</code>`));
+    }
+    if (sub === 'cancel') {
+      const id = parts[1];
+      if (!id) return void (await this.deps.bot.sendMessage('Përdorimi: <code>/tournament cancel id</code>'));
+      const res = await this.deps.tournamentCancel(id).catch(() => ({ ok: false, reason: 'gabim' } as const));
+      if (!res.ok) return void (await this.deps.bot.sendMessage(`⚠️ Nuk u anulua (${escapeHtml(res.reason)}).`));
+      const adminId = await this.deps.resolveAdminUserId();
+      if (adminId) await this.deps.audit.record({ adminId, action: 'tournament_cancel', detail: `${id} (telegram)` });
+      return void (await this.deps.bot.sendMessage(`✅ <b>Turneu u anulua</b> · buy-in-et u rikthyen · <code>${escapeHtml(id)}</code>`));
+    }
+    await this.deps.bot.sendMessage('Përdorimi: <code>/tournament new buyin cap</code> ose <code>/tournament cancel id</code>');
+  }
+
   private async sendStats(): Promise<void> {
     const [house, users, pending] = await Promise.all([
       this.deps.wallet.getBalance(HOUSE_ACCOUNT_ID).catch(() => 0),
@@ -341,7 +485,30 @@ export class TelegramAdminBot {
     if (domain === 'wd') return await this.handleWithdrawalTap(action, id, ref, cq.id);
     if (domain === 'us') return await this.handleAccountStateTap(action, id, ref, cq.id);
     if (domain === 'tk') return await this.handleTicketTap(action, id, ref, cq.id);
+    if (domain === 'pa') return await this.handlePendingTap(action, id, ref, cq.id);
     await this.deps.bot.answerCallbackQuery(cq.id);
+  }
+
+  /** Confirm (pa:ok) / cancel (pa:x) a staged money-moving action. */
+  private async handlePendingTap(action: string | undefined, key: string, ref: MessageRef, cbId: string): Promise<void> {
+    const a = this.pending.get(key);
+    if (action === 'x') {
+      this.pending.delete(key);
+      await this.deps.bot.answerCallbackQuery(cbId, { text: 'Anuluar.' });
+      await this.editResolved(ref, '✖️ Anuluar.');
+      return;
+    }
+    if (action !== 'ok') { await this.deps.bot.answerCallbackQuery(cbId); return; }
+    if (!a) {
+      await this.deps.bot.answerCallbackQuery(cbId, { text: 'Skadoi — provoje sërish.', showAlert: true });
+      await this.editResolved(ref, '⌛ Konfirmimi skadoi — dërgoje sërish komandën.');
+      return;
+    }
+    // One-shot: remove BEFORE running so a double-tap can't execute twice.
+    this.pending.delete(key);
+    await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e zbatoj…' });
+    const result = await a.run().catch((e) => `⚠️ Gabim: ${escapeHtml(String(e))}`);
+    await this.editResolved(ref, result);
   }
 
   private async handleWithdrawalTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
