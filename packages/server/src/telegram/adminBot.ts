@@ -152,7 +152,7 @@ export interface AdminBotDeps {
 
   // ---- Tier-2 power-ups — all optional ----
   /** Risk snapshot for a user (shown via the [👤 Rreziku] button before approving). */
-  userRisk?: (userId: string) => Promise<UserRiskView | null>;
+  userRisk?: (userId: string, anchorMs?: number) => Promise<UserRiskView | null>;
   /** Anti-cheat flags (collusion / chip-dump / bot), newest first. */
   listFlags?: (minSeverity: number, limit: number) => Promise<FlagView[]>;
   /** Send a player an in-app push notification (e.g. ticket resolved, withdrawal rejected). */
@@ -196,6 +196,14 @@ export class TelegramAdminBot {
     return chatId !== undefined && String(chatId) === this.deps.authorizedChatId;
   }
 
+  /** A callback/message is authorized if EITHER the chat id OR the sender's user id
+   *  matches the owner. For the single private operator chat both are the same value;
+   *  the dual check also lets the owner's tap through when Telegram omits the message
+   *  object (e.g. acting on a >48h-old alert), where only `from.id` is available. */
+  private isAuthorizedTap(chatId: number | string | undefined, fromId: number | string | undefined): boolean {
+    return this.isAuthorized(chatId) || this.isAuthorized(fromId);
+  }
+
   /** Single entry point for a Telegram update. NEVER throws (the webhook always 200s). */
   async handleUpdate(update: TgUpdate): Promise<void> {
     try {
@@ -208,7 +216,7 @@ export class TelegramAdminBot {
 
   // ---- Commands ----------------------------------------------------------------
   private async handleMessage(msg: TgMessage): Promise<void> {
-    if (!this.isAuthorized(msg.chat.id)) return; // silently ignore strangers
+    if (!this.isAuthorizedTap(msg.chat.id, msg.from?.id)) return; // silently ignore strangers
     const tokens = msg.text!.trim().split(/\s+/);
     const cmd = (tokens[0] ?? '').replace(/@.*$/, '').toLowerCase();
     const arg = tokens.slice(1).join(' ').trim();
@@ -542,8 +550,10 @@ export class TelegramAdminBot {
   // ---- Button taps -------------------------------------------------------------
   private async handleCallback(cq: TgCallbackQuery): Promise<void> {
     const ref: MessageRef = { chatId: cq.message?.chat.id ?? this.deps.authorizedChatId, messageId: cq.message?.message_id ?? null };
-    // Auth: drop taps from any chat but the owner's (still answer to clear the spinner).
-    if (!this.isAuthorized(cq.message?.chat.id ?? cq.from.id)) {
+    // Auth: drop taps unless the owner's chat OR the owner themselves tapped (still
+    // answer to clear the spinner). The dual check keeps >48h-old (message-less) taps
+    // working for the single private operator chat.
+    if (!this.isAuthorizedTap(cq.message?.chat.id, cq.from.id)) {
       await this.deps.bot.answerCallbackQuery(cq.id, { text: 'I paautorizuar.' });
       return;
     }
@@ -624,7 +634,9 @@ export class TelegramAdminBot {
     if (!this.deps.userRisk) return;
     const w = await this.deps.withdrawals.find(withdrawalId).catch(() => null);
     if (!w) return void (await this.deps.bot.sendMessage('⚠️ Tërheqja nuk u gjet.'));
-    const r = await this.deps.userRisk(w.userId).catch(() => null);
+    // Anchor the same-day deposit→withdraw check on THIS withdrawal's own day (not
+    // "today"), so an overnight-pending withdrawal is still judged against its real day.
+    const r = await this.deps.userRisk(w.userId, w.createdAt).catch(() => null);
     if (!r) return void (await this.deps.bot.sendMessage('⚠️ S’u lexua dot profili i rrezikut.'));
     const flags: string[] = [];
     if (r.sameDayDepositWithdraw) flags.push('⚠️ Depozitoi DHE po tërheq të njëjtën ditë');

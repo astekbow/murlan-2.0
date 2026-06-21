@@ -45,6 +45,7 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
   const tCreate: Array<{ name: string; buyInCents: number; capacity: number }> = [];
   const tCancel: string[] = [];
   const msgCalls: Array<{ userId: string; title: string; body: string }> = [];
+  const riskCalls: Array<{ userId: string; anchorMs?: number }> = [];
   const deps: AdminBotDeps = {
     bot: bot as never,
     authorizedChatId: CHAT,
@@ -66,14 +67,14 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     tournamentCreate: async (name: string, buyInCents: number, capacity: number) => { tCreate.push({ name, buyInCents, capacity }); return { ok: true as const, id: 'trn1', name }; },
     tournamentCancel: async (id: string) => { tCancel.push(id); return { ok: true as const }; },
     // Tier-2 fakes
-    userRisk: async (userId: string) => ({ userId, username: 'lojtari', accountAgeDays: 0.5, kycStatus: 'none', accountState: 'active', balanceCents: 1500, priorWithdrawals: 2, completedWithdrawals: 1, priorWithdrawalsCents: 800, sameDayDepositWithdraw: true }),
+    userRisk: async (userId: string, anchorMs?: number) => { riskCalls.push({ userId, anchorMs }); return { userId, username: 'lojtari', accountAgeDays: 0.5, kycStatus: 'none', accountState: 'active', balanceCents: 1500, priorWithdrawals: 2, completedWithdrawals: 1, priorWithdrawalsCents: 800, sameDayDepositWithdraw: true }; },
     listFlags: async (_min: number, _limit: number) => [{ id: 'f1', userId: 'u9', type: 'chip_dump', severity: 3, detail: 'humbi 3 herë radhazi te i njëjti', matchId: 'm1', createdAt: 0 }],
     messagePlayer: async (userId: string, title: string, body: string) => { msgCalls.push({ userId, title, body }); },
     liveState: async () => ({ matches: 2, potCents: 3000, byType: [{ type: 'quick', count: 2, potCents: 3000 }] }),
     health: async () => ({ dbOk: true, reconcileOk: true, mismatches: 0, settlementFailures: 0, activeMatches: 2, pendingWithdrawals: 1 }),
     ...over,
   };
-  return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets, adjustCalls, voidCalls, tCreate, tCancel, msgCalls };
+  return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets, adjustCalls, voidCalls, tCreate, tCancel, msgCalls, riskCalls };
 }
 
 test('ignores messages from an unauthorized chat', async () => {
@@ -416,4 +417,28 @@ test('/health flags trouble when reconcile mismatches exist', async () => {
   const text = calls.sent.at(-1)!.text;
   assert.match(text, /🚨/);
   assert.match(text, /2 mospërputhje/);
+});
+
+// ---- review fixes ----
+
+test('the risk check is anchored on the withdrawal’s own createdAt, not "today"', async () => {
+  const { deps, riskCalls } = makeDeps({ rec: pendingRec({ createdAt: 1_700_000_000_000 }) });
+  await new TelegramAdminBot(deps).handleUpdate({
+    callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 210, chat: { id: CHAT } }, data: 'wd:risk:w1' },
+  });
+  assert.equal(riskCalls.at(-1)!.anchorMs, 1_700_000_000_000);
+});
+
+test('owner tap on a message-less callback (>48h old alert) is authorized via from.id', async () => {
+  const { deps, calls } = makeDeps();
+  // No `message` on the callback → only from.id is available; the owner must still act.
+  await new TelegramAdminBot(deps).handleUpdate({ callback_query: { id: 'c', from: { id: CHAT }, data: 'wd:risk:w1' } });
+  assert.match(calls.sent.at(-1)!.text, /Rreziku/); // acted (sent the risk card)
+});
+
+test('a message-less callback from a stranger is still rejected', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ callback_query: { id: 'c', from: { id: 'evil' }, data: 'wd:risk:w1' } });
+  assert.equal(calls.sent.length, 0);
+  assert.match(calls.answers.at(-1)!.text ?? '', /paautorizuar/);
 });

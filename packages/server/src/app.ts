@@ -706,14 +706,16 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         }
       },
       // ---- Tier-2: risk view / anti-cheat / player messaging / live / health ----
-      userRisk: async (userId) => {
+      userRisk: async (userId, anchorMs) => {
         const [u, txs, wds] = await Promise.all([
           repo.findById(userId).catch(() => null),
           wallet.listTransactions(userId).catch(() => []),
           withdrawals.listByUser(userId).catch(() => []),
         ]);
         if (!u) return null;
-        const day = Math.floor(Date.now() / 86_400_000); // UTC day index
+        // Anchor the same-day check on the reviewed withdrawal's day (anchorMs) when
+        // given, else "today" — so an overnight-pending withdrawal isn't misjudged.
+        const day = Math.floor((anchorMs ?? Date.now()) / 86_400_000); // UTC day index
         const depositedToday = txs.some((t) => t.type === 'deposit' && Math.floor(t.createdAt / 86_400_000) === day);
         const withdrewToday = wds.some((w) => Math.floor(w.createdAt / 86_400_000) === day);
         const completed = wds.filter((w) => w.status === 'completed');
@@ -856,8 +858,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const DIGEST_HOUR_UTC = 8;
   let lastDigestDay = new Date().getUTCHours() >= DIGEST_HOUR_UTC ? new Date().toISOString().slice(0, 10) : '';
   // Anti-cheat: push NEW high-severity flags (collusion/chip-dump/bot) to the bot
-  // chat once, so they're seen the moment they're raised (not left unseen in the DB).
-  const alertedFlags = new Set<string>();
+  // chat the moment they're raised. A high-water mark (last pushed flag's createdAt)
+  // — NOT a fixed top-N window — guarantees a burst larger than one window is never
+  // dropped. Seeded to boot time so old pre-boot flags aren't re-spammed on restart.
+  let lastFlagPushMs = Date.now();
   const sweepTimer = setInterval(() => {
     void (async () => {
       try {
@@ -962,10 +966,15 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         // [👤 Lojtari] [🚫 Blloko] buttons. The flags are already raised by analyzeMatch;
         // this just surfaces them proactively instead of waiting for a /flags check.
         if (telegramBot) {
-          const flags = await antiCheat.listFlags({ minSeverity: 3, limit: 20 }).catch(() => []);
-          const fresh = flags.filter((f) => !alertedFlags.has(f.id));
-          for (const f of fresh.reverse()) { // oldest-first so the chat reads chronologically
-            alertedFlags.add(f.id);
+          // Pull a generous window (newest-first) and push every flag strictly newer
+          // than the high-water mark, oldest-first, advancing the mark. Strict '>' is
+          // safe across sweeps (5 min apart → distinct createdAt ms); within a sweep all
+          // newer-than-mark flags are returned together, so a burst can't be split/lost
+          // (up to 200/window — far above any realistic 5-min rate; the rest stay in the DB / /flags).
+          const flags = await antiCheat.listFlags({ minSeverity: 3, limit: 200 }).catch(() => []);
+          const fresh = flags.filter((f) => f.createdAt > lastFlagPushMs).sort((a, b) => a.createdAt - b.createdAt);
+          for (const f of fresh) {
+            lastFlagPushMs = Math.max(lastFlagPushMs, f.createdAt);
             await telegramBot.sendMessage(
               `🚩 <b>Sinjal anti-cheat (i lartë)</b>\n` +
               `Lloji: ${f.type}\n${f.detail}\n` +
@@ -974,8 +983,6 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
               { buttons: [[{ text: '👤 Lojtari', callbackData: `us:show:${f.userId}` }, { text: '🚫 Blloko', callbackData: `us:ban:${f.userId}` }]] },
             ).catch(() => {});
           }
-          // Keep the dedupe set bounded: drop ids no longer in the recent window.
-          if (alertedFlags.size > 500) { const keep = new Set(flags.map((f) => f.id)); for (const id of alertedFlags) if (!keep.has(id)) alertedFlags.delete(id); }
         }
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');
