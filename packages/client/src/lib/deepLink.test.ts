@@ -20,6 +20,15 @@ test('captures a /join/<code> invite exactly once and cleans the URL', async () 
   expect(window.location.pathname).toBe('/');    // URL cleaned
 });
 
+test('captures a /u/<id> profile link once and cleans the URL', async () => {
+  window.history.replaceState({}, '', '/u/usr_abc123');
+  const { takePendingProfileId, takePendingJoinCode } = await import('./deepLink.ts');
+  expect(takePendingJoinCode()).toBe(null);
+  expect(takePendingProfileId()).toBe('usr_abc123');
+  expect(takePendingProfileId()).toBe(null); // consumed once
+  expect(window.location.pathname).toBe('/');
+});
+
 test('rewrites /t/<id> to /tournaments with no pending join', async () => {
   window.history.replaceState({}, '', '/t/abc123');
   const { takePendingJoinCode } = await import('./deepLink.ts');

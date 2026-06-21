@@ -18,7 +18,8 @@ import { OnboardingModal } from './components/ui/OnboardingModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
-import { takePendingJoinCode } from './lib/deepLink.ts';
+import { takePendingJoinCode, takePendingProfileId } from './lib/deepLink.ts';
+import { ProfileModal } from './components/ui/ProfileModal.tsx';
 import { useExitGuard } from './lib/useExitGuard.ts';
 import { ConfirmDialog } from './components/ui/ConfirmDialog.tsx';
 import { dollars } from './lib/money.ts';
@@ -88,6 +89,7 @@ export function App() {
   const { socket, room, spectating, connect, disconnect, toast, toastKind, dismissToast } = useGameStore();
   const lobbyView = useUiStore((s) => s.view);
   const replayMatchId = useUiStore((s) => s.replayMatchId);
+  const profileUserId = useUiStore((s) => s.profileUserId);
   const onboarded = useOnboardingStore((s) => s.done);
   const t = useT();
   const connected = useGameStore((s) => s.connected);
@@ -103,6 +105,13 @@ export function App() {
     const code = takePendingJoinCode();
     if (code) void useGameStore.getState().joinByCode(code);
   }, [status, connected]);
+
+  // Shareable profile link (/u/<id>): open the captured profile once authenticated.
+  useEffect(() => {
+    if (status !== 'authed') return;
+    const id = takePendingProfileId();
+    if (id) useUiStore.getState().openProfile(id);
+  }, [status]);
 
   // Android/browser BACK guard: while at a table, back must not exit the PWA or abandon a
   // staked match. Absorb it and prompt to leave instead (the explicit Leave button remains
@@ -203,6 +212,10 @@ export function App() {
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <RealityCheckModal />}
       {status === 'authed' && <ReconnectOverlay />}
+      {/* Global profile modal — opened by /u/<id> deep-links. */}
+      {status === 'authed' && profileUserId && (
+        <ProfileModal userId={profileUserId} onClose={() => useUiStore.getState().closeProfile()} />
+      )}
       {backLeave && room && (
         <ConfirmDialog
           title={t('table.leaveConfirm')}
