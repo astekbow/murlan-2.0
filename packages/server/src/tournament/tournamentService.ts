@@ -193,7 +193,7 @@ export class TournamentService {
    *  next round, or finishing + paying out. With dual-control ON, reporting a PAID final
    *  PARKS the champion (status 'awaiting_confirmation') for a second admin instead of
    *  paying immediately; pass `adminId` so the confirmer can be required to differ. */
-  async reportResult(tournamentId: string, round: number, index: number, winnerId: string, adminId?: string): Promise<Tournament> {
+  async reportResult(tournamentId: string, round: number, index: number, winnerId: string, adminId?: string, opts?: { autoFinalize?: boolean }): Promise<Tournament> {
     return this.withLock(tournamentId, async () => {
       const t = await this.repo.get(tournamentId);
       if (!t) throw new TournamentError('not_found', 'Turneu nuk u gjet.');
@@ -208,7 +208,10 @@ export class TournamentService {
       if (roundMatches.every((x) => x.winnerId)) {
         if (roundMatches.length === 1) {
           const champion = roundMatches[0]!.winnerId!;
-          if (this.dualControl && t.buyInCents > 0) {
+          // `autoFinalize` (the SELF-RUNNING gateway path) bypasses four-eyes: a
+          // self-running final has NO admin in the loop to confirm, so parking it would
+          // strand the pool forever. Four-eyes still applies to the manual /report route.
+          if (this.dualControl && t.buyInCents > 0 && !opts?.autoFinalize) {
             // Four-eyes: park the champion for a SECOND admin to confirm; no money moves
             // yet. The final-match winnerId is already set + persisted below, so the
             // bracket is intact; only the payout waits. (Free finals skip this — no money.)

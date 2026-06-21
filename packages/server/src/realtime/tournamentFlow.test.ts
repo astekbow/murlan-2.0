@@ -83,24 +83,30 @@ test('staked 2-player tournament: fills → plays itself → champion paid pool 
     c1.on('tournament:matchReady', (d: any) => c1.emit('room:join', { roomId: d.roomId }, () => {}));
     c2.on('tournament:matchReady', (d: any) => c2.emit('room:join', { roomId: d.roomId }, () => {}));
 
-    const start1 = once(c1, 'game:start');
+    const s1 = once(c1, 'game:start');
+    const s2 = once(c2, 'game:start');
     // Kick off the bracket (in prod the register route does this via onTournamentRunning).
     await gateway.runTournamentMatches(t.id);
-    await start1; // seat 0 was dealt its hand → the match is live
+    const [g1, g2] = await Promise.all([s1, s2]);
+    // The auto-join order is non-deterministic, so seat 0 (the 3♠ holder who must open
+    // and will win at target 1) may be either client — drive whichever it is.
+    const leaderC = g1.yourSeat === 0 ? c1 : c2;
+    const winnerId = g1.yourSeat === 0 ? u1.user.id : u2.user.id;
+    const loserId = winnerId === u1.user.id ? u2.user.id : u1.user.id;
 
     const end = once(c1, 'match:end');
-    await emitAck(c1, 'game:play', { cards: [c('3', 'S')] }); // seat 0 wins the pairing (= the final)
+    await emitAck(leaderC, 'game:play', { cards: [c('3', 'S')] }); // seat 0 wins the pairing (= the final)
     await end;
 
-    // The bracket finished automatically: champion = u1 paid pool(2000) − 10% rake = 1800.
+    // The bracket finished automatically: the champion is paid pool(2000) − 10% rake = 1800.
     // Poll briefly (reportResult/finish run off the match:end path).
-    let bal1 = 0;
-    for (let i = 0; i < 30 && bal1 === 0; i += 1) { await new Promise((r) => setTimeout(r, 20)); bal1 = await wallet.getBalance(u1.user.id); }
-    assert.equal(bal1, 1800);
-    assert.equal(await wallet.getBalance(u2.user.id), 0); // runner-up gets nothing
+    let won = 0;
+    for (let i = 0; i < 30 && won === 0; i += 1) { await new Promise((r) => setTimeout(r, 20)); won = await wallet.getBalance(winnerId); }
+    assert.equal(won, 1800);
+    assert.equal(await wallet.getBalance(loserId), 0); // runner-up gets nothing
     const fin = await tournaments.get(t.id);
     assert.equal(fin?.status, 'finished');
-    assert.equal(fin?.winnerId, u1.user.id);
+    assert.equal(fin?.winnerId, winnerId);
     assert.equal((await wallet.reconcile()).ok, true);
   } finally {
     c1.close(); c2.close();

@@ -149,6 +149,21 @@ test('dual-control: a PAID final PARKS for a second admin; same-admin confirm re
   assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1800 }]);
 });
 
+test('dual-control: a SELF-RUNNING final (autoFinalize) pays immediately, never parks', async () => {
+  // The gateway reports self-running finals with autoFinalize=true — there is no admin
+  // in the loop to confirm a four-eyes payout, so parking would strand the pool forever.
+  const { s, wallet } = svc(1000, true); // dual-control ON
+  const t = await s.create('Cup', 1000, 2); // $10 buy-in
+  await s.register(t.id, 'a');
+  await s.register(t.id, 'b'); // fills → running
+  const done = await s.reportResult(t.id, 0, 0, 'a', undefined, { autoFinalize: true });
+  assert.equal(done.status, 'finished'); // NOT 'awaiting_confirmation'
+  assert.equal(done.winnerId, 'a');
+  assert.equal(done.pendingWinnerId, null);
+  assert.deepEqual(wallet.rake, [200]);                       // house took its 10%
+  assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1800 }]); // champion paid pool − rake
+});
+
 test('dual-control: a FREE final finishes immediately (no money → no second admin needed)', async () => {
   const { s, wallet } = svc(1000, true);
   const t = await s.create('Cup', 0, 2);

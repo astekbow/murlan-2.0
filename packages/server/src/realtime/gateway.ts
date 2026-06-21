@@ -1805,10 +1805,18 @@ export class GameGateway {
     if (!this.tournaments) return;
     this.tournamentMatchRooms.delete(`${tournamentId}:${round}:${index}`);
     try {
-      await this.tournaments.reportResult(tournamentId, round, index, winnerUserId);
+      // autoFinalize: a self-running final has NO admin to confirm a four-eyes payout,
+      // so it must finalize immediately (never park) — else the pool stalls forever.
+      await this.tournaments.reportResult(tournamentId, round, index, winnerUserId, undefined, { autoFinalize: true });
     } catch (err) {
-      // already-decided (a race with a no-show walkover) is benign; log the rest.
-      console.error(`[tournament] reportResult failed for ${tournamentId} r${round}#${index}:`, err);
+      // 'already_decided' (a no-show walkover already reported this pairing) and
+      // 'not_running' (cancelled/swept) are benign — that path already advanced or the
+      // tournament is gone. Anything else FREEZES this bracket; log loudly (the periodic
+      // sweepStale eventually refunds every buy-in, so the pool is never lost).
+      const code = (err as { code?: string } | null)?.code ?? 'error';
+      if (code !== 'already_decided' && code !== 'not_running') {
+        console.error(`[tournament] reportResult FAILED for ${tournamentId} r${round}#${index} — bracket frozen until the stale-sweep refunds:`, err);
+      }
       return;
     }
     await this.runTournamentMatches(tournamentId);
