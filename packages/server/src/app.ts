@@ -40,7 +40,7 @@ import { GameGateway, type AdminVoidResult } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
 import { InMemoryRoomOwnership } from './realtime/roomOwnership.ts';
 import { InMemoryLedger, type LedgerRepository } from './money/ledger.ts';
-import { WalletService, DepositCapExceededError } from './money/walletService.ts';
+import { WalletService, DepositCapExceededError, HOUSE_ACCOUNT_ID } from './money/walletService.ts';
 import { InMemoryMatchesRepository, type MatchesRepository } from './money/matchesRepository.ts';
 import { MoneyService } from './money/moneyService.ts';
 import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvider.ts';
@@ -650,6 +650,35 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       // Withdrawals at/above the per-user 24h auto cap (or $200 default) need a 2nd tap.
       largeWithdrawalCents: config.dailyAutoWithdrawCapCents > 0 ? config.dailyAutoWithdrawCapCents : 20000,
       binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined,
+      // ---- Phase 2: players + support + digest ----
+      findUser: async (query: string) => {
+        const q = query.trim();
+        const u = (await repo.findByEmail(q).catch(() => null))
+          ?? (await repo.findByUsername(q).catch(() => null))
+          ?? (await repo.findById(q).catch(() => null));
+        return u
+          ? { id: u.id, username: u.username, email: u.email, role: u.role, balanceCents: u.balanceCents, kycStatus: u.kycStatus, accountState: u.accountState, accountStateReason: u.accountStateReason, accountStateUntil: u.accountStateUntil, createdAt: u.createdAt }
+          : null;
+      },
+      setAccountState: async (userId, patch) => !!(await auth.setAccountState(userId, patch)),
+      kickUser,
+      support: supportRepo,
+      digest: async () => {
+        const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const [users, houseTxs, pending] = await Promise.all([
+          repo.list().catch(() => []),
+          wallet.listTransactions(HOUSE_ACCOUNT_ID).catch(() => []),
+          withdrawals.listPending().catch(() => []),
+        ]);
+        return {
+          players: users.length,
+          newSignups24h: users.filter((u) => u.createdAt >= dayAgo).length,
+          rake24hCents: houseTxs.filter((t) => t.type === 'rake' && t.createdAt >= dayAgo).reduce((s, t) => s + Math.abs(t.amountCents), 0),
+          pendingWithdrawals: pending.length,
+          pendingWithdrawalsCents: pending.reduce((s, w) => s + w.amountCents, 0),
+          liabilitiesCents: users.filter((u) => u.role !== 'admin').reduce((s, u) => s + u.balanceCents, 0),
+        };
+      },
     });
   }
 
@@ -739,6 +768,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const TREASURY_ALERT_THROTTLE_MS = 60 * 60 * 1000;
   const alertedStaleWithdrawals = new Set<string>();
   let lastTreasuryAlert = 0;
+  // Nightly digest (admin bot, Phase 2): fire once per UTC day at/after this hour.
+  // Seed lastDigestDay so a restart LATER than the hour doesn't re-send today's.
+  const DIGEST_HOUR_UTC = 8;
+  let lastDigestDay = new Date().getUTCHours() >= DIGEST_HOUR_UTC ? new Date().toISOString().slice(0, 10) : '';
   const sweepTimer = setInterval(() => {
     void (async () => {
       try {
@@ -828,6 +861,16 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
             notify: (text) => notifier.notify(text),
           }).catch((err) => { app.log.warn({ err }, 'withdrawal reconciliation failed'); return 0; });
           if (reversedN) app.log.warn({ reversedWithdrawals: reversedN }, 'reversed failed Binance withdrawals — players refunded');
+        }
+        // Nightly digest (~08:00 UTC) to the owner via the admin bot — once per UTC
+        // day. The 5-min sweep is the scheduler: fire on the first tick at/after the
+        // hour. Best-effort (a failure just skips today's digest).
+        if (telegramAdminBot) {
+          const today = new Date(now).toISOString().slice(0, 10);
+          if (new Date(now).getUTCHours() >= DIGEST_HOUR_UTC && lastDigestDay !== today) {
+            lastDigestDay = today;
+            await telegramAdminBot.sendDigest().catch((err) => app.log.warn({ err }, 'digest send failed'));
+          }
         }
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');

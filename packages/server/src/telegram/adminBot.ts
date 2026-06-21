@@ -18,8 +18,37 @@ import type { AdminAuditRepository } from '../auth/adminAudit.ts';
 import { HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
 import { escapeHtml, type InlineButton } from '../notify/notifier.ts';
 import type { TelegramBot } from '../notify/telegramBot.ts';
+import type { SupportRepository, SupportTicket } from '../support/supportRepository.ts';
 
 const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
+const SUSPEND_MS = 7 * 24 * 60 * 60 * 1000; // /user suspend = 7 days
+
+/** The four admin-settable account states (mirrors accountStateSchema). */
+export type AccountStateValue = 'active' | 'frozen' | 'suspended' | 'banned';
+
+/** A user as the bot needs to show + act on them (Phase 2 /user). */
+export interface UserSummary {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  balanceCents: number;
+  kycStatus: string;
+  accountState: string;
+  accountStateReason: string | null;
+  accountStateUntil: number | null;
+  createdAt: number;
+}
+
+/** At-a-glance numbers for the nightly digest + /digest (computed by the caller). */
+export interface DigestStats {
+  players: number;
+  newSignups24h: number;
+  rake24hCents: number;
+  pendingWithdrawals: number;
+  pendingWithdrawalsCents: number;
+  liabilitiesCents: number;
+}
 
 // ---- Minimal Telegram update shapes (only the fields we read) ----------------
 interface TgChat { id: number | string }
@@ -48,6 +77,18 @@ export interface AdminBotDeps {
   largeWithdrawalCents: number;
   /** Optional: Binance Spot free USDT (cents) for /treasury coverage (null if unknown). */
   binanceFreeUsdtCents?: () => Promise<number | null>;
+
+  // ---- Phase 2 (players + support + digest) — all optional ----
+  /** Look up a user by email or username (for /user). */
+  findUser?: (query: string) => Promise<UserSummary | null>;
+  /** Apply an account state (freeze/suspend/ban/reactivate). Returns false if not found. */
+  setAccountState?: (userId: string, patch: { state: AccountStateValue; reason: string | null; until: number | null }) => Promise<boolean>;
+  /** Force-disconnect a user's live sockets (on ban/suspend), mirrors the panel. */
+  kickUser?: (userId: string) => void;
+  /** Support/dispute ticket store (for /tickets + resolve). */
+  support?: SupportRepository;
+  /** At-a-glance stats for the nightly digest + /digest. */
+  digest?: () => Promise<DigestStats>;
 }
 
 /** Where to edit the message a callback came from. */
@@ -73,7 +114,9 @@ export class TelegramAdminBot {
   // ---- Commands ----------------------------------------------------------------
   private async handleMessage(msg: TgMessage): Promise<void> {
     if (!this.isAuthorized(msg.chat.id)) return; // silently ignore strangers
-    const cmd = (msg.text!.trim().split(/\s+/)[0] ?? '').replace(/@.*$/, '').toLowerCase();
+    const tokens = msg.text!.trim().split(/\s+/);
+    const cmd = (tokens[0] ?? '').replace(/@.*$/, '').toLowerCase();
+    const arg = tokens.slice(1).join(' ').trim();
     switch (cmd) {
       case '/start':
       case '/help':
@@ -84,19 +127,133 @@ export class TelegramAdminBot {
         return void (await this.sendWithdrawals());
       case '/treasury':
         return void (await this.sendTreasury());
+      case '/user':
+        return void (await this.sendUser(arg));
+      case '/tickets':
+        return void (await this.sendTickets());
+      case '/digest':
+        return void (await this.sendDigest());
       default:
         return void (await this.deps.bot.sendMessage(`Urdhër i panjohur. ${escapeHtml('/help')} për listën.`));
     }
   }
 
   private helpText(): string {
+    const lines = [
+      '🤖 <b>Murlan — admin bot</b>',
+      'Tërheqjet e reja vijnë me butona [✅ Aprovo] [❌ Refuzo].',
+      '',
+      '/withdrawals — radha e tërheqjeve në pritje',
+      '/stats — bilanc, detyrime, tërheqje në pritje',
+      '/treasury — mbulimi i arkës',
+    ];
+    if (this.deps.findUser) lines.push('/user &lt;email|username&gt; — llogaria + butona Ngrij/Pezullo/Blloko');
+    if (this.deps.support) lines.push('/tickets — biletat e hapura të suportit');
+    if (this.deps.digest) lines.push('/digest — përmbledhja e 24 orëve');
+    lines.push('/help — kjo listë');
+    return lines.join('\n');
+  }
+
+  // ---- Phase 2: /user (account state) ----------------------------------------
+  private async sendUser(query: string): Promise<void> {
+    if (!this.deps.findUser) return void (await this.deps.bot.sendMessage('Komanda /user s’është aktive.'));
+    if (!query) return void (await this.deps.bot.sendMessage('Përdorimi: <code>/user email-ose-username</code>'));
+    const u = await this.deps.findUser(query).catch(() => null);
+    if (!u) return void (await this.deps.bot.sendMessage(`Nuk u gjet asnjë përdorues për “${escapeHtml(query)}”.`));
+    const r = this.renderUser(u);
+    await this.deps.bot.sendMessage(r.text, { buttons: r.buttons });
+  }
+
+  private renderUser(u: UserSummary): { text: string; buttons: InlineButton[][] } {
+    const joined = new Date(u.createdAt).toISOString().slice(0, 10);
+    const stateLine = u.accountState === 'active'
+      ? '✅ aktive'
+      : `⛔ ${escapeHtml(u.accountState)}${u.accountStateReason ? ` (${escapeHtml(u.accountStateReason)})` : ''}`;
+    const text =
+      `👤 <b>${escapeHtml(u.username)}</b>${u.role === 'admin' ? ' · admin' : ''}\n` +
+      `Email: ${escapeHtml(u.email)}\n` +
+      `Bilanci: <b>${usd(u.balanceCents)}</b>\n` +
+      `KYC: ${escapeHtml(u.kycStatus)}\n` +
+      `Gjendja: ${stateLine}\n` +
+      `Regjistruar: ${joined}`;
+    // Show only the actions that change something from the current state.
+    const buttons: InlineButton[][] = [];
+    const row: InlineButton[] = [];
+    if (u.accountState !== 'frozen') row.push({ text: '🧊 Ngrij', callbackData: `us:freeze:${u.id}` });
+    if (u.accountState !== 'suspended') row.push({ text: '⏸ Pezullo 7d', callbackData: `us:susp:${u.id}` });
+    if (u.accountState !== 'banned') row.push({ text: '🚫 Blloko', callbackData: `us:ban:${u.id}` });
+    if (row.length) buttons.push(row);
+    if (u.accountState !== 'active') buttons.push([{ text: '✅ Riakto', callbackData: `us:active:${u.id}` }]);
+    return { text, buttons };
+  }
+
+  private async applyAccountState(userId: string, state: AccountStateValue, ref: MessageRef): Promise<void> {
+    if (!this.deps.setAccountState) { await this.editResolved(ref, 'Veprimi s’është aktiv.'); return; }
+    const adminId = await this.deps.resolveAdminUserId();
+    if (!adminId) { await this.editResolved(ref, '⚠️ S’u gjet llogaria admin (ADMIN_EMAIL) — veprimi u ndal.'); return; }
+    const until = state === 'suspended' ? Date.now() + SUSPEND_MS : null;
+    const reason = 'Caktuar nga admini (Telegram)';
+    const ok = await this.deps.setAccountState(userId, { state, reason, until }).catch(() => false);
+    if (!ok) { await this.editResolved(ref, '⚠️ Përdoruesi nuk u gjet.'); return; }
+    // Ban/suspend: also drop live sockets (mirrors the panel).
+    if (state === 'banned' || state === 'suspended') this.deps.kickUser?.(userId);
+    await this.deps.audit.record({ adminId, action: 'account_state_set', targetUserId: userId, detail: `${state} (telegram)` });
+    const label: Record<AccountStateValue, string> = { active: '✅ Riaktivizuar', frozen: '🧊 Ngrirë', suspended: '⏸ Pezulluar 7 ditë', banned: '🚫 Bllokuar' };
+    // Re-fetch so the message reflects the new state + offers the remaining actions.
+    const u = this.deps.findUser ? await this.deps.findUser(userId).catch(() => null) : null;
+    if (u && ref.messageId !== null) {
+      const r = this.renderUser(u);
+      await this.editMessage(ref, `${label[state]} ✓\n\n${r.text}`, r.buttons);
+    } else {
+      await this.editResolved(ref, `${label[state]} ✓`);
+    }
+  }
+
+  // ---- Phase 2: /tickets ------------------------------------------------------
+  private async sendTickets(): Promise<void> {
+    if (!this.deps.support) return void (await this.deps.bot.sendMessage('Komanda /tickets s’është aktive.'));
+    const all = await this.deps.support.list(50).catch(() => [] as SupportTicket[]);
+    const open = all.filter((t) => t.status === 'open');
+    if (!open.length) return void (await this.deps.bot.sendMessage('✅ S’ka bileta të hapura.'));
+    const CAP = 10;
+    await this.deps.bot.sendMessage(`🎫 <b>${open.length}</b> bileta të hapura${open.length > CAP ? ` (po shfaq ${CAP})` : ''}:`);
+    for (const t of open.slice(0, CAP)) {
+      await this.deps.bot.sendMessage(this.renderTicket(t), { buttons: [[{ text: '✅ Zgjidh', callbackData: `tk:res:${t.id}` }]] });
+    }
+  }
+
+  private renderTicket(t: SupportTicket): string {
+    const msg = t.message.length > 240 ? `${t.message.slice(0, 240)}…` : t.message;
     return (
-      '🤖 <b>Murlan — admin bot</b>\n' +
-      'Tërheqjet e reja vijnë me butona [✅ Aprovo] [❌ Refuzo].\n\n' +
-      '/withdrawals — radha e tërheqjeve në pritje\n' +
-      '/stats — bilanc, detyrime, tërheqje në pritje\n' +
-      '/treasury — mbulimi i arkës\n' +
-      '/help — kjo listë'
+      `🎫 <b>${escapeHtml(t.subject)}</b> · ${escapeHtml(t.category)}\n` +
+      `${escapeHtml(msg)}\n` +
+      (t.matchId ? `Ndeshja: <code>${escapeHtml(t.matchId)}</code>\n` : '') +
+      `Lojtari: <code>${escapeHtml(t.userId)}</code>`
+    );
+  }
+
+  private async resolveTicket(id: string, ref: MessageRef): Promise<void> {
+    if (!this.deps.support) { await this.editResolved(ref, 'Veprimi s’është aktiv.'); return; }
+    const adminId = await this.deps.resolveAdminUserId();
+    if (!adminId) { await this.editResolved(ref, '⚠️ S’u gjet llogaria admin — veprimi u ndal.'); return; }
+    const t = await this.deps.support.resolve(id, 'resolved', 'Zgjidhur nga admini (Telegram)', Date.now()).catch(() => null);
+    if (!t) { await this.editResolved(ref, '⚠️ Bileta nuk u gjet.'); return; }
+    await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${id} (telegram)` });
+    await this.editResolved(ref, `✅ <b>Zgjidhur</b> · ${escapeHtml(t.subject)}`);
+  }
+
+  // ---- Phase 2: digest (manual /digest + nightly) ----------------------------
+  /** Build + send the 24h digest. Public so the nightly sweep can call it. */
+  async sendDigest(): Promise<void> {
+    if (!this.deps.digest) { await this.deps.bot.sendMessage('Përmbledhja s’është aktive.'); return; }
+    const d = await this.deps.digest().catch(() => null);
+    if (!d) { await this.deps.bot.sendMessage('⚠️ Nuk u llogarit dot përmbledhja.'); return; }
+    await this.deps.bot.sendMessage(
+      '🌅 <b>Përmbledhja e 24 orëve</b>\n' +
+      `Lojtarë gjithsej: <b>${d.players}</b> (+${d.newSignups24h} të rinj)\n` +
+      `Rake 24h: <b>${usd(d.rake24hCents)}</b>\n` +
+      `Tërheqje në pritje: ${d.pendingWithdrawals} (${usd(d.pendingWithdrawalsCents)})\n` +
+      `Detyrime lojtarësh: ${usd(d.liabilitiesCents)}`,
     );
   }
 
@@ -180,28 +337,46 @@ export class TelegramAdminBot {
     const domain = parts[0];
     const action = parts[1];
     const id = parts.slice(2).join(':');
-    if (domain !== 'wd' || !id) {
-      await this.deps.bot.answerCallbackQuery(cq.id);
-      return;
-    }
+    if (!id) { await this.deps.bot.answerCallbackQuery(cq.id); return; }
+    if (domain === 'wd') return await this.handleWithdrawalTap(action, id, ref, cq.id);
+    if (domain === 'us') return await this.handleAccountStateTap(action, id, ref, cq.id);
+    if (domain === 'tk') return await this.handleTicketTap(action, id, ref, cq.id);
+    await this.deps.bot.answerCallbackQuery(cq.id);
+  }
+
+  private async handleWithdrawalTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
     switch (action) {
       case 'ok': // approve (may step up to a confirm for large amounts)
-        await this.onApproveTap(id, ref, cq.id);
+        await this.onApproveTap(id, ref, cbId);
         break;
       case 'cfm': // confirmed approve (second tap)
-        await this.deps.bot.answerCallbackQuery(cq.id, { text: 'Po e dërgoj…' });
+        await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e dërgoj…' });
         await this.doApprove(id, ref);
         break;
       case 'x': // cancel a pending confirm → restore the row
-        await this.onCancelConfirm(id, ref, cq.id);
+        await this.onCancelConfirm(id, ref, cbId);
         break;
       case 'no': // reject
-        await this.deps.bot.answerCallbackQuery(cq.id, { text: 'Po e refuzoj…' });
+        await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e refuzoj…' });
         await this.doReject(id, ref);
         break;
       default:
-        await this.deps.bot.answerCallbackQuery(cq.id);
+        await this.deps.bot.answerCallbackQuery(cbId);
     }
+  }
+
+  private async handleAccountStateTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
+    const map: Record<string, AccountStateValue> = { freeze: 'frozen', susp: 'suspended', ban: 'banned', active: 'active' };
+    const state = action ? map[action] : undefined;
+    if (!state) { await this.deps.bot.answerCallbackQuery(cbId); return; }
+    await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e zbatoj…' });
+    await this.applyAccountState(id, state, ref);
+  }
+
+  private async handleTicketTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
+    if (action !== 'res') { await this.deps.bot.answerCallbackQuery(cbId); return; }
+    await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e zgjidh…' });
+    await this.resolveTicket(id, ref);
   }
 
   private async onApproveTap(id: string, ref: MessageRef, callbackId: string): Promise<void> {
