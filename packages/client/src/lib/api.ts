@@ -308,6 +308,8 @@ export const accountApi = {
   selfExclude: (token: string, days: number) =>
     request<{ ok: boolean; selfExcludedUntil: number }>('/account/self-exclude', { method: 'POST', token, body: { days } }),
   getLimits: (token: string) => request<{ limits: RgLimits }>('/account/limits', { token }),
+  /** Limits + today's usage, for the "approaching your daily limit" wallet banner. */
+  rgStatus: (token: string) => request<{ status: { dailyDepositLimitCents: number | null; dailyLossLimitCents: number | null; depositUsedTodayCents: number; lossTodayCents: number } }>('/account/rg-status', { token }),
   setLimits: (token: string, body: Partial<RgLimits>) =>
     request<{ limits: RgLimits }>('/account/limits', { method: 'POST', token, body }),
   subscribePush: (token: string, sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>

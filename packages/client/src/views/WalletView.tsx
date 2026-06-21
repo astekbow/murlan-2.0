@@ -234,6 +234,8 @@ export function WalletView() {
         </div>
       )}
 
+      <RgStatusBanner />
+
       {/* Fee-free USDT-TRC20 deposit: send to our address, then paste the TxID. */}
       {depAddr && (
         <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.06s' }}>
@@ -398,6 +400,33 @@ export function WalletView() {
         </section>
       )}
     </div>
+  );
+}
+
+/** Responsible-gaming: warn when the player is at/over 80% of a daily limit they set.
+ *  Self-contained — fetches its own status; renders nothing if no limit is near. */
+function RgStatusBanner() {
+  const t = useT();
+  const [st, setSt] = useState<{ dailyDepositLimitCents: number | null; dailyLossLimitCents: number | null; depositUsedTodayCents: number; lossTodayCents: number } | null>(null);
+  useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    void accountApi.rgStatus(token).then((r) => setSt(r.status)).catch(() => {});
+  }, []);
+  if (!st) return null;
+  const warnings: string[] = [];
+  if (st.dailyDepositLimitCents && st.depositUsedTodayCents / st.dailyDepositLimitCents >= 0.8) {
+    warnings.push(t('wallet.rgNearDeposit', { used: dollars(st.depositUsedTodayCents), limit: dollars(st.dailyDepositLimitCents) }));
+  }
+  if (st.dailyLossLimitCents && st.lossTodayCents / st.dailyLossLimitCents >= 0.8) {
+    warnings.push(t('wallet.rgNearLoss', { used: dollars(st.lossTodayCents), limit: dollars(st.dailyLossLimitCents) }));
+  }
+  if (warnings.length === 0) return null;
+  return (
+    <section role="status" className="panel p-3 border border-amber-500/40 bg-amber-700/10 animate-rise">
+      <div className="text-sm text-amber-200 font-display font-semibold mb-1">⚠️ {t('wallet.rgNearTitle')}</div>
+      {warnings.map((w, i) => <p key={i} className="text-xs text-amber-100/90">{w}</p>)}
+    </section>
   );
 }
 

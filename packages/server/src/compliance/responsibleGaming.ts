@@ -72,6 +72,20 @@ export class ResponsibleGamingService {
     };
   }
 
+  /** Limits + today's USAGE (for the "approaching your limit" banner). lossTodayCents
+   *  is the net loss so far today as a positive number (0 when net is non-negative). */
+  async getStatus(userId: string): Promise<RgLimits & { depositUsedTodayCents: number; lossTodayCents: number }> {
+    const limits = await this.getLimits(userId);
+    const txs = await this.wallet.listTransactions(userId);
+    const now = this.now();
+    const net = netResultToday(txs, now);
+    return {
+      ...limits,
+      depositUsedTodayCents: depositsToday(txs, now),
+      lossTodayCents: net < 0 ? -net : 0,
+    };
+  }
+
   /**
    * Set/clear limits. A limit must be a POSITIVE integer-cent cap; null — and any
    * non-positive / non-finite value — means "no limit" (clears it). This avoids the

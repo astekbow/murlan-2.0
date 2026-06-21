@@ -147,6 +147,13 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
       return reply.send({ limits: await rg.getLimits(caller.userId) });
     });
 
+    // Limits + today's usage — drives the wallet "approaching your daily limit" banner.
+    app.get('/api/account/rg-status', async (req, reply) => {
+      const caller = await guard(req, reply);
+      if (!caller) return;
+      return reply.send({ status: await rg.getStatus(caller.userId) });
+    });
+
     app.post('/api/account/limits', async (req, reply) => {
       const caller = await guard(req, reply);
       if (!caller) return;
