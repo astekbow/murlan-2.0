@@ -40,6 +40,7 @@ const schema = z.object({
   ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
   TELEGRAM_BOT_TOKEN: z.string().optional(),   // set BOTH token + chat id → ops alerts (e.g. new withdrawal) to Telegram
   TELEGRAM_CHAT_ID: z.string().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(), // set → the admin bot is active: Telegram updates POST to /api/telegram/webhook (verified by this secret)
   AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
   DAILY_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = no daily cap; >0 = once a user's 24h withdrawals exceed this, further ones go MANUAL (anti-drain/AML)
   AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
@@ -109,6 +110,7 @@ export interface AppConfig {
   adminEmail: string | null;
   telegramBotToken: string | null;
   telegramChatId: string | null;
+  telegramWebhookSecret: string | null;
   autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
   dailyAutoWithdrawCapCents: number; // 0 = off; per-user 24h auto-payout cap (excess → manual)
   autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
@@ -220,6 +222,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,
     telegramBotToken: parsed.TELEGRAM_BOT_TOKEN || null,
     telegramChatId: parsed.TELEGRAM_CHAT_ID || null,
+    telegramWebhookSecret: parsed.TELEGRAM_WEBHOOK_SECRET || null,
     autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
     dailyAutoWithdrawCapCents: parsed.DAILY_AUTO_WITHDRAW_CAP_CENTS,
     autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,

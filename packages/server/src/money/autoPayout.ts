@@ -83,14 +83,25 @@ export async function processWithdrawal(
       : cls.tier === 'auto' && provider ? `→ Dështoi auto: ${escapeHtml(error ?? '')}. Paguaj + Aprovo manualisht.`
       : cls.tier === 'auto' ? '→ E vogël + KYC e verifikuar: e sigurt për ta aprovuar shpejt (pasi ta dërgosh).'
       : `→ Rishiko para aprovimit: ${cls.reasons.join(', ')}.`;
-    await deps.notifier.notify(
+    const text =
       `${head}\n` +
       `Lojtari: ${escapeHtml(ctx.username)}\n` +
       `Shuma: <b>${usd(record.amountCents)}</b>\n` +
       `Adresa: <code>${escapeHtml(record.destination)}</code>\n` +
       `KYC: ${ctx.kycStatus ?? '?'}\n` +
-      tail,
-    );
+      tail;
+    // If the withdrawal is still PENDING (manual review, or auto-pay didn't fire/failed)
+    // and the channel is the interactive bot, attach [✅ Approve] [❌ Reject] buttons so
+    // the operator resolves it from the chat. A successfully auto-paid one needs no action.
+    const stillPending = !autoPaid;
+    if (stillPending && deps.notifier.notifyInteractive) {
+      await deps.notifier.notifyInteractive(text, [[
+        { text: '✅ Aprovo', callbackData: `wd:ok:${record.id}` },
+        { text: '❌ Refuzo', callbackData: `wd:no:${record.id}` },
+      ]]);
+    } else {
+      await deps.notifier.notify(text);
+    }
   }
 
   return { tier: cls.tier, autoPaid, error };

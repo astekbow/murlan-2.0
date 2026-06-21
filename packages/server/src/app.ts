@@ -47,6 +47,9 @@ import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvid
 import { ConsoleEmailProvider, type EmailProvider } from './email/emailProvider.ts';
 import { ResendEmailProvider } from './email/resendEmailProvider.ts';
 import { createNotifier, type Notifier } from './notify/notifier.ts';
+import { TelegramBot } from './notify/telegramBot.ts';
+import { TelegramAdminBot } from './telegram/adminBot.ts';
+import { telegramRoutes } from './http/telegramRoutes.ts';
 import { NullPayoutProvider, type PayoutProvider } from './money/payoutProvider.ts';
 import { BinancePayoutProvider } from './money/binancePayout.ts';
 import { TronDepositVerifier } from './money/tronDeposit.ts';
@@ -124,6 +127,8 @@ export interface HttpDeps {
   push?: PushService;
   dbPing?: () => Promise<boolean>; // readiness probe for the DB (Prisma only)
   isDraining?: () => boolean; // true during graceful shutdown → /ready returns 503
+  telegramAdminBot?: TelegramAdminBot; // inbound Telegram admin bot (button taps / commands)
+  telegramWebhookSecret?: string | null; // secret guarding POST /api/telegram/webhook
 }
 
 export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
@@ -286,6 +291,12 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser });
   }
 
+  // Inbound Telegram admin bot: only mounted when the bot + its webhook secret are
+  // wired (full bot mode). The secret + owner-chat check are the auth (see route).
+  if (deps.telegramAdminBot && deps.telegramWebhookSecret) {
+    await telegramRoutes(app, { adminBot: deps.telegramAdminBot, webhookSecret: deps.telegramWebhookSecret });
+  }
+
   // Lightweight in-house client error logging (no third party): the browser POSTs
   // uncaught errors here; they land in the server logs (pino), rate-limited by the
   // global limiter. No auth — errors can occur before sign-in. Fields are truncated.
@@ -446,7 +457,15 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     ? new ResendEmailProvider(config.resendApiKey, config.emailFrom)
     : new ConsoleEmailProvider();
   // Ops alerts (Telegram) when configured, else a no-op. Used for withdrawal pings.
-  const notifier: Notifier = createNotifier(config);
+  // FULL BOT MODE: when the token + chat AND a webhook secret are all set, the
+  // notifier IS the interactive TelegramBot — so withdrawal alerts carry Approve/
+  // Reject buttons and the inbound webhook can act on taps. Otherwise it's the
+  // plain one-way notifier (alerts only).
+  let telegramBot: TelegramBot | null = null;
+  if (config.telegramBotToken && config.telegramChatId && config.telegramWebhookSecret) {
+    telegramBot = new TelegramBot(config.telegramBotToken, config.telegramChatId);
+  }
+  const notifier: Notifier = telegramBot ?? createNotifier(config);
   // AUTO crypto payout for small KYC-verified withdrawals — ON only when the Binance
   // withdraw API creds AND a positive cap are set; else NullPayoutProvider (manual).
   // This moves REAL money — keep the cap small. Larger withdrawals stay manual.
@@ -605,7 +624,36 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const tournamentRunHolder: { fn?: (id: string) => void } = {};
   const tournamentRunner = (id: string) => tournamentRunHolder.fn?.(id);
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining });
+  // Inbound Telegram admin bot (Phase 1: interactive withdrawals + read commands).
+  // Active only in full bot mode (token + chat + webhook secret all set). Reuses the
+  // SAME audited services as the web panel; every action is recorded to the audit
+  // trail under the owner's admin userId (resolved once from ADMIN_EMAIL, cached).
+  let telegramAdminBot: TelegramAdminBot | undefined;
+  if (telegramBot && config.telegramWebhookSecret) {
+    let adminUserIdCache: string | null | undefined; // undefined = not yet resolved
+    const resolveAdminUserId = async (): Promise<string | null> => {
+      if (adminUserIdCache !== undefined) return adminUserIdCache;
+      if (!config.adminEmail) return (adminUserIdCache = null);
+      const u = await repo.findByEmail(config.adminEmail).catch(() => null);
+      adminUserIdCache = u?.id ?? null;
+      return adminUserIdCache;
+    };
+    telegramAdminBot = new TelegramAdminBot({
+      bot: telegramBot,
+      authorizedChatId: config.telegramChatId!,
+      resolveAdminUserId,
+      withdrawals,
+      payout,
+      audit: adminAuditRepo,
+      wallet,
+      listUsers: () => auth.listUsers(),
+      // Withdrawals at/above the per-user 24h auto cap (or $200 default) need a 2nd tap.
+      largeWithdrawalCents: config.dailyAutoWithdrawCapCents > 0 ? config.dailyAutoWithdrawCapCents : 20000,
+      binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined,
+    });
+  }
+
+  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -882,6 +930,16 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     config,
     async listen() {
       await app.listen({ port: config.port, host: config.host });
+      // Register the Telegram webhook once we're up — only for a real public HTTPS
+      // origin (Telegram can't reach http://localhost in dev). Best-effort: a failure
+      // just means the inbound bot is idle until the next boot; alerts still work.
+      if (telegramBot && config.telegramWebhookSecret && config.clientOrigin.startsWith('https://')) {
+        const url = `${config.clientOrigin.replace(/\/$/, '')}/api/telegram/webhook`;
+        void telegramBot.setWebhook(url, config.telegramWebhookSecret).then((ok) => {
+          if (ok) app.log.info({ url }, '[telegram] admin-bot webhook registered');
+          else app.log.warn({ url }, '[telegram] admin-bot webhook registration failed (alerts still work)');
+        });
+      }
     },
     setDraining(active: boolean) {
       drainState.active = active;

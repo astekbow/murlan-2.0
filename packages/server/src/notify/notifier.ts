@@ -7,9 +7,21 @@
 // money flow (it's fired off the response path).
 // ============================================================================
 
+/** A single inline-keyboard button: a label + the callback payload Telegram echoes
+ *  back to the webhook when it's tapped (≤64 bytes per Telegram's limit). */
+export interface InlineButton {
+  text: string;
+  callbackData: string;
+}
+
 export interface Notifier {
   readonly name: string;
   notify(text: string): Promise<void>;
+  /** Optional: send a message carrying inline buttons (a Telegram inline keyboard).
+   *  `buttons` is an array of rows. Notifiers that can't do this simply omit the
+   *  method — callers fall back to plain notify(). Present only on the full bot
+   *  (TelegramBot), i.e. when the inbound webhook is active to handle the taps. */
+  notifyInteractive?(text: string, buttons: InlineButton[][]): Promise<void>;
 }
 
 /** No channel configured → does nothing (the default). */
