@@ -132,7 +132,8 @@ model User {
   claimedChallenges String[]  @default([]) // claimed challenge ids
 
   transactions         Transaction[]
-  withdrawals          Withdrawal[]
+  withdrawals          Withdrawal[]  @relation("WithdrawalUser")
+  resolvedWithdrawals  Withdrawal[]  @relation("WithdrawalResolver") // withdrawals this admin approved/rejected
   matchSeats           MatchPlayer[]
   friendRequests       Friendship[]        @relation("FriendRequests")
   friendOf             Friendship[]        @relation("FriendOf")
@@ -485,7 +486,10 @@ model Withdrawal {
   resolvedByAdminId String? // admin who approved/rejected (null = auto/system)
   failureReason     String? // short reason when a payout fails/reverses
 
-  user User @relation(fields: [userId], references: [id])
+  user            User  @relation("WithdrawalUser", fields: [userId], references: [id])
+  // The admin who resolved this withdrawal — referential integrity on the audit trail.
+  // SetNull: deleting/anonymizing an admin keeps the withdrawal row but drops the link.
+  resolvedByAdmin User? @relation("WithdrawalResolver", fields: [resolvedByAdminId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   // Admin withdrawal triage lists pending rows; index status to avoid a scan.
