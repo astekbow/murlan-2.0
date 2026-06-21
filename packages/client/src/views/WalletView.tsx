@@ -51,6 +51,7 @@ export function WalletView() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
   const [exporting, setExporting] = useState(false); // GDPR data export in flight
+  const [deleting, setDeleting] = useState(false); // GDPR account deletion in flight
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
   const [depAddr, setDepAddr] = useState<string | null>(null);
   const [txId, setTxId] = useState('');
@@ -168,6 +169,23 @@ export function WalletView() {
       useWalletStore.setState({ error: e instanceof ApiError ? e.message : tr('wallet.exportFailed') });
     } finally {
       setExporting(false);
+    }
+  };
+
+  // GDPR Art.17: irreversibly delete (anonymize) the account. Double-confirm.
+  const onDeleteAccount = async () => {
+    if (deleting) return;
+    if (!(await confirm({ title: t('wallet.deleteAccountT'), message: t('wallet.deleteAccountM'), danger: true, confirmLabel: t('wallet.deleteAccountNext') }))) return;
+    if (!(await confirm({ title: t('wallet.deleteAccountT2'), message: t('wallet.deleteAccountM2'), danger: true, confirmLabel: t('wallet.deleteAccount') }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setDeleting(true);
+    try {
+      await accountApi.deleteAccount(token);
+      await useAuthStore.getState().logout(); // unmounts to the auth screen
+    } catch (e) {
+      useWalletStore.setState({ error: e instanceof ApiError ? e.message : tr('wallet.deleteFailed') });
+      setDeleting(false);
     }
   };
 
@@ -316,9 +334,14 @@ export function WalletView() {
         {/* GDPR data export (Art.15/20): the player downloads all their data. */}
         <div className="pt-2 mt-1 border-t border-white/10 space-y-2">
           <div className="field-label">{t('wallet.yourData')}</div>
-          <button onClick={() => void onExportData()} disabled={exporting} className="btn btn-ghost btn-sm">
-            {exporting ? t('wallet.exporting') : t('wallet.exportData')}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => void onExportData()} disabled={exporting} className="btn btn-ghost btn-sm">
+              {exporting ? t('wallet.exporting') : t('wallet.exportData')}
+            </button>
+            <button onClick={() => void onDeleteAccount()} disabled={deleting} className="btn btn-danger btn-sm">
+              {deleting ? t('wallet.sending') : t('wallet.deleteAccount')}
+            </button>
+          </div>
           <p className="text-[11px] text-muted/70">{t('wallet.exportHint')}</p>
         </div>
       </section>

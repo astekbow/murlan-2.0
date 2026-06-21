@@ -69,6 +69,20 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     return reply.send({ exportedAt: Date.now(), account, transactions, withdrawals, limits });
   });
 
+  // GDPR Art.17: a player deletes their OWN account. PII is anonymized + the account
+  // closed (login blocked, sessions invalidated); financial records are retained per
+  // the AML/legal obligation. Irreversible — the client double-confirms first.
+  app.post('/api/account/delete', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const ok = await deps.auth.deleteAccount(caller.userId);
+    if (!ok) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    if (deps.audit) {
+      await deps.audit.record({ adminId: caller.userId, action: 'account_self_delete', targetUserId: caller.userId, detail: 'GDPR self-deletion (PII anonymized; financial records retained)' }).catch(() => undefined);
+    }
+    return reply.send({ ok: true });
+  });
+
   app.post('/api/account/profile', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;

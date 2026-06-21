@@ -157,6 +157,11 @@ export interface UserRepository {
   setRewards(id: string, patch: RewardsPatch): Promise<User | null>;
   /** Increment tokenVersion (force-logout: invalidates all refresh tokens). */
   bumpTokenVersion(id: string): Promise<number | null>;
+  /** GDPR Art.17: irreversibly anonymize a user's PII (username/email/DOB/country/
+   *  avatar scrubbed, password made unusable), close the account (can't log in) and
+   *  invalidate sessions. Financial rows (transactions/withdrawals) are intentionally
+   *  RETAINED (legal/AML obligation) with the now-anonymized user id. */
+  anonymize(id: string): Promise<boolean>;
   /**
    * Atomically buy a cosmetic: succeed ONLY if xp >= cost AND it isn't already
    * owned, deducting xp and appending the id in one operation. Prevents the
@@ -298,6 +303,23 @@ export class InMemoryUserRepository implements UserRepository {
     user.accountStateReason = patch.reason ?? null;
     user.accountStateUntil = patch.until ?? null;
     return { ...user };
+  }
+
+  async anonymize(id: string): Promise<boolean> {
+    const user = this.byId.get(id);
+    if (!user) return false;
+    const suffix = id.slice(0, 8).toLowerCase();
+    user.username = `deleted_${suffix}`; // findByUsername lowercases, so the old name no longer matches
+    user.email = `deleted_${id}@deleted.invalid`;
+    user.passwordHash = '!anonymized!'; // unusable hash → password login can never match
+    user.dateOfBirth = null;
+    user.country = null;
+    user.avatar = null;
+    user.accountState = 'banned'; // closed: blocks login (reason marks it as self-deletion)
+    user.accountStateReason = 'account_self_deleted';
+    user.accountStateUntil = null;
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1; // invalidate existing sessions
+    return true;
   }
 
   async list(): Promise<User[]> {

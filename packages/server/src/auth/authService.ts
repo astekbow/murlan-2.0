@@ -389,6 +389,14 @@ export class AuthService {
     };
   }
 
+  /** GDPR Art.17: the user deletes their OWN account — irreversibly anonymize PII and
+   *  close it (login blocked, sessions invalidated). Financial records (transactions/
+   *  withdrawals) are retained per the legal/AML retention obligation. Returns false
+   *  if the user no longer exists. */
+  async deleteAccount(userId: string): Promise<boolean> {
+    return this.users.anonymize(userId);
+  }
+
   /** All users for the admin panel (includes KYC + account state). */
   async listUsers(): Promise<Array<PublicUser & { kycStatus: string; accountState: string }>> {
     return (await this.users.list()).map((u) => ({ ...toPublicUser(u), kycStatus: u.kycStatus, accountState: u.accountState }));

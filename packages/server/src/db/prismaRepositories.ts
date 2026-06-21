@@ -240,6 +240,27 @@ export class PrismaUserRepository implements UserRepository {
     return row ? row.tokenVersion : null;
   }
 
+  async anonymize(id: string): Promise<boolean> {
+    const suffix = id.slice(0, 8).toLowerCase();
+    const row = await this.db.user.update({
+      where: { id },
+      data: {
+        username: `deleted_${suffix}`,
+        usernameLower: `deleted_${suffix}`,
+        email: `deleted_${id}@deleted.invalid`,
+        passwordHash: '!anonymized!', // unusable hash → password login can never match
+        dateOfBirth: null,
+        country: null,
+        avatar: null,
+        accountState: 'banned', // closed: blocks login (reason marks it self-deletion)
+        accountStateReason: 'account_self_deleted',
+        accountStateUntil: null,
+        tokenVersion: { increment: 1 }, // invalidate existing sessions
+      },
+    }).catch(() => null);
+    return row !== null;
+  }
+
   async purchaseCosmetic(id: string, cosmeticId: string, cost: number): Promise<{ ok: boolean; code?: string }> {
     // One atomic conditional update: deduct + grant only if affordable AND not
     // already owned. count===1 ⇒ purchased; otherwise diagnose why it failed.

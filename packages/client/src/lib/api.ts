@@ -318,6 +318,9 @@ export const accountApi = {
    *  + withdrawals + RG settings), for a self-service download. */
   exportData: (token: string) =>
     request<Record<string, unknown>>('/account/export', { token }),
+  /** GDPR Art.17: delete (anonymize) the caller's own account. Irreversible. */
+  deleteAccount: (token: string) =>
+    request<{ ok: boolean }>('/account/delete', { method: 'POST', token }),
 };
 
 // ---------- Clubs (social) --------------------------------------------------

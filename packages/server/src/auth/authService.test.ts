@@ -278,3 +278,27 @@ test('updateSelfProfile: editable before KYC, LOCKED after verification (service
   assert.equal(r3.ok, true);
   assert.equal((r3 as { changed: boolean }).changed, false);
 });
+
+test('GDPR: exportPersonalData returns the profile; deleteAccount anonymizes PII + blocks login', async () => {
+  const { auth } = makeService();
+  const { user } = await auth.register(valid);
+
+  // Art.15/20: the export carries the real profile while the account is open.
+  const before = await auth.exportPersonalData(user.id);
+  assert.equal(before?.username, 'driloni');
+  assert.equal(before?.email, 'dril@example.com');
+
+  // Art.17: self-deletion anonymizes the user in place (the row is retained for the
+  // financial/AML record, but the PII is scrubbed).
+  assert.equal(await auth.deleteAccount(user.id), true);
+  const after = await auth.exportPersonalData(user.id);
+  assert.ok(after, 'the user row is retained (anonymized), not hard-deleted');
+  assert.match(after!.username, /^deleted_/);
+  assert.notEqual(after!.email, 'dril@example.com');
+  assert.match(after!.email, /@deleted\.invalid$/);
+  assert.equal(after!.dateOfBirth, null);
+  assert.equal(after!.country, null);
+
+  // The original credentials can no longer log in (the account is closed).
+  await assert.rejects(() => auth.login({ email: valid.email, password: valid.password }));
+});
