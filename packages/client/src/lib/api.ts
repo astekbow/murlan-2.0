@@ -230,6 +230,9 @@ export const rankedApi = {
   season: () => request<{ season: SeasonDTO | null }>('/ranked/season'),
   leaderboard: () => request<{ rows: RankedLeaderboardRow[] }>('/ranked/leaderboard'),
   me: (token: string) => request<{ ranked: RankedProfileDTO }>('/ranked/me', { token }),
+  /** Admin: open a new season (archives the current one + soft-resets ratings). */
+  createSeason: (token: string, name: string, decayFactor?: number) =>
+    request<{ season: SeasonDTO }>('/admin/ranked/season', { method: 'POST', token, body: { name, ...(decayFactor != null ? { decayFactor } : {}) } }),
 };
 
 export type { RankedProfileDTO, RankedLeaderboardRow, SeasonDTO, TierInfo, RankedTierKey };

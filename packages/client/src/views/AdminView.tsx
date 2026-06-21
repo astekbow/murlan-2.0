@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useAdminStore } from '../store/adminStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
+import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
-import { adminApi } from '../lib/api.ts';
-import type { AdminUser, AdminMatch, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown } from '../lib/api.ts';
+import { adminApi, rankedApi, ApiError } from '../lib/api.ts';
+import type { AdminUser, AdminMatch, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown, SeasonDTO } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -229,6 +230,58 @@ function StatCard({ label, value, accent, onClick }: { label: string; value: str
   );
 }
 
+// Ranked-season control: shows the active season + opens a new one. Starting a season
+// archives the current one and soft-resets every player's MMR, so it's confirmed (danger).
+function RankedSeasonCard() {
+  const t = useT();
+  const { confirm, dialog } = useConfirm();
+  const [season, setSeason] = useState<SeasonDTO | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { void rankedApi.season().then((r) => setSeason(r.season)).catch(() => {}); }, []);
+
+  const start = async () => {
+    const nm = name.trim();
+    if (!nm || busy) return;
+    if (!(await confirm({ title: t('admin.ranked.startT'), message: t('admin.ranked.startM'), confirmLabel: t('admin.ranked.start'), danger: true }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setBusy(true);
+    try {
+      const { season: s } = await rankedApi.createSeason(token, nm);
+      setSeason(s);
+      setName('');
+      useGameStore.setState({ toast: t('admin.ranked.started', { name: nm }), toastKind: 'success' });
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('err.generic'), toastKind: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel p-4 space-y-3">
+      {dialog}
+      <h3 className="font-display font-semibold text-gold-hi text-sm">{t('admin.ranked.title')}</h3>
+      <p className="text-sm text-muted">
+        {season ? t('admin.ranked.current', { n: season.number, name: season.name }) : t('admin.ranked.none')}
+      </p>
+      <div className="flex flex-wrap gap-3 items-end">
+        <label className="block flex-1 min-w-[12rem]">
+          <span className="field-label">{t('admin.ranked.newName')}</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('admin.ranked.newNamePh')} className="field w-full"
+            onKeyDown={(e) => { if (e.key === 'Enter') void start(); }} />
+        </label>
+        <button onClick={() => void start()} disabled={busy || !name.trim()} className="btn btn-gold">
+          {busy ? t('admin.ranked.starting') : t('admin.ranked.start')}
+        </button>
+      </div>
+      <p className="text-[11px] text-muted/70">{t('admin.ranked.hint')}</p>
+    </section>
+  );
+}
+
 export function AdminView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
@@ -400,6 +453,9 @@ export function AdminView() {
               <p className="text-xs text-muted/70 italic">{t('admin.treasuryHint')}</p>
             )}
           </section>
+
+          {/* Ranked season management (open/reset the competitive ladder). */}
+          <RankedSeasonCard />
         </div>
       )}
 
