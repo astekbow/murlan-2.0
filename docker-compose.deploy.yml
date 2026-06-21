@@ -60,6 +60,44 @@ services:
       postgres:
         condition: service_healthy
 
+  # --- Monitoring (OPT-IN: add `--profile monitoring` to the up command) ------
+  # Prometheus scrapes the server's /metrics over the internal network (no token —
+  # it's a private 172.x IP) + evaluates deploy/prometheus/alerts.yml. Alertmanager
+  # pages your Telegram on a firing alert, reusing TELEGRAM_BOT_TOKEN/CHAT_ID.
+  #   docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile monitoring up -d
+  # Then watch the bracket at http://127.0.0.1:9090 (Prometheus) — bind to localhost.
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ['monitoring']
+    restart: unless-stopped
+    ports: ['127.0.0.1:9090:9090'] # localhost only — never expose Prometheus publicly
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on: ['server']
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    profiles: ['monitoring']
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env for Telegram alerts}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?set TELEGRAM_CHAT_ID in .env for Telegram alerts}
+    entrypoint: ['/bin/sh', '-c']
+    # Render the committed template with your bot token + chat id at startup (no secret
+    # is ever written to the repo), then run Alertmanager on it.
+    command:
+      - |
+        sed -e "s|__BOT_TOKEN__|$$TELEGRAM_BOT_TOKEN|g" -e "s|__CHAT_ID__|$$TELEGRAM_CHAT_ID|g" \
+          /etc/alertmanager/alertmanager.tmpl.yml > /tmp/alertmanager.yml
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
+    volumes:
+      - ./deploy/prometheus/alertmanager.tmpl.yml:/etc/alertmanager/alertmanager.tmpl.yml:ro
+      - alertmanager_data:/alertmanager
+
 volumes:
   caddy_data:
   caddy_config:
+  prometheus_data:
+  alertmanager_data:

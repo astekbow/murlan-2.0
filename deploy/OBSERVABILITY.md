@@ -4,21 +4,25 @@ The server exposes Prometheus metrics at **`GET /metrics`** (see
 `packages/server/src/metrics.ts`). Operator alerts (e.g. large withdrawals) also go
 to Telegram (`packages/server/src/notify/notifier.ts`, now with retry).
 
-## 1. Metrics → Prometheus + alerts
-1. Scrape the API. Example Prometheus scrape config:
-   ```yaml
-   scrape_configs:
-     - job_name: murlan          # the alert rules use job="murlan"
-       metrics_path: /metrics
-       static_configs:
-         - targets: ['murlan-server:8080']   # adjust host:port to your deploy
-   ```
-2. Load the alert rules:
-   ```yaml
-   rule_files:
-     - /etc/prometheus/alerts.yml   # = deploy/prometheus/alerts.yml
-   ```
-3. Point **Alertmanager** at your receiver (Telegram bot / email / PagerDuty).
+## 1. Metrics → Prometheus → Telegram (one command)
+The full pipeline is wired and **opt-in** behind the `monitoring` compose profile —
+Prometheus (scrape + `alerts.yml`) + Alertmanager (→ your Telegram). Bring it up with:
+
+```bash
+# Needs TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in .env (the same ones the app uses).
+docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile monitoring up -d
+```
+
+That's it: Prometheus scrapes `server:3000/metrics` over the internal network (a private
+172.x IP, so no token is needed), evaluates `deploy/prometheus/alerts.yml`, and
+Alertmanager pages your Telegram chat when an alert fires (and again when it resolves).
+Prometheus' UI is on `http://127.0.0.1:9090` (localhost-only). The pieces:
+- `deploy/prometheus/prometheus.yml` — scrape + rules + alertmanager target.
+- `deploy/prometheus/alerts.yml` — the alert rules (money-integrity + ops).
+- `deploy/prometheus/alertmanager.tmpl.yml` — Telegram receiver (your bot token + chat
+  id are injected at container start from the env — never committed).
+
+To run the rest of the stack WITHOUT monitoring, just omit `--profile monitoring`.
 
 ### Key money metrics
 | Metric | Meaning | Alert |

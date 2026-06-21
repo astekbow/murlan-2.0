@@ -1,0 +1,24 @@
+# Alertmanager → Telegram. This is a TEMPLATE: the alertmanager container substitutes
+# __BOT_TOKEN__ and __CHAT_ID__ from $TELEGRAM_BOT_TOKEN / $TELEGRAM_CHAT_ID at startup
+# (see its command in docker-compose.deploy.yml), so no secret is committed to the repo.
+# Reuses the SAME Telegram bot + chat you already use for ops alerts.
+
+route:
+  receiver: telegram
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 3h # re-page an still-firing alert at most every 3h
+
+receivers:
+  - name: telegram
+    telegram_configs:
+      - bot_token: '__BOT_TOKEN__'
+        chat_id: __CHAT_ID__
+        parse_mode: HTML
+        send_resolved: true
+        message: |
+          {{ if eq .Status "firing" }}🔴{{ else }}✅{{ end }} <b>{{ .CommonLabels.alertname }}</b> ({{ .Status }})
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
