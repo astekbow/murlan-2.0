@@ -58,6 +58,48 @@ export interface DigestStats {
   liabilitiesCents: number;
 }
 
+/** Risk snapshot shown before approving a withdrawal (all cheap reads). */
+export interface UserRiskView {
+  userId: string;
+  username: string;
+  accountAgeDays: number;
+  kycStatus: string;
+  accountState: string;
+  balanceCents: number;
+  priorWithdrawals: number;        // total ever (any status)
+  completedWithdrawals: number;
+  priorWithdrawalsCents: number;   // sum of completed payouts
+  sameDayDepositWithdraw: boolean; // deposited AND withdrawing the same UTC day (cash-out abuse / laundering)
+}
+
+/** One anti-cheat flag (mirrors SuspicionFlag) the operator can act on. */
+export interface FlagView {
+  id: string;
+  userId: string;
+  type: string;
+  severity: number;
+  detail: string;
+  matchId: string | null;
+  createdAt: number;
+}
+
+/** Live game snapshot for /live. */
+export interface LiveState {
+  matches: number;
+  potCents: number;
+  byType: Array<{ type: string; count: number; potCents: number }>;
+}
+
+/** Health snapshot for /health. */
+export interface HealthState {
+  dbOk: boolean | null; // null = no DB (in-memory)
+  reconcileOk: boolean;
+  mismatches: number;
+  settlementFailures: number;
+  activeMatches: number;
+  pendingWithdrawals: number;
+}
+
 // ---- Minimal Telegram update shapes (only the fields we read) ----------------
 interface TgChat { id: number | string }
 interface TgFrom { id: number | string }
@@ -107,6 +149,18 @@ export interface AdminBotDeps {
   tournamentCreate?: (name: string, buyInCents: number, capacity: number) => Promise<{ ok: true; id: string; name: string } | { ok: false; reason: string }>;
   /** Cancel + refund a tournament. */
   tournamentCancel?: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
+
+  // ---- Tier-2 power-ups — all optional ----
+  /** Risk snapshot for a user (shown via the [👤 Rreziku] button before approving). */
+  userRisk?: (userId: string) => Promise<UserRiskView | null>;
+  /** Anti-cheat flags (collusion / chip-dump / bot), newest first. */
+  listFlags?: (minSeverity: number, limit: number) => Promise<FlagView[]>;
+  /** Send a player an in-app push notification (e.g. ticket resolved, withdrawal rejected). */
+  messagePlayer?: (userId: string, title: string, body: string) => Promise<void>;
+  /** Live game snapshot (active matches + pot at risk). */
+  liveState?: () => Promise<LiveState>;
+  /** Health snapshot (DB, reconcile, settlement failures, live counts). */
+  health?: () => Promise<HealthState>;
 }
 
 /** A money-moving action staged for a confirm tap (its reason text is too long /
@@ -182,6 +236,12 @@ export class TelegramAdminBot {
         return void (await this.stageVoid(arg));
       case '/tournament':
         return void (await this.handleTournament(arg));
+      case '/flags':
+        return void (await this.sendFlags());
+      case '/live':
+        return void (await this.sendLive());
+      case '/health':
+        return void (await this.sendHealth());
       default:
         return void (await this.deps.bot.sendMessage(`Urdhër i panjohur. ${escapeHtml('/help')} për listën.`));
     }
@@ -202,6 +262,9 @@ export class TelegramAdminBot {
     if (this.deps.adminAdjust) lines.push('/credit &lt;user&gt; &lt;shuma&gt; &lt;arsye&gt; · /debit … — rregullim bilanci (me konfirmim)');
     if (this.deps.voidMatch) lines.push('/void &lt;roomId&gt; &lt;arsye&gt; — anulo + rikthe një ndeshje (me konfirmim)');
     if (this.deps.tournamentCreate) lines.push('/tournament new &lt;buyin&gt; &lt;cap&gt; · /tournament cancel &lt;id&gt;');
+    if (this.deps.listFlags) lines.push('/flags — sinjale anti-cheat (koluzion/bot)');
+    if (this.deps.liveState) lines.push('/live — ndeshjet aktive + lekët në lojë tani');
+    if (this.deps.health) lines.push('/health — a është gjithçka në rregull');
     lines.push('/help — kjo listë');
     return lines.join('\n');
   }
@@ -291,7 +354,12 @@ export class TelegramAdminBot {
     const t = await this.deps.support.resolve(id, 'resolved', 'Zgjidhur nga admini (Telegram)', Date.now()).catch(() => null);
     if (!t) { await this.editResolved(ref, '⚠️ Bileta nuk u gjet.'); return; }
     await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${id} (telegram)` });
-    await this.editResolved(ref, `✅ <b>Zgjidhur</b> · ${escapeHtml(t.subject)}`);
+    // Close the loop: notify the player their ticket was handled (best-effort).
+    let notified = '';
+    if (this.deps.messagePlayer) {
+      await this.deps.messagePlayer(t.userId, 'Mbështetje — zgjidhur', `Kërkesa jote “${t.subject}” u shqyrtua dhe u zgjidh.`).then(() => { notified = ' · lojtari u njoftua'; }).catch(() => {});
+    }
+    await this.editResolved(ref, `✅ <b>Zgjidhur</b> · ${escapeHtml(t.subject)}${notified}`);
   }
 
   // ---- Phase 2: digest (manual /digest + nightly) ----------------------------
@@ -458,14 +526,16 @@ export class TelegramAdminBot {
 
   /** The standard "pending withdrawal" message + its Approve/Reject buttons. */
   private renderPendingRow(w: WithdrawalRecord): { text: string; buttons: InlineButton[][] } {
+    const buttons: InlineButton[][] = [[
+      { text: '✅ Aprovo', callbackData: `wd:ok:${w.id}` },
+      { text: '❌ Refuzo', callbackData: `wd:no:${w.id}` },
+    ]];
+    if (this.deps.userRisk) buttons.push([{ text: '👤 Rreziku', callbackData: `wd:risk:${w.id}` }]);
     return {
       text:
         `⏳ <b>Tërheqje</b> · ${usd(w.amountCents)}\n` +
         `Adresa: <code>${escapeHtml(w.destination)}</code>`,
-      buttons: [[
-        { text: '✅ Aprovo', callbackData: `wd:ok:${w.id}` },
-        { text: '❌ Refuzo', callbackData: `wd:no:${w.id}` },
-      ]],
+      buttons,
     };
   }
 
@@ -527,17 +597,104 @@ export class TelegramAdminBot {
         await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e refuzoj…' });
         await this.doReject(id, ref);
         break;
+      case 'risk': // show the user's risk snapshot (as a NEW message; the alert stays actionable)
+        await this.deps.bot.answerCallbackQuery(cbId);
+        await this.showWithdrawalRisk(id);
+        break;
       default:
         await this.deps.bot.answerCallbackQuery(cbId);
     }
   }
 
   private async handleAccountStateTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
+    if (action === 'show') { // open the full user card (e.g. tapped from a /flags row)
+      await this.deps.bot.answerCallbackQuery(cbId);
+      await this.sendUser(id);
+      return;
+    }
     const map: Record<string, AccountStateValue> = { freeze: 'frozen', susp: 'suspended', ban: 'banned', active: 'active' };
     const state = action ? map[action] : undefined;
     if (!state) { await this.deps.bot.answerCallbackQuery(cbId); return; }
     await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e zbatoj…' });
     await this.applyAccountState(id, state, ref);
+  }
+
+  // ---- Tier-2: withdrawal risk snapshot --------------------------------------
+  private async showWithdrawalRisk(withdrawalId: string): Promise<void> {
+    if (!this.deps.userRisk) return;
+    const w = await this.deps.withdrawals.find(withdrawalId).catch(() => null);
+    if (!w) return void (await this.deps.bot.sendMessage('⚠️ Tërheqja nuk u gjet.'));
+    const r = await this.deps.userRisk(w.userId).catch(() => null);
+    if (!r) return void (await this.deps.bot.sendMessage('⚠️ S’u lexua dot profili i rrezikut.'));
+    const flags: string[] = [];
+    if (r.sameDayDepositWithdraw) flags.push('⚠️ Depozitoi DHE po tërheq të njëjtën ditë');
+    if (r.accountAgeDays < 1) flags.push('⚠️ Llogari < 24h e vjetër');
+    if (r.kycStatus !== 'verified') flags.push(`KYC: ${escapeHtml(r.kycStatus)}`);
+    if (r.accountState !== 'active') flags.push(`Gjendja: ${escapeHtml(r.accountState)}`);
+    const text =
+      `🔎 <b>Rreziku — ${escapeHtml(r.username)}</b>\n` +
+      `Llogaria: ${Math.floor(r.accountAgeDays)} ditë · Bilanci: ${usd(r.balanceCents)}\n` +
+      `Tërheqje më parë: ${r.priorWithdrawals} (${r.completedWithdrawals} të paguara, ${usd(r.priorWithdrawalsCents)})\n` +
+      (flags.length ? `\n${flags.join('\n')}` : '\n✅ Asnjë flamur i dukshëm rreziku.');
+    const buttons: InlineButton[][] = [];
+    if (this.deps.setAccountState) buttons.push([{ text: '🧊 Ngrij', callbackData: `us:freeze:${r.userId}` }, { text: '🚫 Blloko', callbackData: `us:ban:${r.userId}` }]);
+    if (this.deps.findUser) buttons.push([{ text: '👤 Karta e plotë', callbackData: `us:show:${r.userId}` }]);
+    await this.deps.bot.sendMessage(text, buttons.length ? { buttons } : {});
+  }
+
+  // ---- Tier-2: anti-cheat flags (/flags) -------------------------------------
+  private async sendFlags(): Promise<void> {
+    if (!this.deps.listFlags) return void (await this.deps.bot.sendMessage('Komanda /flags s’është aktive.'));
+    const flags = await this.deps.listFlags(2, 10).catch(() => [] as FlagView[]);
+    if (!flags.length) return void (await this.deps.bot.sendMessage('✅ S’ka sinjale anti-cheat (severity ≥ 2).'));
+    await this.deps.bot.sendMessage(`🚩 <b>${flags.length}</b> sinjale anti-cheat (severity ≥ 2):`);
+    for (const f of flags) {
+      const buttons: InlineButton[][] = [];
+      const row: InlineButton[] = [];
+      if (this.deps.findUser) row.push({ text: '👤 Lojtari', callbackData: `us:show:${f.userId}` });
+      if (this.deps.setAccountState) row.push({ text: '🚫 Blloko', callbackData: `us:ban:${f.userId}` });
+      if (row.length) buttons.push(row);
+      await this.deps.bot.sendMessage(this.renderFlag(f), buttons.length ? { buttons } : {});
+    }
+  }
+
+  private renderFlag(f: FlagView): string {
+    const sev = f.severity >= 3 ? '🔴 lartë' : f.severity >= 2 ? '🟠 mesatar' : '🟡 ulët';
+    return (
+      `🚩 <b>${escapeHtml(f.type)}</b> · ${sev}\n` +
+      `${escapeHtml(f.detail)}\n` +
+      (f.matchId ? `Ndeshja: <code>${escapeHtml(f.matchId)}</code>\n` : '') +
+      `Lojtari: <code>${escapeHtml(f.userId)}</code>`
+    );
+  }
+
+  // ---- Tier-2: live game state (/live) ---------------------------------------
+  private async sendLive(): Promise<void> {
+    if (!this.deps.liveState) return void (await this.deps.bot.sendMessage('Komanda /live s’është aktive.'));
+    const s = await this.deps.liveState().catch(() => null);
+    if (!s) return void (await this.deps.bot.sendMessage('⚠️ S’u lexua dot gjendja e ndeshjeve.'));
+    if (!s.matches) return void (await this.deps.bot.sendMessage('💤 Asnjë ndeshje aktive tani.'));
+    const byType = s.byType.map((t) => `· ${escapeHtml(t.type)}: ${t.count} (${usd(t.potCents)})`).join('\n');
+    await this.deps.bot.sendMessage(
+      `🎮 <b>Ndeshje aktive: ${s.matches}</b>\n` +
+      `Lekë në lojë tani: <b>${usd(s.potCents)}</b>` +
+      (byType ? `\n${byType}` : ''),
+    );
+  }
+
+  // ---- Tier-2: health (/health) ----------------------------------------------
+  private async sendHealth(): Promise<void> {
+    if (!this.deps.health) return void (await this.deps.bot.sendMessage('Komanda /health s’është aktive.'));
+    const h = await this.deps.health().catch(() => null);
+    if (!h) return void (await this.deps.bot.sendMessage('⚠️ S’u lexua dot gjendja e sistemit.'));
+    const ok = (h.dbOk !== false) && h.reconcileOk && h.settlementFailures === 0;
+    await this.deps.bot.sendMessage(
+      `${ok ? '✅' : '🚨'} <b>Gjendja e sistemit</b>\n` +
+      `DB: ${h.dbOk === null ? 'in-memory' : h.dbOk ? '✅ OK' : '🚨 POSHTË'}\n` +
+      `Reconcile (ledger=bilanc): ${h.reconcileOk ? '✅ OK' : `🚨 ${h.mismatches} mospërputhje`}\n` +
+      `Dështime settlement: ${h.settlementFailures === 0 ? '✅ 0' : `🚨 ${h.settlementFailures}`}\n` +
+      `Ndeshje aktive: ${h.activeMatches} · Tërheqje në pritje: ${h.pendingWithdrawals}`,
+    );
   }
 
   private async handleTicketTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
@@ -620,6 +777,10 @@ export class TelegramAdminBot {
       await this.deps.audit.record({
         adminId, action: 'withdrawal_reject', targetUserId: w.userId, amountCents: w.amountCents, detail: `${id} (telegram)`,
       });
+      // Tell the player their funds came back (best-effort).
+      if (this.deps.messagePlayer) {
+        await this.deps.messagePlayer(w.userId, 'Tërheqja u refuzua', `Tërheqja jote prej ${usd(w.amountCents)} u refuzua dhe fondet u kthyen në bilanc.`).catch(() => {});
+      }
       await this.editResolved(ref, `❌ <b>Refuzuar</b> · ${usd(w.amountCents)} · fondet u kthyen lojtarit.`);
     } catch (e) {
       const msg = e instanceof WithdrawalError ? e.message : 'Gabim i papritur gjatë refuzimit.';

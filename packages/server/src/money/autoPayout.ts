@@ -95,10 +95,13 @@ export async function processWithdrawal(
     // the operator resolves it from the chat. A successfully auto-paid one needs no action.
     const stillPending = !autoPaid;
     if (stillPending && deps.notifier.notifyInteractive) {
-      await deps.notifier.notifyInteractive(text, [[
-        { text: '✅ Aprovo', callbackData: `wd:ok:${record.id}` },
-        { text: '❌ Refuzo', callbackData: `wd:no:${record.id}` },
-      ]]);
+      await deps.notifier.notifyInteractive(text, [
+        [
+          { text: '✅ Aprovo', callbackData: `wd:ok:${record.id}` },
+          { text: '❌ Refuzo', callbackData: `wd:no:${record.id}` },
+        ],
+        [{ text: '👤 Rreziku', callbackData: `wd:risk:${record.id}` }],
+      ]);
     } else {
       await deps.notifier.notify(text);
     }

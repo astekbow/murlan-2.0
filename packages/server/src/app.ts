@@ -705,6 +705,63 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           return { ok: false, reason: e instanceof TournamentError ? e.message : 'gabim' };
         }
       },
+      // ---- Tier-2: risk view / anti-cheat / player messaging / live / health ----
+      userRisk: async (userId) => {
+        const [u, txs, wds] = await Promise.all([
+          repo.findById(userId).catch(() => null),
+          wallet.listTransactions(userId).catch(() => []),
+          withdrawals.listByUser(userId).catch(() => []),
+        ]);
+        if (!u) return null;
+        const day = Math.floor(Date.now() / 86_400_000); // UTC day index
+        const depositedToday = txs.some((t) => t.type === 'deposit' && Math.floor(t.createdAt / 86_400_000) === day);
+        const withdrewToday = wds.some((w) => Math.floor(w.createdAt / 86_400_000) === day);
+        const completed = wds.filter((w) => w.status === 'completed');
+        return {
+          userId: u.id,
+          username: u.username,
+          accountAgeDays: (Date.now() - u.createdAt) / 86_400_000,
+          kycStatus: u.kycStatus,
+          accountState: u.accountState,
+          balanceCents: u.balanceCents,
+          priorWithdrawals: wds.length,
+          completedWithdrawals: completed.length,
+          priorWithdrawalsCents: completed.reduce((s, w) => s + w.amountCents, 0),
+          sameDayDepositWithdraw: depositedToday && withdrewToday,
+        };
+      },
+      listFlags: (minSeverity, limit) => antiCheat.listFlags({ minSeverity, limit }),
+      messagePlayer: (userId, title, body) => push.notify(userId, { title, body, tag: 'admin-msg' }).then(() => {}),
+      liveState: async () => {
+        const active = rooms.listActiveMatches();
+        const byType = new Map<string, { count: number; potCents: number }>();
+        let potCents = 0;
+        for (const m of active) {
+          const pot = m.stakeCents * m.players.length; // pot = stake × seated players
+          potCents += pot;
+          const e = byType.get(m.type) ?? { count: 0, potCents: 0 };
+          e.count += 1; e.potCents += pot;
+          byType.set(m.type, e);
+        }
+        return { matches: active.length, potCents, byType: [...byType].map(([type, v]) => ({ type, count: v.count, potCents: v.potCents })) };
+      },
+      health: async () => {
+        const [db, rec, metricsJson, pending] = await Promise.all([
+          dbPing ? dbPing().catch(() => false) : Promise.resolve(null),
+          wallet.reconcile().catch(() => ({ ok: false, mismatches: [] as Array<unknown> })),
+          registry.getMetricsAsJSON().catch(() => [] as Array<{ name: string; values?: Array<{ value: number }> }>),
+          withdrawals.listPending().catch(() => []),
+        ]);
+        const sf = metricsJson.find((m) => m.name === 'murlan_settlement_failures_total')?.values?.[0]?.value ?? 0;
+        return {
+          dbOk: db,
+          reconcileOk: rec.ok,
+          mismatches: rec.mismatches.length,
+          settlementFailures: sf,
+          activeMatches: rooms.activeMatchIds().size,
+          pendingWithdrawals: pending.length,
+        };
+      },
     });
   }
 
@@ -798,6 +855,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Seed lastDigestDay so a restart LATER than the hour doesn't re-send today's.
   const DIGEST_HOUR_UTC = 8;
   let lastDigestDay = new Date().getUTCHours() >= DIGEST_HOUR_UTC ? new Date().toISOString().slice(0, 10) : '';
+  // Anti-cheat: push NEW high-severity flags (collusion/chip-dump/bot) to the bot
+  // chat once, so they're seen the moment they're raised (not left unseen in the DB).
+  const alertedFlags = new Set<string>();
   const sweepTimer = setInterval(() => {
     void (async () => {
       try {
@@ -897,6 +957,25 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
             lastDigestDay = today;
             await telegramAdminBot.sendDigest().catch((err) => app.log.warn({ err }, 'digest send failed'));
           }
+        }
+        // Anti-cheat: push NEW high-severity (≥3) flags to the bot chat once each, with
+        // [👤 Lojtari] [🚫 Blloko] buttons. The flags are already raised by analyzeMatch;
+        // this just surfaces them proactively instead of waiting for a /flags check.
+        if (telegramBot) {
+          const flags = await antiCheat.listFlags({ minSeverity: 3, limit: 20 }).catch(() => []);
+          const fresh = flags.filter((f) => !alertedFlags.has(f.id));
+          for (const f of fresh.reverse()) { // oldest-first so the chat reads chronologically
+            alertedFlags.add(f.id);
+            await telegramBot.sendMessage(
+              `🚩 <b>Sinjal anti-cheat (i lartë)</b>\n` +
+              `Lloji: ${f.type}\n${f.detail}\n` +
+              (f.matchId ? `Ndeshja: ${f.matchId}\n` : '') +
+              `Lojtari: ${f.userId}`,
+              { buttons: [[{ text: '👤 Lojtari', callbackData: `us:show:${f.userId}` }, { text: '🚫 Blloko', callbackData: `us:ban:${f.userId}` }]] },
+            ).catch(() => {});
+          }
+          // Keep the dedupe set bounded: drop ids no longer in the recent window.
+          if (alertedFlags.size > 500) { const keep = new Set(flags.map((f) => f.id)); for (const id of alertedFlags) if (!keep.has(id)) alertedFlags.delete(id); }
         }
       } catch (err) {
         app.log.error({ err }, 'periodic money sweep failed');

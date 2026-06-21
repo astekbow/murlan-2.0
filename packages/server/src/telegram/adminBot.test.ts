@@ -44,6 +44,7 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
   const voidCalls: Array<{ roomId: string; reason: string }> = [];
   const tCreate: Array<{ name: string; buyInCents: number; capacity: number }> = [];
   const tCancel: string[] = [];
+  const msgCalls: Array<{ userId: string; title: string; body: string }> = [];
   const deps: AdminBotDeps = {
     bot: bot as never,
     authorizedChatId: CHAT,
@@ -64,9 +65,15 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     voidMatch: async (roomId: string, meta: { adminId: string; reason: string }) => { voidCalls.push({ roomId, reason: meta.reason }); return { ok: true as const, matchId: 'm1', refunded: true }; },
     tournamentCreate: async (name: string, buyInCents: number, capacity: number) => { tCreate.push({ name, buyInCents, capacity }); return { ok: true as const, id: 'trn1', name }; },
     tournamentCancel: async (id: string) => { tCancel.push(id); return { ok: true as const }; },
+    // Tier-2 fakes
+    userRisk: async (userId: string) => ({ userId, username: 'lojtari', accountAgeDays: 0.5, kycStatus: 'none', accountState: 'active', balanceCents: 1500, priorWithdrawals: 2, completedWithdrawals: 1, priorWithdrawalsCents: 800, sameDayDepositWithdraw: true }),
+    listFlags: async (_min: number, _limit: number) => [{ id: 'f1', userId: 'u9', type: 'chip_dump', severity: 3, detail: 'humbi 3 herë radhazi te i njëjti', matchId: 'm1', createdAt: 0 }],
+    messagePlayer: async (userId: string, title: string, body: string) => { msgCalls.push({ userId, title, body }); },
+    liveState: async () => ({ matches: 2, potCents: 3000, byType: [{ type: 'quick', count: 2, potCents: 3000 }] }),
+    health: async () => ({ dbOk: true, reconcileOk: true, mismatches: 0, settlementFailures: 0, activeMatches: 2, pendingWithdrawals: 1 }),
     ...over,
   };
-  return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets, adjustCalls, voidCalls, tCreate, tCancel };
+  return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets, adjustCalls, voidCalls, tCreate, tCancel, msgCalls };
 }
 
 test('ignores messages from an unauthorized chat', async () => {
@@ -327,4 +334,86 @@ test('an unauthorized confirm tap never executes the staged action', async () =>
   const { ok } = confirmCbs(calls);
   await bot.handleUpdate({ callback_query: { id: 'c', from: { id: 'evil' }, message: { message_id: 160, chat: { id: 'evil' } }, data: ok } });
   assert.equal(adjustCalls.length, 0);
+});
+
+// ---- Tier-2 ----
+
+test('/withdrawals rows carry a 👤 Rreziku button when userRisk is wired', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 17, chat: { id: CHAT }, text: '/withdrawals' } });
+  const rows = calls.sent.at(-1)!.buttons as Array<Array<{ callbackData: string }>>;
+  const cbs = rows.flat().map((b) => b.callbackData);
+  assert.ok(cbs.some((c) => c.startsWith('wd:risk:')));
+});
+
+test('the Rreziku tap shows the risk card with the same-day flag + actions', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({
+    callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 170, chat: { id: CHAT } }, data: 'wd:risk:w1' },
+  });
+  const sent = calls.sent.at(-1)!;
+  assert.match(sent.text, /Rreziku/);
+  assert.match(sent.text, /njëjtën ditë/); // same-day deposit→withdraw warning
+  const cbs = (sent.buttons as Array<Array<{ callbackData: string }>>).flat().map((b) => b.callbackData);
+  assert.ok(cbs.includes('us:ban:u1'));
+});
+
+test('/flags lists high-severity flags with Lojtari + Blloko buttons', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 18, chat: { id: CHAT }, text: '/flags' } });
+  const sent = calls.sent.at(-1)!;
+  assert.match(sent.text, /chip_dump/);
+  const cbs = (sent.buttons as Array<Array<{ callbackData: string }>>).flat().map((b) => b.callbackData);
+  assert.ok(cbs.includes('us:show:u9'));
+  assert.ok(cbs.includes('us:ban:u9'));
+});
+
+test('us:show tap opens the full user card', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({
+    callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 180, chat: { id: CHAT } }, data: 'us:show:u9' },
+  });
+  assert.match(calls.sent.at(-1)!.text, /lojtari/);
+});
+
+test('resolving a ticket notifies the player', async () => {
+  const { deps, msgCalls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({
+    callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 190, chat: { id: CHAT } }, data: 'tk:res:t1' },
+  });
+  assert.equal(msgCalls.at(-1)!.userId, 'u9');
+  assert.match(msgCalls.at(-1)!.title, /Mbështetje/);
+});
+
+test('rejecting a withdrawal notifies the player their funds returned', async () => {
+  const { deps, msgCalls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({
+    callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 200, chat: { id: CHAT } }, data: 'wd:no:w1' },
+  });
+  assert.equal(msgCalls.at(-1)!.userId, 'u1');
+  assert.match(msgCalls.at(-1)!.body, /kthye/);
+});
+
+test('/live shows active matches + pot at risk', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 21, chat: { id: CHAT }, text: '/live' } });
+  const text = calls.sent.at(-1)!.text;
+  assert.match(text, /Ndeshje aktive: 2/);
+  assert.match(text, /\$30\.00/); // pot 3000
+});
+
+test('/health reports OK when everything is green', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 22, chat: { id: CHAT }, text: '/health' } });
+  const text = calls.sent.at(-1)!.text;
+  assert.match(text, /Gjendja e sistemit/);
+  assert.match(text, /✅ OK/);
+});
+
+test('/health flags trouble when reconcile mismatches exist', async () => {
+  const { deps, calls } = makeDeps({ health: async () => ({ dbOk: true, reconcileOk: false, mismatches: 2, settlementFailures: 1, activeMatches: 0, pendingWithdrawals: 0 }) });
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 23, chat: { id: CHAT }, text: '/health' } });
+  const text = calls.sent.at(-1)!.text;
+  assert.match(text, /🚨/);
+  assert.match(text, /2 mospërputhje/);
 });
