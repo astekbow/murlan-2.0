@@ -50,7 +50,10 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s   # let in-flight matches drain (graceful SIGTERM) before kill
     mem_limit: ${SERVER_MEM_LIMIT:-384m}
-    cpus: ${SERVER_CPUS:-2}
+    # NOTE: no `cpus` cap — Docker REFUSES to start a container whose `cpus` exceeds the
+    # host CPU count (a 1-vCPU box rejected `cpus: 2` and the server wouldn't boot), and
+    # CPU capping adds little next to mem_limit (the real ledger-corruption guard). If you
+    # move to a multi-core box and want a cap, add `cpus: <n>` here (n <= host CPUs).
     logging: { driver: json-file, options: { max-size: '20m', max-file: '5' } }
   client:
     restart: unless-stopped
