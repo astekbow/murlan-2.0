@@ -477,24 +477,24 @@ select:focus-visible,
   .mini:first-child { margin-left: 0; }
 
   /* ---- Playing-card face ------------------------------------------------- */
+  /* container-type lets the rank/suit inside scale as a % of the CARD's OWN width via
+     `cqw` units — so a card at ANY size keeps identical proportions and the centre suit
+     can never render giant relative to its card (the old fixed-px symbol bug). */
   .gcard {
     position: relative; flex: 0 0 auto; border-radius: 8px; width: 56px; height: 82px;
     background: linear-gradient(160deg, #fffef9, var(--cream)); color: var(--ink); font-family: 'Outfit', sans-serif;
     box-shadow: 0 8px 16px -8px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+    container-type: size;
   }
   .gcard.red { color: var(--red); }
   .gcard.lg { width: 74px; height: 104px; }
   .gcard.sm { width: 30px; height: 44px; }
-  .gc-r { position: absolute; top: 4px; left: 6px; font-weight: 800; font-size: 15px; line-height: 1; }
-  .gc-s { position: absolute; top: 20px; left: 7px; font-size: 11px; line-height: 1; }
-  .gc-big { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 27px; }
-  .gc-br { position: absolute; bottom: 4px; right: 6px; transform: rotate(180deg); font-weight: 800; font-size: 15px; line-height: 1; }
-  .gcard.lg .gc-r, .gcard.lg .gc-br { font-size: 18px; }
-  .gcard.lg .gc-big { font-size: 34px; }
-  .gcard.lg .gc-s { top: 24px; font-size: 13px; }
-  .gcard.sm .gc-r, .gcard.sm .gc-br { font-size: 10px; }
-  .gcard.sm .gc-s { display: none; }
-  .gcard.sm .gc-big { font-size: 16px; }
+  /* All sizes/offsets are % of the card width (cqw) → proportional at every card size. */
+  .gc-r { position: absolute; top: 7cqw; left: 11cqw; font-weight: 800; font-size: 27cqw; line-height: 1; }
+  .gc-s { position: absolute; top: 36cqw; left: 12cqw; font-size: 20cqw; line-height: 1; }
+  .gc-big { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 50cqw; }
+  .gc-br { position: absolute; bottom: 7cqw; right: 11cqw; transform: rotate(180deg); font-weight: 800; font-size: 27cqw; line-height: 1; }
+  .gcard.sm .gc-s { display: none; } /* the tiny variant hides the secondary suit mark */
   .gcard.sel { box-shadow: 0 26px 44px -14px rgba(230, 197, 112, 0.6), 0 0 0 2px var(--gold); z-index: 9; }
 
   /* ---- Hand (drag-to-reorder fan; cards absolutely placed by JS) ---------- */
@@ -661,10 +661,7 @@ select:focus-visible,
   .hand-fan { justify-content: flex-start; padding-left: 14px; padding-right: 14px; }
   .hand-fan .gcard { width: 58px; height: 84px; }
   .hand-slot { margin-left: -24px; }
-  .hand-fan .gcard .gc-r,
-  .hand-fan .gcard .gc-br { font-size: 15px; }
-  .hand-fan .gcard .gc-big { font-size: 26px; }
-  .hand-fan .gcard .gc-s { top: 20px; font-size: 11px; }
+  /* (card rank/suit sizes are now proportional via cqw on .gcard — no px overrides) */
 
   /* Shrink seat footprint so 2v2 side seats clear the centre pile. */
   .av { width: 46px; height: 46px; font-size: 14px; border-width: 2px; }
@@ -763,15 +760,10 @@ select:focus-visible,
 .tv-ls .tv-seat-right { right: -56px !important; }
 .tv-ls .seat-nm { max-width: 56px; font-size: 11px; }
 .tv-ls .hand-fan .gcard { width: 40px; height: 58px; }
-.tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }
-.tv-ls .hand-fan .gcard .gc-big { font-size: 20px; }
-.tv-ls .hand-fan .gcard .gc-s { top: 16px; font-size: 9px; }
-/* Bigger centre-pile cards on phones (the played combo is the focal point — 56→76px). */
+/* Bigger centre-pile cards on phones (the played combo is the focal point — 56→76px).
+   Rank/suit scale with the card via cqw (.gcard) — no per-size px font overrides needed. */
 .tv-ls .pile-cards .gcard { width: 76px; height: 106px; margin-left: -38px; }
 .tv-ls .pile-cards .gcard:first-child { margin-left: 0; }
-.tv-ls .pile-cards .gcard .gc-r, .tv-ls .pile-cards .gcard .gc-br { font-size: 19px; }
-.tv-ls .pile-cards .gcard .gc-big { font-size: 36px; }
-.tv-ls .pile-cards .gcard .gc-s { top: 25px; font-size: 13px; }
 .tv-ls .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
 .tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
 .tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
