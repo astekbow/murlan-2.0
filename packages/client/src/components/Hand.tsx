@@ -61,16 +61,13 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   }, []);
 
   const w = availW || 340;
-  // Each card always shows a FIXED fraction of its width (VISIBLE) — so the fan never
-  // looks "stuck" (crammed into thin slivers) AND never scrolls. Cards are sized as big
-  // as possible to fill the width at that overlap; with few cards they hit a max size and
-  // the row just centres. This makes spacing consistent regardless of how many cards.
-  const VISIBLE = 0.58; // visible slice per card (≈42% overlap)
-  const MAX_W = w < 420 ? 96 : 112;
-  const fitW = (w - 8) / ((n - 1) * VISIBLE + 1); // width at which n cards exactly fill w
-  const CARD_W = Math.round(Math.max(52, Math.min(MAX_W, fitW)));
+  // BIG, readable cards. `step` overlaps them to fit the width (no scroll); maxStep gives
+  // a little extra breathing room between cards on screens that have room, and min-step
+  // keeps a few px of gap even on a full hand.
+  const CARD_W = w < 420 ? 90 : 104;
   const CARD_H = Math.round(CARD_W * 1.4);
-  const step = n > 1 ? Math.round(CARD_W * VISIBLE) : 0;
+  const maxStep = Math.round(CARD_W * 0.7); // a touch more spread than before (more gap)
+  const step = n > 1 ? Math.max(22, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
