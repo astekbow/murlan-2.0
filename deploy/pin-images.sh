@@ -8,18 +8,32 @@
 # Docker is available. Re-run periodically to roll the pins forward to fresh patches.
 set -euo pipefail
 
-images=("node:22-alpine" "nginx:1.27-alpine")
+# Dockerfile base images (the `FROM` lines).
+dockerfile_images=("node:22-alpine" "nginx:1.27-alpine")
+# docker-compose service images (the `image:` keys). prom/*:latest is the most
+# important to pin — a floating :latest can pull a different Prometheus/Alertmanager
+# on any rebuild of a real-money host.
+compose_images=("postgres:16-alpine" "redis:7-alpine" "caddy:2-alpine" "prom/prometheus:latest" "prom/alertmanager:latest" "prodrigestivill/postgres-backup-local:16")
 
-echo "Pinned FROM lines — paste these over the matching FROM lines in the Dockerfiles:"
+resolve() { docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}' 2>/dev/null; }
+
+echo "== Dockerfiles — paste over the matching FROM lines =="
 echo "------------------------------------------------------------------------"
-for ref in "${images[@]}"; do
-  if ! digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>/dev/null)"; then
-    echo "  ⚠️  could not resolve $ref (is Docker running + online?)"
-    continue
-  fi
+for ref in "${dockerfile_images[@]}"; do
+  if ! digest="$(resolve "$ref")"; then echo "  ⚠️  could not resolve $ref (is Docker running + online?)"; continue; fi
   echo "  FROM ${ref}@${digest}"
 done
 echo "------------------------------------------------------------------------"
 echo "Dockerfile.server: pin the two 'FROM node:22-alpine ...' lines."
 echo "Dockerfile.client: pin 'FROM node:22-alpine AS build' and 'FROM nginx:1.27-alpine AS runtime'."
 echo "(Keep the ' AS <stage>' suffix; just insert @sha256:... before it.)"
+echo
+echo "== docker-compose — paste over the matching 'image:' values =="
+echo "   (docker-compose.yml + docker-compose.deploy.yml)"
+echo "------------------------------------------------------------------------"
+for ref in "${compose_images[@]}"; do
+  if ! digest="$(resolve "$ref")"; then echo "  ⚠️  could not resolve $ref (is Docker running + online?)"; continue; fi
+  echo "  image: ${ref}@${digest}"
+done
+echo "------------------------------------------------------------------------"
+echo "Re-run periodically to roll the pins forward to fresh security patches."

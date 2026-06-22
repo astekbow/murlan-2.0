@@ -27,16 +27,27 @@ services:
   # Redis MUST be here too: without a restart policy they don't come back after a
   # VPS reboot / OOM-kill, and the server then crash-loops on `migrate deploy`
   # because it can't reach the DB (audit 2026-06-08, finding C3).
+  # Resource caps (audit: a runaway container shouldn't let the OOM-killer evict
+  # Postgres mid-write and corrupt the ledger). Limits are env-overridable so you can
+  # size them to YOUR VPS — the defaults assume a ~2GB host; raise on a bigger box.
+  # Postgres gets a RESERVATION (guaranteed RAM) so the kernel prefers killing the
+  # app/redis over the database under pressure. mem_limit needs Compose v2.
   postgres:
     restart: unless-stopped
     stop_grace_period: 60s   # let Postgres flush WAL + finish a backup dump cleanly
+    mem_reservation: ${POSTGRES_MEM_RESERVATION:-512m}
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1g}
   redis:
     restart: unless-stopped
+    mem_limit: ${REDIS_MEM_LIMIT:-256m}
   server:
     restart: unless-stopped
     stop_grace_period: 60s   # let in-flight matches drain (graceful SIGTERM) before kill
+    mem_limit: ${SERVER_MEM_LIMIT:-768m}
+    cpus: ${SERVER_CPUS:-2}
   client:
     restart: unless-stopped
+    mem_limit: ${CLIENT_MEM_LIMIT:-128m}
 
   # Automatic Postgres backups: a scheduled pg_dump with retention, written to
   # ./backups on the host. Daily by default; keeps 7 daily / 4 weekly / 6 monthly.

@@ -2150,9 +2150,10 @@ export class GameGateway {
 
   // ---------- Small utilities -------------------------------------------------
 
+  // Low-level seat removal + broadcast. Mid-match forfeit SETTLEMENT is NOT done here —
+  // callers that leave during a match (onLeave, abandon/idle timers) run forfeitMatch()
+  // first, so by the time this runs the pot is already settled/refunded.
   private leaveAndNotify(userId: string, roomId: string): void {
-    const before = this.rooms.getRoom(roomId);
-    const wasInMatch = before?.status === 'inMatch';
     const result = this.rooms.leaveRoom(userId);
     if (result.roomClosed) {
       this.clearCountdown(roomId);
@@ -2165,7 +2166,6 @@ export class GameGateway {
       this.maybeStartCountdown(roomId);
     }
     this.broadcastLobby();
-    void wasInMatch; // abandon/forfeit settlement is Phase 6
   }
 
   private userAtSeat(roomId: string, seat: number): string {
