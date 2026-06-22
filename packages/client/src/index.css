@@ -742,8 +742,8 @@ select:focus-visible,
 .tv-ls .tvc-topbar {
   left: max(2%, env(safe-area-inset-left));
   right: max(2%, env(safe-area-inset-right));
-  top: max(2%, env(safe-area-inset-top));
-  height: 12%;
+  top: max(1.5%, env(safe-area-inset-top));
+  height: 9%;                  /* shorter → the score/buttons sit HIGH, clear of the table */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -753,25 +753,26 @@ select:focus-visible,
 /* Sized as % of canvas WIDTH (cqw) like the spec (Ø ~4.5%w = 42pt) — cqh made them tiny. */
 .tv-ls .tvc-topbar .iconbtn { width: 5cqw; height: 5cqw; min-width: 0; min-height: 0; font-size: 2.7cqw; }
 .tv-ls .tvc-topbar .btn { padding: 1.4cqh 2.6cqw !important; font-size: 2.4cqw !important; }
-.tv-ls .tvc-topbar .seat-cnt, .tv-ls .tvc-topbar .text-sm, .tv-ls .tvc-topbar .text-xs { font-size: 2cqw; }
+/* Score (T1/T2 → target): smaller so it stays compact up top and never reaches the felt. */
+.tv-ls .tvc-topbar .seat-cnt, .tv-ls .tvc-topbar .text-sm, .tv-ls .tvc-topbar .text-xs { font-size: 1.7cqw; }
 
-/* ---- Felt / table: left 22% top 9% width 56% height 51% --------------------- */
+/* ---- Felt / table: lowered a touch (top 12%) vs the spec's 9% — it read as "too high". */
 .tv-ls .tvc-felt {
   left: 22%;
-  top: 9%;
+  top: 12%;
   width: 56%;
-  height: 51%;
+  height: 48%;
   z-index: 1;
 }
 .tv-ls .tvc-felt .rail-outer { height: 100%; padding: 1.4cqh; border-radius: 18% / 30%; }
 .tv-ls .tvc-felt .rail-inner { height: 100%; min-height: 0; border-radius: 16% / 26%; }
 .tv-ls .tvc-felt .felt-ring { inset: 14% 18%; }
-.tv-ls .tvc-felt .tlogo { font-size: 3cqh; letter-spacing: 0.6cqh; top: 30%; }
+.tv-ls .tvc-felt .tlogo { display: none; }   /* owner: remove the MURLAN logo from the table */
 
 /* ---- Centre played pile: center cx 50% cy 38.5%, each card ≈ 8%w ----------- */
 .tv-ls .tvc-pile {
   left: 50%;
-  top: 38.5%;
+  top: 39.5%;
   transform: translate(-50%, -50%);
   z-index: 4;
   pointer-events: none;
@@ -830,8 +831,11 @@ select:focus-visible,
 }
 .tv-ls .ctrl-pass { left: 12%; }
 .tv-ls .ctrl-play { left: 88%; }
-/* Press feedback: the button dips + shrinks while held (keeps the translate centre). */
-.tv-ls .ctrl-pass:active, .tv-ls .ctrl-play:active { transform: translate(-50%, -50%) scale(0.9); transition: transform .08s ease; }
+/* The buttons must STAY exactly in place on press (owner: they were moving + imprecise).
+   Pin the transform with !important so no base :active/scale rule can shift them; the only
+   press cue is a brightness bump — zero movement. */
+.tv-ls .ctrl-pass, .tv-ls .ctrl-play { transition: filter .1s ease; }
+.tv-ls .ctrl-pass:active, .tv-ls .ctrl-play:active { transform: translate(-50%, -50%) !important; filter: brightness(1.15); }
 
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */
 .pfp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

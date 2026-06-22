@@ -72,16 +72,12 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   let CARD_W: number;
   let step: number;
   if (fit) {
-    // LANDSCAPE CANVAS: the fan must ALWAYS fit `w` with NO horizontal scroll, while
-    // the cards stay as big as possible. Pick the largest card width whose minimum-
-    // overlap fan still fits; then spread the step to exactly fill the width (capped so
-    // cards never separate into gaps). Card size is thus a % of the zone, not fixed px.
-    const cap = w < 520 ? 124 : 148;           // upper bound so cards aren't huge with few cards
-    // Largest CARD_W such that a tight fan (step = 38% of width) fits: with min overlap,
-    // stageW ≈ CARD_W + (n-1)*0.38*CARD_W. Solve CARD_W ≤ w / (1 + 0.38*(n-1)).
-    const minStepFrac = 0.38;
-    const fitW = n > 1 ? w / (1 + minStepFrac * (n - 1)) : w;
-    CARD_W = Math.max(46, Math.min(cap, Math.floor(fitW)));
+    // LANDSCAPE CANVAS: cards are a CONSTANT BIG size — they do NOT grow/shrink with the
+    // card count (that "small with many, big with few" wobble was the complaint). The
+    // step (overlap) is what adapts to fit the zone width, so the fan never scrolls:
+    // many cards → more overlap; few cards → spread out (capped). Card width is clamped
+    // to the zone only as a hard safety so it can't exceed a very narrow zone.
+    CARD_W = Math.min(w < 520 ? 112 : 132, Math.floor(w * 0.9));
     const maxStep = Math.round(CARD_W * 0.72);
     step = n > 1 ? Math.min(maxStep, (w - CARD_W) / (n - 1)) : 0;
   } else {

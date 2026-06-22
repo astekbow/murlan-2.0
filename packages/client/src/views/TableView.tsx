@@ -359,7 +359,6 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         </span>
       )}
       <TurnTimer deadline={game?.turnDeadline ?? null} />
-      <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title={t('table.historyTitle')} aria-label={t('table.gameHistory')}>☰</button>
       <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title={t('table.chat')} aria-label={t('table.chat')}>💬</button>
       <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('emote'); }} title={t('table.emote')} aria-label={t('table.emote')}>😊</button>
     </div>
