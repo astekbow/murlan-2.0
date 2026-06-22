@@ -801,11 +801,12 @@ select:focus-visible,
 .tv-ls .tvc-seat .mini { width: 2.4cqw; height: 3.4cqw; margin-left: -1.4cqw; }
 .tv-ls .tvc-seat .mini:first-child { margin-left: 0; }
 
-/* ---- Hand zone: wider than the base spec (52%) so the cards are BIG; still centred. */
+/* ---- Hand zone: WIDE (60%, between the two corner buttons) so 14 big cards overlap
+   less and each rank corner stays readable. */
 .tv-ls .tvc-hand {
-  left: 24%;
+  left: 20%;
   top: 58%;
-  width: 52%;
+  width: 60%;
   height: 38%;
   z-index: 20;                 /* above the felt + pile */
   display: flex;
@@ -814,6 +815,11 @@ select:focus-visible,
   justify-content: flex-end;   /* bottom-anchor: a tall fan rises UP over the felt edge */
   overflow: visible;           /* let the fan peek above the zone (never clipped) */
 }
+/* Overlapped cards only show a narrow left sliver, so the rank+suit corner must be COMPACT
+   and pulled to the top-left to stay fully visible (esp. the 2-char "10"). Scoped to the
+   landscape hand only — the pile + portrait keep the big readable corner. */
+.tv-ls .tvc-hand .gc-r { font-size: 19cqw; left: 6cqw; top: 6cqw; }
+.tv-ls .tvc-hand .gc-s { font-size: 15cqw; left: 7cqw; top: 28cqw; }
 /* The card-switch confirm bar sits ABOVE the fan; the fan still gets the full zone width. */
 .tv-ls .tvc-hand > .text-center { flex: 0 0 auto; }
 

@@ -32,13 +32,14 @@ export function Controls({ selectedCards, pile, isMyTurn, canPass, requireThreeS
   const openingOk = !requireThreeSpades || selectedCards.some(isThreeSpades);
   // Brief in-flight guard so a double-tap can't fire two actions (the second
   // would race the authoritative state and pop a spurious "illegal move" toast).
-  // Re-enables shortly after, so a rejected move can still be retried.
+  // 400ms: long enough to swallow an accidental double-tap, short enough that the
+  // button doesn't feel laggy/stuck (the owner saw the old 900ms as "lag" on Pas).
   const [submitting, setSubmitting] = useState(false);
   const guard = (fn: () => void) => {
     if (submitting) return;
     setSubmitting(true);
     fn();
-    window.setTimeout(() => setSubmitting(false), 900);
+    window.setTimeout(() => setSubmitting(false), 400);
   };
   const playable = isMyTurn && evalResult.ok && openingOk && !submitting;
 
