@@ -72,6 +72,7 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     messagePlayer: async (userId: string, title: string, body: string) => { msgCalls.push({ userId, title, body }); },
     liveState: async () => ({ matches: 2, potCents: 3000, byType: [{ type: 'quick', count: 2, potCents: 3000 }] }),
     health: async () => ({ dbOk: true, reconcileOk: true, mismatches: 0, settlementFailures: 0, activeMatches: 2, pendingWithdrawals: 1 }),
+    depositFunds: async () => ({ totalCents: 1234, funded: [{ address: 'TAaa', cents: 1000 }, { address: 'TBbb', cents: 234 }], partial: false }),
     ...over,
   };
   return { deps, calls, audit, wd, user, kicked, stateCalls, resolved, tickets, adjustCalls, voidCalls, tCreate, tCancel, msgCalls, riskCalls };
@@ -409,6 +410,21 @@ test('/health reports OK when everything is green', async () => {
   const text = calls.sent.at(-1)!.text;
   assert.match(text, /Gjendja e sistemit/);
   assert.match(text, /✅ OK/);
+});
+
+test('/deposits shows the on-chain total + funded addresses', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 24, chat: { id: CHAT }, text: '/deposits' } });
+  const text = calls.sent.at(-1)!.text;
+  assert.match(text, /paprekur/);
+  assert.match(text, /\$12\.34/); // total 1234 cents
+  assert.match(text, /TAaa/);     // top funded address listed
+});
+
+test('/deposits reports nothing to sweep when total is 0', async () => {
+  const { deps, calls } = makeDeps({ depositFunds: async () => ({ totalCents: 0, funded: [], partial: false }) });
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 25, chat: { id: CHAT }, text: '/deposits' } });
+  assert.match(calls.sent.at(-1)!.text, /Asnjë USDT/);
 });
 
 test('/health flags trouble when reconcile mismatches exist', async () => {

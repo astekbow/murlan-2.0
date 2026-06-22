@@ -95,6 +95,9 @@ services:
       AUTO_WITHDRAW_MAX_CENTS: ${AUTO_WITHDRAW_MAX_CENTS:-0}
       AUTO_WITHDRAW_CURRENCY: ${AUTO_WITHDRAW_CURRENCY:-usdttrc20}
       DAILY_AUTO_WITHDRAW_CAP_CENTS: ${DAILY_AUTO_WITHDRAW_CAP_CENTS:-0}
+      # "Time to sweep" Telegram alert: ping once the on-chain deposit-address USDT total
+      # reaches this many CENTS (0 = off). e.g. 10000 = $100. Also surfaced by /deposits.
+      SWEEP_ALERT_CENTS: ${SWEEP_ALERT_CENTS:-0}
       # Auto-payout via the Binance withdraw API (when set + a positive cap). Needs
       # Enable Withdrawals + the server IP whitelisted + address whitelist OFF.
       BINANCE_API_KEY: ${BINANCE_API_KEY:-}

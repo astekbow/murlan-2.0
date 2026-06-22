@@ -651,6 +651,28 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const tournamentRunHolder: { fn?: (id: string) => void } = {};
   const tournamentRunner = (id: string) => tournamentRunHolder.fn?.(id);
 
+  // On-chain USDT sitting in the per-player deposit addresses (the funds to sweep into
+  // Binance). Best-effort + BOUNDED (cap 250, small concurrency) so a big roster or a
+  // TronGrid rate-limit can't hang it; mirrors the admin treasury endpoint. Read-only —
+  // signing/sweeping NEVER happens server-side (the seed stays offline). Used by the bot's
+  // /deposits command + the "time to sweep" alert. Returns null when no TRON deposit rail.
+  const computeDepositFunds = async (): Promise<{ totalCents: number; funded: Array<{ address: string; cents: number }>; partial: boolean } | null> => {
+    if (!tronDeposit) return null;
+    const addrs = await auth.listDepositAddresses().catch(() => [] as string[]);
+    const CAP = 250, CONC = 4;
+    const checked = addrs.slice(0, CAP);
+    let partial = addrs.length > CAP;
+    let totalCents = 0;
+    const funded: Array<{ address: string; cents: number }> = [];
+    for (let i = 0; i < checked.length; i += CONC) {
+      const batch = checked.slice(i, i + CONC);
+      const results = await Promise.all(batch.map((a) => tronDeposit!.usdtBalanceCents(a).then((c) => ({ a, c })).catch(() => ({ a, c: null }))));
+      for (const { a, c } of results) { if (c == null) partial = true; else { totalCents += c; if (c > 0) funded.push({ address: a, cents: c }); } }
+    }
+    funded.sort((x, y) => y.cents - x.cents);
+    return { totalCents, funded, partial };
+  };
+
   // Inbound Telegram admin bot (Phase 1: interactive withdrawals + read commands).
   // Active only in full bot mode (token + chat + webhook secret all set). Reuses the
   // SAME audited services as the web panel; every action is recorded to the audit
@@ -791,6 +813,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           pendingWithdrawals: pending.length,
         };
       },
+      depositFunds: tronDeposit ? computeDepositFunds : undefined,
     });
   }
 
@@ -889,6 +912,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // — NOT a fixed top-N window — guarantees a burst larger than one window is never
   // dropped. Seeded to boot time so old pre-boot flags aren't re-spammed on restart.
   let lastFlagPushMs = Date.now();
+  // "Time to sweep" alert: when SWEEP_ALERT_CENTS>0, check the on-chain deposit total at
+  // most hourly (the scan hits TronGrid per address) and ping once per 6h while it's over
+  // the threshold — so the owner knows when consolidating to Binance is worth the gas.
+  const SWEEP_CHECK_MS = 60 * 60 * 1000;
+  const SWEEP_ALERT_THROTTLE_MS = 6 * 60 * 60 * 1000;
+  let lastSweepCheck = 0;
+  let lastSweepAlert = 0;
   const sweepTimer = setInterval(() => {
     void (async () => {
       try {
@@ -1008,6 +1038,21 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
               (f.matchId ? `Ndeshja: ${f.matchId}\n` : '') +
               `Lojtari: ${f.userId}`,
               { buttons: [[{ text: '👤 Lojtari', callbackData: `us:show:${f.userId}` }, { text: '🚫 Blloko', callbackData: `us:ban:${f.userId}` }]] },
+            ).catch(() => {});
+          }
+        }
+        // "Time to sweep" alert: when the on-chain deposit-address USDT total reaches
+        // SWEEP_ALERT_CENTS, ping the owner so they consolidate to Binance (with the local
+        // sweep app — never server-side). Scan is hourly (TronGrid cost) + alert throttled.
+        if (config.sweepAlertCents > 0 && tronDeposit && notifier.name !== 'null' && now - lastSweepCheck > SWEEP_CHECK_MS) {
+          lastSweepCheck = now;
+          const df = await computeDepositFunds().catch(() => null);
+          if (df && df.totalCents >= config.sweepAlertCents && now - lastSweepAlert > SWEEP_ALERT_THROTTLE_MS) {
+            lastSweepAlert = now;
+            await notifier.notify(
+              `🧹 <b>Është koha për sweep</b>\n` +
+              `USDT i paprekur te adresat e depozitave: <b>$${(df.totalCents / 100).toFixed(2)}</b>${df.partial ? ' (pjesërisht)' : ''} në ${df.funded.length} adresa.\n` +
+              `→ Mblidhi te Binance me sweep-app-in lokal (tools/sweep-app.bat).`,
             ).catch(() => {});
           }
         }

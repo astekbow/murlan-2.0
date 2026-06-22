@@ -161,6 +161,8 @@ export interface AdminBotDeps {
   liveState?: () => Promise<LiveState>;
   /** Health snapshot (DB, reconcile, settlement failures, live counts). */
   health?: () => Promise<HealthState>;
+  /** On-chain USDT sitting in the per-player deposit addresses (awaiting a sweep). */
+  depositFunds?: () => Promise<{ totalCents: number; funded: Array<{ address: string; cents: number }>; partial: boolean } | null>;
 }
 
 /** A money-moving action staged for a confirm tap (its reason text is too long /
@@ -250,6 +252,8 @@ export class TelegramAdminBot {
         return void (await this.sendLive());
       case '/health':
         return void (await this.sendHealth());
+      case '/deposits':
+        return void (await this.sendDeposits());
       default:
         return void (await this.deps.bot.sendMessage(`Urdhër i panjohur. ${escapeHtml('/help')} për listën.`));
     }
@@ -273,6 +277,7 @@ export class TelegramAdminBot {
     if (this.deps.listFlags) lines.push('/flags — sinjale anti-cheat (koluzion/bot)');
     if (this.deps.liveState) lines.push('/live — ndeshjet aktive + lekët në lojë tani');
     if (this.deps.health) lines.push('/health — a është gjithçka në rregull');
+    if (this.deps.depositFunds) lines.push('/deposits — USDT i paprekur te adresat (për sweep)');
     lines.push('/help — kjo listë');
     return lines.join('\n');
   }
@@ -706,6 +711,23 @@ export class TelegramAdminBot {
       `Reconcile (ledger=bilanc): ${h.reconcileOk ? '✅ OK' : `🚨 ${h.mismatches} mospërputhje`}\n` +
       `Dështime settlement: ${h.settlementFailures === 0 ? '✅ 0' : `🚨 ${h.settlementFailures}`}\n` +
       `Ndeshje aktive: ${h.activeMatches} · Tërheqje në pritje: ${h.pendingWithdrawals}`,
+    );
+  }
+
+  // ---- Tier-2: on-chain deposit funds awaiting a sweep (/deposits) ------------
+  private async sendDeposits(): Promise<void> {
+    if (!this.deps.depositFunds) return void (await this.deps.bot.sendMessage('Komanda /deposits s’është aktive.'));
+    await this.deps.bot.sendMessage('🔎 Po lexoj adresat e depozitave on-chain… (pak sekonda)');
+    const df = await this.deps.depositFunds().catch(() => null);
+    if (!df) return void (await this.deps.bot.sendMessage('⚠️ S’u lexuan dot adresat e depozitave.'));
+    if (df.totalCents === 0) return void (await this.deps.bot.sendMessage('💤 Asnjë USDT i paprekur te adresat e depozitave.'));
+    const CAP = 15;
+    const rows = df.funded.slice(0, CAP).map((f) => `· <code>${escapeHtml(f.address)}</code> — ${usd(f.cents)}`).join('\n');
+    await this.deps.bot.sendMessage(
+      `💰 <b>USDT i paprekur (për sweep)</b>\n` +
+      `Total: <b>${usd(df.totalCents)}</b> · ${df.funded.length} adresa${df.partial ? ' (pjesërisht — shumë adresa/limit)' : ''}\n\n` +
+      `${rows}${df.funded.length > CAP ? `\n… +${df.funded.length - CAP} të tjera` : ''}\n\n` +
+      `<i>Mblidhi me sweep-app-in lokal (tools/sweep-app.bat). Gaz ~$1–2/adresë — bëj sweep kur ia vlen.</i>`,
     );
   }
 

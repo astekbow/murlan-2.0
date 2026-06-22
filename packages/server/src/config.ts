@@ -43,6 +43,7 @@ const schema = z.object({
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(), // set → the admin bot is active: Telegram updates POST to /api/telegram/webhook (verified by this secret)
   AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
   DAILY_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = no daily cap; >0 = once a user's 24h withdrawals exceed this, further ones go MANUAL (anti-drain/AML)
+  SWEEP_ALERT_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = Telegram "time to sweep" alert once the on-chain deposit-address USDT total reaches this (e.g. 10000 = $100)
   AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
   BINANCE_API_KEY: z.string().optional(),             // Binance withdraw API — auto-payout rail when set (with secret)
   BINANCE_API_SECRET: z.string().optional(),          // Binance API secret (HMAC-SHA256 request signing)
@@ -113,6 +114,7 @@ export interface AppConfig {
   telegramWebhookSecret: string | null;
   autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
   dailyAutoWithdrawCapCents: number; // 0 = off; per-user 24h auto-payout cap (excess → manual)
+  sweepAlertCents: number; // 0 = off; >0 = "time to sweep" Telegram alert at this on-chain deposit total
   autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
   binanceApiKey: string | null;
   binanceApiSecret: string | null;
@@ -225,6 +227,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     telegramWebhookSecret: parsed.TELEGRAM_WEBHOOK_SECRET || null,
     autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
     dailyAutoWithdrawCapCents: parsed.DAILY_AUTO_WITHDRAW_CAP_CENTS,
+    sweepAlertCents: parsed.SWEEP_ALERT_CENTS,
     autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,
     binanceApiKey: parsed.BINANCE_API_KEY || null,
     binanceApiSecret: parsed.BINANCE_API_SECRET || null,
