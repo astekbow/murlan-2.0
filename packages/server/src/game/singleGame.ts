@@ -201,6 +201,13 @@ export class SingleGame {
     this.removeCards(seat, cards);
     this.pile = check.combo;
     this.pileOwner = seat;
+    // NON-STICKY pass (owner's rule): a NEW card on the table resets everyone's chance
+    // to respond — any seat that passed earlier in THIS trick is asked AGAIN. A trick is
+    // won only when every OTHER active seat passes in succession AFTER the last play (so
+    // e.g. you can pass a 2, then still beat a black joker someone plays next with a red
+    // joker). Clearing here is what makes a passed seat re-eligible; resolveTrick still
+    // clears at trick end. (Standard "sticky" Murlan would NOT clear here.)
+    this.passed.clear();
     this.opened = true;
     events.push({ kind: 'played', seat, combo: check.combo });
 

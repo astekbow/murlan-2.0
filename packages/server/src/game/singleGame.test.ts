@@ -108,7 +108,7 @@ test('all opponents pass: last player wins the trick, pile clears, they lead', (
   assert.equal(g.currentTurn, 0);                  // A leads again
 });
 
-test('a player who passed is skipped for the rest of the trick', () => {
+test('a passed player is RE-ASKED when a new card is played (non-sticky pass)', () => {
   const g = new SingleGame({
     numPlayers: 3,
     hands: [
@@ -119,16 +119,18 @@ test('a player who passed is skipped for the rest of the trick', () => {
     leader: 0,
   });
   g.play(0, [c('5', 'S')]); // A leads, turn -> B
-  g.pass(1);                // B passes, turn -> C
+  g.pass(1);                // B declines the 5, turn -> C
   assert.equal(g.currentTurn, 2);
-  g.play(2, [c('7', 'S')]); // C beats; B already passed -> turn skips B back to A
-  assert.equal(g.currentTurn, 0);
+  g.play(2, [c('7', 'S')]); // C plays a NEW card -> B's pass is RESET (non-sticky)
+  assert.equal(g.currentTurn, 0); // next is A
+  g.pass(0);                // A passes -> the turn comes back round to B
+  assert.equal(g.currentTurn, 1); // B is ASKED AGAIN (under sticky it would be skipped + C would win)
 });
 
-test('4-player turn order is respected end-to-end (no non-passed player is skipped)', () => {
-  // Reproduces the owner-reported scenario: plays + passes around a full table, a player
-  // WINS the trick, and we assert the EXACT turn after every action. A real skip bug
-  // would show as a wrong currentTurn here.
+test('4-player turn order end-to-end (non-sticky: a passed player is re-asked on a new play)', () => {
+  // Full table of plays + passes; we assert the EXACT turn after every action. Under the
+  // NON-STICKY rule a player who passed is brought back the moment a new card is played,
+  // so the trick is won only when EVERY other seat passes after the last play.
   const g = new SingleGame({
     numPlayers: 4,
     hands: [
@@ -147,11 +149,12 @@ test('4-player turn order is respected end-to-end (no non-passed player is skipp
   g.play(3, [c('8', 'S')]); assert.equal(turn(), 0); // D→A (full loop, no skip)
   g.play(0, [c('9', 'S')]); assert.equal(turn(), 1); // A beats → B
   g.pass(1);                assert.equal(turn(), 2); // B passes → C (B now out for the trick)
-  g.play(2, [c('J', 'S')]); assert.equal(turn(), 3); // C beats → D (correctly SKIPS passed B)
+  g.play(2, [c('J', 'S')]); assert.equal(turn(), 3); // C beats → D (B's pass was reset by the new card)
   g.pass(3);                assert.equal(turn(), 0); // D passes → A
-  g.pass(0);                                          // A passes → all contenders passed → C wins
+  g.pass(0);                assert.equal(turn(), 1); // A passes → B is RE-ASKED (non-sticky), not skipped
+  g.pass(1);                                          // B passes too → now everyone passed → C wins
   assert.equal(turn(), 2);                            // trick won by C(owner) → C leads next
-  assert.deepEqual(g.snapshot().passed, []);          // new trick: passes cleared, everyone back in
+  assert.deepEqual(g.snapshot().passed, []);          // new trick: passes cleared
 });
 
 // ---- finishing & game end ---------------------------------------------------
@@ -198,16 +201,20 @@ test('1v1v1: produces a complete 1st/2nd/3rd finishing order', () => {
     ],
     leader: 0,
   });
-  // A:5 -> B passes -> C:7 (skip B) -> A:9 (A empties, finishes 1st)
+  // A:5 -> B passes -> C:7 -> A:9 (A empties, finishes 1st)
   g.play(0, [c('5', 'S')]);
   g.pass(1);
   g.play(2, [c('7', 'S')]);
   const rA = g.play(0, [c('9', 'S')]);
   assert.equal(lastEvent(rA.events, 'playerFinished').place, 1);
   assert.equal(g.isOver, false);
-  // Pile owner A is finished; only C can act on the 9 -> C passes -> A wins trick,
-  // lead passes to next active after A = B.
-  const rC = g.pass(2);
+  // Pile owner A just finished on the 9. NON-STICKY: B (who passed the 5 earlier) is
+  // RE-ASKED on the 9, then C — A wins only when BOTH pass. Lead then goes to the next
+  // active seat after A = B.
+  assert.equal(g.currentTurn, 1);    // B re-asked first
+  g.pass(1);                         // B passes (6 can't beat the 9)
+  assert.equal(g.currentTurn, 2);    // then C
+  const rC = g.pass(2);              // C passes -> A wins the trick
   const won = lastEvent(rC.events, 'trickWon');
   assert.equal(won.winner, 0);
   assert.equal(won.leadsNext, 1); // lead passed to B since A is finished
@@ -216,6 +223,30 @@ test('1v1v1: produces a complete 1st/2nd/3rd finishing order', () => {
   const rB = g.play(1, [c('6', 'S')]);
   assert.ok(g.isOver);
   assert.deepEqual(lastEvent(rB.events, 'gameEnded').finishingOrder, [0, 1, 2]);
+});
+
+test('non-sticky regression: pass a low card, then still beat a later black joker with the red joker', () => {
+  // The exact owner-reported case: you decline an early card, an opponent later drops the
+  // BLACK joker, and you must still get the turn to top it with the RED joker. Under the
+  // old sticky rule your early pass locked you out and the joker stole the trick.
+  const g = new SingleGame({
+    numPlayers: 3,
+    hands: [
+      [c('5', 'S'), c('6', 'H')], // A(0)
+      [RJ, c('3', 'H')],          // B(1) — the owner: holds the red joker
+      [BJ, c('4', 'H')],          // C(2) — drops the black joker
+    ],
+    leader: 0,
+  });
+  g.play(0, [c('5', 'S')]);          // A leads 5 -> B
+  g.pass(1);                         // B declines (would be locked out under sticky)
+  g.play(2, [BJ]);                   // C plays the BLACK joker -> resets everyone's pass
+  g.pass(0);                         // A passes -> turn returns to B
+  assert.equal(g.currentTurn, 1);    // B is RE-ASKED (the whole point)
+  const r = g.play(1, [RJ]);         // B tops the black joker with the red joker
+  assert.ok(r.ok, 'red joker beats black joker');
+  assert.equal(g.snapshot().pile?.cards[0]?.kind, 'joker');
+  assert.equal(g.snapshot().pileOwner, 1);
 });
 
 // ---- trump categories still apply through the machine -----------------------
