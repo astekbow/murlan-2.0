@@ -66,8 +66,11 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   // keeps a few px of gap even on a full hand.
   const CARD_W = w < 420 ? 90 : 104;
   const CARD_H = Math.round(CARD_W * 1.4);
-  const maxStep = Math.round(CARD_W * 0.7); // a touch more spread than before (more gap)
-  const step = n > 1 ? Math.max(22, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
+  const maxStep = Math.round(CARD_W * 0.72); // more spread on screens with room
+  // min step ≈ enough that each card's rank+suit corner clears the next card (the suit was
+  // getting half-covered when too tight). Cards stay big; the fan scrolls only if a full
+  // hand truly can't fit at this spacing.
+  const step = n > 1 ? Math.max(27, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);

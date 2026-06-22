@@ -731,8 +731,8 @@ select:focus-visible,
    inset plus the button width + a gap — otherwise the notch inset pushes the buttons
    inward onto the outer cards. */
 .tv-ls .tv-bottom {
-  padding-left: calc(env(safe-area-inset-left) + 116px) !important;
-  padding-right: calc(env(safe-area-inset-right) + 116px) !important;
+  padding-left: calc(env(safe-area-inset-left) + 108px) !important;
+  padding-right: calc(env(safe-area-inset-right) + 108px) !important;
   /* Pull the hand UP so it overlaps the felt's lower edge (the felt extends down behind
      it) — the reference look, and it lets the felt be much taller without overflow. */
   margin-top: -34px !important;
