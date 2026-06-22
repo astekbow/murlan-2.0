@@ -39,6 +39,29 @@ const SEAT_POS: Record<SeatPosition, string> = {
   right: '-right-3 top-1/2 -translate-y-1/2 max-[480px]:right-1 max-[480px]:top-[36%]',
 };
 
+/**
+ * LANDSCAPE canvas coordinates. The whole table is ONE fixed-aspect (1280/590)
+ * container; every slot is absolutely positioned by % of the container with
+ * transform: translate(-50%,-50%) centering on the given (cx,cy). These are the
+ * exact spec coordinates — the local player has no seat avatar (only the hand).
+ * `seatPosition()` returns top / top-left / top-right / left / right; the 3-player
+ * top-left/top-right pair maps onto the spec's left/right slots.
+ */
+const LS_SEAT_SLOT: Record<SeatPosition, 'top' | 'left' | 'right' | null> = {
+  top: 'top',
+  'top-left': 'left',
+  'top-right': 'right',
+  left: 'left',
+  right: 'right',
+  bottom: null, // local player — no avatar
+};
+/** center (cx,cy) of each opponent seat group, as % of the canvas. */
+const LS_SEAT_CXY: Record<'top' | 'left' | 'right', { cx: number; cy: number }> = {
+  top: { cx: 49, cy: 12 },
+  left: { cx: 15, cy: 40 },
+  right: { cx: 86, cy: 40 },
+};
+
 /** A transient emote/quick-chat speech bubble above a seat. */
 function SpeechBubble({ b }: { b: Bubble }) {
   return (
@@ -289,62 +312,147 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     return () => window.clearTimeout(id);
   }, [matchResult, iWon]);
 
-  return (
-    // Safe-area insets: this is the main gameplay screen and renders OUTSIDE the
-    // lobby Shell, so it must inset itself or the top controls sit under the iPhone
-    // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
-    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${shake ? ' shake-fx' : ''}`}>
-      <h1 className="sr-only">{t('table.title')}</h1>
-      <GameAnnouncer
-        isMyTurn={isMyTurn}
-        result={matchResult ? (iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })) : null}
-      />
-      {forced && <RotateOverlay />}
+  // ----- Shared content (identical handlers/props in BOTH layouts) ------------
+  // Built once and placed by either the portrait/desktop flow layout or the
+  // landscape fixed-aspect canvas — the leaf components, props, and handlers are
+  // the SAME; only WHERE they render and at what % size differs.
+
+  // Top-bar left group: leave + the running score.
+  const topLeft = (
+    <div className="flex items-center gap-2 min-w-0">
+      <button
+        onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
+        className="btn btn-ghost shrink-0"
+      >
+        {t('table.leaveArrow')}
+      </button>
+      {scoreboard && (
+        <span
+          className="inline-flex items-center gap-1.5 text-sm leading-none whitespace-nowrap font-display"
+          title={t('scoreboard.result')}
+        >
+          {(scoreboard.type === '2v2' && scoreboard.teamTotals
+            ? scoreboard.teamTotals.map((v, i) => ({ label: `T${i + 1}`, val: v }))
+            : scoreboard.cumulative.map((v, i) => ({ label: (nameOf(i) || String(i + 1)).slice(0, 8), val: v }))
+          ).map((s, i) => (
+            <span key={i} className="inline-flex items-center gap-1">
+              {i > 0 && <span className="opacity-30">·</span>}
+              <span className="text-muted">{s.label}</span>
+              <b className="text-gold-hi tabular-nums">{s.val}</b>
+            </span>
+          ))}
+          <span className="opacity-50 ml-0.5 text-xs">→ {scoreboard.target}</span>
+        </span>
+      )}
+    </div>
+  );
+  // Top-bar right group: spectators + turn timer + history/chat/emoji icons.
+  const topRight = (
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      {spectators > 0 && (
+        <span
+          className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
+          title={t('table.spectators', { n: spectators })}
+          aria-label={t('table.spectators', { n: spectators })}
+        >
+          <span aria-hidden>👁</span>{spectators}
+        </span>
+      )}
+      <TurnTimer deadline={game?.turnDeadline ?? null} />
+      <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title={t('table.historyTitle')} aria-label={t('table.gameHistory')}>☰</button>
+      <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title={t('table.chat')} aria-label={t('table.chat')}>💬</button>
+      <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('emote'); }} title={t('table.emote')} aria-label={t('table.emote')}>😊</button>
+    </div>
+  );
+
+  // One opponent seat (avatar + gold stack + name + badges + speech bubble).
+  const renderSeat = (s: (typeof opponents)[number], pos: SeatPosition) => {
+    const bub = bubbleFor(s.seat);
+    return (
+      <>
+        {bub && <SpeechBubble b={bub} />}
+        <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title={t('table.viewProfile')}>
+          <SeatBadge
+            name={nameOf(s.seat)}
+            avatar={s.avatar}
+            count={game?.handCounts?.[s.seat] ?? 0}
+            team={room.type === '2v2' ? s.team : null}
+            isTurn={game?.turn === s.seat}
+            connected={s.connected}
+            finished={finishedSet.has(s.seat)}
+            passed={passedSet.has(s.seat)}
+            gone={goneSet.has(s.seat)}
+            lastPlayer={game?.pileOwner === s.seat}
+            partner={room.type === '2v2' && myTeam !== null && s.team === myTeam}
+            turnDeadline={game?.turn === s.seat ? game?.turnDeadline ?? null : null}
+            placement={pos}
+          />
+        </button>
+      </>
+    );
+  };
+
+  // Centre pile (pointer-events:none so it never steals taps from the hand below).
+  const pileEl = (
+    <div className={`absolute inset-0 grid place-items-center z-[3] pointer-events-none${finishFx ? ' finish-pop' : ''}`}>
+      <Pile pile={game?.pile ?? null} history={pileHistory} />
+    </div>
+  );
+
+  // The hand + (when not switching) the Play/Pass controls — same components,
+  // same handlers, in both layouts.
+  const handBlock = (
+    <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate fit={ls} />
+  );
+  const controlsBlock = !switching ? (
+    <Controls
+      selectedCards={selectedCards(myHand, selected)}
+      pile={game?.pile ?? null}
+      isMyTurn={isMyTurn}
+      canPass={canPass}
+      requireThreeSpades={requireThreeSpades}
+      onPlay={() => { sound.play('card'); haptics.tap(); void play(); }}
+      onPass={() => { sound.play('pass'); void pass(); }}
+      onClear={clearSelection}
+    />
+  ) : null;
+  // The card-switch confirm bar OR my floating emote/chat bubble (above the hand).
+  const switchOrBubble = switching ? (
+    <div className="text-center pb-1.5">
+      {switchPick ? (
+        <div className="flex items-center justify-center gap-2 flex-wrap animate-pop">
+          <span className="text-sm text-txt">{t('table.switchConfirmQ', { card: cardLabel(switchPick) })}</span>
+          <button className="btn btn-gold btn-sm" onClick={confirmSwitch}>{t('table.switchConfirm')}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSwitchPick(null)}>{t('table.switchCancel')}</button>
+        </div>
+      ) : (
+        <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-2 text-gold-hi font-display font-semibold text-sm leading-snug max-w-[88vw]">
+          {t('table.youWinSwitch')}
+        </span>
+      )}
+    </div>
+  ) : (() => {
+    const myBubble = mySeat !== null ? bubbleFor(mySeat) : undefined;
+    return myBubble ? (
+      <div className="absolute left-1/2 bottom-full mb-1 -translate-x-1/2 text-center pointer-events-none z-30">
+        <span className="inline-block animate-pop panel-solid rounded-xl px-3 py-1 max-w-[220px] truncate">
+          {myBubble.kind === 'emote'
+            ? <span className="text-xl leading-none">{myBubble.text}</span>
+            : <span className="text-sm text-txt">{myBubble.text}</span>}
+        </span>
+      </div>
+    ) : null;
+  })();
+
+  // ----- The two table layouts (portrait/desktop flow vs landscape canvas) ----
+
+  // PORTRAIT / DESKTOP: the original vertical flow layout — UNCHANGED.
+  const flowLayout = (
+    <>
       {/* Top bar (corner controls live here so they never overlap seats) */}
       <div className="tv-top flex items-center justify-between gap-2 pt-3 pb-1">
-        {/* Left: back + the running score (compact text, like a scoreboard header). */}
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
-            className="btn btn-ghost shrink-0"
-          >
-            {t('table.leaveArrow')}
-          </button>
-          {scoreboard && (
-            <span
-              className="inline-flex items-center gap-1.5 text-sm leading-none whitespace-nowrap font-display"
-              title={t('scoreboard.result')}
-            >
-              {(scoreboard.type === '2v2' && scoreboard.teamTotals
-                ? scoreboard.teamTotals.map((v, i) => ({ label: `T${i + 1}`, val: v }))
-                : scoreboard.cumulative.map((v, i) => ({ label: (nameOf(i) || String(i + 1)).slice(0, 8), val: v }))
-              ).map((s, i) => (
-                <span key={i} className="inline-flex items-center gap-1">
-                  {i > 0 && <span className="opacity-30">·</span>}
-                  <span className="text-muted">{s.label}</span>
-                  <b className="text-gold-hi tabular-nums">{s.val}</b>
-                </span>
-              ))}
-              <span className="opacity-50 ml-0.5 text-xs">→ {scoreboard.target}</span>
-            </span>
-          )}
-        </div>
-        {/* Right: spectators + the single turn timer + the icon buttons. */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {spectators > 0 && (
-            <span
-              className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
-              title={t('table.spectators', { n: spectators })}
-              aria-label={t('table.spectators', { n: spectators })}
-            >
-              <span aria-hidden>👁</span>{spectators}
-            </span>
-          )}
-          <TurnTimer deadline={game?.turnDeadline ?? null} />
-          <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title={t('table.historyTitle')} aria-label={t('table.gameHistory')}>☰</button>
-          <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title={t('table.chat')} aria-label={t('table.chat')}>💬</button>
-          <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('emote'); }} title={t('table.emote')} aria-label={t('table.emote')}>😊</button>
-        </div>
+        {topLeft}
+        {topRight}
       </div>
 
       {/* Score is now shown compactly in the top bar (above) — no separate bar. */}
@@ -361,92 +469,105 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             {mySeat !== null &&
               opponents.map((s) => {
                 const pos = seatPosition(numPlayers, mySeat, s.seat);
-                const bub = bubbleFor(s.seat);
                 return (
                   <div key={s.seat} className={`tv-seat tv-seat-${pos} absolute z-[5] ${SEAT_POS[pos]}`}>
-                    {bub && <SpeechBubble b={bub} />}
-                    <button onClick={() => s.userId && setProfileId(s.userId)} className="block" title={t('table.viewProfile')}>
-                      <SeatBadge
-                        name={nameOf(s.seat)}
-                        avatar={s.avatar}
-                        count={game?.handCounts?.[s.seat] ?? 0}
-                        team={room.type === '2v2' ? s.team : null}
-                        isTurn={game?.turn === s.seat}
-                        connected={s.connected}
-                        finished={finishedSet.has(s.seat)}
-                        passed={passedSet.has(s.seat)}
-                        gone={goneSet.has(s.seat)}
-                        lastPlayer={game?.pileOwner === s.seat}
-                        partner={room.type === '2v2' && myTeam !== null && s.team === myTeam}
-                        turnDeadline={game?.turn === s.seat ? game?.turnDeadline ?? null : null}
-                        placement={pos}
-                      />
-                    </button>
+                    {renderSeat(s, pos)}
                   </div>
                 );
               })}
 
-            {/* Centre pile (above the betting ring + logo). pointer-events:none so the
-                display never intercepts taps meant for the hand/controls below it
-                (in landscape the tall felt overlaps the bottom controls). */}
-            <div className={`absolute inset-0 grid place-items-center z-[3] pointer-events-none${finishFx ? ' finish-pop' : ''}`}>
-              <Pile pile={game?.pile ?? null} history={pileHistory} />
-            </div>
+            {/* Centre pile (above the betting ring + logo). */}
+            {pileEl}
           </div>
           </div>
         </div>
       </div>
 
-      {/* My hand + controls (no framing box — cards sit on the table surface).
-          relative z-20 keeps the hand + the switch-confirm bar ABOVE the felt's
-          centre overlay (which can overlap them on a short landscape screen). */}
+      {/* My hand + controls (no framing box — cards sit on the table surface). */}
       <div className="tv-bottom pt-1 relative z-20">
-        {switching ? (
-          <div className="text-center pb-1.5">
-            {switchPick ? (
-              <div className="flex items-center justify-center gap-2 flex-wrap animate-pop">
-                <span className="text-sm text-txt">{t('table.switchConfirmQ', { card: cardLabel(switchPick) })}</span>
-                <button className="btn btn-gold btn-sm" onClick={confirmSwitch}>{t('table.switchConfirm')}</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setSwitchPick(null)}>{t('table.switchCancel')}</button>
-              </div>
-            ) : (
-              <span className="inline-block animate-pop panel-solid rounded-xl px-4 py-2 text-gold-hi font-display font-semibold text-sm leading-snug max-w-[88vw]">
-                {t('table.youWinSwitch')}
-              </span>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* My emote/chat bubble FLOATS above the hand (absolute) so sending one never
-                grows the bottom area and shoves the whole table up. */}
-            {(() => {
-              const myBubble = mySeat !== null ? bubbleFor(mySeat) : undefined;
-              return myBubble ? (
-                <div className="absolute left-1/2 bottom-full mb-1 -translate-x-1/2 text-center pointer-events-none z-30">
-                  <span className="inline-block animate-pop panel-solid rounded-xl px-3 py-1 max-w-[220px] truncate">
-                    {myBubble.kind === 'emote'
-                      ? <span className="text-xl leading-none">{myBubble.text}</span>
-                      : <span className="text-sm text-txt">{myBubble.text}</span>}
-                  </span>
-                </div>
-              ) : null;
-            })()}
-          </>
-        )}
-        <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate />
-        {!switching && (
-          <Controls
-            selectedCards={selectedCards(myHand, selected)}
-            pile={game?.pile ?? null}
-            isMyTurn={isMyTurn}
-            canPass={canPass}
-            requireThreeSpades={requireThreeSpades}
-            onPlay={() => { sound.play('card'); haptics.tap(); void play(); }}
-            onPass={() => { sound.play('pass'); void pass(); }}
-            onClear={clearSelection}
-          />
-        )}
+        {switchOrBubble}
+        {handBlock}
+        {controlsBlock}
       </div>
+    </>
+  );
+
+  // LANDSCAPE: ONE fixed-aspect (1280/590 ≈ 2.17:1) canvas that scales to FIT the
+  // screen (contain) and is centered both axes — letterboxed on a phone whose ratio
+  // differs. EVERY element is absolutely positioned by % of this ONE container and
+  // sized in % of its width/height; centers (cx,cy) use translate(-50%,-50%).
+  // `container-type: size` lets inner font-sizes use cqw/cqh.
+  const canvasLayout = (
+    <div className="tv-canvas-wrap">
+      <div className={`tv-canvas ${feltClass} ${cbClass}`}>
+        {/* Top bar — Largohu (left), then timer + history/chat/emoji (right). */}
+        <div className="tvc-topbar">
+          {topLeft}
+          {topRight}
+        </div>
+
+        {/* Felt / table: rounded-rect at left 22% top 9% w 56% h 51%. */}
+        <div className={`tvc-felt ${feltClass} ${cbClass}`}>
+          <div className="rail-outer">
+            <div className="rail-inner">
+              <div className={`felt-ring${game?.pile ? ' live' : ''}`} aria-hidden />
+              <div className="tlogo">MURLAN</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Centre played pile — center (50%, 38.5%). pointer-events:none so it never
+            steals a tap meant for the hand below; finish-pop on a go-out. */}
+        <div className={`tvc-pile${finishFx ? ' finish-pop' : ''}`}>
+          <Pile pile={game?.pile ?? null} history={pileHistory} />
+        </div>
+
+        {/* Opponent seats — absolutely placed at their spec center coordinates. */}
+        {mySeat !== null &&
+          opponents.map((s) => {
+            const pos = seatPosition(numPlayers, mySeat, s.seat);
+            const slot = LS_SEAT_SLOT[pos];
+            if (!slot) return null; // local player — no avatar
+            const cxy = LS_SEAT_CXY[slot];
+            return (
+              <div
+                key={s.seat}
+                className={`tvc-seat tvc-seat-${slot}`}
+                style={{ left: `${cxy.cx}%`, top: `${cxy.cy}%` }}
+              >
+                {renderSeat(s, pos)}
+              </div>
+            );
+          })}
+
+        {/* Hand zone — left 30% top 60% w 43% h 35% (center 51.5%, 77%). */}
+        <div className="tvc-hand">
+          {switchOrBubble}
+          {handBlock}
+        </div>
+
+        {/* Pas / Luaj round buttons — CSS pins them to cx 12%/88%, cy 81%. */}
+        {controlsBlock}
+      </div>
+    </div>
+  );
+
+  return (
+    // Safe-area insets: this is the main gameplay screen and renders OUTSIDE the
+    // lobby Shell, so it must inset itself or the top controls sit under the iPhone
+    // notch / Dynamic Island and the hand under the home indicator (audit finding H10).
+    // In landscape (`ls`) the table becomes a single fixed-aspect CANVAS; portrait/
+    // desktop keep the original vertical flow layout. ALL overlays/modals below are
+    // rendered as siblings (fixed / modal-backdrop) so the canvas can never clip them.
+    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${shake ? ' shake-fx' : ''}`}>
+      <h1 className="sr-only">{t('table.title')}</h1>
+      <GameAnnouncer
+        isMyTurn={isMyTurn}
+        result={matchResult ? (iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })) : null}
+      />
+      {forced && <RotateOverlay />}
+
+      {ls ? canvasLayout : flowLayout}
 
       {/* Shuffle splash: ONLY at match start / between deals — never during the
           card switch (which would cover the winner's hand and block the give). */}
