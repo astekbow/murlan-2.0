@@ -46,6 +46,11 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env (>=32 random chars)}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env (>=32 random chars, different from access)}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?set PAYMENT_WEBHOOK_SECRET in .env}
+      # Optional CSV of allowed deposit-webhook source IPs (empty = any). Needs the proxy
+      # to set X-Forwarded-For authoritatively. And the proxy-trust override (default:
+      # loopback + RFC1918) — set if your reverse-proxy chain differs.
+      PAYMENT_WEBHOOK_IPS: ${PAYMENT_WEBHOOK_IPS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # Real crypto deposits are on-chain USDT-TRC20 via the TxID flow — set
       # TRON_DEPOSIT_ADDRESS (+ optional TRONGRID_API_KEY) below to enable.
       # Real reset/verification emails via Resend. Set RESEND_API_KEY to enable.
@@ -63,6 +68,12 @@ services:
       DATABASE_URL: ${DATABASE_URL-postgres://murlan:murlan@postgres:5432/murlan}
       DIRECT_URL: ${DIRECT_URL-postgres://murlan:murlan@postgres:5432/murlan}
       RAKE_BPS: ${RAKE_BPS:-1000}
+      # Four-eyes control: when true, a tournament champion payout needs a SECOND admin
+      # to confirm before funds move (off by default — a solo operator has no 2nd admin).
+      TOURNAMENT_DUAL_CONTROL: ${TOURNAMENT_DUAL_CONTROL:-false}
+      # When set, GET /metrics requires Authorization: Bearer <token> (else it's served
+      # only to private/loopback IPs — fine behind Docker's internal network).
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       # Compliance switches (off by default):
       KYC_REQUIRED: ${KYC_REQUIRED:-false}
       MIN_AGE: ${MIN_AGE:-0}
