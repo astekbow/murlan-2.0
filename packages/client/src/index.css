@@ -705,19 +705,17 @@ select:focus-visible,
 .tv-ls .tv-top {
   padding-top: max(8px, env(safe-area-inset-top)) !important;
   padding-bottom: 0 !important;
-  /* Hug the corners: ~8px from the screen frame (respecting any notch inset). */
-  padding-left: max(8px, env(safe-area-inset-left)) !important;
-  padding-right: max(8px, env(safe-area-inset-right)) !important;
+  /* Set IN from the frame a touch (the "L" look — not glued to the corners). */
+  padding-left: max(16px, env(safe-area-inset-left)) !important;
+  padding-right: max(16px, env(safe-area-inset-right)) !important;
   /* Sit ABOVE the felt: the felt comes later in the DOM (so it stacks higher by default)
      and, on a short landscape screen, its top edge can reach up toward this bar — without
      this the Leave / chat / emoji buttons get covered. */
   position: relative;
   z-index: 3;
 }
-/* Slightly bigger top-bar buttons (easier thumb targets), pushed to the corners by the
-   reduced .tv-top side padding above. */
-.tv-ls .tv-top .iconbtn { width: 48px; height: 48px; font-size: 20px; }
-.tv-ls .tv-top .btn { padding: 9px 16px !important; font-size: 15px !important; }
+/* Top-bar buttons: normal size (the "L" look), set in from the frame by the padding above. */
+.tv-ls .tv-top .iconbtn { width: 44px; height: 44px; font-size: 18px; }
 .tv-ls .tv-score { margin: 2px 0 !important; }
 /* Top padding gives the opponent seat (above the felt) room; the left/right safe-area
    insets shift the felt (and its side seat badges) clear of the Dynamic Island. */
@@ -730,14 +728,14 @@ select:focus-visible,
 /* Leave a CONSISTENT side margin on every phone (the felt is a bit narrower on small
    landscapes) so the side seats can sit OUTSIDE the green at the SAME position on every
    device — not just on wide phones where there happens to be room. */
-.tv-ls .tv-felt { padding: 2px 8px !important; width: calc(100% - 168px) !important; max-width: 700px !important; margin: 5px auto !important; }
+.tv-ls .tv-felt { padding: 2px 8px !important; width: calc(100% - 156px) !important; max-width: 680px !important; margin: 5px auto !important; }
 /* Keep the hand clear of the side Play/Pass buttons. The buttons sit at
    max(14px, env(inset)) from each edge, so the hand padding must include the SAME
    inset plus the button width + a gap — otherwise the notch inset pushes the buttons
    inward onto the outer cards. */
 .tv-ls .tv-bottom {
-  padding-left: calc(env(safe-area-inset-left) + 128px) !important;
-  padding-right: calc(env(safe-area-inset-right) + 128px) !important;
+  padding-left: calc(env(safe-area-inset-left) + 116px) !important;
+  padding-right: calc(env(safe-area-inset-right) + 116px) !important;
   /* Pull the hand UP so it overlaps the felt's lower edge (the felt extends down behind
      it) — the reference look, and it lets the felt be much taller without overflow. */
   margin-top: -34px !important;
@@ -761,8 +759,8 @@ select:focus-visible,
 .tv-ls .tv-seat-top-right { right: max(6px, env(safe-area-inset-right)) !important; }
 /* Push the side seats fully OUT of the green felt + its dark rim — they sit in the side
    margin, clear of the table (the felt above reserves ~84px each side to fit them). */
-.tv-ls .tv-seat-left { left: -66px !important; }
-.tv-ls .tv-seat-right { right: -66px !important; }
+.tv-ls .tv-seat-left { left: -56px !important; }
+.tv-ls .tv-seat-right { right: -56px !important; }
 .tv-ls .seat-nm { max-width: 56px; font-size: 11px; }
 .tv-ls .hand-fan .gcard { width: 40px; height: 58px; }
 .tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }
@@ -778,15 +776,14 @@ select:focus-visible,
 .tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
 .tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
 .tv-ls .ctrl-pass, .tv-ls .ctrl-play {
-  position: absolute; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 25;
+  position: absolute; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 25;
   flex: none !important; padding: 0 !important; border-radius: 9999px !important;
   display: flex; align-items: center; justify-content: center; line-height: 1;
   font-weight: 700; box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
 }
-/* Big, EQUAL round corner buttons (like the reference layout) — easy thumb targets, pushed
-   right into the bottom corners (~9px from the screen frame, respecting any notch). */
-.tv-ls .ctrl-pass { left: max(9px, env(safe-area-inset-left)); width: 108px; height: 108px; font-size: 18px; }
-.tv-ls .ctrl-play { right: max(9px, env(safe-area-inset-right)); width: 108px; height: 108px; font-size: 19px; }
+/* Round bottom buttons (the "L" look): set IN from the frame ~18px, not glued to corners. */
+.tv-ls .ctrl-pass { left: max(18px, env(safe-area-inset-left)); width: 92px; height: 92px; font-size: 17px; }
+.tv-ls .ctrl-play { right: max(18px, env(safe-area-inset-right)); width: 92px; height: 92px; font-size: 18px; }
 
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */
 .pfp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
