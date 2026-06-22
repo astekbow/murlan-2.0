@@ -319,6 +319,33 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     return reply.code(204).send();
   });
 
+  // Privacy/cookie-notice acknowledgment record (GDPR/ePrivacy accountability). The app
+  // sets ONLY essential auth cookies (no tracking/ads), so this is a notice ACK, not
+  // tracking consent. We persist an auditable line (who/when/policy version/IP) to the
+  // logs — no DB table needed. No auth required (shown pre-login); userId attached if
+  // a bearer token is present. Rate-limited by the global limiter.
+  app.post('/api/consent', async (req, reply) => {
+    const b = (req.body ?? {}) as { version?: unknown; accepted?: unknown };
+    let userId: string | undefined;
+    const authz = req.headers.authorization;
+    if (typeof authz === 'string' && authz.startsWith('Bearer ')) {
+      try { userId = deps.auth.verifyAccess(authz.slice(7)).userId; } catch { /* anon ack is fine */ }
+    }
+    app.log.info(
+      {
+        consent: {
+          userId,
+          version: typeof b.version === 'string' ? b.version.slice(0, 40) : 'unknown',
+          accepted: b.accepted === true,
+          ip: req.ip,
+          at: new Date().toISOString(),
+        },
+      },
+      'privacy-notice acknowledged',
+    );
+    return reply.code(204).send();
+  });
+
   return app;
 }
 

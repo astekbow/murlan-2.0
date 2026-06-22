@@ -29,6 +29,13 @@ const STRINGS: Record<string, Entry> = {
   'app.emailVerified': { sq: 'Email-i u verifikua! 🎉', en: 'Email verified! 🎉' },
   'app.emailVerifyFailed': { sq: 'Lidhja e verifikimit s’është e vlefshme ose ka skaduar.', en: 'The verification link is invalid or has expired.' },
 
+  // Privacy / cookie notice (essential cookies only — no tracking/ads)
+  'consent.text': {
+    sq: 'Përdorim vetëm cookie thelbësore për hyrjen (login) — pa gjurmim e pa reklama. Duke vazhduar, pranon këtë.',
+    en: 'We use only essential cookies for login — no tracking, no ads. By continuing you accept this.',
+  },
+  'consent.accept': { sq: 'E kuptova', en: 'Got it' },
+
   // Auth
   'auth.tagline': { sq: 'Luaj online për të vërtetë', en: 'Play online for real' },
   'auth.login': { sq: 'HYR', en: 'LOG IN' },
