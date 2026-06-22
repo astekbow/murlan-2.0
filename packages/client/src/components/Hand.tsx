@@ -67,10 +67,9 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   const CARD_W = w < 420 ? 90 : 104;
   const CARD_H = Math.round(CARD_W * 1.4);
   const maxStep = Math.round(CARD_W * 0.66);
-  // Straight row: enough overlap to fit every card, but never less than ~28px so each
-  // card shows more than a thin sliver (bigger, more readable hand — scrolls if a full
-  // 18-card hand can't fit at that spacing).
-  const step = n > 1 ? Math.max(28, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
+  // Straight row: overlap as much as needed so the WHOLE hand always fits the width
+  // (no horizontal scroll), but never less than ~18px so each card's rank stays readable.
+  const step = n > 1 ? Math.max(18, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
