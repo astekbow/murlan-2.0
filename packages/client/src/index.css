@@ -414,10 +414,16 @@ select:focus-visible,
   .av.off { opacity: 0.5; }
 
   /* ---- Turn countdown ring (depletes over the player's remaining time) ------- */
-  /* PROPORTIONAL inset (% of the avatar wrapper) so the ring stays aligned at every
-     responsive avatar size (56 → 46 → 36px). A fixed px inset drifts as the avatar
-     shrinks on mobile/landscape (the ring sat too far out from the small avatar). */
-  .turn-ring { position: absolute; inset: -10%; transform: rotate(-90deg); pointer-events: none; z-index: 2; }
+  /* Centered with translate + EXPLICIT width/height (not `inset`): an inline <svg> with a
+     viewBox but no width/height is NOT reliably stretched to an inset box on mobile
+     browsers — it renders at its intrinsic size anchored top-left, so the ring looked
+     SMALL and OFF-CENTRE on phones. Explicit % size scales with the avatar (56→46→36px)
+     and translate(-50%,-50%) keeps it dead-centre; rotate(-90deg) starts the deplete at 12 o'clock. */
+  .turn-ring {
+    position: absolute; left: 50%; top: 50%; width: 124%; height: 124%;
+    transform: translate(-50%, -50%) rotate(-90deg);
+    pointer-events: none; z-index: 2;
+  }
   .turn-ring-track { fill: none; stroke: rgba(0, 0, 0, 0.4); stroke-width: 3.5; }
   .turn-ring-arc {
     fill: none; stroke: var(--gold); stroke-width: 3.5; stroke-linecap: round;
