@@ -61,15 +61,16 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   }, []);
 
   const w = availW || 340;
-  // Bigger, easier-to-read cards (esp. on phones). The fan still fits any hand size —
-  // `step` below overlaps them to the available width, so a wider card just overlaps more
-  // while its readable top-left rank/suit strip stays visible.
-  const CARD_W = w < 420 ? 90 : 104;
+  // Each card always shows a FIXED fraction of its width (VISIBLE) — so the fan never
+  // looks "stuck" (crammed into thin slivers) AND never scrolls. Cards are sized as big
+  // as possible to fill the width at that overlap; with few cards they hit a max size and
+  // the row just centres. This makes spacing consistent regardless of how many cards.
+  const VISIBLE = 0.58; // visible slice per card (≈42% overlap)
+  const MAX_W = w < 420 ? 96 : 112;
+  const fitW = (w - 8) / ((n - 1) * VISIBLE + 1); // width at which n cards exactly fill w
+  const CARD_W = Math.round(Math.max(52, Math.min(MAX_W, fitW)));
   const CARD_H = Math.round(CARD_W * 1.4);
-  const maxStep = Math.round(CARD_W * 0.66);
-  // Straight row: overlap as much as needed so the WHOLE hand always fits the width
-  // (no horizontal scroll), but never less than ~18px so each card's rank stays readable.
-  const step = n > 1 ? Math.max(18, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
+  const step = n > 1 ? Math.round(CARD_W * VISIBLE) : 0;
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
