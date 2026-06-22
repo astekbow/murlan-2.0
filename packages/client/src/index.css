@@ -763,6 +763,12 @@ select:focus-visible,
 .tv-ls .hand-fan .gcard .gc-r, .tv-ls .hand-fan .gcard .gc-br { font-size: 12px; }
 .tv-ls .hand-fan .gcard .gc-big { font-size: 20px; }
 .tv-ls .hand-fan .gcard .gc-s { top: 16px; font-size: 9px; }
+/* Bigger centre-pile cards on phones (the played combo is the focal point — 56→76px). */
+.tv-ls .pile-cards .gcard { width: 76px; height: 106px; margin-left: -38px; }
+.tv-ls .pile-cards .gcard:first-child { margin-left: 0; }
+.tv-ls .pile-cards .gcard .gc-r, .tv-ls .pile-cards .gcard .gc-br { font-size: 19px; }
+.tv-ls .pile-cards .gcard .gc-big { font-size: 36px; }
+.tv-ls .pile-cards .gcard .gc-s { top: 25px; font-size: 13px; }
 .tv-ls .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
 .tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
 .tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
