@@ -11,6 +11,12 @@ interface HandProps {
   dealAnimate?: boolean;
   /** When set (e.g. during the card switch), cards NOT in this set are dimmed. */
   eligibleIds?: ReadonlySet<string> | null;
+  /**
+   * Landscape canvas mode: size the whole fan to ALWAYS fit the measured zone
+   * width with NO horizontal scroll, keeping the cards as big as possible. When
+   * unset, the original (portrait/desktop) fitting behaviour is used unchanged.
+   */
+  fit?: boolean;
 }
 
 /** Weakest→strongest by Murlan power (3…10,J,Q,K,A,2, black joker, red joker). */
@@ -27,7 +33,7 @@ const sortIds = (cards: Card[]): string[] =>
 // Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips
 // re-rendering on unrelated table updates (an opponent's move, a timer tick) — it
 // only re-renders when the cards/selection/eligibility actually change.
-export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds }: HandProps) {
+export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, fit }: HandProps) {
   const byId = new Map(cards.map((c) => [cardKey(c), c] as const));
   const selectedSet = new Set(selected);
 
@@ -61,16 +67,34 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   }, []);
 
   const w = availW || 340;
-  // BIG, readable cards. `step` overlaps them to fit the width (no scroll); maxStep gives
-  // a little extra breathing room between cards on screens that have room, and min-step
-  // keeps a few px of gap even on a full hand.
-  const CARD_W = w < 420 ? 98 : 112;
+  let CARD_W: number;
+  let step: number;
+  if (fit) {
+    // LANDSCAPE CANVAS: the fan must ALWAYS fit `w` with NO horizontal scroll, while
+    // the cards stay as big as possible. Pick the largest card width whose minimum-
+    // overlap fan still fits; then spread the step to exactly fill the width (capped so
+    // cards never separate into gaps). Card size is thus a % of the zone, not fixed px.
+    const cap = w < 520 ? 104 : 124;           // upper bound so cards aren't huge with few cards
+    // Largest CARD_W such that a tight fan (step = 38% of width) fits: with min overlap,
+    // stageW ≈ CARD_W + (n-1)*0.38*CARD_W. Solve CARD_W ≤ w / (1 + 0.38*(n-1)).
+    const minStepFrac = 0.38;
+    const fitW = n > 1 ? w / (1 + minStepFrac * (n - 1)) : w;
+    CARD_W = Math.max(46, Math.min(cap, Math.floor(fitW)));
+    const maxStep = Math.round(CARD_W * 0.72);
+    step = n > 1 ? Math.min(maxStep, (w - CARD_W) / (n - 1)) : 0;
+  } else {
+    // PORTRAIT / DESKTOP — original behaviour, unchanged.
+    // BIG, readable cards. `step` overlaps them to fit the width (no scroll); maxStep gives
+    // a little extra breathing room between cards on screens that have room, and min-step
+    // keeps a few px of gap even on a full hand.
+    CARD_W = w < 420 ? 98 : 112;
+    const maxStep = Math.round(CARD_W * 0.72); // more spread on screens with room
+    // min step ≈ enough that each card's rank+suit corner clears the next card (the suit was
+    // getting half-covered when too tight). Cards stay big; the fan scrolls only if a full
+    // hand truly can't fit at this spacing.
+    step = n > 1 ? Math.max(27, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
+  }
   const CARD_H = Math.round(CARD_W * 1.4);
-  const maxStep = Math.round(CARD_W * 0.72); // more spread on screens with room
-  // min step ≈ enough that each card's rank+suit corner clears the next card (the suit was
-  // getting half-covered when too tight). Cards stay big; the fan scrolls only if a full
-  // hand truly can't fit at this spacing.
-  const step = n > 1 ? Math.max(27, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
@@ -105,13 +129,22 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   };
 
   // Empty hand → render nothing (no "you have no cards" placeholder); keep the row's
-  // height reserved so the layout doesn't jump when the deal arrives.
+  // height reserved so the layout doesn't jump when the deal arrives. In fit (canvas)
+  // mode the zone already reserves height, so just measure-mount an empty ref.
   if (n === 0) {
-    return <div className="min-h-[124px]" aria-hidden />;
+    return fit
+      ? <div ref={scrollRef} className="w-full flex-1 min-h-0" aria-hidden />
+      : <div className="min-h-[124px]" aria-hidden />;
   }
 
   return (
-    <div ref={scrollRef} className="no-scrollbar overflow-x-auto overflow-y-visible max-w-full px-2">
+    <div
+      ref={scrollRef}
+      className={fit
+        ? 'no-scrollbar w-full flex-1 min-h-0 flex items-end justify-center'
+        : 'no-scrollbar overflow-x-auto overflow-y-visible max-w-full px-2'}
+      style={fit ? { overflowX: 'clip', overflowY: 'visible' } : undefined}
+    >
       <div ref={stageRef} className="hand-stage" style={{ width: stageW, height: CARD_H + 34 }}>
         {ids.map((id, i) => {
           const card = byId.get(id);
