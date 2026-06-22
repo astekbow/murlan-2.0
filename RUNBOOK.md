@@ -33,7 +33,11 @@ additive; there is no down-migration — restore from backup if one is destructi
 
 ## 3. Backups & restore
 - **Local:** `db-backup` service → `./backups/{daily,weekly,monthly}` (+ `predeploy/`).
-- **Offsite:** `deploy/backup-offsite.sh` via rclone → Backblaze B2, cron 04:30 daily.
+- **Offsite (SET THIS UP — not automatic yet):** the local dumps live on the SAME disk
+  as the Postgres volume, so one host/disk loss takes the ledger AND every backup. Wire
+  `deploy/backup-offsite.sh` to a cloud bucket: `apt install rclone` → `rclone config`
+  (e.g. Backblaze B2) → add a daily cron (`crontab -e`, e.g. `30 4 * * * /…/backup-offsite.sh`).
+  Confirm with `rclone ls <remote>:<bucket>` after the first run.
 - **Restore:**
   ```bash
   gunzip -c backups/daily/<file>.sql.gz | docker compose exec -T postgres psql -U murlan -d murlan
@@ -46,9 +50,12 @@ additive; there is no down-migration — restore from backup if one is destructi
 - **Deposits** (USDT-TRC20): player sends to their **unique per-player address**
   (watch-only, derived from `TRON_DEPOSIT_XPUB`) then submits the TxID → server verifies
   on-chain (TronGrid) + credits. The actual USDT sits at the deposit address.
-- **Withdrawals:** blocked until **admin-verified KYC**. KYC-verified + **≤ $50** →
-  auto-pays via Binance on request. **> $50** → admin **Approve** (which *sends* via
-  Binance). A failed send refunds the player and stays unpaid.
+- **Withdrawals:** NOT KYC-gated (KYC was removed by owner decision — don't re-add it
+  silently). Age/geo gates still apply when configured. A withdrawal **≤
+  `AUTO_WITHDRAW_MAX_CENTS`** (and within the per-user 24h `DAILY_AUTO_WITHDRAW_CAP_CENTS`)
+  auto-pays via Binance on request; anything larger / over the cap → admin **Approve**
+  (which *sends* via Binance) or **Reject** (refunds). A failed send refunds the player
+  and stays unpaid. With the Telegram admin bot active you can Approve/Reject from chat.
 
 ### Treasury (the two pools)
 Deposits accumulate at the per-player TRON addresses; withdrawals pay from **Binance**.
@@ -61,9 +68,23 @@ They are SEPARATE — keep Binance funded with USDT and periodically **sweep** d
   per-address ~$1–2).
 
 ### Routine
-1. Verify a player's identity → **Admin → Players → KYC → verified**.
-2. Keep Binance topped up so payouts (auto + Approve) succeed.
-3. Sweep deposit addresses → Binance when the Treasury panel shows low coverage.
+1. Keep Binance topped up so payouts (auto + Approve) succeed.
+2. Sweep deposit addresses → Binance when the Treasury panel shows low coverage.
+3. (Optional) Set a player's KYC flag in Admin for your own records — it does NOT gate
+   withdrawals today; it only feeds the risk view.
+
+### Tournament payouts — who decides the winner
+- **Self-running tournaments (normal):** each pairing is played as a live in-app match;
+  the gateway reports the **real** game winner automatically and advances/pays — no admin
+  picks the winner. Once a live match decides a pairing it's locked (can't be overridden).
+- **Manual `/report` (fallback):** only reachable for a pairing with NO live result
+  (no-show/dispute). The reported winner **must be one of the two real bracket
+  participants** (an arbitrary account can't be named) and every report is audited. So the
+  worst a single admin can do is pick the wrong one of two legitimate finalists — not
+  drain the pool to an outsider.
+- **Four-eyes:** set `TOURNAMENT_DUAL_CONTROL=true` (if you add a 2nd admin) to require a
+  SECOND admin to confirm a money tournament's champion before payout. Leave off for a
+  solo operator (a self-running final can't wait for a confirmer).
 
 ## 5. Alerts & observability
 
@@ -106,7 +127,7 @@ container exit). To persist/search, ship the container's stdout to journald/Loki
 | Symptom | Likely cause | Action |
 |---|---|---|
 | Player "didn't get my withdrawal" | Binance unfunded → send failed (auto-refunded) | Check Treasury coverage; fund/sweep Binance; re-approve |
-| Withdraw button blocked | KYC not verified (by design) | Verify the player's KYC in Admin |
+| Withdraw blocked / "limit reached" | Age/geo gate, or per-user 24h auto cap hit (larger → manual) | Check the player's gates + the pending queue; Approve manually if legit |
 | Deposit credited but not in TronLink | Funds at the per-player address (not index 0) | `tools/tron-scan.mjs` finds the right index |
 | Server crash-loop on boot | Bad migration / DB unreachable | Check `docker compose logs server`; restore pre-deploy dump |
 | Site reachable on `:8080` (plain HTTP) | Client port published on host (bypasses Caddy TLS) | Bind client to 127.0.0.1 / drop the host publish (follow-up) |
@@ -116,3 +137,30 @@ Rotate if exposed: `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `PAYMENT_WEBHOOK_S
 (`openssl rand -hex 32`), `RESEND_API_KEY` (Resend dashboard), Binance/TronGrid/Telegram
 keys (their consoles). Update `.env` → `redeploy.sh`. The deposit wallet seed lives
 OFFLINE only — never on the server.
+
+## 8. Scaling — RUN A SINGLE SERVER INSTANCE ONLY
+This stack is **single-instance by design**. Critical state lives IN-PROCESS, not in a
+shared store: room ownership (`InMemoryRoomOwnership` is a no-op), per-turn/abandon timers,
+the rate limiter, presence, matchmaking, and — importantly — the **per-user daily
+deposit-cap serialization** in `walletService`. Running **2+ replicas of `server`** would:
+- corrupt live matches (two instances each think they own a room), and
+- let a player **exceed their responsible-gaming daily deposit cap** via concurrent
+  deposits hitting different instances (the cap relies on single-process serialization).
+
+So: scale UP (a bigger VPS), never OUT, until the room-ownership + caps are moved to a
+Redis-backed shared store. `REDIS_URL` today only powers the Socket.IO adapter — it does
+**not** make the app horizontally safe. Keep exactly one `server` container.
+
+## 9. Live env sanity check (run after every deploy)
+Confirm the container actually got the right config (a `.env` var only reaches it if it's
+mapped in `docker-compose.yml`):
+```bash
+docker compose exec server printenv \
+  NODE_ENV DATABASE_URL TRON_DEPOSIT_XPUB CLIENT_ORIGIN TELEGRAM_WEBHOOK_SECRET
+```
+Expect: `NODE_ENV=production`; `DATABASE_URL` → the bundled `postgres:5432` (NOT a dev
+Supabase host); **`TRON_DEPOSIT_XPUB` non-empty** (if empty, deposits silently fall back
+to the legacy *claim-jackable* shared address — the app only warns, it does not refuse to
+boot); `CLIENT_ORIGIN` = your real `https://` domain; `TELEGRAM_WEBHOOK_SECRET` set if you
+want the interactive bot. Also confirm boot logs show `[deposit] UNIQUE per-player …
+ENABLED` (not the single-shared-address warning).
