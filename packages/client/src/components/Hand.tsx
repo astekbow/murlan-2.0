@@ -64,7 +64,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds 
   // BIG, readable cards. `step` overlaps them to fit the width (no scroll); maxStep gives
   // a little extra breathing room between cards on screens that have room, and min-step
   // keeps a few px of gap even on a full hand.
-  const CARD_W = w < 420 ? 90 : 104;
+  const CARD_W = w < 420 ? 98 : 112;
   const CARD_H = Math.round(CARD_W * 1.4);
   const maxStep = Math.round(CARD_W * 0.72); // more spread on screens with room
   // min step ≈ enough that each card's rank+suit corner clears the next card (the suit was
