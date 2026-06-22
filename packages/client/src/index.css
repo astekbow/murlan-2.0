@@ -595,10 +595,12 @@ select:focus-visible,
    the pile card elements remount with new keys each play, so unchanged re-broadcasts
    don't re-trigger it. Reduced-motion safe (universal rule neutralises it). */
 @keyframes throwin {
-  from { opacity: 0; transform: translateY(-44px) rotate(-7deg) scale(1.08); }
-  to { opacity: 1; transform: none; }
+  0%   { opacity: 0; transform: translateY(64px) scale(0.82) rotate(7deg); }
+  55%  { opacity: 1; transform: translateY(-7px) scale(1.05) rotate(-2deg); }
+  100% { opacity: 1; transform: none; }
 }
-.pile-cards .gcard { animation: throwin 0.3s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+/* Cards fly UP from the hand, overshoot a touch, then settle — a smooth "throw". */
+.pile-cards .gcard { animation: throwin 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .pile-cards .gcard:nth-child(2) { animation-delay: 0.04s; }
 .pile-cards .gcard:nth-child(3) { animation-delay: 0.08s; }
 .pile-cards .gcard:nth-child(4) { animation-delay: 0.12s; }
@@ -714,7 +716,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: transparent;   /* let the app's patterned dark background show through the letterbox */
   z-index: 0;
 }
 /* THE canvas. aspect-ratio + width:min(...) = contain. container-type:size enables
@@ -748,8 +750,10 @@ select:focus-visible,
   gap: 1.5%;
   z-index: 8;                  /* above the felt */
 }
-.tv-ls .tvc-topbar .iconbtn { width: 3.4cqh; height: 3.4cqh; min-width: 0; min-height: 0; font-size: 1.9cqh; }
-.tv-ls .tvc-topbar .btn { padding-top: 1cqh; padding-bottom: 1cqh; }
+/* Sized as % of canvas WIDTH (cqw) like the spec (Ø ~4.5%w = 42pt) — cqh made them tiny. */
+.tv-ls .tvc-topbar .iconbtn { width: 5cqw; height: 5cqw; min-width: 0; min-height: 0; font-size: 2.7cqw; }
+.tv-ls .tvc-topbar .btn { padding: 1.4cqh 2.6cqw !important; font-size: 2.4cqw !important; }
+.tv-ls .tvc-topbar .seat-cnt, .tv-ls .tvc-topbar .text-sm, .tv-ls .tvc-topbar .text-xs { font-size: 2cqw; }
 
 /* ---- Felt / table: left 22% top 9% width 56% height 51% --------------------- */
 .tv-ls .tvc-felt {
@@ -796,12 +800,12 @@ select:focus-visible,
 .tv-ls .tvc-seat .mini { width: 2.4cqw; height: 3.4cqw; margin-left: -1.4cqw; }
 .tv-ls .tvc-seat .mini:first-child { margin-left: 0; }
 
-/* ---- Hand zone: left 30% top 60% width 43% height 35% --------------------- */
+/* ---- Hand zone: wider than the base spec (52%) so the cards are BIG; still centred. */
 .tv-ls .tvc-hand {
-  left: 30%;
-  top: 60%;
-  width: 43%;
-  height: 35%;
+  left: 24%;
+  top: 58%;
+  width: 52%;
+  height: 38%;
   z-index: 20;                 /* above the felt + pile */
   display: flex;
   flex-direction: column;
@@ -826,6 +830,8 @@ select:focus-visible,
 }
 .tv-ls .ctrl-pass { left: 12%; }
 .tv-ls .ctrl-play { left: 88%; }
+/* Press feedback: the button dips + shrinks while held (keeps the translate centre). */
+.tv-ls .ctrl-pass:active, .tv-ls .ctrl-play:active { transform: translate(-50%, -50%) scale(0.9); transition: transform .08s ease; }
 
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */
 .pfp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

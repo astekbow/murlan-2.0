@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Card } from '@murlan/engine';
 import { singlePower } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
@@ -56,7 +56,9 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   const scrollRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [availW, setAvailW] = useState(0);
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): measure + set the width BEFORE the browser paints,
+  // so the cards render at their final size immediately — no "start small then grow" flash.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const measure = () => setAvailW(el.clientWidth);
@@ -74,7 +76,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     // the cards stay as big as possible. Pick the largest card width whose minimum-
     // overlap fan still fits; then spread the step to exactly fill the width (capped so
     // cards never separate into gaps). Card size is thus a % of the zone, not fixed px.
-    const cap = w < 520 ? 104 : 124;           // upper bound so cards aren't huge with few cards
+    const cap = w < 520 ? 124 : 148;           // upper bound so cards aren't huge with few cards
     // Largest CARD_W such that a tight fan (step = 38% of width) fits: with min overlap,
     // stageW ≈ CARD_W + (n-1)*0.38*CARD_W. Solve CARD_W ≤ w / (1 + 0.38*(n-1)).
     const minStepFrac = 0.38;
