@@ -164,3 +164,48 @@ to the legacy *claim-jackable* shared address — the app only warns, it does no
 boot); `CLIENT_ORIGIN` = your real `https://` domain; `TELEGRAM_WEBHOOK_SECRET` set if you
 want the interactive bot. Also confirm boot logs show `[deposit] UNIQUE per-player …
 ENABLED` (not the single-shared-address warning).
+
+## 10. Migrate to a new / bigger server
+Real-money DB — the goal is **zero ledger loss** and **never two live instances at once**.
+
+**What moves vs. what doesn't:**
+- **Moves:** the Postgres data (the `pgdata` volume = balances + ledger) and `.env`.
+- **Does NOT move (stays valid):** deposit funds are **on-chain** at addresses derived from
+  `TRON_DEPOSIT_XPUB` — keep the SAME xpub in the new `.env` and the same addresses are
+  watched. The deposit-wallet seed stays offline (never on any server).
+
+**A. Prepare the new box (no downtime yet):**
+1. Provision a **2GB+** Ubuntu box; install Docker + compose; open ports 22/80/443.
+2. **Lower the DNS TTL** for your domain to 300s **a day before** (fast cutover).
+3. **Whitelist the NEW server's IP on the Binance API key** (Enable Withdrawals + IP
+   allowlist). ⚠️ Skip this and ALL withdrawals fail after cutover (Binance rejects the new IP).
+4. `git clone` the repo to `~/murlan-2.0`; copy `.env` over (scp). Good moment to ROTATE
+   any chat-exposed secrets (TELEGRAM_WEBHOOK_SECRET, regenerate the deposit wallet → new xpub).
+5. Bring up ONLY Postgres first so its DB is empty before the server runs migrations:
+   `docker compose up -d postgres` (wait for healthy).
+
+**B. Cutover (short low-traffic window — only ONE instance serves at a time):**
+1. On the **OLD** box, stop serving so nothing writes mid-dump:
+   `docker compose stop server` (drains in-flight; deposit poller stops).
+2. On OLD, take a final dump:
+   `docker compose exec -T postgres pg_dump -U murlan -d murlan | gzip > ~/murlan-final.sql.gz`
+3. Copy it over: `scp ~/murlan-final.sql.gz user@NEW_IP:~/`
+4. On **NEW**, restore into the empty DB (no schema yet → clean load):
+   `gunzip -c ~/murlan-final.sql.gz | docker compose exec -T postgres psql -U murlan -d murlan`
+5. On NEW, bring up the rest:
+   `docker compose -f docker-compose.yml -f docker-compose.deploy.yml up --build -d`
+   (the server's boot `migrate deploy` is a no-op — the schema came in the dump).
+6. **Switch DNS** A-record → NEW IP. Caddy on NEW issues a fresh Let's Encrypt cert once DNS
+   resolves to it (needs 80/443 open + DNS pointed).
+7. Verify on NEW (RUNBOOK §9 + §1): `/health` bot command, a few known balances, `/treasury`,
+   `[deposit] … ENABLED` in logs, then a tiny end-to-end test.
+
+**C. After:**
+- Keep the OLD box powered with `server` STOPPED for 24–48h as rollback (do NOT let it serve
+  — two live instances would split the ledger + double-process deposits).
+- Re-point the **Telegram webhook** is automatic (re-registers to `CLIENT_ORIGIN` on boot).
+- Re-wire **offsite backups** on the new box (§3) and confirm one restore.
+- Once confident, securely wipe + decommission OLD.
+
+**Gotchas checklist:** Binance IP whitelist (B-fail without it) · same `TRON_DEPOSIT_XPUB` ·
+DNS TTL lowered · only ONE instance live · backups re-wired on NEW · ports 80/443 open.
