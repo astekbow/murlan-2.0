@@ -37,11 +37,18 @@ export function isRed(card: Card): boolean {
 }
 
 export function suitSymbol(card: Card): string {
-  return card.kind === 'joker' ? '★' : SUIT_SYMBOL[card.suit] ?? '?';
+  // The two jokers have DIFFERENT game power (red outranks black) but were distinguished by
+  // colour alone — invisible to red-green colour-blind players (WCAG 1.4.1). Give them distinct
+  // SHAPES too: red = filled star ★, black = outline star ☆.
+  if (card.kind === 'joker') return card.color === 'red' ? '★' : '☆';
+  return SUIT_SYMBOL[card.suit] ?? '?';
 }
 
 export function rankText(card: Card): string {
-  return card.kind === 'joker' ? 'JK' : card.rank;
+  // Distinct rank labels per joker (not colour alone): red = JR, black = JB. Two chars so the
+  // landscape sliver still fits the full token.
+  if (card.kind === 'joker') return card.color === 'red' ? 'JR' : 'JB';
+  return card.rank;
 }
 
 export function cardLabel(card: Card): string {
