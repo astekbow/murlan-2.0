@@ -165,6 +165,15 @@ export class GameGateway {
   // so the short share codes can't be brute-force enumerated (the general limiter at
   // 40 burst / 20-per-sec is far too loose for guessing). Keyed by userId.
   private readonly joinCodeLimiter = new RateLimiter(6, 0.2);
+  // Connection-flood defense for the handshake (auth correctness unchanged). A
+  // connect-flood would otherwise hit the DB twice per (re)connect (account-state +
+  // profile). (1) A short cache of the per-user handshake reads dedupes a burst; (2) a
+  // per-(userId+IP) connection-rate guard rejects an abusive reconnect storm.
+  private readonly handshakeCache = new Map<string, { at: number; allowed: boolean; code?: string; avatar: string | null }>();
+  private readonly handshakeRate = new Map<string, { count: number; windowStart: number }>();
+  private static readonly HANDSHAKE_CACHE_MS = 3_000;   // re-read account-state/profile at most ~every 3s/user
+  private static readonly HANDSHAKE_MAX_PER_WINDOW = 30; // connections per (userId+IP) per window
+  private static readonly HANDSHAKE_WINDOW_MS = 10_000;  // 10s window
 
   constructor(
     private readonly io: IO,
@@ -221,15 +230,19 @@ export class GameGateway {
       if (!token) return next(new Error('unauthorized'));
       try {
         const { userId, username } = this.auth.verifyAccess(token);
-        // Account-state gate: a banned/suspended user can't (re)connect even with a
-        // still-valid access token — closes the ~15-min live-token window after a ban.
-        const gate = await this.auth.checkLogin(userId);
-        if (!gate.allowed) return next(new Error(gate.code ?? 'blocked'));
+        // Connection-rate guard: cap (re)connects per (userId + client IP) so a connect
+        // flood can't hammer the DB or churn sockets. Verified-token only (no anon flood).
+        const ip = socket.handshake.address || 'unknown';
+        if (!this.allowHandshake(`${userId}|${ip}`)) return next(new Error('rate_limited'));
+        // Account-state gate (banned/suspended can't (re)connect even on a still-valid
+        // access token) + the cosmetic avatar. Both are DB reads → served from a short
+        // per-user cache so a burst doesn't re-query. Auth correctness is unchanged: a
+        // ban still blocks within HANDSHAKE_CACHE_MS, and live sockets are kicked instantly.
+        const resolved = await this.resolveHandshake(userId);
+        if (!resolved.allowed) return next(new Error(resolved.code ?? 'blocked'));
         socket.data.userId = userId;
         socket.data.username = username;
-        // Resolve the cosmetic avatar ONCE here (best-effort) so it can ride onto the
-        // player's seat. A profile-fetch failure must never block the connection.
-        socket.data.avatar = this.profiles ? ((await this.profiles.getProfile(userId).catch(() => null))?.avatar ?? null) : null;
+        socket.data.avatar = resolved.avatar;
         socket.data.roomId = null;
         socket.data.seat = null;
         socket.data.clientSeed = null;
@@ -239,6 +252,40 @@ export class GameGateway {
         next(new Error('unauthorized'));
       }
     });
+  }
+
+  /** Per-(userId+IP) fixed-window connection-rate guard. Returns false when over cap. */
+  private allowHandshake(key: string): boolean {
+    const now = Date.now();
+    const rec = this.handshakeRate.get(key);
+    if (!rec || now - rec.windowStart >= GameGateway.HANDSHAKE_WINDOW_MS) {
+      this.handshakeRate.set(key, { count: 1, windowStart: now });
+      // Opportunistic prune so the map can't grow without bound under an IP/user spray.
+      if (this.handshakeRate.size > 10_000) {
+        for (const [k, v] of this.handshakeRate) if (now - v.windowStart >= GameGateway.HANDSHAKE_WINDOW_MS) this.handshakeRate.delete(k);
+      }
+      return true;
+    }
+    rec.count += 1;
+    return rec.count <= GameGateway.HANDSHAKE_MAX_PER_WINDOW;
+  }
+
+  /** Resolve the per-user handshake reads (account-state gate + avatar) with a short
+   *  TTL cache so a connect-burst doesn't issue two DB reads per socket. */
+  private async resolveHandshake(userId: string): Promise<{ allowed: boolean; code?: string; avatar: string | null }> {
+    const cached = this.handshakeCache.get(userId);
+    if (cached && Date.now() - cached.at < GameGateway.HANDSHAKE_CACHE_MS) {
+      return { allowed: cached.allowed, code: cached.code, avatar: cached.avatar };
+    }
+    const gate = await this.auth.checkLogin(userId);
+    const avatar = gate.allowed && this.profiles ? ((await this.profiles.getProfile(userId).catch(() => null))?.avatar ?? null) : null;
+    const entry = { at: Date.now(), allowed: gate.allowed, code: gate.code, avatar };
+    this.handshakeCache.set(userId, entry);
+    if (this.handshakeCache.size > 10_000) {
+      const cutoff = Date.now() - GameGateway.HANDSHAKE_CACHE_MS;
+      for (const [k, v] of this.handshakeCache) if (v.at < cutoff) this.handshakeCache.delete(k);
+    }
+    return { allowed: gate.allowed, code: gate.code, avatar };
   }
 
   /** Force-disconnect every live socket for a user (e.g. when an admin bans/suspends

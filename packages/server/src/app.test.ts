@@ -4,6 +4,15 @@ import type { AddressInfo } from 'node:net';
 import { io as ioClient } from 'socket.io-client';
 import { createGameServer } from './app.ts';
 import { loadConfig } from './config.ts';
+import { InMemoryUserRepository } from './auth/userRepository.ts';
+
+const STRONG = (c: string) => c.repeat(40);
+const prodBase: Record<string, string> = {
+  NODE_ENV: 'production', PORT: '0',
+  JWT_ACCESS_SECRET: STRONG('a'), JWT_REFRESH_SECRET: STRONG('r'), PAYMENT_WEBHOOK_SECRET: STRONG('w'),
+  KYC_REQUIRED: 'false', MIN_AGE: '0', GEO_BLOCKED_COUNTRIES: '', RESPONSIBLE_GAMING: 'false',
+  RESEND_API_KEY: 'test-resend-key', // non-console email provider (passes the prod email guard)
+};
 
 const creds = { username: 'endtoend', email: 'e2e@example.com', password: 'password123' };
 
@@ -83,6 +92,25 @@ test('observability: /health, /ready (no DB → db:null) and /metrics are served
   } finally {
     await server.close();
   }
+});
+
+// ----- #3 legacy shared-address deposit boot guard -------------------------
+test('#3 prod REFUSES to boot with a shared TRON_DEPOSIT_ADDRESS and no xpub', async () => {
+  const config = loadConfig({ ...prodBase, TRON_DEPOSIT_ADDRESS: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' } as NodeJS.ProcessEnv);
+  // Inject an in-memory user repo so the DB-required prod throw doesn't fire first; the
+  // deposit-rail guard is what we're isolating.
+  await assert.rejects(
+    () => createGameServer({ config, userRepository: new InMemoryUserRepository() }),
+    /claim-jackable|TRON_DEPOSIT_XPUB/,
+  );
+});
+
+test('#3 prod boots fine with a TRON_DEPOSIT_XPUB (unique per-player addresses)', async () => {
+  // A valid account-level TRON xpub (watch-only test vector — see tronHd.test.ts).
+  const xpub = 'xpub6EuK4CZWW5urEHdwAVDdDw327danAtccFcrXYvgf1DHrPXRwErt36xStQ2PNhn4hpwzPbzJ8pJVpewgChRnSs59q5Ay61GCfQZKUe71gbLq';
+  const config = loadConfig({ ...prodBase, TRON_DEPOSIT_XPUB: xpub } as NodeJS.ProcessEnv);
+  const server = await createGameServer({ config, userRepository: new InMemoryUserRepository() });
+  await server.close();
 });
 
 test('graceful drain: /ready → 503 and new matches are rejected while draining', async () => {

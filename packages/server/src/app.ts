@@ -10,6 +10,7 @@
 // ============================================================================
 
 import Fastify, { type FastifyInstance } from 'fastify';
+import { timingSafeEqual } from 'node:crypto';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -131,6 +132,14 @@ export interface HttpDeps {
   telegramWebhookSecret?: string | null; // secret guarding POST /api/telegram/webhook
 }
 
+/** Constant-time string compare (length-independent) for secret/token checks. */
+function timingSafeStrEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   // Structured (pino) logging always on — info in prod, warn in dev to stay quiet.
   // Redact credentials so tokens/cookies never land in logs.
@@ -169,7 +178,12 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     hsts: deps.config.isProd ? { maxAge: 15552000, includeSubDomains: true } : false,
   });
   await app.register(cors, { origin: deps.config.clientOrigin, credentials: true });
-  await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
+  // Global IP-keyed rate limit. The keyGenerator is EXPLICIT on req.ip: with trustProxy
+  // set to the exact proxy hops (see config.trustProxy / TRUST_PROXY), req.ip is the
+  // resolved real client (the right-most untrusted address in X-Forwarded-For), so two
+  // distinct external clients land in distinct buckets instead of collapsing onto the
+  // proxy's IP. Per-route limiters (auth/wallet) override this with their own keys.
+  await app.register(rateLimit, { max: 300, timeWindow: '1 minute', keyGenerator: (req) => req.ip });
 
   // Global safety net: an UNHANDLED route exception must never leak its message or
   // stack to a (real-money) client. Our explicit 4xx replies and Fastify's own
@@ -203,10 +217,13 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' ||
     /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
     /^(::ffff:)?(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+  const expectedMetricsAuth = metricsToken ? `Bearer ${metricsToken}` : null;
   app.get('/metrics', async (req, reply) => {
-    if (metricsToken) {
+    if (expectedMetricsAuth) {
       const auth = req.headers.authorization ?? '';
-      if (auth !== `Bearer ${metricsToken}`) return reply.code(401).send({ error: { code: 'unauthorized', message: 'metrics require a token' } });
+      // Constant-time compare so the token can't be recovered via a timing side-channel
+      // (a plain !== short-circuits on the first differing byte).
+      if (!timingSafeStrEqual(auth, expectedMetricsAuth)) return reply.code(401).send({ error: { code: 'unauthorized', message: 'metrics require a token' } });
     } else if (!isPrivateIp(req.ip)) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'metrics are private' } });
     }
@@ -229,6 +246,9 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   await authRoutes(app, {
     auth: deps.auth,
     isProd: deps.config.isProd,
+    // Secure cookie in prod OR behind a real https origin (an https staging deploy with
+    // NODE_ENV!=production must still flag the refresh cookie Secure).
+    secureCookie: deps.config.isProd || deps.config.clientOrigin.startsWith('https://'),
     // Per-IP. register/verify/forgot/reset: 10 / 5 min. login: tighter 8 / 5 min — and
     // the per-EMAIL throttle in AuthService stops IP-rotation brute-force (MONEY-7/WEB-2).
     authRateLimit: { max: 10, timeWindow: '5 minutes' },
@@ -288,7 +308,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser, adminEmail: deps.config.adminEmail });
   }
 
   // Inbound Telegram admin bot: only mounted when the bot + its webhook secret are
@@ -298,9 +318,16 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   }
 
   // Lightweight in-house client error logging (no third party): the browser POSTs
-  // uncaught errors here; they land in the server logs (pino), rate-limited by the
-  // global limiter. No auth — errors can occur before sign-in. Fields are truncated.
-  app.post('/api/client-errors', async (req, reply) => {
+  // uncaught errors here; they land in the server logs (pino). UNAUTHENTICATED (errors
+  // can occur before sign-in) → bound it: a tight per-IP rate limit + a hard cap on the
+  // raw body size (reject an oversized payload before logging anything). Fields are also
+  // truncated below. This stops a flood from spamming the logs / wasting the event loop.
+  const CLIENT_ERROR_MAX_BYTES = 8 * 1024; // 8 KB is ample for message + stack + url
+  app.post('/api/client-errors', { config: { rateLimit: { max: 30, timeWindow: '1 minute', keyGenerator: (req) => req.ip } } }, async (req, reply) => {
+    const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
+    if (Buffer.byteLength(raw, 'utf8') > CLIENT_ERROR_MAX_BYTES) {
+      return reply.code(413).send({ error: { code: 'payload_too_large', message: 'too large' } });
+    }
     const b = (req.body ?? {}) as { message?: unknown; stack?: unknown; url?: unknown; kind?: unknown };
     const message = typeof b.message === 'string' ? b.message.slice(0, 500) : '';
     if (!message) return reply.code(204).send();
@@ -516,6 +543,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // eslint-disable-next-line no-console
     console.warn('[deposit] UNIQUE per-player USDT-TRC20 deposit addresses ENABLED (watch-only xpub; no private keys on the server).');
   } else if (config.tronDepositAddress) {
+    // SECURITY (#3): a single shared deposit address is CLAIM-JACKABLE — anyone can
+    // grab a victim's TxID off TronScan and credit it to themselves (verify binds to
+    // the shared address, not the sender). In production this must NOT be reachable:
+    // require TRON_DEPOSIT_XPUB (unique per-player addresses) for any real-money host.
+    // The staging/demo escape (ALLOW_STUB_PROVIDERS) may still use it WITHOUT real money.
+    if (config.isProd && !config.allowStubProviders) {
+      throw new Error('TRON_DEPOSIT_ADDRESS (a single SHARED deposit address) is claim-jackable and refused in production: set TRON_DEPOSIT_XPUB for UNIQUE per-player USDT-TRC20 addresses (generate it offline with tools/tron-xpub.mjs). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
+    }
     // eslint-disable-next-line no-console
     console.warn('⚠️  [deposit] Using a SINGLE shared TRON deposit address (TRON_DEPOSIT_ADDRESS). This is claim-jackable — set TRON_DEPOSIT_XPUB for unique per-player addresses.');
   }

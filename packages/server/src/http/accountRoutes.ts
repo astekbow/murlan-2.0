@@ -60,8 +60,11 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     if (!caller) return;
     const account = await deps.auth.exportPersonalData(caller.userId);
     if (!account) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    // Bounded transaction read (max 500, newest-first) so a self-service export can't
+    // load an unbounded per-user ledger into the heap. A larger history export is an
+    // operator-assisted process. (Withdrawals are naturally small per user.)
     const [transactions, withdrawals, limits] = await Promise.all([
-      deps.wallet ? deps.wallet.listTransactions(caller.userId) : Promise.resolve([]),
+      deps.wallet ? deps.wallet.listTransactionsPage(caller.userId, { take: 500 }) : Promise.resolve([]),
       deps.withdrawals ? deps.withdrawals.listByUser(caller.userId) : Promise.resolve([]),
       deps.rg ? deps.rg.getLimits(caller.userId) : Promise.resolve(null),
     ]);

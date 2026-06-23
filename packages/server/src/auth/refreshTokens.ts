@@ -26,6 +26,10 @@ export interface RefreshTokenRepository {
   find(jti: string): Promise<RefreshTokenRecord | null>;
   revoke(jti: string): Promise<void>;
   revokeFamily(family: string): Promise<void>;
+  /** Revoke EVERY (unrevoked) refresh token for a user — "log out all devices". The
+   *  tokenVersion bump already invalidates them at /refresh; this marks the stored rows
+   *  too (defense-in-depth + so a reuse-detection scan never re-arms a dead session). */
+  revokeAllForUser(userId: string): Promise<void>;
   /** Purge tokens past their expiry (retention/cleanup). Returns rows removed. */
   deleteExpired(nowMs: number): Promise<number>;
 }
@@ -46,6 +50,9 @@ export class InMemoryRefreshTokens implements RefreshTokenRepository {
   }
   async revokeFamily(family: string): Promise<void> {
     for (const r of this.byJti.values()) if (r.family === family) r.revoked = true;
+  }
+  async revokeAllForUser(userId: string): Promise<void> {
+    for (const r of this.byJti.values()) if (r.userId === userId) r.revoked = true;
   }
   async deleteExpired(nowMs: number): Promise<number> {
     let n = 0;

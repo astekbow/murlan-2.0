@@ -142,6 +142,16 @@ export class AuthService {
     }
   }
 
+  // A real Argon2 hash to verify against when the email doesn't exist, so the user-miss
+  // login branch costs the same as a real verify (defeats the enumeration timing oracle).
+  // Computed lazily once and cached.
+  private dummyHash: Promise<string> | null = null;
+  private async dummyVerify(password: string): Promise<boolean> {
+    if (!this.dummyHash) this.dummyHash = hashPassword('__murlan_dummy_password__');
+    await verifyPassword(await this.dummyHash, password); // result ignored — always a "miss"
+    return false;
+  }
+
   /** The lifecycle status carried on a user, for the account-state gate. */
   private statusOf(user: User): AccountStatus {
     return { state: user.accountState, reason: user.accountStateReason, until: user.accountStateUntil };
@@ -154,7 +164,9 @@ export class AuthService {
     const fam = family ?? randomUUID();
     await this.refreshTokens.save({ jti, userId: user.id, family: fam, expiresAt: Date.now() + REFRESH_TTL_MS });
     return {
-      accessToken: this.tokens.issueAccess(user.id, user.username),
+      // Stamp the access token with the user's current tokenVersion so a force-logout/
+      // ban/reset (which bumps tokenVersion) invalidates it on the next request.
+      accessToken: this.tokens.issueAccess(user.id, user.username, user.tokenVersion),
       refreshToken: this.tokens.issueRefresh(user.id, user.username, { jti, family: fam, ver: user.tokenVersion }),
     };
   }
@@ -204,9 +216,12 @@ export class AuthService {
     }
 
     const user = await this.users.findByEmail(email);
-    // Always run the password check shape; use a generic message to avoid
-    // revealing whether the email exists.
-    const okPassword = user ? await verifyPassword(user.passwordHash, password) : false;
+    // Always run the password check shape AND spend a comparable amount of CPU whether or
+    // not the email exists — verify against a real (dummy) Argon2 hash on the miss branch
+    // so response time can't be used to enumerate registered emails (timing oracle).
+    const okPassword = user
+      ? await verifyPassword(user.passwordHash, password)
+      : await this.dummyVerify(password);
     if (!user || !okPassword) {
       this.recordLoginFailure(email); // count this miss toward the per-identifier cap
       throw new AuthError('bad_credentials', 'Email ose fjalëkalim i gabuar.');
@@ -267,10 +282,13 @@ export class AuthService {
     }
   }
 
-  /** Force-invalidate ALL of a user's sessions (e.g. on ban). The next refresh
-   *  fails the tokenVersion check; existing access tokens lapse within their TTL. */
+  /** Force-invalidate ALL of a user's sessions (e.g. on ban, or self-service "log out
+   *  all devices"). Bumps tokenVersion — so existing access tokens are rejected on the
+   *  next request (revocation-aware authorizeRequest) and the next refresh fails the
+   *  version check — AND revokes the stored refresh-token rows (defense-in-depth). */
   async revokeAllSessions(userId: string): Promise<void> {
     await this.users.bumpTokenVersion(userId);
+    await this.refreshTokens.revokeAllForUser(userId).catch(() => undefined);
   }
 
   // ---------- Email verification & password reset ---------------------------
@@ -308,20 +326,22 @@ export class AuthService {
     if (!parsed.success) return;
     const user = await this.users.findByEmail(parsed.data);
     if (!user) return; // do not reveal whether the email exists
+    // Invalidate any older un-consumed reset tokens so only the newest link works (an
+    // older link would otherwise stay valid for its 1h TTL).
+    await this.verificationTokens.invalidateUnconsumed(user.id, 'password_reset', this.now()).catch(() => 0);
     const raw = generateRawToken();
     await this.verificationTokens.create({ userId: user.id, type: 'password_reset', tokenHash: hashToken(raw), expiresAt: this.now() + PASSWORD_RESET_TTL_MS });
-    try {
-      await this.email.send({
-        to: user.email,
-        subject: 'Rivendos fjalëkalimin — Murlan',
-        text: `Përshëndetje ${user.username},\n\nRivendos fjalëkalimin:\n${this.appUrl}/?resetPassword=${raw}\n\nLidhja skadon për 1 orë. Nëse nuk e kërkove ti, injoroje.`,
-      });
-    } catch (err) {
-      // Best-effort: a mail-provider failure must NOT 500 the route (and must not
-      // reveal that the email exists). The token is stored; the user can retry.
+    // FIRE-AND-FORGET the email: don't await the provider before returning, so the
+    // response time doesn't depend on whether the email exists / how slow the mailer is
+    // (no enumeration timing oracle). Errors are logged, never surfaced.
+    void this.email.send({
+      to: user.email,
+      subject: 'Rivendos fjalëkalimin — Murlan',
+      text: `Përshëndetje ${user.username},\n\nRivendos fjalëkalimin:\n${this.appUrl}/?resetPassword=${raw}\n\nLidhja skadon për 1 orë. Nëse nuk e kërkove ti, injoroje.`,
+    }).catch((err) => {
       // eslint-disable-next-line no-console
       console.error('[auth] password-reset email send failed:', err);
-    }
+    });
   }
 
   /** Reset the password with a valid token; revokes all existing sessions. */
@@ -332,7 +352,10 @@ export class AuthService {
     if (!rec) return false;
     await this.users.setPassword(rec.userId, await hashPassword(newPassword));
     await this.verificationTokens.consume(rec.id, this.now());
-    await this.users.bumpTokenVersion(rec.userId); // a reset logs out every existing session
+    // Invalidate every OTHER un-consumed reset token for this user — a successful reset
+    // should burn any other outstanding links, not just the one used.
+    await this.verificationTokens.invalidateUnconsumed(rec.userId, 'password_reset', this.now()).catch(() => 0);
+    await this.revokeAllSessions(rec.userId); // a reset logs out every existing session (tokenVersion + refresh rows)
     return true;
   }
 
@@ -485,13 +508,46 @@ export class AuthService {
     return { ok: true, user: user ? toPublicUser(user) : null, changed: changingDob || changingCountry };
   }
 
-  /** Verify an access token (Socket.IO handshake / REST guard). Throws on failure. */
-  verifyAccess(token: string): { userId: string; username: string } {
+  /** Verify an access token (Socket.IO handshake / REST guard). Throws on failure.
+   *  Returns the token's `ver` (tokenVersion at issue) so callers can reject a stale
+   *  token whose version no longer matches the live user (revocation-aware auth). */
+  verifyAccess(token: string): { userId: string; username: string; ver: number } {
     try {
       const claims = this.tokens.verifyAccess(token);
-      return { userId: claims.sub, username: claims.username };
+      return { userId: claims.sub, username: claims.username, ver: claims.ver };
     } catch {
       throw new AuthError('unauthorized', 'Token i pavlefshëm.');
     }
+  }
+
+  /**
+   * Revocation-aware authorization for a REST request. Verifies the access token,
+   * then resolves the user ONCE and rejects when:
+   *   • the user no longer exists,
+   *   • the token's `ver` no longer matches the live tokenVersion (force-logout /
+   *     ban / password-reset / "log out all devices"), or
+   *   • the account state blocks login (banned / active suspension; frozen is allowed).
+   * Returns the caller on success, or a structured failure the route maps to 401/403.
+   * This closes the access-token window the socket gateway already guards (gateway.ts).
+   */
+  async authorizeRequest(token: string): Promise<
+    | { ok: true; userId: string; username: string }
+    | { ok: false; status: 401 | 403; code: string; message: string }
+  > {
+    let claims;
+    try {
+      claims = this.tokens.verifyAccess(token);
+    } catch {
+      return { ok: false, status: 401, code: 'unauthorized', message: 'Token i pavlefshëm.' };
+    }
+    const user = await this.users.findById(claims.sub);
+    if (!user) return { ok: false, status: 401, code: 'unauthorized', message: 'Token i pavlefshëm.' };
+    if (claims.ver !== user.tokenVersion) {
+      // Stale token: a force-logout/ban/reset bumped tokenVersion after it was minted.
+      return { ok: false, status: 401, code: 'unauthorized', message: 'Sesioni ka skaduar. Hyr përsëri.' };
+    }
+    const gate = this.accountState.checkLogin(this.statusOf(user));
+    if (!gate.allowed) return { ok: false, status: 403, code: gate.code ?? 'blocked', message: gate.message ?? 'Llogaria është e bllokuar.' };
+    return { ok: true, userId: user.id, username: user.username };
   }
 }
