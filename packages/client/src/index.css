@@ -751,7 +751,18 @@ select:focus-visible,
   z-index: 8;                  /* above the felt */
 }
 /* Sized as % of canvas WIDTH (cqw) like the spec (Ø ~4.5%w = 42pt) — cqh made them tiny. */
-.tv-ls .tvc-topbar .iconbtn { width: 5cqw; height: 5cqw; min-width: 0; min-height: 0; font-size: 2.7cqw; }
+.tv-ls .tvc-topbar .iconbtn {
+  width: 5cqw; height: 5cqw; min-width: 0; min-height: 0; font-size: 2.7cqw;
+  background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
+  border: 1px solid var(--hairline-gold) !important;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  box-shadow: 0 8px 20px -12px #000, inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.tv-ls .tvc-topbar .iconbtn:hover {
+  border-color: var(--gold) !important;
+  box-shadow: 0 8px 20px -12px #000, 0 0 16px rgba(232, 200, 121, 0.2);
+}
 /* Largohu — elegant glass pill (obsidian-&-gold), position unchanged. */
 .tv-ls .tvc-topbar .btn {
   padding: 1.5cqh 3.2cqw !important;
