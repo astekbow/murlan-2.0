@@ -15,17 +15,20 @@ export const REFRESH_COOKIE = 'mrl_refresh';
 export interface AuthRoutesDeps {
   auth: AuthService;
   isProd: boolean;
+  /** Set the refresh cookie's Secure flag. True in prod OR behind a real https origin
+   *  (a staging https deploy with NODE_ENV!=production must still mark the cookie Secure). */
+  secureCookie?: boolean;
   /** per-IP rate-limit applied to register / verify / forgot / reset, if rate-limit is registered */
   authRateLimit?: { max: number; timeWindow: string };
   /** stricter per-IP rate-limit for login specifically (brute-force target); falls back to authRateLimit */
   loginRateLimit?: { max: number; timeWindow: string };
 }
 
-function setRefreshCookie(reply: FastifyReply, token: string, isProd: boolean): void {
+function setRefreshCookie(reply: FastifyReply, token: string, secure: boolean): void {
   reply.setCookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: isProd,
+    secure,
     path: '/api/auth',
     maxAge: 7 * 24 * 60 * 60, // 7 days (seconds)
   });
@@ -45,7 +48,13 @@ function handleAuthError(reply: FastifyReply, e: unknown): void {
   reply.code(500).send({ error: { code: 'internal', message: 'Gabim i brendshëm.' } });
 }
 
-/** Extract a Bearer access token and resolve the caller, or send 401. */
+/**
+ * Extract a Bearer access token and resolve the caller, or send 401/403.
+ * Revocation-aware: beyond verifying the token signature it resolves the user once
+ * and rejects a stale token (tokenVersion mismatch after a force-logout/ban/reset →
+ * 401) or a banned/suspended account (→ 403), mirroring the socket gateway gate.
+ * `frozen` accounts are intentionally still authorized (they may withdraw own funds).
+ */
 export function requireAuth(auth: AuthService) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<{ userId: string; username: string } | null> => {
     const header = req.headers.authorization;
@@ -54,12 +63,12 @@ export function requireAuth(auth: AuthService) {
       reply.code(401).send({ error: { code: 'unauthorized', message: 'Mungon token-i.' } });
       return null;
     }
-    try {
-      return auth.verifyAccess(token);
-    } catch {
-      reply.code(401).send({ error: { code: 'unauthorized', message: 'Token i pavlefshëm.' } });
+    const res = await auth.authorizeRequest(token);
+    if (!res.ok) {
+      reply.code(res.status).send({ error: { code: res.code, message: res.message } });
       return null;
     }
+    return { userId: res.userId, username: res.username };
   };
 }
 
@@ -80,6 +89,8 @@ export function requireAdmin(auth: AuthService) {
 
 export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Promise<void> {
   const { auth, isProd } = deps;
+  // Secure cookie behind prod OR a real https origin (covers an https staging deploy).
+  const secureCookie = deps.secureCookie ?? isProd;
   const guard = requireAuth(auth);
   const rl = deps.authRateLimit ? { config: { rateLimit: deps.authRateLimit } } : {};
   // Login gets its own (tighter) per-IP bucket; the per-EMAIL throttle in AuthService
@@ -89,7 +100,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
   app.post('/api/auth/register', rl, async (req, reply) => {
     try {
       const { user, tokens } = await auth.register(req.body);
-      setRefreshCookie(reply, tokens.refreshToken, isProd);
+      setRefreshCookie(reply, tokens.refreshToken, secureCookie);
       return reply.code(201).send({ user, accessToken: tokens.accessToken });
     } catch (e) {
       handleAuthError(reply, e);
@@ -99,7 +110,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
   app.post('/api/auth/login', loginRl, async (req, reply) => {
     try {
       const { user, tokens } = await auth.login(req.body);
-      setRefreshCookie(reply, tokens.refreshToken, isProd);
+      setRefreshCookie(reply, tokens.refreshToken, secureCookie);
       return reply.send({ user, accessToken: tokens.accessToken });
     } catch (e) {
       handleAuthError(reply, e);
@@ -113,7 +124,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
     }
     try {
       const { tokens, user } = await auth.refresh(token);
-      setRefreshCookie(reply, tokens.refreshToken, isProd);
+      setRefreshCookie(reply, tokens.refreshToken, secureCookie);
       return reply.send({ user, accessToken: tokens.accessToken });
     } catch (e) {
       handleAuthError(reply, e);
@@ -125,6 +136,17 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
     // cookie), so a captured copy can't be replayed for the rest of its 7-day TTL.
     const token = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE];
     await auth.logout(token);
+    reply.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
+    return reply.send({ ok: true });
+  });
+
+  // Self-service "log out ALL devices": bump tokenVersion + revoke every refresh token
+  // for the caller, so all access tokens (incl. this one) and refresh tokens stop
+  // working everywhere. The user re-logs in afterwards. Useful after a suspected leak.
+  app.post('/api/auth/logout-all', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return; // guard already replied 401/403
+    await auth.revokeAllSessions(caller.userId);
     reply.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
     return reply.send({ ok: true });
   });

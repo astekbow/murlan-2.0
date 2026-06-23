@@ -61,8 +61,21 @@ export interface LedgerRepository {
    */
   appendIdempotent(tx: NewTransaction & { providerRef: string }): Promise<{ transaction: Transaction; created: boolean }>;
   findByProviderRef(ref: string): Promise<Transaction | null>;
-  listByUser(userId: string): Promise<Transaction[]>;
+  /**
+   * A user's ledger rows. With NO opts this returns EVERY row (unchanged behavior —
+   * the reconcile/RG/VIP aggregates depend on a complete scan). With `opts` it returns
+   * a bounded, newest-first page for display lists (HTTP transaction history / export):
+   *   • take   — max rows (the caller clamps to a sane ceiling),
+   *   • cursor — a transaction id; rows strictly OLDER than it are returned (keyset).
+   */
+  listByUser(userId: string, opts?: LedgerPageOpts): Promise<Transaction[]>;
   all(): Promise<Transaction[]>;
+}
+
+/** Bounded, keyset-paginated read options for a user's ledger (display lists only). */
+export interface LedgerPageOpts {
+  take: number;          // max rows to return
+  cursor?: string | null; // a transaction id; return rows strictly older than it
 }
 
 /** In-memory ledger for tests and single-instance dev (Prisma-backed in prod). */
@@ -107,8 +120,17 @@ export class InMemoryLedger implements LedgerRepository {
     return id ? this.rows.find((r) => r.id === id) ?? null : null;
   }
 
-  async listByUser(userId: string): Promise<Transaction[]> {
-    return this.rows.filter((r) => r.userId === userId).map((r) => ({ ...r }));
+  async listByUser(userId: string, opts?: LedgerPageOpts): Promise<Transaction[]> {
+    const mine = this.rows.filter((r) => r.userId === userId);
+    if (!opts) return mine.map((r) => ({ ...r })); // unbounded (insertion order) — unchanged
+    // Newest-first, keyset paginated. Insertion order is chronological, so reverse.
+    const newestFirst = [...mine].reverse();
+    let start = 0;
+    if (opts.cursor) {
+      const idx = newestFirst.findIndex((r) => r.id === opts.cursor);
+      start = idx >= 0 ? idx + 1 : 0; // rows strictly after (older than) the cursor
+    }
+    return newestFirst.slice(start, start + Math.max(0, opts.take)).map((r) => ({ ...r }));
   }
 
   async all(): Promise<Transaction[]> {

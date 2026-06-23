@@ -21,7 +21,8 @@ const schema = z.object({
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
   JWT_ACCESS_SECRET: z.string().optional(),
   JWT_REFRESH_SECRET: z.string().optional(),
-  ACCESS_TTL: z.string().default('15m'),
+  ACCESS_TTL: z.string().default('5m'), // short by design — access tokens are now
+  // revocation-aware (ver claim), but a short TTL still caps any residual window.
   REFRESH_TTL: z.string().default('7d'),
   REDIS_URL: z.string().optional(),
   DATABASE_URL: z.string().optional(), // when set, use Prisma/Postgres instead of in-memory
@@ -69,9 +70,31 @@ const schema = z.object({
 
 const isTrue = (v: string | undefined): boolean => v === 'true' || v === '1';
 
+// Parse a JWT TTL string ('15m', '5m', '30s', '2h', '7d') or a bare number (seconds)
+// to milliseconds. Returns null if it can't be parsed (caller treats that as invalid).
+const TTL_UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+function ttlToMs(v: string): number | null {
+  const s = v.trim();
+  if (/^\d+$/.test(s)) return Number(s) * 1000; // bare seconds (jsonwebtoken convention)
+  const m = /^(\d+)\s*(s|m|h|d)$/.exec(s);
+  if (!m) return null;
+  return Number(m[1]) * TTL_UNIT_MS[m[2]!]!;
+}
+// An access token is bearer authority for its whole life; even with revocation-aware
+// auth, an excessively long TTL widens the residual window (the per-request DB check
+// is the backstop, the short TTL is defense-in-depth). Refuse a misconfigured value.
+const ACCESS_TTL_MAX_MS = 15 * 60 * 1000; // 15 minutes
+
 // Default: trust ONLY loopback + private (RFC1918) ranges — the reverse proxy
 // (Caddy/nginx) always reaches the server from a private/Docker IP, and the server
-// isn't publicly reachable, so a spoofed X-Forwarded-For from the outside is ignored.
+// isn't publicly reachable, so a spoofed X-Forwarded-For from the outside is ignored
+// and req.ip resolves to the right-most UNtrusted address (the real client).
+//
+// TIGHTEN this in production to the EXACT proxy hop(s): set TRUST_PROXY to the proxy's
+// concrete IP/CIDR (e.g. the Docker bridge address of the nginx/Caddy container, like
+// '172.18.0.0/16'), or a small hop count matching your chain. Do NOT set TRUST_PROXY=true
+// — it trusts ANY upstream and lets a client spoof its IP via a forged X-Forwarded-For,
+// re-collapsing rate-limit buckets and poisoning the webhook IP allowlist.
 // Override with TRUST_PROXY: 'true'/'false', a hop count, or a CSV of IPs/CIDRs.
 const DEFAULT_TRUSTED_PROXIES = ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
 function parseTrustProxy(v: string | undefined): boolean | number | string[] {
@@ -138,6 +161,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProd = parsed.NODE_ENV === 'production';
   const stubRaw = (parsed.ALLOW_STUB_PROVIDERS ?? '').trim();
 
+  // Bound the access-token TTL (no upper limit was enforced before). An unparseable
+  // or too-long value is a misconfiguration — fail closed in every environment.
+  const accessTtlMs = ttlToMs(parsed.ACCESS_TTL);
+  if (accessTtlMs == null || accessTtlMs <= 0) {
+    throw new Error(`ACCESS_TTL="${parsed.ACCESS_TTL}" is not a valid duration (e.g. '5m', '300s').`);
+  }
+  if (accessTtlMs > ACCESS_TTL_MAX_MS) {
+    throw new Error(`ACCESS_TTL="${parsed.ACCESS_TTL}" exceeds the maximum of 15m — access tokens are short-lived bearer authority; use a refresh token for longer sessions.`);
+  }
+
   if (isProd) {
     // Fail CLOSED: a production deploy that forgot to set strong secrets must not
     // boot with a present-but-weak/placeholder value (e.g. the docker-compose
@@ -155,6 +188,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     if (parsed.JWT_ACCESS_SECRET === parsed.JWT_REFRESH_SECRET) {
       throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different in production.');
+    }
+
+    // #10 — When the Telegram admin bot is ENABLED (token + chat id + webhook secret all
+    // set), the webhook secret is the SOLE auth boundary for the bot's money commands, so
+    // it must meet the same strength bar as the other prod secrets. (The bot is opt-in; if
+    // any of token/chat/secret is unset the bot isn't mounted and this is skipped.)
+    const botEnabled = !!(parsed.TELEGRAM_BOT_TOKEN && parsed.TELEGRAM_CHAT_ID && parsed.TELEGRAM_WEBHOOK_SECRET);
+    if (botEnabled) {
+      const s = parsed.TELEGRAM_WEBHOOK_SECRET!;
+      if (s.length < 32) throw new Error('TELEGRAM_WEBHOOK_SECRET must be at least 32 characters in production (it is the only auth on the admin bot webhook).');
+      if (PLACEHOLDER.test(s)) throw new Error('TELEGRAM_WEBHOOK_SECRET looks like a placeholder/dev secret — set a strong, unique value in production.');
     }
 
     // Fail CLOSED on compliance: a real-money production deploy must make a DELIBERATE

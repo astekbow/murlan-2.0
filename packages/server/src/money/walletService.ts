@@ -8,7 +8,7 @@
 // ============================================================================
 
 import type { UserRepository } from '../auth/userRepository.ts';
-import type { LedgerRepository, Transaction, TransactionType } from './ledger.ts';
+import type { LedgerRepository, Transaction, TransactionType, LedgerPageOpts } from './ledger.ts';
 import type { UnitOfWork, WalletTxContext } from './unitOfWork.ts';
 import { depositsToday } from '../compliance/responsibleGaming.ts';
 
@@ -273,6 +273,16 @@ export class WalletService {
 
   listTransactions(userId: string): Promise<Transaction[]> {
     return this.ledger.listByUser(userId);
+  }
+
+  /** Bounded, newest-first page of a user's transactions for DISPLAY lists (HTTP
+   *  history / GDPR export). `take` is clamped to [1, 500] (default 200); `cursor` is a
+   *  transaction id for keyset paging. Unlike listTransactions() this never loads the
+   *  whole ledger — use it for any user-facing list. */
+  listTransactionsPage(userId: string, opts: { take?: number; cursor?: string | null } = {}): Promise<Transaction[]> {
+    const take = Math.min(500, Math.max(1, Math.floor(opts.take ?? 200)));
+    const page: LedgerPageOpts = { take, cursor: opts.cursor ?? null };
+    return this.ledger.listByUser(userId, page);
   }
 
   /** Verify every real user's stored balance equals the sum of their ledger rows. */

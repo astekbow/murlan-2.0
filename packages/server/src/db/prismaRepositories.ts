@@ -13,6 +13,7 @@ import type { PrismaClient } from '@prisma/client';
 import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, type UserRole, DuplicateUserError } from '../auth/userRepository.ts';
 import {
   type LedgerRepository, type Transaction, type NewTransaction, type TransactionType, type TransactionStatus,
+  type LedgerPageOpts,
   DuplicateProviderRefError,
 } from '../money/ledger.ts';
 import type { MatchesRepository, MatchRecord, NewMatch, MatchStatus } from '../money/matchesRepository.ts';
@@ -400,8 +401,18 @@ export class PrismaLedger implements LedgerRepository {
     const row = await this.db.transaction.findUnique({ where: { providerRef: ref } });
     return row ? toTx(row) : null;
   }
-  async listByUser(userId: string): Promise<Transaction[]> {
-    return (await this.db.transaction.findMany({ where: { userId } })).map(toTx);
+  async listByUser(userId: string, opts?: LedgerPageOpts): Promise<Transaction[]> {
+    // No opts → unbounded scan (unchanged: reconcile/RG/VIP aggregates need every row).
+    if (!opts) return (await this.db.transaction.findMany({ where: { userId } })).map(toTx);
+    // Bounded keyset page, newest-first, for display lists. Cursor is a transaction id;
+    // skip:1 excludes the cursor row itself (rows strictly older follow it).
+    const rows = await this.db.transaction.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(0, opts.take),
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+    });
+    return rows.map(toTx);
   }
   async all(): Promise<Transaction[]> {
     return (await this.db.transaction.findMany()).map(toTx);
@@ -567,6 +578,9 @@ export class PrismaRefreshTokens implements RefreshTokenRepository {
   async revokeFamily(family: string): Promise<void> {
     await this.db.refreshToken.updateMany({ where: { family }, data: { revoked: true } });
   }
+  async revokeAllForUser(userId: string): Promise<void> {
+    await this.db.refreshToken.updateMany({ where: { userId, revoked: false }, data: { revoked: true } });
+  }
   async deleteExpired(nowMs: number): Promise<number> {
     const res = await this.db.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date(nowMs) } } });
     return res.count;
@@ -645,6 +659,10 @@ export class PrismaVerificationTokens implements VerificationTokenRepository {
   }
   async consume(id: string, nowMs: number): Promise<void> {
     await this.db.verificationToken.updateMany({ where: { id, usedAt: null }, data: { usedAt: new Date(nowMs) } });
+  }
+  async invalidateUnconsumed(userId: string, type: VerificationTokenType, nowMs: number): Promise<number> {
+    const res = await this.db.verificationToken.updateMany({ where: { userId, type, usedAt: null }, data: { usedAt: new Date(nowMs) } });
+    return res.count;
   }
   async deleteExpired(nowMs: number): Promise<number> {
     const res = await this.db.verificationToken.deleteMany({ where: { expiresAt: { lt: new Date(nowMs) } } });

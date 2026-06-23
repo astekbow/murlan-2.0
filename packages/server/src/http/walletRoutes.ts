@@ -72,10 +72,44 @@ const transferSchema = z.object({
   amountCents: z.number().int().min(MIN_TRANSFER_CENTS).max(MAX_DEPOSIT_CENTS),
 });
 
+// Per-route limiters for the money endpoints — keyed by the AUTHENTICATED userId
+// (so one account can't burn the shared TronGrid verify quota / spam transfers no
+// matter how many IPs it rotates through), falling back to req.ip pre-auth. These
+// are tighter than the loose global 300/min/IP. Mirrors the auth/club per-route
+// limiters. The keyGenerator reads the Bearer subject WITHOUT a DB lookup.
+function userIdFromBearer(req: FastifyRequest): string | null {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) return null;
+  try {
+    // Decode WITHOUT verifying: the route guard does the real verification; this only
+    // buckets the limiter. A forged sub just buckets the attacker into a made-up key.
+    const payload = header.slice(7).split('.')[1];
+    if (!payload) return null;
+    const json = JSON.parse(Buffer.from(payload, 'base64').toString('utf8')) as { sub?: unknown };
+    return typeof json.sub === 'string' ? json.sub : null;
+  } catch {
+    return null;
+  }
+}
+const moneyRouteLimit = (max: number, timeWindow: string) => ({
+  config: {
+    rateLimit: {
+      max,
+      timeWindow,
+      keyGenerator: (req: FastifyRequest) => userIdFromBearer(req) ?? req.ip,
+    },
+  },
+});
+
 export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, provider, intents, notifier } = deps;
   const guard = requireAuth(auth);
   const sigHeader = (deps.webhookSignatureHeader ?? 'x-signature').toLowerCase();
+  // Tight per-user limits on the money-moving routes (no theft lever, but caps abuse
+  // + protects the on-chain verify quota). Only applied when rate-limit is registered.
+  const transferRl = moneyRouteLimit(20, '1 minute');
+  const withdrawRl = moneyRouteLimit(15, '1 minute');
+  const txidRl = moneyRouteLimit(20, '1 minute');
 
   app.get('/api/wallet', async (req, reply) => {
     const caller = await guard(req, reply);
@@ -86,7 +120,13 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   app.get('/api/wallet/transactions', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
-    return reply.send({ transactions: await wallet.listTransactions(caller.userId) });
+    // Bounded, newest-first page (keyset cursor) — never an unbounded per-user scan.
+    const q = req.query as { limit?: string; cursor?: string };
+    const take = Number(q.limit) || 200;
+    const transactions = await wallet.listTransactionsPage(caller.userId, { take, cursor: q.cursor ?? null });
+    // Next-page cursor = the oldest id in this page (null when fewer than a full page).
+    const nextCursor = transactions.length >= Math.min(500, Math.max(1, take)) ? transactions[transactions.length - 1]!.id : null;
+    return reply.send({ transactions, nextCursor });
   });
 
   // Player-to-player balance transfer — ONLY between friends. Atomic (wallet.transfer):
@@ -94,7 +134,7 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   // in good standing (a frozen/banned account can't send OR receive).
   // NOTE (owner-acknowledged): no KYC / daily cap / hold here by request — a known AML/fraud
   // surface on a real-money app; revisit with compliance before scaling.
-  app.post('/api/wallet/transfer', async (req, reply) => {
+  app.post('/api/wallet/transfer', transferRl, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     const parsed = transferSchema.safeParse(req.body);
@@ -156,9 +196,15 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     return reply.send({ providerRef: intent.providerRef, payAddress: intent.payAddress, amountCents: intent.amountCents });
   });
 
-  app.post('/api/wallet/withdraw', async (req, reply) => {
+  app.post('/api/wallet/withdraw', withdrawRl, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
+    // Account-state gate (always on): a banned/suspended account must NOT be able to
+    // cash out, even within the access-token TTL. checkLogin blocks banned + suspended
+    // but ALLOWS `frozen` (a frozen account may still withdraw its OWN funds) — so we
+    // deliberately use checkLogin here, NOT checkRealMoney.
+    const state = await auth.checkLogin(caller.userId);
+    if (!state.allowed) return reply.code(403).send({ error: { code: state.code ?? 'account', message: state.message ?? 'Llogaria jote është e bllokuar.' } });
     // KYC removed (owner decision): no identity verification is required to withdraw.
     // Age/geo (and NOT self-exclusion — funds must stay withdrawable) are still enforced
     // when the compliance toggle is on; KYC_REQUIRED stays off so checkWithdrawal never
@@ -249,7 +295,7 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
 
 
   const txidSchema = z.object({ txId: z.string().trim().min(60).max(80) });
-  app.post('/api/wallet/deposit/txid', async (req, reply) => {
+  app.post('/api/wallet/deposit/txid', txidRl, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     if (!deps.tronDeposit) return reply.code(501).send({ error: { code: 'unavailable', message: 'Depozitat me TxID nuk disponohen.' } });

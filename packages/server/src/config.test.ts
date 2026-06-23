@@ -61,3 +61,40 @@ test('development: boots without secrets using safe dev fallbacks', () => {
   assert.equal(cfg.isProd, false);
   assert.ok(cfg.accessSecret.length > 0); // dev fallback present
 });
+
+// ----- ACCESS_TTL bound (#1) ------------------------------------------------
+test('ACCESS_TTL defaults to a short 5m', () => {
+  assert.equal(loadConfig({ NODE_ENV: 'test' } as NodeJS.ProcessEnv).accessTtl, '5m');
+});
+
+test('ACCESS_TTL: an over-long value is refused (upper bound)', () => {
+  assert.throws(() => loadConfig({ NODE_ENV: 'development', ACCESS_TTL: '7d' } as NodeJS.ProcessEnv), /exceeds the maximum/);
+  assert.throws(() => loadConfig({ NODE_ENV: 'development', ACCESS_TTL: '20m' } as NodeJS.ProcessEnv), /exceeds the maximum/);
+});
+
+test('ACCESS_TTL: an unparseable value is refused', () => {
+  assert.throws(() => loadConfig({ NODE_ENV: 'development', ACCESS_TTL: 'banana' } as NodeJS.ProcessEnv), /not a valid duration/);
+});
+
+test('ACCESS_TTL: a short value (and bare seconds) is accepted', () => {
+  assert.equal(loadConfig({ NODE_ENV: 'test', ACCESS_TTL: '2m' } as NodeJS.ProcessEnv).accessTtl, '2m');
+  assert.equal(loadConfig({ NODE_ENV: 'test', ACCESS_TTL: '300' } as NodeJS.ProcessEnv).accessTtl, '300'); // 300s = 5m
+});
+
+// ----- #10 TELEGRAM_WEBHOOK_SECRET prod strength check ----------------------
+test('#10 prod: a weak TELEGRAM_WEBHOOK_SECRET is refused when the bot is enabled', () => {
+  const enabled = { TELEGRAM_BOT_TOKEN: 'bot-token-123', TELEGRAM_CHAT_ID: '987', TELEGRAM_WEBHOOK_SECRET: 'short' };
+  assert.throws(() => loadConfig(prodEnv(enabled)), /TELEGRAM_WEBHOOK_SECRET must be at least 32/);
+  assert.throws(() => loadConfig(prodEnv({ ...enabled, TELEGRAM_WEBHOOK_SECRET: 'change-me-' + 'x'.repeat(30) })), /placeholder/);
+});
+
+test('#10 prod: a strong TELEGRAM_WEBHOOK_SECRET boots when the bot is enabled', () => {
+  const cfg = loadConfig(prodEnv({ TELEGRAM_BOT_TOKEN: 'bot-token-123', TELEGRAM_CHAT_ID: '987', TELEGRAM_WEBHOOK_SECRET: 'z'.repeat(40) }));
+  assert.equal(cfg.telegramWebhookSecret, 'z'.repeat(40));
+});
+
+test('#10 prod: the telegram secret check is SKIPPED when the bot is not fully enabled', () => {
+  // Only the secret set (no token/chat) → bot not mounted → no strength requirement.
+  const cfg = loadConfig(prodEnv({ TELEGRAM_WEBHOOK_SECRET: 'short' }));
+  assert.equal(cfg.telegramWebhookSecret, 'short');
+});

@@ -16,6 +16,9 @@ export interface TokenClaims {
   sub: string;      // user id
   username: string;
   type: 'access' | 'refresh';
+  ver: number;      // user.tokenVersion at issue — revocation-aware: a force-logout/ban/
+                    // reset bumps tokenVersion, so a stale access token is rejected at
+                    // verify time (requireAuth compares ver to the live tokenVersion).
 }
 
 export interface RefreshClaims extends TokenClaims {
@@ -57,8 +60,8 @@ export class TokenService {
     return { algorithms: [ALG], issuer: ISSUER, audience: AUDIENCE };
   }
 
-  issueAccess(sub: string, username: string): string {
-    return jwt.sign({ username, type: 'access' } satisfies Omit<TokenClaims, 'sub'>, this.cfg.accessSecret, this.signOpts(this.cfg.accessTtl ?? '15m', sub));
+  issueAccess(sub: string, username: string, ver = 0): string {
+    return jwt.sign({ username, type: 'access', ver } satisfies Omit<TokenClaims, 'sub'>, this.cfg.accessSecret, this.signOpts(this.cfg.accessTtl ?? '15m', sub));
   }
 
   /** Issue a refresh token bound to a server-side record (jti/family/ver). */
@@ -73,10 +76,10 @@ export class TokenService {
   /** Convenience: a plain access+refresh pair (no rotation metadata). Used by
    *  tests that just need an access token; production uses issueAccess +
    *  issueRefresh with a persisted record. */
-  issuePair(sub: string, username: string): TokenPair {
+  issuePair(sub: string, username: string, ver = 0): TokenPair {
     return {
-      accessToken: this.issueAccess(sub, username),
-      refreshToken: jwt.sign({ username, type: 'refresh' } satisfies Omit<TokenClaims, 'sub'>, this.cfg.refreshSecret, this.signOpts(this.cfg.refreshTtl ?? '7d', sub)),
+      accessToken: this.issueAccess(sub, username, ver),
+      refreshToken: jwt.sign({ username, type: 'refresh', ver } satisfies Omit<TokenClaims, 'sub'>, this.cfg.refreshSecret, this.signOpts(this.cfg.refreshTtl ?? '7d', sub)),
     };
   }
 
@@ -104,6 +107,12 @@ export class TokenService {
     if (decoded.type !== expected || typeof decoded.sub !== 'string') {
       throw new Error(`invalid ${expected} token`);
     }
-    return { sub: decoded.sub, username: String(decoded.username ?? ''), type: expected };
+    // Revocation-aware: an access token MUST carry a numeric `ver` claim. A legacy
+    // token minted before this change has no `ver` → rejected (treated as invalid),
+    // forcing a refresh that re-issues a versioned token.
+    if (typeof decoded.ver !== 'number') {
+      throw new Error(`invalid ${expected} token`);
+    }
+    return { sub: decoded.sub, username: String(decoded.username ?? ''), type: expected, ver: decoded.ver };
   }
 }

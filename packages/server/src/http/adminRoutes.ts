@@ -43,6 +43,9 @@ export interface AdminRoutesDeps {
   // Force-disconnect a user's live sockets (set on ban/suspend so the live access
   // token can't keep them online). Late-bound to the gateway; absent in HTTP tests.
   kickUser?: (userId: string) => void;
+  // The configured owner account (lowercased ADMIN_EMAIL). Protected from demotion so
+  // two admins can't gang-demote the owner and lock everyone out of the panel.
+  adminEmail?: string | null;
 }
 
 const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1).max(280) });
@@ -50,7 +53,9 @@ const kycSchema = z.object({ status: z.enum(['none', 'pending', 'verified']) });
 const accountStateSchema = z.object({
   state: z.enum(['active', 'frozen', 'suspended', 'banned']),
   reason: z.string().max(280).optional(),
-  durationMs: z.number().int().positive().optional(), // suspension length (suspended only)
+  // Suspension length (suspended only). Bounded at 365 days so a typo'd huge value can't
+  // create an effectively-permanent "suspension" (use `banned` for permanent).
+  durationMs: z.number().int().positive().max(365 * 24 * 60 * 60 * 1000).optional(),
 });
 const muteSchema = z.object({
   durationMs: z.number().int().positive().max(30 * 24 * 60 * 60 * 1000).optional(), // default 24h
@@ -177,7 +182,8 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     return reply.send({ user: res.user, accountState: res.status });
   });
 
-  // Promote / demote an admin. Guards against removing your OWN admin (locking out).
+  // Promote / demote an admin. Guards against removing your OWN admin (locking out),
+  // demoting the configured OWNER, and a scoped admin minting a FULL admin.
   app.post('/api/admin/users/:id/role', async (req, reply) => {
     const caller = await canAdmins(req, reply);
     if (!caller) return;
@@ -187,9 +193,28 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     if (userId === caller.userId && role === 'user') {
       return reply.code(400).send({ error: { code: 'self_demote', message: 'Nuk mund të heqësh vetes rolin e adminit.' } });
     }
+    // Anti-escalation (mirrors the /permissions route): a SCOPED admin (non-empty
+    // permission list) must NOT be able to promote anyone to `admin`, because a fresh
+    // admin defaults to permissions=[] which RBAC treats as a FULL admin — that would
+    // let a manage_admins-only admin mint an unrestricted, money-powered admin.
+    const callerPerms = (await auth.getUser(caller.userId))?.permissions ?? [];
+    if (role === 'admin' && callerPerms.length > 0) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm një admin i plotë mund të caktojë rolin e adminit.' } });
+    }
+    // Protect the configured OWNER (ADMIN_EMAIL) from demotion: two admins must not be
+    // able to gang-demote the owner and lock everyone out of the panel.
+    if (role === 'user' && deps.adminEmail) {
+      const target = await auth.getUser(userId);
+      if (target && target.email.trim().toLowerCase() === deps.adminEmail) {
+        return reply.code(403).send({ error: { code: 'owner_protected', message: 'Pronari i platformës nuk mund të zhgradohet.' } });
+      }
+    }
     const user = await auth.setRole(userId, role);
     if (!user) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
+    // Admin role changes are security-sensitive: record to the audit trail (already
+    // queried elsewhere) and log at warn so they surface in ops/SIEM ingestion.
     await audit.record({ adminId: caller.userId, action: 'role_set', targetUserId: userId, detail: role });
+    app.log.warn({ adminId: caller.userId, targetUserId: userId, role }, 'admin role changed');
     return reply.send({ user });
   });
 

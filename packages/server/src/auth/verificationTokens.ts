@@ -29,6 +29,10 @@ export interface VerificationTokenRepository {
   /** A matching-type token that is unexpired and unused, by its hash. */
   findValidByHash(tokenHash: string, type: VerificationTokenType, nowMs: number): Promise<VerificationTokenRecord | null>;
   consume(id: string, nowMs: number): Promise<void>;
+  /** Invalidate (mark used) EVERY un-consumed token of `type` for a user. Called when a
+   *  newer reset is requested and on a successful reset, so an older still-valid link
+   *  (within its 1h TTL) can't be replayed after the user moved on. Returns rows touched. */
+  invalidateUnconsumed(userId: string, type: VerificationTokenType, nowMs: number): Promise<number>;
   /** Purge tokens past their expiry (retention/cleanup). Returns rows removed. */
   deleteExpired(nowMs: number): Promise<number>;
 }
@@ -58,6 +62,11 @@ export class InMemoryVerificationTokens implements VerificationTokenRepository {
   }
   async consume(id: string, nowMs: number): Promise<void> {
     for (const r of this.byHash.values()) if (r.id === id) r.usedAt = nowMs;
+  }
+  async invalidateUnconsumed(userId: string, type: VerificationTokenType, nowMs: number): Promise<number> {
+    let n = 0;
+    for (const r of this.byHash.values()) if (r.userId === userId && r.type === type && r.usedAt === null) { r.usedAt = nowMs; n++; }
+    return n;
   }
   async deleteExpired(nowMs: number): Promise<number> {
     let n = 0;
