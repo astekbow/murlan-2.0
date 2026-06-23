@@ -805,7 +805,7 @@ select:focus-visible,
    less and each rank corner stays readable. */
 .tv-ls .tvc-hand {
   left: 20%;
-  top: 60.5%;        /* lowered ~10px (cards are bottom-anchored, so the whole fan drops) */
+  top: 62%;          /* bottom = 62% + 38% = 100% → the fan touches the bottom edge */
   width: 60%;
   height: 38%;
   z-index: 20;                 /* above the felt + pile */
