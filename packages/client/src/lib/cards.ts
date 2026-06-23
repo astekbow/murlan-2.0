@@ -37,11 +37,14 @@ export function isRed(card: Card): boolean {
 }
 
 export function suitSymbol(card: Card): string {
-  return card.kind === 'joker' ? '★' : SUIT_SYMBOL[card.suit] ?? '?';
+  // Joker centre = the joker FIGURE (🃏) so it never reads as a "J"; standard cards use the suit glyph.
+  return card.kind === 'joker' ? '🃏' : SUIT_SYMBOL[card.suit] ?? '?';
 }
 
 export function rankText(card: Card): string {
-  return card.kind === 'joker' ? 'JK' : card.rank;
+  // Joker corner index = a single coloured star (red star = red joker, black = black joker) — one
+  // glyph so it can't be clipped to "J" in an overlapped fan, and the colour distinguishes the two.
+  return card.kind === 'joker' ? '★' : card.rank;
 }
 
 export function cardLabel(card: Card): string {

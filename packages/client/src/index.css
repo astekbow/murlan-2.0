@@ -841,7 +841,13 @@ select:focus-visible,
   align-items: center;
   justify-content: flex-end;   /* bottom-anchor: a tall fan rises UP over the felt edge */
   overflow: visible;           /* let the fan peek above the zone (never clipped) */
+  /* TURN CUE: when it's NOT my turn the fan sinks + shrinks (parked at the bottom); on my
+     turn (`.active`) it rises to full size. A clear at-a-glance "it's your move". */
+  transform-origin: center bottom;
+  transform: translateY(26px) scale(0.8);
+  transition: transform .28s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.tv-ls .tvc-hand.active { transform: translateY(0) scale(1); }
 /* THINNER + TALLER cards (set in Hand.tsx) overlap less, so the visible left sliver is
    wider. The rank+suit index is sized by the card's WIDTH (cqw) so it tracks that sliver —
    the full rank (incl. the 2-char "10") always fits — and is INDEPENDENT of card height,
@@ -899,14 +905,27 @@ select:focus-visible,
 .tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
 .tv-ls .ctrl-pass, .tv-ls .ctrl-play {
   position: absolute; top: 81%; z-index: 25;
-  width: 12cqw; height: 12cqw;
+  width: 13.5cqw; height: 13.5cqw;
   transform: translate(-50%, -50%);
   flex: none !important; padding: 0 !important; border-radius: 9999px !important;
   display: flex; align-items: center; justify-content: center; line-height: 1;
-  font-weight: 700; font-size: 2.6cqw; box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
+  font-weight: 700; font-size: 2.8cqw; box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.8);
 }
-.tv-ls .ctrl-pass { left: 12%; }
-.tv-ls .ctrl-play { left: 88%; }
+/* Pas: a SOLID dark-glass disc with a gold hairline (the old transparent ghost was hard to
+   see on the felt). Luaj keeps its gold fill + a gold glow so the primary action pops. */
+.tv-ls .ctrl-pass {
+  left: 12%;
+  background: linear-gradient(180deg, rgba(40, 37, 50, 0.96), rgba(13, 12, 18, 0.97)) !important;
+  border: 1.5px solid var(--gold-line) !important;
+  color: var(--txt-hi) !important;
+}
+.tv-ls .ctrl-play {
+  left: 88%;
+  box-shadow: 0 0 22px rgba(232, 200, 121, 0.5), 0 8px 20px -6px rgba(0, 0, 0, 0.8) !important;
+}
+/* Pas/Luaj appear (fade in) only on MY turn; faded + non-interactive otherwise. */
+.tv-ls .tvc-controls { opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+.tv-ls .tvc-controls.is-on { opacity: 1; pointer-events: auto; }
 /* The base `.btn:hover` / `.btn:active` set transform: translateY()/scale(), which WIPES
    the translate(-50%,-50%) centering — and their specificity beats this rule, so on a tap
    (touch fires :hover) the button JUMPED ~half its size = the "glitch". Re-assert the

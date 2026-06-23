@@ -539,8 +539,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             );
           })}
 
-        {/* Hand zone — left 30% top 60% w 43% h 35% (center 51.5%, 77%). */}
-        <div className="tvc-hand">
+        {/* Hand zone. When it's NOT my turn (and not the card switch) the fan sinks + shrinks
+            via the `.active` class below, so each player can tell at a glance when it's their
+            turn; on my turn it rises to full size. */}
+        <div className={`tvc-hand${(isMyTurn || switching) ? ' active' : ''}`}>
           {!switching ? switchOrBubble : null}
           {handBlock}
         </div>
@@ -550,8 +552,8 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             TOP of everything — Play/Pass are hidden during the switch so the bottom is free. */}
         {switching ? <div className="tvc-switch">{switchOrBubble}</div> : null}
 
-        {/* Pas / Luaj round buttons — CSS pins them to cx 12%/88%, cy 81%. */}
-        {controlsBlock}
+        {/* Pas / Luaj round buttons — pinned by CSS; only shown (faded in) on MY turn. */}
+        <div className={`tvc-controls${isMyTurn ? ' is-on' : ''}`}>{controlsBlock}</div>
       </div>
     </div>
   );
