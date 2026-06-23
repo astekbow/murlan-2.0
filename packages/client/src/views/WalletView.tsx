@@ -389,7 +389,7 @@ export function WalletView() {
                 <div className="flex items-center gap-3">
                   <span className="font-display font-semibold tracking-wide text-txt">{dollars(w.amountCents)}</span>
                   <span className="text-sm text-muted flex-1 truncate">→ {w.destination}</span>
-                  <span className={`tag ml-auto ${w.status === 'rejected' ? 'tag-live text-red-300' : 'tag-live'}`}>{w.status}</span>
+                  <span className={`tag ml-auto ${w.status === 'rejected' ? 'tag-live text-red-300' : 'tag-live'}`}>{t(w.status === 'completed' ? 'wallet.wstatusCompleted' : w.status === 'rejected' ? 'wallet.wstatusRejected' : 'wallet.wstatusPending')}</span>
                 </div>
                 {w.status === 'rejected' && w.failureReason && (
                   <p className="text-[12px] text-red-300/90 mt-1.5">{t('wallet.rejectedReason')} {w.failureReason}</p>

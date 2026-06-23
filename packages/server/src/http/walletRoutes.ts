@@ -101,6 +101,18 @@ const moneyRouteLimit = (max: number, timeWindow: string) => ({
   },
 });
 
+// Per-user serialization for withdrawals (red-team #7): runs each user's request + auto-pay
+// classify strictly one-at-a-time, so concurrent requests can't all read a stale "prior
+// today" and each auto-pay past the daily cap (each queued one sees every earlier row).
+// Single-instance only — mirrors WalletService.serializeDeposit; multi-instance needs a DB lock.
+const withdrawChain = new Map<string, Promise<unknown>>();
+function serializeWithdraw<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = withdrawChain.get(userId) ?? Promise.resolve();
+  const next = prev.then(fn, fn); // run after the previous settles (success or failure)
+  withdrawChain.set(userId, next.catch(() => undefined)); // a rejection must not break the chain
+  return next;
+}
+
 export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, provider, intents, notifier } = deps;
   const guard = requireAuth(auth);
@@ -222,36 +234,37 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
       return reply.code(400).send({ error: { code: 'bad_address', message: 'Adresa duhet të jetë adresë e vlefshme USDT-TRC20 (TRON, fillon me T, 34 karaktere).' } });
     }
     try {
-      const record = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
-      // Post-process OFF the response path: classify, optionally AUTO-PAY a small
-      // KYC-verified withdrawal, then ping the operator on Telegram. The crypto for
-      // larger/unverified withdrawals stays manual.
-      void (async () => {
+      // RACE-SAFE (#7): the request (atomic debit + row) AND the classify/auto-pay run as ONE
+      // ordered unit per user, so concurrent withdrawals can't all read a stale "prior today"
+      // and each auto-pay past the daily cap — each queued one counts every earlier row. We
+      // AWAIT it (slightly slower response) precisely so the cap decision is correct in order.
+      const record = await serializeWithdraw(caller.userId, async () => {
+        const rec = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
         const [u, comp, recent] = await Promise.all([
           auth.getUser(caller.userId).catch(() => null),
           auth.getComplianceProfile(caller.userId).catch(() => null),
           withdrawals.listByUser(caller.userId).catch(() => []),
         ]);
         // The user's other (non-rejected) withdrawals in the last 24h — for the daily
-        // auto-payout cap. Excludes the one we just created (the cap adds it).
+        // auto-payout cap. Excludes this one (the cap adds it). Earlier queued rows already exist.
         const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
         const priorTodayCents = recent
-          .filter((w) => w.id !== record.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
+          .filter((w) => w.id !== rec.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
           .reduce((s, w) => s + w.amountCents, 0);
         const outcome = await processWithdrawal(
-          { id: record.id, amountCents: record.amountCents, destination: record.destination },
+          { id: rec.id, amountCents: rec.amountCents, destination: rec.destination },
           { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null, priorTodayCents },
           { approve: (id, audit) => withdrawals.approve(id, audit), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0, dailyAutoCapCents: deps.dailyAutoWithdrawCapCents ?? 0 },
-        ).catch((err) => { app.log.error({ err, withdrawalId: record.id }, 'auto-payout processing threw'); return null; });
-        // Metrics + log on the auto-payout path (manual/fast-track aren't counted).
+        ).catch((err) => { app.log.error({ err, withdrawalId: rec.id }, 'auto-payout processing threw'); return null; });
         if (outcome?.autoPaid) {
           autoPayouts.inc({ outcome: 'paid' });
-          app.log.info({ withdrawalId: record.id, amountCents: record.amountCents }, 'auto-payout sent');
+          app.log.info({ withdrawalId: rec.id, amountCents: rec.amountCents }, 'auto-payout sent');
         } else if (outcome && outcome.tier === 'auto' && outcome.error) {
           autoPayouts.inc({ outcome: 'failed' });
-          app.log.warn({ withdrawalId: record.id, err: outcome.error }, 'auto-payout FAILED → manual');
+          app.log.warn({ withdrawalId: rec.id, err: outcome.error }, 'auto-payout FAILED → manual');
         }
-      })();
+        return rec;
+      });
       return reply.code(201).send({ withdrawal: record });
     } catch (e) {
       if (e instanceof WithdrawalError) {

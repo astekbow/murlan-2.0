@@ -263,6 +263,9 @@ const STRINGS: Record<string, Entry> = {
   'wallet.noTx': { sq: 'Ende pa transaksione.', en: 'No transactions yet.' },
   'wallet.withdrawalsTitle': { sq: 'TËRHEQJET', en: 'WITHDRAWALS' },
   'wallet.rejectedReason': { sq: 'Arsyeja e refuzimit:', en: 'Rejection reason:' },
+  'wallet.wstatusPending': { sq: 'po shqyrtohet', en: 'under review' },
+  'wallet.wstatusCompleted': { sq: 'paguar', en: 'paid' },
+  'wallet.wstatusRejected': { sq: 'refuzuar', en: 'rejected' },
   'wallet.errAmountGt0': { sq: 'Shuma duhet të jetë më e madhe se 0.', en: 'Amount must be greater than 0.' },
   'wallet.errDestMin': { sq: 'Shkruaj një adresë destinacioni (min 4 karaktere).', en: 'Enter a destination address (min 4 characters).' },
 
@@ -941,7 +944,7 @@ const STRINGS: Record<string, Entry> = {
   'msg.friendRequestFrom': { sq: '{name} të dërgoi kërkesë miqësie.', en: '{name} sent you a friend request.' },
   'msg.inviteSent': { sq: 'Ftesa u dërgua.', en: 'The invite was sent.' },
   'msg.depositAddressCreated': { sq: 'Adresa e pagesës u krijua. Pagesa kreditohet automatikisht pas konfirmimit.', en: 'Payment address created. The payment is credited automatically after confirmation.' },
-  'msg.withdrawRequested': { sq: 'Kërkesa për tërheqje u dërgua dhe pret aprovim.', en: 'The withdrawal request was sent and awaits approval.' },
+  'msg.withdrawRequested': { sq: 'Kërkesa jote për tërheqje po shqyrtohet nga admini. Do të njoftohesh kur të miratohet.', en: 'Your withdrawal request is being reviewed by an admin. You will be notified once approved.' },
   'msg.profileSaved': { sq: 'Profili u ruajt.', en: 'Profile saved.' },
   'msg.selfExcludeActivated': { sq: 'Vetëpërjashtimi u aktivizua.', en: 'Self-exclusion activated.' },
   'msg.balanceAdjusted': { sq: 'Bilanci u rregullua.', en: 'Balance adjusted.' },
