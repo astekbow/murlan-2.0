@@ -91,8 +91,8 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     // hand truly can't fit at this spacing.
     step = n > 1 ? Math.max(27, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
   }
-  // Landscape cards are taller+thinner (1.66) so a narrow card still reads as big; portrait keeps 1.4.
-  const CARD_H = Math.round(CARD_W * (fit ? 1.66 : 1.4));
+  // Landscape cards are taller+thinner (1.82) so a narrow card still reads as big; portrait keeps 1.4.
+  const CARD_H = Math.round(CARD_W * (fit ? 1.82 : 1.4));
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
