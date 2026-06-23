@@ -200,12 +200,34 @@ test('suspend tap carries a 7-day expiry', async () => {
   assert.ok(call.until && call.until > Date.now() + 6 * 24 * 3600 * 1000, 'expiry ~7 days out');
 });
 
-test('/tickets lists open tickets with a Resolve button', async () => {
+test('/tickets lists open tickets with Reply + Resolve buttons', async () => {
   const { deps, calls } = makeDeps();
   await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 4, chat: { id: CHAT }, text: '/tickets' } });
   const sent = calls.sent.at(-1)!;
   const rows = sent.buttons as Array<Array<{ callbackData: string }>>;
-  assert.equal(rows[0]![0]!.callbackData, 'tk:res:t1');
+  const cbs = rows[0]!.map((b) => b.callbackData);
+  assert.ok(cbs.includes('tk:reply:t1'), 'has a Reply button');
+  assert.ok(cbs.includes('tk:res:t1'), 'has a Resolve button');
+});
+
+test('reply tap → next message is sent to the player as the reply + resolves the ticket', async () => {
+  const { deps, audit, resolved, msgCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  // Owner taps "Përgjigju" on ticket t1 → bot stages a pending reply + prompts.
+  await bot.handleUpdate({ callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 70, chat: { id: CHAT } }, data: 'tk:reply:t1' } });
+  // Owner's next plain message IS the reply text.
+  await bot.handleUpdate({ message: { message_id: 71, chat: { id: CHAT }, text: 'I kemi kthyer fondet, kontrollo bilancin.' } });
+  assert.ok(resolved.includes('t1'), 'ticket resolved');
+  assert.ok(msgCalls.some((m) => m.body === 'I kemi kthyer fondet, kontrollo bilancin.'), 'player received the ACTUAL reply text');
+  assert.equal(audit.at(-1)!.action, 'support_resolve', 'audited');
+});
+
+test('a command cancels a staged ticket reply (not treated as the reply)', async () => {
+  const { deps, resolved } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ callback_query: { id: 'c', from: { id: CHAT }, message: { message_id: 72, chat: { id: CHAT } }, data: 'tk:reply:t1' } });
+  await bot.handleUpdate({ message: { message_id: 73, chat: { id: CHAT }, text: '/stats' } }); // a command bails out
+  assert.equal(resolved.length, 0, 'no ticket resolved — the command cancelled the staged reply');
 });
 
 test('resolve tap resolves the ticket + audits support_resolve', async () => {

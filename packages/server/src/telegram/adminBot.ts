@@ -22,6 +22,7 @@ import type { SupportRepository, SupportTicket } from '../support/supportReposit
 
 const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 const SUSPEND_MS = 7 * 24 * 60 * 60 * 1000; // /user suspend = 7 days
+const TICKET_REPLY_WINDOW_MS = 15 * 60 * 1000; // a staged free-text ticket reply expires after 15 min
 
 /** Parse a USD amount ("5", "5.00", "$5") to positive integer cents, or null. */
 function parseUsdToCents(s: string): number | null {
@@ -182,6 +183,9 @@ interface MessageRef { chatId: number | string; messageId: number | null }
 export class TelegramAdminBot {
   private readonly pending = new Map<string, PendingAction>();
   private pendingSeq = 0;
+  // A staged free-text ticket reply: the owner's NEXT plain (non-command) message becomes
+  // the reply that's sent to the player + resolves the ticket. Cleared by a command or timeout.
+  private pendingReply: { ticketId: string; subject: string; at: number } | null = null;
 
   constructor(private readonly deps: AdminBotDeps) {}
 
@@ -219,7 +223,19 @@ export class TelegramAdminBot {
   // ---- Commands ----------------------------------------------------------------
   private async handleMessage(msg: TgMessage): Promise<void> {
     if (!this.isAuthorizedTap(msg.chat.id, msg.from?.id)) return; // silently ignore strangers
-    const tokens = msg.text!.trim().split(/\s+/);
+    const text = msg.text!.trim();
+    // A staged ticket reply captures the owner's NEXT plain (non-command) message as the
+    // reply that goes to the player; typing a command instead cancels the staged reply.
+    if (this.pendingReply && !text.startsWith('/')) {
+      const pend = this.pendingReply;
+      this.pendingReply = null;
+      if (Date.now() - pend.at > TICKET_REPLY_WINDOW_MS) {
+        return void (await this.deps.bot.sendMessage('⌛ Skadoi koha për përgjigje. Shtyp prapë “💬 Përgjigju”.'));
+      }
+      return void (await this.submitTicketReply(pend.ticketId, text));
+    }
+    this.pendingReply = null;
+    const tokens = text.split(/\s+/);
     const cmd = (tokens[0] ?? '').replace(/@.*$/, '').toLowerCase();
     const arg = tokens.slice(1).join(' ').trim();
     switch (cmd) {
@@ -346,7 +362,7 @@ export class TelegramAdminBot {
     const CAP = 10;
     await this.deps.bot.sendMessage(`🎫 <b>${open.length}</b> bileta të hapura${open.length > CAP ? ` (po shfaq ${CAP})` : ''}:`);
     for (const t of open.slice(0, CAP)) {
-      await this.deps.bot.sendMessage(this.renderTicket(t), { buttons: [[{ text: '✅ Zgjidh', callbackData: `tk:res:${t.id}` }]] });
+      await this.deps.bot.sendMessage(this.renderTicket(t), { buttons: this.ticketButtons(t.id) });
     }
   }
 
@@ -732,9 +748,46 @@ export class TelegramAdminBot {
   }
 
   private async handleTicketTap(action: string | undefined, id: string, ref: MessageRef, cbId: string): Promise<void> {
+    if (action === 'reply') {
+      if (!this.deps.support) { await this.deps.bot.answerCallbackQuery(cbId); return; }
+      const t = await this.deps.support.get(id).catch(() => null);
+      if (!t) { await this.deps.bot.answerCallbackQuery(cbId, { text: 'Bileta nuk u gjet.' }); return; }
+      this.pendingReply = { ticketId: id, subject: t.subject, at: Date.now() };
+      await this.deps.bot.answerCallbackQuery(cbId, { text: 'Shkruaj përgjigjen…' });
+      await this.deps.bot.sendMessage(`✍️ Shkruaj përgjigjen për biletën “${escapeHtml(t.subject)}”. Mesazhi yt i radhës i shkon lojtarit dhe e mbyll biletën.`);
+      return;
+    }
     if (action !== 'res') { await this.deps.bot.answerCallbackQuery(cbId); return; }
     await this.deps.bot.answerCallbackQuery(cbId, { text: 'Po e zgjidh…' });
     await this.resolveTicket(id, ref);
+  }
+
+  /** Reply to a ticket with free text: resolve it with the reply as the note + push the
+   *  ACTUAL reply text to the player (they get the real answer, not a generic notice). */
+  private async submitTicketReply(ticketId: string, reply: string): Promise<void> {
+    if (!this.deps.support) { await this.deps.bot.sendMessage('Veprimi s’është aktiv.'); return; }
+    const adminId = await this.deps.resolveAdminUserId();
+    if (!adminId) { await this.deps.bot.sendMessage('⚠️ S’u gjet llogaria admin — veprimi u ndal.'); return; }
+    const t = await this.deps.support.resolve(ticketId, 'resolved', reply, Date.now()).catch(() => null);
+    if (!t) { await this.deps.bot.sendMessage('⚠️ Bileta nuk u gjet (mund të jetë zgjidhur më parë).'); return; }
+    await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${ticketId} reply (telegram): ${reply}` }).catch(() => undefined);
+    let notified = '';
+    if (this.deps.messagePlayer) {
+      await this.deps.messagePlayer(t.userId, `Përgjigje: ${t.subject}`, reply).then(() => { notified = ' · lojtari u njoftua'; }).catch(() => {});
+    }
+    await this.deps.bot.sendMessage(`✅ <b>U përgjigje</b> · ${escapeHtml(t.subject)}${notified}`);
+  }
+
+  /** Buttons under a ticket message: free-text reply, or quick-resolve with a generic note. */
+  private ticketButtons(id: string): InlineButton[][] {
+    return [[{ text: '💬 Përgjigju', callbackData: `tk:reply:${id}` }, { text: '✅ Zgjidh', callbackData: `tk:res:${id}` }]];
+  }
+
+  /** Proactively alert the owner the moment a player opens a support ticket (called by the
+   *  route on create). Best-effort: a Telegram failure never affects ticket creation. */
+  async notifyNewTicket(ticket: SupportTicket): Promise<void> {
+    if (!this.deps.support) return;
+    await this.deps.bot.sendMessage(`🆕 <b>Biletë e re</b>\n${this.renderTicket(ticket)}`, { buttons: this.ticketButtons(ticket.id) }).catch(() => undefined);
   }
 
   private async onApproveTap(id: string, ref: MessageRef, callbackId: string): Promise<void> {

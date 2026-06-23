@@ -12,12 +12,15 @@ import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAuth, requireAdmin } from './authRoutes.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
-import type { SupportRepository } from '../support/supportRepository.ts';
+import type { SupportRepository, SupportTicket } from '../support/supportRepository.ts';
 
 export interface SupportRoutesDeps {
   auth: AuthService;
   support: SupportRepository;
   audit?: AdminAuditRepository;
+  /** Best-effort owner alert (Telegram) when a player opens a ticket — must never throw
+   *  or block the response. */
+  onTicketCreated?: (ticket: SupportTicket) => void;
 }
 
 const createSchema = z.object({
@@ -43,6 +46,7 @@ export async function supportRoutes(app: FastifyInstance, deps: SupportRoutesDep
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme për tiketën.' } });
     const ticket = await support.create({ userId: caller.userId, ...parsed.data });
+    try { deps.onTicketCreated?.(ticket); } catch { /* owner alert is best-effort */ }
     return reply.code(201).send({ ticket });
   });
 

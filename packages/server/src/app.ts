@@ -266,7 +266,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await rankedRoutes(app, { auth: deps.auth, ranked: deps.ranked });
   }
   if (deps.support) {
-    await supportRoutes(app, { auth: deps.auth, support: deps.support, audit: deps.adminAudit });
+    await supportRoutes(app, { auth: deps.auth, support: deps.support, audit: deps.adminAudit, onTicketCreated: (t) => { void deps.telegramAdminBot?.notifyNewTicket(t); } });
   }
   if (deps.vip) {
     await vipRoutes(app, { auth: deps.auth, vip: deps.vip });
