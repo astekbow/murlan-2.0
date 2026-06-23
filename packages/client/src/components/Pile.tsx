@@ -32,17 +32,23 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
         {layers.map((combo, i) => {
           const back = top - i; // 0 = newest (front), higher = older (further back)
           const isTop = i === top;
+          const cards = sortComboForDisplay(combo);
+          // Key by CONTENT (the cards), not the array index: when a new play shifts the stack,
+          // each existing layer keeps its identity → it does NOT remount → it does NOT replay the
+          // play animation. Only the genuinely-new top layer (`is-new`) animates. Cards are unique
+          // within a game, so these keys never collide.
+          const layerKey = cards.map(cardKey).join('-');
           return (
             <div
-              key={i}
-              className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' animate-pop' : ''}`}
+              key={layerKey}
+              className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' is-new' : ''}`}
               style={{
                 transform: `translate(${-back * 11}px, ${-back * 13}px)`,
                 opacity: isTop ? 1 : 0.5,
                 zIndex: i + 1,
               }}
             >
-              {sortComboForDisplay(combo).map((card) => (
+              {cards.map((card) => (
                 <CardView key={cardKey(card)} card={card} />
               ))}
             </div>

@@ -591,21 +591,21 @@ select:focus-visible,
 }
 .shake-fx { animation: shakefx 0.45s ease-in-out; }
 
-/* Cards thrown onto the pile drop in from above and settle. Plays once per play:
-   the pile card elements remount with new keys each play, so unchanged re-broadcasts
-   don't re-trigger it. Reduced-motion safe (universal rule neutralises it). */
-@keyframes throwin {
-  0%   { opacity: 0; transform: translateY(64px) scale(0.82) rotate(7deg); }
-  55%  { opacity: 1; transform: translateY(-7px) scale(1.05) rotate(-2deg); }
-  100% { opacity: 1; transform: none; }
+/* A played card is TOSSED onto the felt: it drops from just above with a slight tilt and
+   settles flat in ONE clean motion — no bounce/overshoot and no competing wrapper "pop"
+   (the pile top layer no longer carries animate-pop), so it never stutters. Only the
+   genuinely-new top layer (.is-new) animates; older layers keep their content key, so a new
+   play never replays their entrance. Reduced-motion safe (universal rule neutralises it). */
+@keyframes cardplay {
+  0%   { opacity: 0; transform: translateY(-34px) scale(1.16) rotate(-5deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
 }
-/* Cards fly UP from the hand, overshoot a touch, then settle — a smooth "throw". */
-.pile-cards .gcard { animation: throwin 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.pile-cards .gcard:nth-child(2) { animation-delay: 0.04s; }
-.pile-cards .gcard:nth-child(3) { animation-delay: 0.08s; }
-.pile-cards .gcard:nth-child(4) { animation-delay: 0.12s; }
-.pile-cards .gcard:nth-child(5) { animation-delay: 0.16s; }
-.pile-cards .gcard:nth-child(n + 6) { animation-delay: 0.2s; }
+.pile-cards.is-new .gcard { animation: cardplay 0.24s cubic-bezier(0.2, 0.85, 0.3, 1) both; }
+.pile-cards.is-new .gcard:nth-child(2) { animation-delay: 0.05s; }
+.pile-cards.is-new .gcard:nth-child(3) { animation-delay: 0.1s; }
+.pile-cards.is-new .gcard:nth-child(4) { animation-delay: 0.15s; }
+.pile-cards.is-new .gcard:nth-child(5) { animation-delay: 0.2s; }
+.pile-cards.is-new .gcard:nth-child(n + 6) { animation-delay: 0.24s; }
 
 /* "Going out" slow-mo: when a player empties their hand, the centre pile gets a
    brief, slow scale-up + gold glow to mark the finish. Keyed off a state flag in
