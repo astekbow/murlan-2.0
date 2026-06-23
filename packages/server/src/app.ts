@@ -277,7 +277,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
 
   if (deps.wallet && deps.withdrawals && deps.provider && deps.intents) {
     await walletRoutes(app, {
-      auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals,
+      auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, friends: deps.friends,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,

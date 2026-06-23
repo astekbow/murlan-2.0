@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { friendsApi, ApiError, type FriendEntry } from '../lib/api.ts';
+import { friendsApi, walletApi, ApiError, type FriendEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
+import { useWalletStore } from '../store/walletStore.ts';
+import { dollars } from '../lib/money.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
@@ -21,6 +23,41 @@ export function FriendsView() {
   // click can't double-fire and a stale 8s refetch can't clobber a just-made change.
   const [acting, setActing] = useState(false);
   const actingRef = useRef(false);
+
+  // Send-money-to-a-friend modal.
+  const [sendTo, setSendTo] = useState<FriendEntry | null>(null);
+  const [amount, setAmount] = useState('');
+  const [sending, setSending] = useState(false);
+  const balanceCents = useWalletStore((s) => s.balanceCents);
+  useEffect(() => { void useWalletStore.getState().refresh(); }, []); // load my balance for the transfer UI
+
+  const sendMoney = async () => {
+    if (!sendTo || sending) return;
+    const usd = parseFloat(amount.replace(',', '.'));
+    if (!Number.isFinite(usd) || usd <= 0) {
+      useGameStore.setState({ toast: t('friends.sendBadAmount'), toastKind: 'error' });
+      return;
+    }
+    const cents = Math.round(usd * 100);
+    if (cents > balanceCents) {
+      useGameStore.setState({ toast: t('friends.sendInsufficient'), toastKind: 'error' });
+      return;
+    }
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setSending(true);
+    try {
+      await walletApi.transfer(token, sendTo.user.id, cents);
+      useGameStore.setState({ toast: t('friends.sendSuccess', { amount: dollars(cents), name: sendTo.user.username }), toastKind: 'success' });
+      setSendTo(null);
+      setAmount('');
+      await useWalletStore.getState().refresh();
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.sendErr'), toastKind: 'error' });
+    } finally {
+      setSending(false);
+    }
+  };
 
   const load = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
@@ -124,6 +161,37 @@ export function FriendsView() {
       </button>
       {dialog}
 
+      {/* Send-money-to-a-friend modal */}
+      {sendTo && (
+        <div className="modal-backdrop" onClick={() => { if (!sending) setSendTo(null); }} role="dialog" aria-modal="true" aria-label={t('friends.sendMoney')}>
+          <div className="panel-solid w-full max-w-sm p-5 animate-pop space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('friends.sendTitle', { name: sendTo.user.username })}</h3>
+            <p className="text-xs text-muted">{t('friends.yourBalance', { amount: dollars(balanceCents) })}</p>
+            <label className="block">
+              <span className="field-label">{t('friends.amount')}</span>
+              <input
+                className="field"
+                type="number"
+                inputMode="decimal"
+                min="1"
+                step="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void sendMoney(); }}
+                autoFocus
+              />
+            </label>
+            <div className="flex gap-3 justify-end">
+              <button className="btn btn-ghost" onClick={() => setSendTo(null)} disabled={sending}>{t('common.cancel')}</button>
+              <button className="btn btn-gold" onClick={() => void sendMoney()} disabled={sending || !amount.trim()}>
+                {sending ? t('friends.sending') : t('friends.send')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <section className="panel p-5 animate-rise">
         <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('friends.social')}</div>
@@ -205,6 +273,7 @@ export function FriendsView() {
                         {t('friends.invite')}
                       </button>
                     )}
+                    <button onClick={() => { setSendTo(f); setAmount(''); }} disabled={acting} className="btn btn-ghost" title={t('friends.sendMoney')}>💸 {t('friends.sendMoney')}</button>
                     <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
                     <button onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
                   </FriendRow>

@@ -140,3 +140,33 @@ test('reconcile passes after a sequence of moves and rake stays ledger-only', as
   assert.equal(rec.ok, true, JSON.stringify(rec.mismatches));
   assert.equal(await wallet.getBalance(userId), 5800);
 });
+
+test('transfer moves balance atomically between two players (transfer_out + transfer_in rows)', async () => {
+  const { users, ledger, wallet, userId } = await setup();
+  const friend = await users.create({ username: 'shoku', email: 's@x.com', passwordHash: 'h' });
+  await wallet.credit(userId, 5000, { type: 'deposit', reason: 'seed' });
+  const res = await wallet.transfer(userId, friend.id, 2000);
+  assert.equal(res.balanceCents, 3000);
+  assert.equal(await wallet.getBalance(userId), 3000);
+  assert.equal(await wallet.getBalance(friend.id), 2000);
+  assert.ok((await ledger.listByUser(userId)).some((r) => r.type === 'transfer_out' && r.amountCents === -2000));
+  assert.ok((await ledger.listByUser(friend.id)).some((r) => r.type === 'transfer_in' && r.amountCents === 2000));
+  // No money created or lost: sender lost exactly what the receiver gained.
+  assert.equal(await wallet.getBalance(userId) + await wallet.getBalance(friend.id), 5000);
+});
+
+test('transfer with insufficient funds throws and changes nothing', async () => {
+  const { users, wallet, userId } = await setup();
+  const friend = await users.create({ username: 'shoku2', email: 's2@x.com', passwordHash: 'h' });
+  await wallet.credit(userId, 1000, { type: 'deposit' });
+  await assert.rejects(() => wallet.transfer(userId, friend.id, 5000), InsufficientFundsError);
+  assert.equal(await wallet.getBalance(userId), 1000);
+  assert.equal(await wallet.getBalance(friend.id), 0);
+});
+
+test('transfer to self is rejected (no balance change)', async () => {
+  const { wallet, userId } = await setup();
+  await wallet.credit(userId, 1000, { type: 'deposit' });
+  await assert.rejects(() => wallet.transfer(userId, userId, 100), /self/);
+  assert.equal(await wallet.getBalance(userId), 1000);
+});

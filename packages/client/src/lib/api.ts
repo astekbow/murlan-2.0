@@ -290,6 +290,9 @@ export const walletApi = {
   withdraw: (token: string, amountCents: number, destination: string) =>
     request<{ withdrawal: WithdrawalRecord }>('/wallet/withdraw', { method: 'POST', token, body: { amountCents, destination } }),
   withdrawals: (token: string) => request<{ withdrawals: WithdrawalRecord[] }>('/wallet/withdrawals', { token }),
+  /** Send balance to a friend (friends only, server-validated). Returns the sender's new balance. */
+  transfer: (token: string, toUserId: string, amountCents: number) =>
+    request<{ balanceCents: number }>('/wallet/transfer', { method: 'POST', token, body: { toUserId, amountCents } }),
   // Fee-free USDT-TRC20 deposits: fetch our receiving address, then submit a TxID.
   depositAddress: (token: string) => request<{ address: string | null; currency?: string; network?: string }>('/wallet/deposit/address', { token }),
   submitDepositTxid: (token: string, txId: string) =>

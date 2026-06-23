@@ -14,6 +14,8 @@ export type TransactionType =
   | 'payout'      // winnings credited from a pot
   | 'rake'        // house cut (recorded against the house account)
   | 'purchase'    // cosmetic bought from the shop with wallet balance
+  | 'transfer_out' // balance SENT to another player (debit on the sender)
+  | 'transfer_in'  // balance RECEIVED from another player (credit on the receiver)
   | 'admin_adjust';
 
 export type TransactionStatus = 'pending' | 'completed' | 'failed';

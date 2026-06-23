@@ -10,7 +10,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AuthService } from '../auth/authService.ts';
 import { requireAuth } from './authRoutes.ts';
-import { type WalletService, DepositCapExceededError } from '../money/walletService.ts';
+import { type WalletService, DepositCapExceededError, InsufficientFundsError } from '../money/walletService.ts';
+import type { FriendsService } from '../social/friendsService.ts';
 import { depositWebhooks } from '../metrics.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
@@ -35,6 +36,7 @@ export interface WalletRoutesDeps {
   intents: DepositIntentRepository;
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService; // responsible-gaming daily deposit cap
+  friends?: FriendsService; // player-to-player balance transfers are allowed only between friends
   notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
@@ -63,6 +65,12 @@ const withdrawSchema = z.object({
   amountCents: z.number().int().min(MIN_WITHDRAW_CENTS).max(MAX_DEPOSIT_CENTS),
   destination: z.string().min(4).max(256),
 });
+// Player-to-player transfer (friends only). $1 floor stops dust; the deposit max is a sane ceiling.
+const MIN_TRANSFER_CENTS = 100; // $1
+const transferSchema = z.object({
+  toUserId: z.string().min(1).max(64),
+  amountCents: z.number().int().min(MIN_TRANSFER_CENTS).max(MAX_DEPOSIT_CENTS),
+});
 
 export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, provider, intents, notifier } = deps;
@@ -79,6 +87,40 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     const caller = await guard(req, reply);
     if (!caller) return;
     return reply.send({ transactions: await wallet.listTransactions(caller.userId) });
+  });
+
+  // Player-to-player balance transfer — ONLY between friends. Atomic (wallet.transfer):
+  // the sender is debited + the receiver credited in one transaction. Both accounts must be
+  // in good standing (a frozen/banned account can't send OR receive).
+  // NOTE (owner-acknowledged): no KYC / daily cap / hold here by request — a known AML/fraud
+  // surface on a real-money app; revisit with compliance before scaling.
+  app.post('/api/wallet/transfer', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const parsed = transferSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: 'invalid', message: 'Të dhëna të pavlefshme.' } });
+    }
+    const { toUserId, amountCents } = parsed.data;
+    if (toUserId === caller.userId) {
+      return reply.code(400).send({ error: { code: 'self', message: "Nuk mund t'i dërgosh lek vetes." } });
+    }
+    if (!deps.friends || !(await deps.friends.areFriends(caller.userId, toUserId))) {
+      return reply.code(403).send({ error: { code: 'not_friends', message: "Mund t'u dërgosh lek vetëm shokëve." } });
+    }
+    const from = await auth.checkAccountRealMoney(caller.userId);
+    if (!from.allowed) return reply.code(403).send({ error: { code: from.code ?? 'account', message: from.message ?? 'Llogaria jote është e bllokuar.' } });
+    const to = await auth.checkAccountRealMoney(toUserId);
+    if (!to.allowed) return reply.code(403).send({ error: { code: 'recipient_blocked', message: 'Marrësi nuk mund të pranojë lek tani.' } });
+    try {
+      const res = await wallet.transfer(caller.userId, toUserId, amountCents, { reason: `transfer to ${toUserId}` });
+      return reply.send({ balanceCents: res.balanceCents });
+    } catch (e) {
+      if (e instanceof InsufficientFundsError) {
+        return reply.code(400).send({ error: { code: 'insufficient_funds', message: 'Balancë e pamjaftueshme.' } });
+      }
+      throw e;
+    }
   });
 
   app.post('/api/wallet/deposit', async (req, reply) => {

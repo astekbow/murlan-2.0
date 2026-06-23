@@ -39,6 +39,8 @@ enum TransactionType {
   payout
   rake
   purchase
+  transfer_out
+  transfer_in
   admin_adjust
 }
 

@@ -116,6 +116,13 @@ export class WalletService {
     return this.uow ? this.uow.transaction(({ users, ledger }) => fn(users, ledger)) : fn(this.users, this.ledger);
   }
 
+  /** Run a multi-step money op with a wallet bound to one transaction, so e.g. a transfer's
+   *  debit + credit commit or roll back together (Prisma $transaction — no half transfer). */
+  private runTx<T>(fn: (w: WalletService) => Promise<T>): Promise<T> {
+    if (this.txBound) return fn(this);
+    return this.uow ? this.uow.transaction((ctx) => fn(this.bind(ctx))) : fn(this);
+  }
+
   /**
    * Add funds. The ledger row is appended FIRST: its UNIQUE providerRef is the
    * atomic idempotency gate, so a duplicate/concurrent webhook never
@@ -205,6 +212,28 @@ export class WalletService {
         if (!this.uow && !this.txBound) await users.adjustBalance(userId, amountCents); // compensate (a tx rolls back)
         throw e;
       }
+    });
+  }
+
+  /**
+   * Move balance from one player to another ATOMICALLY: debit the sender + credit the
+   * receiver in ONE transaction, so it can never half-complete (no money created or lost).
+   * Bounds + sufficient-funds are enforced by debit() (throws InsufficientFundsError); a
+   * non-existent receiver makes credit() throw and the whole transfer rolls back.
+   * POLICY (friends-only, account-state, limits) is the CALLER's responsibility — not here.
+   */
+  async transfer(
+    fromUserId: string,
+    toUserId: string,
+    amountCents: number,
+    opts?: { reason?: string },
+  ): Promise<{ balanceCents: number; outTx: Transaction; inTx: Transaction }> {
+    this.assertAmount(amountCents);
+    if (fromUserId === toUserId) throw new Error('cannot transfer to self');
+    return this.runTx(async (w) => {
+      const out = await w.debit(fromUserId, amountCents, { type: 'transfer_out', reason: opts?.reason ?? `transfer to ${toUserId}` });
+      const credited = await w.credit(toUserId, amountCents, { type: 'transfer_in', reason: `transfer from ${fromUserId}` });
+      return { balanceCents: out.balanceCents, outTx: out.transaction, inTx: credited.transaction };
     });
   }
 
