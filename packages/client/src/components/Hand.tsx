@@ -105,7 +105,10 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   };
   const onMove = (id: string, e: PointerEvent) => {
     if (!drag || drag.id !== id) return;
-    const moved = drag.moved || Math.abs(e.clientX - startX.current) > 6;
+    // Touch slop: a finger always jitters a few px on a tap, so only treat it as a DRAG
+    // (reorder) past 16px — below that it's a tap (select) and the card stays put. (Was 6px,
+    // which made cards jump out of place on almost every tap.)
+    const moved = drag.moved || Math.abs(e.clientX - startX.current) > 16;
     const stage = stageRef.current?.getBoundingClientRect();
     if (stage && step > 0) {
       const target = Math.max(0, Math.min(n - 1, Math.round((e.clientX - stage.left - CARD_W / 2) / step)));
