@@ -350,10 +350,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // the public game state (`gone`). The match ends normally only when too few remain.
       const mine = dto.seat === get().mySeat;
       const name = dto.username ?? tg('common.aPlayer');
+      const idle = dto.reason === 'idle'; // removed for not playing 3 turns in a row
       set((s) => ({
-        toast: mine ? tg('msg.youLeftMatch') : tg('msg.playerLeftContinues', { name }),
+        toast: mine
+          ? (idle ? tg('msg.youIdleRemoved') : tg('msg.youLeftMatch'))
+          : (idle ? tg('msg.playerIdleRemoved', { name }) : tg('msg.playerLeftContinues', { name })),
         toastKind: 'info',
-        log: appendLog(s.log, tg('log.playerLeft', { name })),
+        log: appendLog(s.log, tg(idle ? 'log.playerIdleRemoved' : 'log.playerLeft', { name })),
       }));
     });
 

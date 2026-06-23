@@ -113,7 +113,7 @@ export interface ServerToClientEvents {
   // CONTINUES without them (they're auto-passed, placed last, and forfeit their
   // stake). Survivors show a brief "X u largua — loja vazhdon" notice. The match
   // ends normally (match:end) only when too few players remain.
-  'match:playerLeft': (dto: { seat: Seat; username: string | null }) => void;
+  'match:playerLeft': (dto: { seat: Seat; username: string | null; reason?: 'left' | 'idle' }) => void;
   // Inter-hand pause progress: which seats have tapped Continue + how many humans
   // we're waiting on (for the "3/4 ready" indicator on the standings screen).
   'hand:continueState': (dto: { ready: Seat[]; humans: number }) => void;

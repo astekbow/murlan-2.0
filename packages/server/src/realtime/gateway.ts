@@ -87,9 +87,10 @@ function safeAck(ack: unknown): (res: Ack) => void {
   return typeof ack === 'function' ? (ack as (res: Ack) => void) : () => {};
 }
 
-// A player who lets this many of their OWN turns time out in a row (never acts)
-// is treated as abandoning: the match ends and the still-active side wins the pot.
-const IDLE_FORFEIT_STRIKES = 5;
+// A player who lets this many of their OWN turns time out in a row (never acts) is
+// removed from the match for inactivity (auto-passed/placed last, stake forfeited); the
+// still-active side plays on / wins the pot. Resets on any real move (play/pass/switch).
+const IDLE_FORFEIT_STRIKES = 3;
 
 // Cap spectators per room so a flood of watchers can't blow up broadcast fan-out.
 const SPECTATOR_CAP = 100;
@@ -1699,7 +1700,7 @@ export class GameGateway {
    * left, voids + refunds. The quitter is excluded from the winners, so they can
    * never be paid. Idempotent: a no-op once the seat is already gone / match over.
    */
-  private async forfeitMatch(roomId: string, abandonerSeat: number): Promise<void> {
+  private async forfeitMatch(roomId: string, abandonerSeat: number, reason: 'left' | 'idle' = 'left'): Promise<void> {
     const room = this.rooms.getRoom(roomId);
     if (!room || !room.match || room.status !== 'inMatch') return;
     const userId = this.userAtSeat(roomId, abandonerSeat);
@@ -1726,9 +1727,10 @@ export class GameGateway {
     // applyResult — a terminal forfeit finalizes the match there and drops the seq counter.
     this.recordAction(roomId, abandonerSeat, { gameIndex: room.match?.snapshot().gameIndex ?? 0, type: 'forfeit', cards: null });
 
-    // Tell the table a player left. Survivors show "X u largua — loja vazhdon"; the
-    // abandoner's own client (seat === my seat) returns them to the lobby.
-    this.io.to(roomId).emit('match:playerLeft', { seat: abandonerSeat, username });
+    // Tell the table a player left. `reason` distinguishes a voluntary leave / disconnect
+    // ('left') from an inactivity removal ('idle', 3 missed turns in a row) so the client
+    // shows the right message. The abandoner's own client returns them to the lobby.
+    this.io.to(roomId).emit('match:playerLeft', { seat: abandonerSeat, username, reason });
 
     // Broadcast the continuation (game events + re-armed turn timer) OR settle a
     // terminal forfeit (matchEnded → settleAndEmitMatchEnd pays / voids + frees the
@@ -1994,7 +1996,7 @@ export class GameGateway {
     this.idleStrikes.set(userId, strikes);
     if (strikes >= IDLE_FORFEIT_STRIKES) {
       this.idleStrikes.delete(userId);
-      void this.forfeitMatch(roomId, seat).catch((err) => console.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
+      void this.forfeitMatch(roomId, seat, 'idle').catch((err) => console.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
       return;
     }
 
@@ -2029,7 +2031,7 @@ export class GameGateway {
     this.idleStrikes.set(userId, strikes);
     if (strikes >= IDLE_FORFEIT_STRIKES) {
       this.idleStrikes.delete(userId);
-      void this.forfeitMatch(roomId, seat).catch((err) => console.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
+      void this.forfeitMatch(roomId, seat, 'idle').catch((err) => console.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
       return;
     }
 
