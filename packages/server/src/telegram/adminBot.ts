@@ -21,6 +21,11 @@ import type { TelegramBot } from '../notify/telegramBot.ts';
 import type { SupportRepository, SupportTicket } from '../support/supportRepository.ts';
 
 const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
+/** Sum player liabilities (real wallet balances), EXCLUDING the synthetic house account
+ *  even if it somehow surfaced in the user list (money-23). */
+function sumPlayerLiabilities(users: Array<{ balanceCents: number; id?: string }>): number {
+  return users.reduce((s, u) => (u.id === HOUSE_ACCOUNT_ID ? s : s + (u.balanceCents || 0)), 0);
+}
 const SUSPEND_MS = 7 * 24 * 60 * 60 * 1000; // /user suspend = 7 days
 const TICKET_REPLY_WINDOW_MS = 15 * 60 * 1000; // a staged free-text ticket reply expires after 15 min
 
@@ -118,8 +123,14 @@ interface TgMessage { message_id: number; chat: TgChat; from?: TgFrom; text?: st
 interface TgCallbackQuery { id: string; from: TgFrom; message?: TgMessage; data?: string }
 export interface TgUpdate { update_id?: number; message?: TgMessage; callback_query?: TgCallbackQuery }
 
-/** Narrow read interface so the bot is easy to unit-test without a full wallet. */
-export interface BalanceReader { getBalance(accountId: string): Promise<number> }
+/** Narrow read interface so the bot is easy to unit-test without a full wallet.
+ *  `getHouseRakeCents` (money-23) sums the house rake from the LEDGER — getBalance of the
+ *  synthetic house account is always 0, so a treasury view must use this or it masks a
+ *  rake siphon by always reading $0. */
+export interface BalanceReader {
+  getBalance(accountId: string): Promise<number>;
+  getHouseRakeCents?(): Promise<number>;
+}
 
 export interface AdminBotDeps {
   bot: TelegramBot;
@@ -132,8 +143,9 @@ export interface AdminBotDeps {
   payout: PayoutProvider | null;
   audit: AdminAuditRepository;
   wallet: BalanceReader;
-  /** Sum of player balances = house liability. */
-  listUsers: () => Promise<Array<{ balanceCents: number }>>;
+  /** Sum of player balances = house liability. The synthetic house account is never a
+   *  User row, so it's already excluded; `id` is optional + filtered defensively (money-23). */
+  listUsers: () => Promise<Array<{ balanceCents: number; id?: string }>>;
   /** Withdrawals at/above this need a second confirm tap. 0 = always one-tap. */
   largeWithdrawalCents: number;
   /** Optional: Binance Spot free USDT (cents) for /treasury coverage (null if unknown). */
@@ -154,8 +166,11 @@ export interface AdminBotDeps {
   digest?: () => Promise<DigestStats>;
 
   // ---- Phase 3 (sensitive / occasional) — all optional, all confirm-gated ----
-  /** Manual balance adjust (credit/debit). deltaCents>0 credits, <0 debits. */
-  adminAdjust?: (userId: string, deltaCents: number, reason: string) => Promise<{ ok: true; balanceCents: number } | { ok: false; reason: string }>;
+  /** Manual balance adjust (credit/debit). deltaCents>0 credits, <0 debits.
+   *  `opts.txId` (CREDIT only) makes the credit idempotent against a player TxID claim
+   *  of the same on-chain deposit (money-2): `ok:false, reason:'already_credited'` if
+   *  the TxID was already booked. */
+  adminAdjust?: (userId: string, deltaCents: number, reason: string, opts?: { txId?: string }) => Promise<{ ok: true; balanceCents: number; idempotent?: boolean } | { ok: false; reason: string }>;
   /** Void + refund a live match (collusion). */
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<{ ok: true; matchId: string | null; refunded: boolean } | { ok: false; reason: string }>;
   /** Create a tournament (empty; players join via the app — buy-ins debit on join). */
@@ -185,6 +200,9 @@ interface PendingAction {
   kind: 'adjust' | 'void';
   summary: string; // human echo shown on the confirm prompt
   createdAt: number;
+  // telegram-2/3: the sender id (from.id) that STAGED this action. The confirm tap must
+  // come from the SAME sender — a staged money move can't be confirmed by a different id.
+  stagedBy: string | undefined;
   run: () => Promise<string>; // executes the action, returns the result line
 }
 const PENDING_TTL_MS = 10 * 60 * 1000; // a staged confirm expires after 10 min
@@ -198,15 +216,20 @@ export class TelegramAdminBot {
   // A staged free-text ticket reply: the owner's NEXT plain (non-command) message becomes
   // the reply that's sent to the player + resolves the ticket. Cleared by a command or timeout.
   private pendingReply: { ticketId: string; subject: string; at: number } | null = null;
+  // The sender id (from.id) of the message currently being handled — captured so a confirm-
+  // gated action staged by it is bound to that sender (telegram-2/3).
+  private currentSenderId: string | undefined;
 
   constructor(private readonly deps: AdminBotDeps) {}
 
-  /** Stage a confirm-gated action; returns its short key for the confirm callback. */
-  private stagePending(a: PendingAction): string {
+  /** Stage a confirm-gated action; returns its short key for the confirm callback. The
+   *  staging sender (the current message's from.id) is recorded so only that sender can
+   *  confirm it (telegram-2/3). */
+  private stagePending(a: Omit<PendingAction, 'stagedBy'>): string {
     const now = Date.now();
     for (const [k, v] of this.pending) if (now - v.createdAt > PENDING_TTL_MS) this.pending.delete(k);
     const key = `p${(this.pendingSeq += 1)}`;
-    this.pending.set(key, a);
+    this.pending.set(key, { ...a, stagedBy: this.currentSenderId });
     return key;
   }
 
@@ -214,12 +237,16 @@ export class TelegramAdminBot {
     return chatId !== undefined && String(chatId) === this.deps.authorizedChatId;
   }
 
-  /** A callback/message is authorized if EITHER the chat id OR the sender's user id
-   *  matches the owner. For the single private operator chat both are the same value;
-   *  the dual check also lets the owner's tap through when Telegram omits the message
-   *  object (e.g. acting on a >48h-old alert), where only `from.id` is available. */
+  /** Authorize an update on the SENDER's id (`from.id`) — telegram-2/3. When `from.id` is
+   *  present it is the ONLY thing checked (a group member's from.id never matches the
+   *  owner). Only when Telegram omits `from` entirely (rare: e.g. a >48h-old message-less
+   *  callback) do we fall back to the chat id — and that's safe because the boot guard
+   *  rejects a GROUP (negative) TELEGRAM_CHAT_ID, so the authorized chat is always the
+   *  owner's PRIVATE chat (chat.id == the owner's id). This closes the "chat.id OR from.id"
+   *  hole (a group turning every member into a money admin) without breaking message-less taps. */
   private isAuthorizedTap(chatId: number | string | undefined, fromId: number | string | undefined): boolean {
-    return this.isAuthorized(chatId) || this.isAuthorized(fromId);
+    if (fromId !== undefined) return this.isAuthorized(fromId); // sender-only when known
+    return this.isAuthorized(chatId); // from-less update → private-chat fallback (boot-guarded)
   }
 
   /** Single entry point for a Telegram update. NEVER throws (the webhook always 200s). */
@@ -235,6 +262,8 @@ export class TelegramAdminBot {
   // ---- Commands ----------------------------------------------------------------
   private async handleMessage(msg: TgMessage): Promise<void> {
     if (!this.isAuthorizedTap(msg.chat.id, msg.from?.id)) return; // silently ignore strangers
+    // Bind any confirm-gated action this message stages to the sender (telegram-2/3).
+    this.currentSenderId = msg.from?.id !== undefined ? String(msg.from.id) : undefined;
     const text = msg.text!.trim();
     // A staged ticket reply captures the owner's NEXT plain (non-command) message as the
     // reply that goes to the player; typing a command instead cancels the staged reply.
@@ -434,21 +463,33 @@ export class TelegramAdminBot {
     if (parts.length < 2) return void (await this.deps.bot.sendMessage(`Përdorimi: <code>/${verb} user shuma arsye</code>`));
     const cents = parseUsdToCents(parts[1]!);
     if (cents === null) return void (await this.deps.bot.sendMessage('Shumë e pavlefshme (p.sh. 5 ose 5.00).'));
-    const reason = parts.slice(2).join(' ').trim() || `${verb} (Telegram)`;
+    // A CREDIT may carry a TRON TxID (64 hex) anywhere in the trailing args — pull it out
+    // so the credit is idempotent against a later player claim of the same deposit
+    // (money-2). It's removed from the reason text. (Debits never take a TxID.)
+    const tail = parts.slice(2);
+    let txId: string | undefined;
+    if (sign > 0) {
+      const idx = tail.findIndex((p) => /^[0-9a-fA-F]{64}$/.test(p));
+      if (idx >= 0) { txId = tail[idx]!.toLowerCase(); tail.splice(idx, 1); }
+    }
+    const reason = tail.join(' ').trim() || `${verb} (Telegram)`;
     const u = await this.deps.findUser(parts[0]!).catch(() => null);
     if (!u) return void (await this.deps.bot.sendMessage(`Nuk u gjet përdoruesi “${escapeHtml(parts[0]!)}”.`));
     const delta = sign * cents;
     const adjust = this.deps.adminAdjust;
     const key = this.stagePending({
       kind: 'adjust',
-      summary: `${sign > 0 ? '➕ Kredito' : '➖ Debito'} <b>${usd(cents)}</b> ${sign > 0 ? '→' : 'nga'} ${escapeHtml(u.username)}\nArsyeja: ${escapeHtml(reason)}`,
+      summary: `${sign > 0 ? '➕ Kredito' : '➖ Debito'} <b>${usd(cents)}</b> ${sign > 0 ? '→' : 'nga'} ${escapeHtml(u.username)}\nArsyeja: ${escapeHtml(reason)}${txId ? `\nTxID: <code>${escapeHtml(txId)}</code>` : ''}`,
       createdAt: Date.now(),
       run: async () => {
         const adminId = await this.deps.resolveAdminUserId();
         if (!adminId) return '⚠️ S’u gjet llogaria admin — veprimi u ndal.';
-        const res = await adjust(u.id, delta, reason).catch(() => ({ ok: false, reason: 'gabim' } as const));
-        if (!res.ok) return `⚠️ ${res.reason === 'insufficient_funds' ? 'Bilanc i pamjaftueshëm për debitim.' : escapeHtml(res.reason)}`;
-        await this.deps.audit.record({ adminId, action: 'balance_adjust', targetUserId: u.id, amountCents: delta, detail: `${reason} (telegram)` });
+        const res = await adjust(u.id, delta, reason, txId ? { txId } : undefined).catch(() => ({ ok: false, reason: 'gabim' } as const));
+        if (!res.ok) {
+          if (res.reason === 'already_credited') return '⚠️ Kjo depozitë (TxID) është kredituar tashmë — nuk u dyfishua.';
+          return `⚠️ ${res.reason === 'insufficient_funds' ? 'Bilanc i pamjaftueshëm për debitim.' : escapeHtml(res.reason)}`;
+        }
+        await this.deps.audit.record({ adminId, action: 'balance_adjust', targetUserId: u.id, amountCents: delta, detail: `${reason} (telegram)${txId ? ` [tron:${txId}]` : ''}` });
         return `✅ <b>${sign > 0 ? 'Kredituar' : 'Debituar'}</b> ${usd(cents)} · ${escapeHtml(u.username)} · bilanci: <b>${usd(res.balanceCents)}</b>`;
       },
     });
@@ -517,17 +558,23 @@ export class TelegramAdminBot {
     await this.deps.bot.sendMessage('Përdorimi: <code>/tournament new buyin cap</code> ose <code>/tournament cancel id</code>');
   }
 
+  /** Accumulated house rake from the LEDGER (money-23) — getBalance(house) is always 0. */
+  private async houseRakeCents(): Promise<number> {
+    if (this.deps.wallet.getHouseRakeCents) return this.deps.wallet.getHouseRakeCents().catch(() => 0);
+    return this.deps.wallet.getBalance(HOUSE_ACCOUNT_ID).catch(() => 0); // legacy fallback
+  }
+
   private async sendStats(): Promise<void> {
     const [house, users, pending] = await Promise.all([
-      this.deps.wallet.getBalance(HOUSE_ACCOUNT_ID).catch(() => 0),
+      this.houseRakeCents(),
       this.deps.listUsers().catch(() => []),
       this.deps.withdrawals.listPending().catch(() => []),
     ]);
-    const liabilities = users.reduce((s, u) => s + (u.balanceCents || 0), 0);
+    const liabilities = sumPlayerLiabilities(users);
     const pendTotal = pending.reduce((s, w) => s + w.amountCents, 0);
     await this.deps.bot.sendMessage(
       '📊 <b>Statistika</b>\n' +
-      `Shtëpia (buffer): <b>${usd(house)}</b>\n` +
+      `Të ardhura (rake): <b>${usd(house)}</b>\n` +
       `Detyrime lojtarësh: ${usd(liabilities)}\n` +
       `Tërheqje në pritje: <b>${pending.length}</b> (${usd(pendTotal)})`,
     );
@@ -535,16 +582,16 @@ export class TelegramAdminBot {
 
   private async sendTreasury(): Promise<void> {
     const [house, users, pending, binanceFree] = await Promise.all([
-      this.deps.wallet.getBalance(HOUSE_ACCOUNT_ID).catch(() => 0),
+      this.houseRakeCents(),
       this.deps.listUsers().catch(() => []),
       this.deps.withdrawals.listPending().catch(() => []),
       this.deps.binanceFreeUsdtCents ? this.deps.binanceFreeUsdtCents().catch(() => null) : Promise.resolve(null),
     ]);
-    const liabilities = users.reduce((s, u) => s + (u.balanceCents || 0), 0);
+    const liabilities = sumPlayerLiabilities(users);
     const pendTotal = pending.reduce((s, w) => s + w.amountCents, 0);
     let lines =
       '🏦 <b>Arka</b>\n' +
-      `Shtëpia (buffer): <b>${usd(house)}</b>\n` +
+      `Të ardhura (rake): <b>${usd(house)}</b>\n` +
       `Detyrime lojtarësh: ${usd(liabilities)}\n` +
       `Tërheqje në pritje: ${pending.length} (${usd(pendTotal)})`;
     if (binanceFree !== null) {
@@ -605,12 +652,12 @@ export class TelegramAdminBot {
     if (domain === 'wd') return await this.handleWithdrawalTap(action, id, ref, cq.id);
     if (domain === 'us') return await this.handleAccountStateTap(action, id, ref, cq.id);
     if (domain === 'tk') return await this.handleTicketTap(action, id, ref, cq.id);
-    if (domain === 'pa') return await this.handlePendingTap(action, id, ref, cq.id);
+    if (domain === 'pa') return await this.handlePendingTap(action, id, ref, cq.id, String(cq.from.id));
     await this.deps.bot.answerCallbackQuery(cq.id);
   }
 
   /** Confirm (pa:ok) / cancel (pa:x) a staged money-moving action. */
-  private async handlePendingTap(action: string | undefined, key: string, ref: MessageRef, cbId: string): Promise<void> {
+  private async handlePendingTap(action: string | undefined, key: string, ref: MessageRef, cbId: string, tapperId: string): Promise<void> {
     const a = this.pending.get(key);
     if (action === 'x') {
       this.pending.delete(key);
@@ -622,6 +669,12 @@ export class TelegramAdminBot {
     if (!a) {
       await this.deps.bot.answerCallbackQuery(cbId, { text: 'Skadoi — provoje sërish.', showAlert: true });
       await this.editResolved(ref, '⌛ Konfirmimi skadoi — dërgoje sërish komandën.');
+      return;
+    }
+    // telegram-2/3: the confirm must come from the SAME sender that staged the action.
+    // (Both are the single authorized operator today; this binds the two-step flow.)
+    if (a.stagedBy !== undefined && a.stagedBy !== tapperId) {
+      await this.deps.bot.answerCallbackQuery(cbId, { text: 'I paautorizuar për këtë veprim.', showAlert: true });
       return;
     }
     // One-shot: remove BEFORE running so a double-tap can't execute twice.
@@ -796,7 +849,15 @@ export class TelegramAdminBot {
     if (!adminId) { await this.deps.bot.sendMessage('⚠️ S’u gjet llogaria admin — veprimi u ndal.'); return; }
     const t = await this.deps.support.resolve(ticketId, 'resolved', reply, Date.now()).catch(() => null);
     if (!t) { await this.deps.bot.sendMessage('⚠️ Bileta nuk u gjet (mund të jetë zgjidhur më parë).'); return; }
-    await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${ticketId} reply (telegram): ${reply}` }).catch(() => undefined);
+    // admin-5: do NOT silently swallow the audit write — a privileged action that
+    // can't be audited must be flagged to the operator, not completed unrecorded.
+    try {
+      await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${ticketId} reply (telegram): ${reply}` });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[telegram] support_resolve audit write FAILED (action applied, NOT audited):', err);
+      await this.deps.bot.sendMessage('⚠️ Veprimi u krye, por SHËNIMI i auditit dështoi — kontrollo log-un.').catch(() => undefined);
+    }
     let notified = '';
     if (this.deps.messagePlayer) {
       await this.deps.messagePlayer(t.userId, `Përgjigje: ${t.subject}`, reply).then(() => { notified = ' · lojtari u njoftua'; }).catch(() => {});

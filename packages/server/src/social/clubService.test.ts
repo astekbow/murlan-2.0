@@ -64,3 +64,36 @@ test('leave without a club errors; listClubs surfaces member counts', async () =
   assert.equal(list.length, 1);
   assert.equal(list[0]!.memberCount, 2);
 });
+
+// authz-4: a PRIVATE club must 404 for a non-member, and its joinCode must never
+// reach a non-member (anyone with the id could otherwise joinByCode it).
+test('private club: hidden + joinCode withheld from non-members; visible to members', async () => {
+  const { clubs, a, b } = await setup();
+  const club = await clubs.create(a.id, 'Secret Society', 'SEC', true); // private
+  assert.equal(club.private, true);
+  assert.ok(club.joinCode, 'founder (a member) sees the joinCode');
+
+  // A non-member is 404'd whether or not they pass their id.
+  assert.equal(await clubs.getClub(club.id), null);
+  assert.equal(await clubs.getClub(club.id, b.id), null);
+
+  // The founder (a member) sees the full detail incl. the joinCode.
+  const asFounder = await clubs.getClub(club.id, a.id);
+  assert.ok(asFounder);
+  assert.equal(asFounder!.joinCode, club.joinCode);
+
+  // After joining by code, b is a member → sees it; the joinCode is now exposed to them.
+  await clubs.joinByCode(b.id, club.joinCode!);
+  const asMember = await clubs.getClub(club.id, b.id);
+  assert.ok(asMember);
+  assert.equal(asMember!.joinCode, club.joinCode);
+});
+
+test('public club: joinCode is null and detail is visible to a non-member', async () => {
+  const { clubs, a, b } = await setup();
+  const club = await clubs.create(a.id, 'Open Club', 'OPN'); // public
+  assert.equal(club.private, false);
+  const view = await clubs.getClub(club.id, b.id); // non-member can view a public club
+  assert.ok(view);
+  assert.equal(view!.joinCode, null);
+});

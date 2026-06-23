@@ -25,6 +25,14 @@ export interface RefreshTokenRepository {
   save(r: NewRefreshToken): Promise<void>;
   find(jti: string): Promise<RefreshTokenRecord | null>;
   revoke(jti: string): Promise<void>;
+  /**
+   * ATOMIC compare-and-revoke for rotation (auth-3): revoke `jti` ONLY if it is currently
+   * unrevoked, returning true iff THIS call performed the revoke (DB updateMany count===1).
+   * Two concurrent /refresh calls presenting the SAME stolen token then race here — exactly
+   * ONE wins (true) and rotates; the loser sees false and treats it as a detected REUSE
+   * (the family is revoked by the caller). No "find then revoke" gap → no two live sessions.
+   */
+  revokeIfActive(jti: string): Promise<boolean>;
   revokeFamily(family: string): Promise<void>;
   /** Revoke EVERY (unrevoked) refresh token for a user — "log out all devices". The
    *  tokenVersion bump already invalidates them at /refresh; this marks the stored rows
@@ -47,6 +55,12 @@ export class InMemoryRefreshTokens implements RefreshTokenRepository {
   async revoke(jti: string): Promise<void> {
     const r = this.byJti.get(jti);
     if (r) r.revoked = true;
+  }
+  async revokeIfActive(jti: string): Promise<boolean> {
+    const r = this.byJti.get(jti);
+    if (!r || r.revoked) return false; // unknown or already-revoked → not us (reuse on a replay)
+    r.revoked = true;
+    return true; // single-threaded in-memory → this call is the unique winner
   }
   async revokeFamily(family: string): Promise<void> {
     for (const r of this.byJti.values()) if (r.family === family) r.revoked = true;

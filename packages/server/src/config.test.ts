@@ -16,6 +16,9 @@ const prodEnv = (over: Record<string, string | undefined> = {}): NodeJS.ProcessE
   MIN_AGE: '0',
   GEO_BLOCKED_COUNTRIES: '',
   RESPONSIBLE_GAMING: 'false',
+  // infra-6/infra-8: prod requires an explicit metrics token + a concrete trust-proxy value.
+  METRICS_TOKEN: 'm'.repeat(40),
+  TRUST_PROXY: '1',
   ...over,
 });
 
@@ -97,4 +100,50 @@ test('#10 prod: the telegram secret check is SKIPPED when the bot is not fully e
   // Only the secret set (no token/chat) → bot not mounted → no strength requirement.
   const cfg = loadConfig(prodEnv({ TELEGRAM_WEBHOOK_SECRET: 'short' }));
   assert.equal(cfg.telegramWebhookSecret, 'short');
+});
+
+// ----- telegram-2/3: reject a GROUP (negative) TELEGRAM_CHAT_ID at boot ------
+test('telegram-2/3: a negative (group) TELEGRAM_CHAT_ID is refused at boot (every env)', () => {
+  assert.throws(() => loadConfig({ NODE_ENV: 'development', TELEGRAM_CHAT_ID: '-1001234567890' } as NodeJS.ProcessEnv), /group\/supergroup/);
+  assert.throws(() => loadConfig(prodEnv({ TELEGRAM_BOT_TOKEN: 'b', TELEGRAM_CHAT_ID: '-100', TELEGRAM_WEBHOOK_SECRET: 'z'.repeat(40) })), /group\/supergroup/);
+});
+
+test('telegram-2/3: a positive (private) TELEGRAM_CHAT_ID is accepted', () => {
+  const cfg = loadConfig({ NODE_ENV: 'development', TELEGRAM_CHAT_ID: '987654321' } as NodeJS.ProcessEnv);
+  assert.equal(cfg.telegramChatId, '987654321');
+});
+
+// ----- infra-6: METRICS_TOKEN closes /metrics in production (boot-safe) ------
+test('infra-6 prod: an unset METRICS_TOKEN auto-generates a token (closed, but boots)', () => {
+  const a = loadConfig(prodEnv({ METRICS_TOKEN: undefined }));
+  const b = loadConfig(prodEnv({ METRICS_TOKEN: '' }));
+  assert.ok(a.metricsToken && a.metricsToken.length >= 24, 'a random token is generated');
+  assert.ok(b.metricsToken && b.metricsToken.length >= 24);
+  assert.notEqual(a.metricsToken, b.metricsToken, 'each boot gets a fresh random token');
+});
+
+test('infra-6 prod: an explicit METRICS_TOKEN is used as-is', () => {
+  assert.equal(loadConfig(prodEnv({ METRICS_TOKEN: 'x'.repeat(40) })).metricsToken, 'x'.repeat(40));
+});
+
+test('infra-6 dev: METRICS_TOKEN may be unset (loopback-only metrics)', () => {
+  const cfg = loadConfig({ NODE_ENV: 'development' } as NodeJS.ProcessEnv);
+  assert.equal(cfg.metricsToken, null);
+});
+
+// ----- infra-8: TRUST_PROXY fail-closed in production -----------------------
+test('infra-8 prod: TRUST_PROXY=true is refused; blank is allowed (deployed nginx hop)', () => {
+  assert.throws(() => loadConfig(prodEnv({ TRUST_PROXY: 'true' })), /TRUST_PROXY=true is refused/);
+  assert.doesNotThrow(() => loadConfig(prodEnv({ TRUST_PROXY: undefined })));
+  assert.doesNotThrow(() => loadConfig(prodEnv({ TRUST_PROXY: '' })));
+});
+
+test('infra-8 prod: a concrete hop count or CIDR is accepted', () => {
+  assert.equal(loadConfig(prodEnv({ TRUST_PROXY: '1' })).trustProxy, 1);
+  assert.deepEqual(loadConfig(prodEnv({ TRUST_PROXY: '172.18.0.0/16' })).trustProxy, ['172.18.0.0/16']);
+});
+
+test('infra-8 dev: TRUST_PROXY default (loopback + RFC1918) is unchanged', () => {
+  const cfg = loadConfig({ NODE_ENV: 'development' } as NodeJS.ProcessEnv);
+  assert.ok(Array.isArray(cfg.trustProxy));
 });

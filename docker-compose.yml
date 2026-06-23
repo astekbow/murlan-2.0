@@ -5,15 +5,19 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: murlan
-      POSTGRES_PASSWORD: murlan
-      POSTGRES_DB: murlan
+      POSTGRES_USER: ${POSTGRES_USER:-murlan}
+      # Env-driven (infra-3): override POSTGRES_PASSWORD in your .env for a real deploy.
+      # The dev default stays 'murlan' so the EXISTING bundled volume/connection keeps
+      # working unchanged. NOTE: changing this on an already-initialised pgdata volume
+      # won't change the stored password — set it before first init, or ALTER USER.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-murlan}
+      POSTGRES_DB: ${POSTGRES_DB:-murlan}
     # Bind to localhost only — Postgres is reached by the server over the internal
     # Docker network (host:port is for local debugging, never public on a VPS).
     ports: ['127.0.0.1:5432:5432']
     volumes: ['pgdata:/var/lib/postgresql/data']
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U murlan']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-murlan}']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,8 +69,10 @@ services:
       # restarts & redeploys (in-memory wiped them). Migrations auto-apply on boot
       # (see Dockerfile.server). Override DATABASE_URL/DIRECT_URL in .env for an
       # external DB (e.g. Supabase); set DATABASE_URL='' to force in-memory.
-      DATABASE_URL: ${DATABASE_URL-postgres://murlan:murlan@postgres:5432/murlan}
-      DIRECT_URL: ${DIRECT_URL-postgres://murlan:murlan@postgres:5432/murlan}
+      # Built from the same POSTGRES_* vars so a custom password flows through (infra-3).
+      # The dev default keeps murlan:murlan so the running deploy/volume is NOT broken.
+      DATABASE_URL: ${DATABASE_URL-postgres://${POSTGRES_USER:-murlan}:${POSTGRES_PASSWORD:-murlan}@postgres:5432/${POSTGRES_DB:-murlan}}
+      DIRECT_URL: ${DIRECT_URL-postgres://${POSTGRES_USER:-murlan}:${POSTGRES_PASSWORD:-murlan}@postgres:5432/${POSTGRES_DB:-murlan}}
       RAKE_BPS: ${RAKE_BPS:-1000}
       # Four-eyes control: when true, a tournament champion payout needs a SECOND admin
       # to confirm before funds move (off by default — a solo operator has no 2nd admin).

@@ -9,10 +9,12 @@
 // ============================================================================
 
 import type { UserRepository } from '../auth/userRepository.ts';
-import type { Transaction } from './../money/ledger.ts';
+import type { Transaction, TransactionType } from './../money/ledger.ts';
 
 const DAY_MS = 86_400_000;
 const dayIndex = (ms: number): number => Math.floor(ms / DAY_MS);
+/** Start of the UTC day containing `now` (ms) — the lower bound for "today" aggregates. */
+const startOfDayMs = (now: number): number => dayIndex(now) * DAY_MS;
 
 /**
  * Total of deposits made on the same UTC day as `now`. `excludeRef` skips a row
@@ -55,6 +57,9 @@ const ALLOWED: RgResult = { allowed: true };
 
 interface LedgerReader {
   listTransactions: (userId: string) => Promise<Transaction[]>;
+  // OPTIONAL DB aggregate (db-6 / dos-2): signed sum of the given types since `sinceMs`.
+  // Returns null when unavailable → the caller falls back to the row scan below.
+  sumByTypesSince?: (userId: string, types: TransactionType[], sinceMs: number) => Promise<number | null>;
 }
 
 export class ResponsibleGamingService {
@@ -72,16 +77,37 @@ export class ResponsibleGamingService {
     };
   }
 
+  /** Today's deposit total — DB aggregate when available (db-6), else a row scan. */
+  private async depositsTodayCents(userId: string, now: number): Promise<number> {
+    const agg = this.wallet.sumByTypesSince
+      ? await this.wallet.sumByTypesSince(userId, ['deposit'], startOfDayMs(now))
+      : null;
+    if (agg != null) return agg;
+    return depositsToday(await this.wallet.listTransactions(userId), now);
+  }
+
+  /** Today's net gambling result (bets negative, payouts positive) — DB aggregate (db-6). */
+  private async netResultTodayCents(userId: string, now: number): Promise<number> {
+    const agg = this.wallet.sumByTypesSince
+      ? await this.wallet.sumByTypesSince(userId, ['bet', 'payout'], startOfDayMs(now))
+      : null;
+    if (agg != null) return agg;
+    return netResultToday(await this.wallet.listTransactions(userId), now);
+  }
+
   /** Limits + today's USAGE (for the "approaching your limit" banner). lossTodayCents
    *  is the net loss so far today as a positive number (0 when net is non-negative). */
   async getStatus(userId: string): Promise<RgLimits & { depositUsedTodayCents: number; lossTodayCents: number }> {
     const limits = await this.getLimits(userId);
-    const txs = await this.wallet.listTransactions(userId);
     const now = this.now();
-    const net = netResultToday(txs, now);
+    // DB aggregates on this hot path (db-6) — no whole-ledger scan per status poll.
+    const [depositUsedTodayCents, net] = await Promise.all([
+      this.depositsTodayCents(userId, now),
+      this.netResultTodayCents(userId, now),
+    ]);
     return {
       ...limits,
-      depositUsedTodayCents: depositsToday(txs, now),
+      depositUsedTodayCents,
       lossTodayCents: net < 0 ? -net : 0,
     };
   }
@@ -109,7 +135,7 @@ export class ResponsibleGamingService {
   async checkDeposit(userId: string, amountCents: number): Promise<RgResult> {
     const { dailyDepositLimitCents: limit } = await this.getLimits(userId);
     if (limit === null) return ALLOWED;
-    const used = depositsToday(await this.wallet.listTransactions(userId), this.now());
+    const used = await this.depositsTodayCents(userId, this.now());
     if (used + amountCents > limit) {
       return { allowed: false, code: 'deposit_limit', message: 'Kufiri ditor i depozitës u arrit.' };
     }
@@ -120,7 +146,7 @@ export class ResponsibleGamingService {
   async checkLoss(userId: string): Promise<RgResult> {
     const { dailyLossLimitCents: limit } = await this.getLimits(userId);
     if (limit === null) return ALLOWED;
-    const net = netResultToday(await this.wallet.listTransactions(userId), this.now());
+    const net = await this.netResultTodayCents(userId, this.now());
     if (net <= -limit) {
       return { allowed: false, code: 'loss_limit', message: 'Kufiri ditor i humbjes u arrit.' };
     }

@@ -18,6 +18,7 @@ import {
 } from '../money/ledger.ts';
 import type { MatchesRepository, MatchRecord, NewMatch, MatchStatus } from '../money/matchesRepository.ts';
 import type { WithdrawalRepository, WithdrawalRecord, WithdrawalStatus, WithdrawalResolution } from '../money/withdrawals.ts';
+import { WITHDRAWALS_PAGE_DEFAULT } from '../money/withdrawals.ts';
 import type { DepositIntentRepository, DepositIntentRecord } from '../money/depositIntents.ts';
 import type { UnitOfWork, WalletTxContext } from '../money/unitOfWork.ts';
 import type { FriendsRepository, Friendship } from '../social/friendsRepository.ts';
@@ -417,6 +418,20 @@ export class PrismaLedger implements LedgerRepository {
   async all(): Promise<Transaction[]> {
     return (await this.db.transaction.findMany()).map(toTx);
   }
+  async sumByUserAndType(userId: string, type: TransactionType): Promise<number> {
+    // DB aggregate — no whole-table JS scan (db-6 / money-23). Rake rows are positive,
+    // but take abs() to be sign-agnostic and match the in-memory implementation.
+    const agg = await this.db.transaction.aggregate({ where: { userId, type }, _sum: { amountCents: true } });
+    return Math.abs(agg._sum.amountCents ?? 0);
+  }
+  async sumByUserTypesSince(userId: string, types: TransactionType[], sinceMs: number): Promise<number> {
+    // SIGNED DB aggregate for the responsible-gaming hot paths (db-6 / dos-2).
+    const agg = await this.db.transaction.aggregate({
+      where: { userId, type: { in: types }, createdAt: { gte: new Date(sinceMs) } },
+      _sum: { amountCents: true },
+    });
+    return agg._sum.amountCents ?? 0;
+  }
 }
 
 function toMatch(row: any): MatchRecord {
@@ -536,8 +551,10 @@ export class PrismaWithdrawals implements WithdrawalRepository {
   async listPending(): Promise<WithdrawalRecord[]> {
     return (await this.db.withdrawal.findMany({ where: { status: 'pending' } })).map(toWithdrawal);
   }
-  async listByUser(userId: string): Promise<WithdrawalRecord[]> {
-    return (await this.db.withdrawal.findMany({ where: { userId } })).map(toWithdrawal);
+  async listByUser(userId: string, limit = WITHDRAWALS_PAGE_DEFAULT): Promise<WithdrawalRecord[]> {
+    const take = Math.max(1, Math.min(WITHDRAWALS_PAGE_DEFAULT, Math.floor(limit)));
+    // Newest-first + bounded (dos-2): a user history never loads an unbounded set.
+    return (await this.db.withdrawal.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take })).map(toWithdrawal);
   }
 }
 
@@ -574,6 +591,12 @@ export class PrismaRefreshTokens implements RefreshTokenRepository {
   }
   async revoke(jti: string): Promise<void> {
     await this.db.refreshToken.updateMany({ where: { jti }, data: { revoked: true } });
+  }
+  async revokeIfActive(jti: string): Promise<boolean> {
+    // ATOMIC compare-and-set: only the row that is STILL unrevoked flips. count===1 means
+    // THIS call won the rotation; count===0 means it was already rotated (concurrent reuse).
+    const res = await this.db.refreshToken.updateMany({ where: { jti, revoked: false }, data: { revoked: true } });
+    return res.count === 1;
   }
   async revokeFamily(family: string): Promise<void> {
     await this.db.refreshToken.updateMany({ where: { family }, data: { revoked: true } });
@@ -957,11 +980,19 @@ export class PrismaClubs implements ClubRepository {
   async setRole(userId: string, role: ClubRole): Promise<void> {
     await this.db.clubMember.update({ where: { userId }, data: { role } }).catch(() => undefined);
   }
-  async listMembers(clubId: string): Promise<ClubMember[]> {
-    const rows = await this.db.clubMember.findMany({ where: { clubId } });
+  async listMembers(clubId: string, limit?: number): Promise<ClubMember[]> {
+    const rows = await this.db.clubMember.findMany({
+      where: { clubId },
+      // founder first, then oldest join — DB-ordered so a `take` returns the right page.
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }], // 'founder' > 'member' lexically
+      ...(limit != null ? { take: Math.max(0, limit) } : {}),
+    });
     return rows
       .map(toMember)
       .sort((a, b) => (a.role === 'founder' ? -1 : b.role === 'founder' ? 1 : 0) || a.joinedAt - b.joinedAt);
+  }
+  async countMembers(clubId: string): Promise<number> {
+    return this.db.clubMember.count({ where: { clubId } });
   }
 }
 
@@ -977,6 +1008,14 @@ export class PrismaUnitOfWork implements UnitOfWork {
         matches: new PrismaMatchesRepository(tx as unknown as PrismaClient),
         withdrawals: new PrismaWithdrawals(tx as unknown as PrismaClient),
         tournaments: new PrismaTournaments(tx as unknown as PrismaClient),
+        // admin-5: the AdminAction audit insert shares the tx so a balance mutation
+        // can't commit without its audit row.
+        audit: new PrismaAdminAudit(tx as unknown as PrismaClient),
+        // deposit-cap fix: a per-user transaction-scoped advisory lock so concurrent
+        // capped deposits serialize across instances (auto-released at commit/rollback).
+        advisoryXactLock: async (key: string) => {
+          await (tx as unknown as PrismaClient).$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        },
       }),
     );
   }

@@ -13,6 +13,7 @@ import type { LedgerRepository } from './ledger.ts';
 import { type MatchesRepository, InMemoryMatchesRepository } from './matchesRepository.ts';
 import { type WithdrawalRepository, InMemoryWithdrawals } from './withdrawals.ts';
 import { type TournamentRepository, InMemoryTournamentRepository } from '../tournament/tournamentService.ts';
+import { type AdminAuditRepository, InMemoryAdminAudit } from '../auth/adminAudit.ts';
 
 export interface WalletTxContext {
   users: UserRepository;
@@ -28,6 +29,17 @@ export interface WalletTxContext {
   // buy-in (debit lost with no registration), and no champion paid while the row stays
   // 'running' (which a later stale-sweep would wrongly refund → double-pay). (SCH-3)
   tournaments: TournamentRepository;
+  // Bound too (admin-5): a privileged balance mutation AND its AdminAction audit row
+  // commit or roll back together — the action can't commit without its audit trail.
+  audit: AdminAuditRepository;
+  /**
+   * OPTIONAL transaction-scoped advisory lock (deposit-cap fix). On Postgres this runs
+   * `pg_advisory_xact_lock(hashtext(key))` so concurrent capped-deposit transactions for
+   * the SAME user serialize across ALL instances (the in-memory serializer only holds
+   * single-instance). Auto-released at COMMIT/ROLLBACK. No-op in-memory (already
+   * single-threaded). Call it FIRST in the transaction, before reading "deposits today".
+   */
+  advisoryXactLock?(key: string): Promise<void>;
 }
 
 export interface UnitOfWork {
@@ -42,9 +54,10 @@ export class InMemoryUnitOfWork implements UnitOfWork {
     private readonly matches: MatchesRepository = new InMemoryMatchesRepository(),
     private readonly withdrawals: WithdrawalRepository = new InMemoryWithdrawals(),
     private readonly tournaments: TournamentRepository = new InMemoryTournamentRepository(),
+    private readonly audit: AdminAuditRepository = new InMemoryAdminAudit(),
   ) {}
 
   transaction<T>(fn: (ctx: WalletTxContext) => Promise<T>): Promise<T> {
-    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals, tournaments: this.tournaments });
+    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals, tournaments: this.tournaments, audit: this.audit });
   }
 }

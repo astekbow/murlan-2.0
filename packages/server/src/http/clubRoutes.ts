@@ -47,8 +47,11 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
   });
 
   app.get('/api/clubs/:id', async (req, reply) => {
-    if (!(await guard(req, reply))) return;
-    const club = await clubs.getClub((req.params as { id: string }).id);
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    // Thread the caller so a PRIVATE club 404s for a non-member and the joinCode is
+    // never rendered to a non-member (authz-4).
+    const club = await clubs.getClub((req.params as { id: string }).id, caller.userId);
     if (!club) return reply.code(404).send({ error: { code: 'not_found', message: 'Klubi nuk u gjet.' } });
     return reply.send({ club });
   });

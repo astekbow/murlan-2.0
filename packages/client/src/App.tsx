@@ -20,6 +20,7 @@ import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
 import { takePendingJoinCode, takePendingProfileId } from './lib/deepLink.ts';
+import { getResetToken, takeVerifyToken } from './lib/hashTokens.ts';
 import { ProfileModal } from './components/ui/ProfileModal.tsx';
 import { useExitGuard } from './lib/useExitGuard.ts';
 import { ConfirmDialog } from './components/ui/ConfirmDialog.tsx';
@@ -124,12 +125,11 @@ export function App() {
     else void useGameStore.getState().leaveRoom();        // waiting/finished → just leave to lobby
   }, []));
 
-  // Email-link entry points (?resetPassword=… / ?verifyEmail=…). Captured once on
-  // load; the param is stripped from the URL after handling.
-  const [resetToken, setResetToken] = useState<string | null>(
-    () => new URLSearchParams(window.location.search).get('resetPassword'),
-  );
-  const clearQuery = () => window.history.replaceState({}, '', window.location.pathname);
+  // Email-link entry points (#resetPassword=… / #verifyEmail=…). The tokens were
+  // captured + the fragment stripped SYNCHRONOUSLY at module load (hashTokens.ts), so by
+  // the time React renders, the secret is already out of the URL/history.
+  const [resetToken, setResetToken] = useState<string | null>(() => getResetToken());
+  const clearQuery = () => window.history.replaceState({}, '', window.location.pathname + window.location.search);
 
   // Restore a session from the refresh cookie on first load.
   useEffect(() => {
@@ -146,15 +146,16 @@ export function App() {
     }
   }, []);
 
-  // Handle an email-verification link on load (independent of session).
+  // Handle an email-verification link on load (independent of session). The token was
+  // already captured from the fragment + stripped synchronously at module load, so we
+  // just consume the captured value — no URL read, no late strip.
   useEffect(() => {
-    const verify = new URLSearchParams(window.location.search).get('verifyEmail');
+    const verify = takeVerifyToken();
     if (!verify) return;
     void authApi
       .confirmEmail(verify)
       .then(() => useGameStore.setState({ toast: translate('app.emailVerified', useLangStore.getState().lang), toastKind: 'success' }))
-      .catch(() => useGameStore.setState({ toast: translate('app.emailVerifyFailed', useLangStore.getState().lang), toastKind: 'error' }))
-      .finally(clearQuery);
+      .catch(() => useGameStore.setState({ toast: translate('app.emailVerifyFailed', useLangStore.getState().lang), toastKind: 'error' }));
   }, []);
 
   // Open the socket once authenticated; tear it down on logout. The socket reads

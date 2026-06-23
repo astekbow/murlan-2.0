@@ -96,6 +96,31 @@ export class TournamentService {
   async list(): Promise<Tournament[]> { return this.repo.list(); }
   async get(id: string): Promise<Tournament | null> { return this.repo.get(id); }
 
+  // ----- Recorded engine outcomes (result reconciliation, admin-4) ------------
+  // The SELF-RUNNING gateway records the ACTUAL engine winner of each tournament
+  // pairing here as the match concludes. A later MANUAL admin /report for the same
+  // pairing is then reconciled against it: a report that CONTRADICTS the recorded
+  // engine outcome is REJECTED. This blocks an over-scoped/compromised admin from
+  // hand-picking a loser as the "winner" on a pairing the engine already decided.
+  // Keyed `tournamentId:round:index` → winnerUserId. Bounded by bracket size; cleared
+  // when the tournament finishes/cancels via clearRecordedOutcomes().
+  private readonly recordedOutcomes = new Map<string, string>();
+  private static outcomeKey(tournamentId: string, round: number, index: number): string {
+    return `${tournamentId}:${round}:${index}`;
+  }
+  /** Record the engine-decided winner of a tournament pairing (called by the gateway
+   *  as the live match ends, BEFORE it auto-reports). Idempotent; last write wins. */
+  recordRoomOutcome(tournamentId: string, round: number, index: number, winnerUserId: string): void {
+    this.recordedOutcomes.set(TournamentService.outcomeKey(tournamentId, round, index), winnerUserId);
+  }
+  /** The recorded engine winner for a pairing, or undefined if none was recorded. */
+  recordedOutcome(tournamentId: string, round: number, index: number): string | undefined {
+    return this.recordedOutcomes.get(TournamentService.outcomeKey(tournamentId, round, index));
+  }
+  private clearRecordedOutcomes(tournamentId: string): void {
+    for (const k of this.recordedOutcomes.keys()) if (k.startsWith(`${tournamentId}:`)) this.recordedOutcomes.delete(k);
+  }
+
   // Serialize mutating ops PER tournament (single-instance) so two concurrent
   // register/report/cancel/sweep calls can't race a read-modify-write on the same
   // row (e.g. two registrations both passing the dupe/capacity check before either
@@ -202,6 +227,17 @@ export class TournamentService {
       if (!m) throw new TournamentError('no_match', 'Ndeshja nuk ekziston.');
       if (m.winnerId) throw new TournamentError('already_decided', 'Ndeshja është vendosur tashmë.');
       if (winnerId !== m.aUserId && winnerId !== m.bUserId) throw new TournamentError('bad_winner', 'Fituesi nuk është në këtë ndeshje.');
+      // Result reconciliation (admin-4): a MANUAL admin report must NOT contradict the
+      // engine outcome the gateway already recorded for this pairing. The trusted
+      // self-running path (autoFinalize) is exempt — it IS the source of that outcome.
+      // If no engine outcome was recorded (a genuinely stuck/disputed pairing), the
+      // admin override proceeds as before.
+      if (!opts?.autoFinalize) {
+        const recorded = this.recordedOutcome(tournamentId, round, index);
+        if (recorded && recorded !== winnerId) {
+          throw new TournamentError('result_conflict', 'Fituesi i raportuar bie ndesh me rezultatin e regjistruar të ndeshjes.');
+        }
+      }
       m.winnerId = winnerId;
 
       const roundMatches = t.bracket.filter((x) => x.round === round).sort((a, b) => a.index - b.index);
@@ -271,6 +307,7 @@ export class TournamentService {
   private async finish(t: Tournament, winnerId: string): Promise<void> {
     t.winnerId = winnerId;
     t.status = 'finished';
+    this.clearRecordedOutcomes(t.id); // bracket done — drop its recorded pairing outcomes
     const rake = Math.floor((t.prizePoolCents * t.rakeBps) / 10000);
     const prize = t.prizePoolCents - rake;
     if (this.uow) {
@@ -301,6 +338,7 @@ export class TournamentService {
       if (t.buyInCents > 0) for (const uid of t.playerIds) await this.wallet.credit(uid, t.buyInCents, `tournament refund:${t.id}:${uid}`);
       t.status = 'cancelled';
       t.prizePoolCents = 0;
+      this.clearRecordedOutcomes(t.id);
       await this.repo.save(t);
       return t;
     });

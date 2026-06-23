@@ -70,6 +70,20 @@ export interface LedgerRepository {
    */
   listByUser(userId: string, opts?: LedgerPageOpts): Promise<Transaction[]>;
   all(): Promise<Transaction[]>;
+  /**
+   * OPTIONAL DB aggregate: the sum of |amountCents| for a user's rows of a given type
+   * (e.g. the HOUSE account's 'rake' total — money-23), computed in the DB instead of a
+   * whole-table JS scan. Returns the absolute-value sum. When unimplemented, callers
+   * fall back to summing listByUser(). (db-6)
+   */
+  sumByUserAndType?(userId: string, type: TransactionType): Promise<number>;
+  /**
+   * OPTIONAL DB aggregate (db-6 / dos-2): the SIGNED sum of amountCents for a user's rows
+   * whose type is in `types` and whose createdAt >= `sinceMs`. Used by the responsible-
+   * gaming hot paths (deposit/loss caps + rg-status) so they don't JS-scan the whole
+   * ledger. When unimplemented, callers fall back to listByUser() + the pure summations.
+   */
+  sumByUserTypesSince?(userId: string, types: TransactionType[], sinceMs: number): Promise<number>;
 }
 
 /** Bounded, keyset-paginated read options for a user's ledger (display lists only). */
@@ -135,5 +149,17 @@ export class InMemoryLedger implements LedgerRepository {
 
   async all(): Promise<Transaction[]> {
     return this.rows.map((r) => ({ ...r }));
+  }
+
+  async sumByUserAndType(userId: string, type: TransactionType): Promise<number> {
+    return this.rows
+      .filter((r) => r.userId === userId && r.type === type)
+      .reduce((s, r) => s + Math.abs(r.amountCents), 0);
+  }
+  async sumByUserTypesSince(userId: string, types: TransactionType[], sinceMs: number): Promise<number> {
+    const set = new Set(types);
+    return this.rows
+      .filter((r) => r.userId === userId && set.has(r.type) && r.createdAt >= sinceMs)
+      .reduce((s, r) => s + r.amountCents, 0); // signed
   }
 }

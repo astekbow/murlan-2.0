@@ -55,8 +55,13 @@ export interface WithdrawalRepository {
    *  WITHOUT changing its status — used to record the payout ref AFTER a send. */
   setAudit(id: string, audit: WithdrawalResolution): Promise<void>;
   listPending(): Promise<WithdrawalRecord[]>;
-  listByUser(userId: string): Promise<WithdrawalRecord[]>;
+  /** A user's withdrawals, newest-first, BOUNDED by `limit` (default cap) so a user-facing
+   *  history never loads an unbounded set (dos-2). */
+  listByUser(userId: string, limit?: number): Promise<WithdrawalRecord[]>;
 }
+
+/** Default + max page size for a user's withdrawal history (dos-2 bound). */
+export const WITHDRAWALS_PAGE_DEFAULT = 100;
 
 export class InMemoryWithdrawals implements WithdrawalRepository {
   private rows: WithdrawalRecord[] = [];
@@ -103,8 +108,14 @@ export class InMemoryWithdrawals implements WithdrawalRepository {
   async listPending(): Promise<WithdrawalRecord[]> {
     return this.rows.filter((r) => r.status === 'pending').map((r) => ({ ...r }));
   }
-  async listByUser(userId: string): Promise<WithdrawalRecord[]> {
-    return this.rows.filter((r) => r.userId === userId).map((r) => ({ ...r }));
+  async listByUser(userId: string, limit = WITHDRAWALS_PAGE_DEFAULT): Promise<WithdrawalRecord[]> {
+    const lim = Math.max(1, Math.min(WITHDRAWALS_PAGE_DEFAULT, Math.floor(limit)));
+    return this.rows
+      .filter((r) => r.userId === userId)
+      .slice() // newest-first (rows are appended chronologically)
+      .reverse()
+      .slice(0, lim)
+      .map((r) => ({ ...r }));
   }
 }
 
@@ -252,8 +263,8 @@ export class WithdrawalService {
   listPending(): Promise<WithdrawalRecord[]> {
     return this.repo.listPending();
   }
-  listByUser(userId: string): Promise<WithdrawalRecord[]> {
-    return this.repo.listByUser(userId);
+  listByUser(userId: string, limit?: number): Promise<WithdrawalRecord[]> {
+    return this.repo.listByUser(userId, limit);
   }
   find(id: string): Promise<WithdrawalRecord | null> {
     return this.repo.find(id);

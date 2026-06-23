@@ -12,6 +12,7 @@ const prodBase: Record<string, string> = {
   JWT_ACCESS_SECRET: STRONG('a'), JWT_REFRESH_SECRET: STRONG('r'), PAYMENT_WEBHOOK_SECRET: STRONG('w'),
   KYC_REQUIRED: 'false', MIN_AGE: '0', GEO_BLOCKED_COUNTRIES: '', RESPONSIBLE_GAMING: 'false',
   RESEND_API_KEY: 'test-resend-key', // non-console email provider (passes the prod email guard)
+  METRICS_TOKEN: STRONG('m'), TRUST_PROXY: '1', // infra-6/infra-8: required in production now
 };
 
 const creds = { username: 'endtoend', email: 'e2e@example.com', password: 'password123' };

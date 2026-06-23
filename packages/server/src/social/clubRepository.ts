@@ -60,9 +60,16 @@ export interface ClubRepository {
   addMember(m: { userId: string; clubId: string; role: ClubRole }): Promise<ClubMember>;
   removeMember(userId: string): Promise<void>;
   setRole(userId: string, role: ClubRole): Promise<void>;
-  /** Members of a club — founder first, then by join time. */
-  listMembers(clubId: string): Promise<ClubMember[]>;
+  /** Members of a club — founder first, then by join time. Bounded by `limit` when
+   *  given (the DTO never renders more than a page; an unbounded scan is a DoS — dos-1). */
+  listMembers(clubId: string, limit?: number): Promise<ClubMember[]>;
+  /** Number of members in a club (DB aggregate; for the membership cap — no whole-table scan). */
+  countMembers(clubId: string): Promise<number>;
 }
+
+/** Hard cap on a single club's roster — bounds the membership write path + the
+ *  member-list render. Far above any real club; purely an anti-bloat / DoS ceiling (dos-1). */
+export const MAX_CLUB_MEMBERS = 100;
 
 export class InMemoryClubRepository implements ClubRepository {
   private clubs = new Map<string, Club>();
@@ -128,10 +135,16 @@ export class InMemoryClubRepository implements ClubRepository {
     const m = this.members.get(userId);
     if (m) m.role = role;
   }
-  async listMembers(clubId: string): Promise<ClubMember[]> {
-    return [...this.members.values()]
+  async listMembers(clubId: string, limit?: number): Promise<ClubMember[]> {
+    const all = [...this.members.values()]
       .filter((m) => m.clubId === clubId)
       .sort((a, b) => (a.role === 'founder' ? -1 : b.role === 'founder' ? 1 : 0) || a.joinedAt - b.joinedAt)
       .map((m) => ({ ...m }));
+    return limit != null ? all.slice(0, Math.max(0, limit)) : all;
+  }
+  async countMembers(clubId: string): Promise<number> {
+    let n = 0;
+    for (const m of this.members.values()) if (m.clubId === clubId) n += 1;
+    return n;
   }
 }

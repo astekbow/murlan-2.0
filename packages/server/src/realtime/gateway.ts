@@ -673,6 +673,13 @@ export class GameGateway {
     const roomId = payload.roomId;
     const room = this.rooms.getRoom(roomId);
     if (!room || room.status === 'finished') return reply(ackError('no_room', 'Ndeshja nuk është e disponueshme.'));
+    // Spectate IDOR gate (socket-5/6): only PUBLIC lobby tables are watchable. A
+    // private (invite/code), ranked-ladder, practice (vs-bot) or tournament-bracket
+    // room must never be opened to an arbitrary watcher — that would leak the live
+    // table (and, for private rooms, the join flow) to anyone who guesses the room id.
+    if (room.private || room.ranked || room.practice || room.tournament) {
+      return reply(ackError('no_room', 'Ndeshja nuk është e disponueshme.'));
+    }
     // A seated player can't also spectate (would desync their own room view).
     if (socket.data.roomId || this.rooms.seatOf(roomId, socket.data.userId) >= 0) {
       return reply(ackError('seated', 'Po luan — nuk mund të shikosh njëkohësisht.'));
@@ -704,7 +711,12 @@ export class GameGateway {
   /** Send a joining spectator the current public state (room + game + scoreboard). */
   private pushSpectatorState(socket: IOSocket, roomId: string): void {
     const roomState = this.roomStateWithCountdown(roomId);
-    if (roomState) socket.emit('room:state', roomState);
+    if (roomState) {
+      // Never hand a non-seated watcher the room's private join code (socket-5/6) — a
+      // watcher is not a member and must not be able to re-share/rejoin via the code.
+      // (Public rooms have no joinCode; this is belt-and-suspenders for any future type.)
+      socket.emit('room:state', { ...roomState, joinCode: null });
+    }
     const room = this.rooms.getRoom(roomId);
     if (room?.status === 'inMatch') {
       // During the inter-hand pause the next hand is dealt server-side but HELD — don't
@@ -1853,6 +1865,9 @@ export class GameGateway {
   private async advanceTournament(tournamentId: string, round: number, index: number, winnerUserId: string): Promise<void> {
     if (!this.tournaments) return;
     this.tournamentMatchRooms.delete(`${tournamentId}:${round}:${index}`);
+    // Record the ENGINE-decided winner so a later MANUAL admin /report for this pairing
+    // is reconciled against it (admin-4): a contradicting manual winner is rejected.
+    this.tournaments.recordRoomOutcome(tournamentId, round, index, winnerUserId);
     try {
       // autoFinalize: a self-running final has NO admin to confirm a four-eyes payout,
       // so it must finalize immediately (never park) — else the pool stalls forever.

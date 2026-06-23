@@ -48,7 +48,15 @@ export interface AdminRoutesDeps {
   adminEmail?: string | null;
 }
 
-const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1).max(280) });
+// `txId` (optional, CREDIT only): a TRON tx hash (64 hex chars) for crediting an
+// unclaimed on-chain deposit idempotently — written as providerRef `tron:<txid>` so a
+// later player claim of the same TxID can't double-credit (money-2).
+const TRON_TXID_RE = /^[0-9a-fA-F]{64}$/;
+const adjustSchema = z.object({
+  deltaCents: z.number().int(),
+  reason: z.string().min(1).max(280),
+  txId: z.string().trim().regex(TRON_TXID_RE, 'TxID i pavlefshëm (64 hex).').optional(),
+});
 const kycSchema = z.object({ status: z.enum(['none', 'pending', 'verified']) });
 const accountStateSchema = z.object({
   state: z.enum(['active', 'frozen', 'suspended', 'banned']),
@@ -136,10 +144,29 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     if (!parsed.success || parsed.data.deltaCents === 0) {
       return reply.code(400).send({ error: { code: 'validation', message: 'Rregullim i pavlefshëm.' } });
     }
+    // A TxID-bound adjust is an idempotent on-chain DEPOSIT credit — it must be a credit.
+    if (parsed.data.txId && parsed.data.deltaCents < 0) {
+      return reply.code(400).send({ error: { code: 'validation', message: 'Një rregullim me TxID duhet të jetë kredi (depozitë).' } });
+    }
+    // Match the player-claim path EXACTLY: lowercase the hash → providerRef `tron:<txid>`.
+    const providerRef = parsed.data.txId ? `tron:${parsed.data.txId.toLowerCase()}` : undefined;
     const userId = (req.params as { id: string }).id;
     try {
-      const res = await wallet.adminAdjust(userId, parsed.data.deltaCents, parsed.data.reason);
-      await audit.record({ adminId: caller.userId, action: 'balance_adjust', targetUserId: userId, amountCents: parsed.data.deltaCents, detail: parsed.data.reason });
+      // admin-5: the balance mutation AND its AdminAction audit row commit ATOMICALLY
+      // (one transaction in prod) — the money can't move without the audit trail.
+      const res = await wallet.adminAdjustAudited(
+        userId,
+        parsed.data.deltaCents,
+        parsed.data.reason,
+        { adminId: caller.userId, action: 'balance_adjust', targetUserId: userId, amountCents: parsed.data.deltaCents, detail: providerRef ? `${parsed.data.reason} [${providerRef}]` : parsed.data.reason },
+        audit,
+        { providerRef },
+      );
+      // Idempotent replay: this TxID (or providerRef) was already credited — surface a 409
+      // so the operator knows it was NOT double-credited, rather than a silent success.
+      if (res.idempotent) {
+        return reply.code(409).send({ error: { code: 'already_credited', message: 'Kjo depozitë (TxID) është kredituar tashmë.' }, balanceCents: res.balanceCents });
+      }
       return reply.send({ balanceCents: res.balanceCents, transaction: res.transaction });
     } catch (e) {
       if (e instanceof InsufficientFundsError) return reply.code(402).send({ error: { code: 'insufficient_funds', message: 'Bilanc i pamjaftueshëm për debitim.' } });
@@ -285,10 +312,13 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const caller = await canRevenue(req, reply);
     if (!caller) return;
     const [houseRakeCents, users, pending] = await Promise.all([
-      wallet.getBalance(HOUSE_ACCOUNT_ID),
+      // money-23: the house account has no balance row (getBalance is always 0) — sum the
+      // accumulated rake from the LEDGER, else the treasury masks a rake siphon as $0.
+      wallet.getHouseRakeCents(),
       auth.listUsers(),
       withdrawals.listPending(),
     ]);
+    // Player liabilities exclude any non-user (house/admin) accounts already via role==='user'.
     const playerLiabilitiesCents = users.filter((u) => u.role === 'user').reduce((s, u) => s + u.balanceCents, 0);
     const pendingWithdrawalsCents = pending.reduce((s, w) => s + w.amountCents, 0);
 

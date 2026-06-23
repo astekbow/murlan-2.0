@@ -9,7 +9,7 @@
 
 import type { ClubDetailDTO, ClubSummaryDTO, ClubMemberDTO, ClubRoleDTO } from '@murlan/shared';
 import type { UserRepository } from '../auth/userRepository.ts';
-import { type ClubRepository, type Club, DuplicateClubTagError } from './clubRepository.ts';
+import { type ClubRepository, type Club, DuplicateClubTagError, MAX_CLUB_MEMBERS } from './clubRepository.ts';
 
 export class ClubError extends Error {
   constructor(public readonly code: string, message: string) { super(message); this.name = 'ClubError'; }
@@ -28,15 +28,28 @@ export class ClubService {
     return { id: c.id, name: c.name, tag: c.tag, founderId: c.founderId, createdAt: c.createdAt, memberCount };
   }
 
-  private async detail(c: Club): Promise<ClubDetailDTO> {
-    const rows = await this.clubs.listMembers(c.id);
-    const members: ClubMemberDTO[] = await Promise.all(
-      rows.map(async (m) => {
-        const u = await this.users.findById(m.userId).catch(() => null);
-        return { userId: m.userId, username: u?.username ?? '—', avatar: u?.avatar ?? null, role: m.role as ClubRoleDTO };
-      }),
-    );
-    return { ...this.summary(c, rows.length), members, private: c.private, joinCode: c.joinCode };
+  /** Build the detail DTO. `isMember` controls whether the private joinCode is exposed —
+   *  it is a member-only secret (authz-4). The member roster is paginated + the per-member
+   *  user lookups are BATCHED via findManyByIds (no N+1 — dos-1). */
+  private async detail(c: Club, isMember: boolean): Promise<ClubDetailDTO> {
+    const total = await this.clubs.countMembers(c.id);
+    const rows = await this.clubs.listMembers(c.id, MAX_CLUB_MEMBERS);
+    const users = await this.users.findManyByIds(rows.map((m) => m.userId)).catch(() => []);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const members: ClubMemberDTO[] = rows.map((m) => {
+      const u = byId.get(m.userId);
+      return { userId: m.userId, username: u?.username ?? '—', avatar: u?.avatar ?? null, role: m.role as ClubRoleDTO };
+    });
+    // Never expose the share code to a non-member (anyone with the club id could
+    // otherwise read it and joinByCode a private club they were not invited to).
+    return { ...this.summary(c, total), members, private: c.private, joinCode: isMember ? c.joinCode : null };
+  }
+
+  /** Is this user a member of this specific club? (cheap single-row membership lookup) */
+  private async isMemberOf(userId: string | undefined, clubId: string): Promise<boolean> {
+    if (!userId) return false;
+    const m = await this.clubs.memberOf(userId);
+    return !!m && m.clubId === clubId;
   }
 
   async listClubs(): Promise<ClubSummaryDTO[]> {
@@ -44,16 +57,23 @@ export class ClubService {
     return rows.map((r) => this.summary(r, r.memberCount));
   }
 
-  async getClub(id: string): Promise<ClubDetailDTO | null> {
+  /** Club detail. `callerUserId` (when provided) is reconciled against membership:
+   *  a PRIVATE club is 404'd for a non-member (authz-4), and the joinCode is only
+   *  rendered to members. A public club is visible to anyone, joinCode withheld. */
+  async getClub(id: string, callerUserId?: string): Promise<ClubDetailDTO | null> {
     const c = await this.clubs.getClub(id);
-    return c ? this.detail(c) : null;
+    if (!c) return null;
+    const member = await this.isMemberOf(callerUserId, id);
+    // A private club does not exist for a non-member (don't even confirm its presence).
+    if (c.private && !member) return null;
+    return this.detail(c, member);
   }
 
   async getMyClub(userId: string): Promise<ClubDetailDTO | null> {
     const m = await this.clubs.memberOf(userId);
     if (!m) return null;
     const c = await this.clubs.getClub(m.clubId);
-    return c ? this.detail(c) : null;
+    return c ? this.detail(c, true) : null; // the caller is, by definition, a member
   }
 
   async create(userId: string, name: string, tag: string, priv = false): Promise<ClubDetailDTO> {
@@ -63,7 +83,7 @@ export class ClubService {
     if (!TAG_RE.test(tag)) throw new ClubError('bad_tag', 'Etiketë e pavlefshme (2–5 shkronja/numra).');
     try {
       const c = await this.clubs.createClub({ name: trimmed, tag: tag.toUpperCase(), founderId: userId, private: priv });
-      return this.detail(c);
+      return this.detail(c, true); // founder is a member
     } catch (e) {
       if (e instanceof DuplicateClubTagError) throw new ClubError('tag_taken', 'Kjo etiketë është e zënë.');
       throw e;
@@ -76,8 +96,9 @@ export class ClubService {
     if (!c) throw new ClubError('no_club', 'Klubi nuk ekziston.');
     // A private club can't be joined by id from the public path — only by its code.
     if (c.private) throw new ClubError('no_club', 'Klubi nuk ekziston.');
+    if (await this.clubs.countMembers(clubId) >= MAX_CLUB_MEMBERS) throw new ClubError('club_full', 'Klubi është plot.');
     await this.clubs.addMember({ userId, clubId, role: 'member' });
-    return this.detail(c);
+    return this.detail(c, true); // the caller just joined → a member
   }
 
   /** Join a PRIVATE club by its share code. */
@@ -85,8 +106,9 @@ export class ClubService {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const c = await this.clubs.getByCode(code);
     if (!c) throw new ClubError('no_club', 'Kodi i klubit nuk u gjet.');
+    if (await this.clubs.countMembers(c.id) >= MAX_CLUB_MEMBERS) throw new ClubError('club_full', 'Klubi është plot.');
     await this.clubs.addMember({ userId, clubId: c.id, role: 'member' });
-    return this.detail(c);
+    return this.detail(c, true); // the caller just joined → a member
   }
 
   /** Leave the current club. Empties the club → delete it; founder leaves with

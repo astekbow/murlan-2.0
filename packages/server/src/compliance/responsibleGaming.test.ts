@@ -85,3 +85,23 @@ test('a 0 loss limit does NOT block all staked play (treated as no limit)', asyn
   await rg.setLimits(id, { dailyLossLimitCents: 0 });
   assert.equal((await rg.checkLoss(id)).allowed, true); // 0 ⇒ no limit, not "block everything"
 });
+
+// db-6 / dos-2: getStatus uses the DB aggregate (sumByTypesSince) when available and
+// falls back to the row scan when it isn't — both paths must agree.
+test('db-6: getStatus aggregate path == row-scan fallback path (same numbers)', async () => {
+  const { users, wallet, rg, id } = await setup();
+  await wallet.credit(id, 6_000, { type: 'deposit' });
+  await wallet.debit(id, 4_000, { type: 'bet' });
+  await wallet.credit(id, 1_000, { type: 'payout' });
+  const viaAggregate = await rg.getStatus(id); // real WalletService → aggregate path
+
+  // A reader exposing ONLY listTransactions (no aggregate) → fallback path.
+  const fallbackReader = { listTransactions: (uid: string) => wallet.listTransactions(uid) };
+  const rgFallback = new ResponsibleGamingService(users, fallbackReader as never);
+  const viaScan = await rgFallback.getStatus(id);
+
+  assert.equal(viaAggregate.depositUsedTodayCents, viaScan.depositUsedTodayCents);
+  assert.equal(viaAggregate.lossTodayCents, viaScan.lossTodayCents);
+  assert.equal(viaAggregate.depositUsedTodayCents, 6_000);
+  assert.equal(viaAggregate.lossTodayCents, 3_000); // bet 4000 - payout 1000 = net -3000
+});

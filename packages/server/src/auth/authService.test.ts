@@ -12,7 +12,8 @@ class CapturingEmail implements EmailProvider {
     this.sent.push(email);
   }
   lastLink(): string {
-    const m = /\?\w+=([0-9a-f]+)/.exec(this.sent.at(-1)?.text ?? '');
+    // The token now rides in the URL FRAGMENT (#resetPassword=… / #verifyEmail=…) — auth-4/11.
+    const m = /[?#]\w+=([0-9a-f]+)/.exec(this.sent.at(-1)?.text ?? '');
     return m?.[1] ?? '';
   }
 }
@@ -84,6 +85,29 @@ test('register enforces unique email and username (case-insensitive)', async () 
   );
 });
 
+// throttles/enumeration: register now ALWAYS runs the password hash before the uniqueness
+// checks, so a "taken email/username" response costs the same wall-clock time as a fresh
+// registration (no timing oracle). The distinct UX messages are still preserved (above).
+test('register: a taken-email registration still spends the password-hash time (no timing oracle)', async () => {
+  const { auth } = makeService();
+  await auth.register(valid);
+
+  // Time a fresh (successful) registration — dominated by the Argon2 hash.
+  const t0 = performance.now();
+  await auth.register({ username: 'fresh', email: 'fresh@example.com', password: 'supersecret1' });
+  const freshMs = performance.now() - t0;
+
+  // Time a taken-email rejection. With the hash now run BEFORE the uniqueness check, it
+  // must take a comparable (non-trivial) fraction of the fresh time — not an instant return.
+  const t1 = performance.now();
+  await assert.rejects(auth.register({ ...valid, username: 'other2' }), (e: unknown) => e instanceof AuthError && e.code === 'email_taken');
+  const takenMs = performance.now() - t1;
+
+  // The taken path runs the hash too → it isn't a near-instant early return. Generous
+  // bound (≥ 25% of the fresh time) to avoid flakiness while still catching a fast-path.
+  assert.ok(takenMs >= freshMs * 0.25, `taken-email should run the hash (taken=${takenMs.toFixed(1)}ms vs fresh=${freshMs.toFixed(1)}ms)`);
+});
+
 test('login succeeds with correct credentials and fails otherwise', async () => {
   const { auth } = makeService();
   await auth.register(valid);
@@ -150,6 +174,34 @@ test('login throttle: applies to UNKNOWN emails too (no enumeration via lockout 
   await assert.rejects(auth.login({ email: 'ghost@x.com', password: 'whatever1' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
 });
 
+// throttle escalation: a persistent attacker who keeps trying AFTER each lock expires
+// faces a GROWING lockout (base window doubled per breach), so brute-force costs more.
+test('login throttle: the lockout ESCALATES across lock cycles (base → 2× the base)', async () => {
+  const { auth, advance } = makeThrottled(3, 60_000);
+  await auth.register({ username: 'esc', email: 'e@x.com', password: 'correct-horse' });
+
+  // 3 failures → locked for the BASE window (60s).
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(auth.login({ email: 'e@x.com', password: 'wrong' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  }
+  await assert.rejects(auth.login({ email: 'e@x.com', password: 'wrong' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
+
+  // After the base lock lifts, the attacker returns and fails AGAIN → count grows, lock
+  // escalates to 2× the base (120s).
+  advance(60_001);
+  await assert.rejects(auth.login({ email: 'e@x.com', password: 'wrong' }), (e: unknown) => e instanceof AuthError && e.code === 'bad_credentials');
+  await assert.rejects(auth.login({ email: 'e@x.com', password: 'correct-horse' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
+
+  // 60s (the BASE window) is NOT enough now — the escalated lock is 120s → still locked.
+  advance(61_000);
+  await assert.rejects(auth.login({ email: 'e@x.com', password: 'correct-horse' }), (e: unknown) => e instanceof AuthError && e.code === 'rate_limited');
+
+  // After the full escalated window elapses, the legit user logs in again.
+  advance(60_000);
+  const ok = await auth.login({ email: 'e@x.com', password: 'correct-horse' });
+  assert.equal(ok.user.username, 'esc');
+});
+
 test('verifyAccess accepts a freshly issued access token', async () => {
   const { auth } = makeService();
   const res = await auth.register(valid);
@@ -194,6 +246,26 @@ test('refresh ROTATES: the old token is revoked, and replaying it kills the whol
   // the family — so the legitimately-rotated r2 is also invalidated.
   await assert.rejects(auth.refresh(r1), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
   await assert.rejects(auth.refresh(r2), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
+});
+
+// auth-3: two concurrent /refresh calls presenting the SAME token must NOT both mint a
+// session — the atomic conditional revoke lets exactly one win; the other is detected as
+// reuse and the family is revoked (the winner's new token is then dead too).
+test('refresh is atomic: concurrent reuse of one token never mints two live sessions', async () => {
+  const { auth } = makeService();
+  const res = await auth.register(valid);
+  const r1 = res.tokens.refreshToken;
+
+  // Fire both at once. With the atomic revokeIfActive, at most one resolves.
+  const results = await Promise.allSettled([auth.refresh(r1), auth.refresh(r1)]);
+  const wins = results.filter((r) => r.status === 'fulfilled');
+  const losses = results.filter((r) => r.status === 'rejected');
+  assert.equal(wins.length, 1, 'exactly one concurrent refresh may succeed');
+  assert.equal(losses.length, 1, 'the other is rejected (detected reuse)');
+
+  // Reuse tripped family revocation → even the winner's freshly-minted token is now dead.
+  const winnerToken = (wins[0] as PromiseFulfilledResult<{ tokens: { refreshToken: string } }>).value.tokens.refreshToken;
+  await assert.rejects(auth.refresh(winnerToken), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
 });
 
 test('logout revokes the refresh token (it can no longer be refreshed)', async () => {
@@ -249,6 +321,41 @@ test('forgot-password for an unknown email is a silent no-op (no enumeration)', 
   const { auth, email } = makeService();
   await auth.requestPasswordReset('nobody@nowhere.com');
   assert.equal(email.sent.length, 0); // nothing sent, but the route still returns ok
+});
+
+// throttles: a per-ACCOUNT cap on reset emails (anti mail-bomb) — the 4th+ in the window
+// is silently dropped, so an attacker can't flood a victim's inbox via IP rotation.
+test('forgot-password: per-account email-send cap drops the flood (no mail-bomb)', async () => {
+  const { auth, email } = makeService();
+  await auth.register(valid);
+  for (let i = 0; i < 6; i++) await auth.requestPasswordReset(valid.email);
+  // EMAIL_SEND_MAX = 3 per hour → only 3 emails actually sent.
+  assert.equal(email.sent.length, 3);
+});
+
+test('verify-email/request: per-account email-send cap drops the flood', async () => {
+  const { auth, repo, email } = makeService();
+  await auth.register(valid);
+  const me = await repo.findByEmail(valid.email);
+  for (let i = 0; i < 6; i++) await auth.requestEmailVerification(me!.id);
+  assert.equal(email.sent.length, 3); // capped at 3/hour per account
+});
+
+// auth-4/11: the reset + verify links must put the token in the URL FRAGMENT (#…), never
+// the query string (?…), so it can't leak via logs / Referer.
+test('reset + verify links deliver the token in the URL fragment, not the query string', async () => {
+  const { auth, repo, email } = makeService();
+  await auth.register(valid);
+  await auth.requestPasswordReset(valid.email);
+  const resetText = email.sent.at(-1)!.text;
+  assert.match(resetText, /#resetPassword=/);
+  assert.doesNotMatch(resetText, /\?resetPassword=/);
+
+  const me = await repo.findByEmail(valid.email);
+  await auth.requestEmailVerification(me!.id);
+  const verifyText = email.sent.at(-1)!.text;
+  assert.match(verifyText, /#verifyEmail=/);
+  assert.doesNotMatch(verifyText, /\?verifyEmail=/);
 });
 
 test('resetPassword rejects a weak new password', async () => {

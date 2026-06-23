@@ -94,3 +94,42 @@ test('a spectator watches the public match (no hand leak); a seated player canno
     await new Promise<void>((res) => httpServer.close(() => res()));
   }
 });
+
+// socket-5/6: a PRIVATE (invite/code) room must not be spectatable by an outsider,
+// and the watcher's room:state must never carry the private joinCode.
+test('a private room cannot be spectated by an outsider (no joinCode leak)', async () => {
+  const httpServer: HttpServer = createServer();
+  const io = new Server(httpServer);
+  const repo = new InMemoryUserRepository();
+  const auth = new AuthService(repo, new TokenService({ accessSecret: 'a', refreshSecret: 'r' }));
+  const rooms = new RoomManager({
+    startTarget: 1,
+    dealerFactory: () => () => [[c('3', 'S')], [c('4', 'S')]].map((h) => h.map((x) => ({ ...x }))),
+    idFactory: (() => { let n = 0; return () => `room_${(n += 1)}`; })(),
+  });
+  new GameGateway(io, rooms, auth, { countdownMs: 25, turnMs: 5_000, provablyFair: false });
+
+  await new Promise<void>((res) => httpServer.listen(0, res));
+  const port = (httpServer.address() as AddressInfo).port;
+  const u1 = await auth.register({ username: 'owner', email: 'o@o.com', password: 'password1' });
+  const u3 = await auth.register({ username: 'snoop', email: 's@s.com', password: 'password3' });
+
+  const c1: any = ioClient(`http://localhost:${port}`, { auth: { token: u1.tokens.accessToken }, transports: ['websocket'], forceNew: true });
+  const c3: any = ioClient(`http://localhost:${port}`, { auth: { token: u3.tokens.accessToken }, transports: ['websocket'], forceNew: true });
+  try {
+    await Promise.all([once(c1, 'connect'), once(c3, 'connect')]);
+    // Owner creates a PRIVATE room (gets a joinCode).
+    const created = await emitAck<any>(c1, 'room:create', { type: '1v1', stakeCents: 0, private: true });
+    assert.equal(created.ok, true);
+    const roomId = created.roomId ?? 'room_1';
+
+    // An outsider's spectate attempt is rejected (no_room), so the private table never opens.
+    const snoop = await emitAck<any>(c3, 'room:spectate', { roomId });
+    assert.equal(snoop.ok, false);
+    assert.equal(snoop.error?.code, 'no_room');
+  } finally {
+    c1.close(); c3.close();
+    io.close();
+    await new Promise<void>((res) => httpServer.close(() => res()));
+  }
+});

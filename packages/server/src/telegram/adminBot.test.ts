@@ -86,6 +86,21 @@ test('ignores messages from an unauthorized chat', async () => {
   assert.equal(calls.sent.length, 0, 'no reply to a stranger');
 });
 
+// telegram-2/3: a message whose SENDER (from.id) is not the owner is rejected EVEN if it
+// arrives in the authorized chat (the "chat.id OR from.id" hole — a group member posting
+// in a group whose id was configured — must not pass).
+test('telegram-2/3: a non-owner SENDER is rejected even inside the authorized chat', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 9, chat: { id: CHAT }, from: { id: 'evil' }, text: '/stats' } });
+  assert.equal(calls.sent.length, 0, 'a stranger sender gets no reply, even in the owner chat');
+});
+
+test('telegram-2/3: the owner SENDER (from.id) is authorized', async () => {
+  const { deps, calls } = makeDeps();
+  await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 10, chat: { id: CHAT }, from: { id: CHAT }, text: '/help' } });
+  assert.equal(calls.sent.length, 1);
+});
+
 test('/help replies with the command list', async () => {
   const { deps, calls } = makeDeps();
   await new TelegramAdminBot(deps).handleUpdate({ message: { message_id: 1, chat: { id: CHAT }, text: '/help' } });

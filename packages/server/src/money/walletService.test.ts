@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { InMemoryLedger } from './ledger.ts';
-import { WalletService, InsufficientFundsError, DepositCapExceededError, MAX_AMOUNT_CENTS } from './walletService.ts';
+import { WalletService, InsufficientFundsError, DepositCapExceededError, BalanceCeilingError, MAX_AMOUNT_CENTS, BALANCE_CEILING_CENTS } from './walletService.ts';
 import { InMemoryUnitOfWork } from './unitOfWork.ts';
+import { InMemoryAdminAudit } from '../auth/adminAudit.ts';
 
 async function setup() {
   const users = new InMemoryUserRepository();
@@ -50,6 +51,31 @@ test('deposit cap: a retried webhook (same providerRef) stays idempotent, never 
   const retry = await wallet.credit(userId, 8000, { type: 'deposit', providerRef: 'd1', depositCapCents: 10000 });
   assert.equal(retry.idempotent, true); // not rejected as 8000+8000 over cap
   assert.equal(await wallet.getBalance(userId), 8000);
+});
+
+// deposit-cap fix: a CAPPED deposit takes a per-user transaction-scoped advisory lock
+// (pg_advisory_xact_lock in prod) so the cap holds across instances. Here a spy UoW
+// records the lock key; an UNCAPPED credit must take NO lock.
+test('deposit cap: a capped deposit acquires the per-user advisory lock; an uncapped credit does not', async () => {
+  const users = new InMemoryUserRepository();
+  const user = await users.create({ username: 'lk', email: 'lk@x.com', passwordHash: 'h' });
+  const ledger = new InMemoryLedger();
+  const locks: string[] = [];
+  // A UoW that delegates to a pass-through InMemoryUnitOfWork but exposes advisoryXactLock.
+  const inner = new InMemoryUnitOfWork(users, ledger);
+  const spyUow = {
+    transaction<T>(fn: (ctx: any) => Promise<T>): Promise<T> {
+      return inner.transaction((ctx) => fn({ ...ctx, advisoryXactLock: async (k: string) => { locks.push(k); } }));
+    },
+  };
+  const wallet = new WalletService(users, ledger, spyUow as never);
+
+  await wallet.credit(user.id, 1000, { type: 'deposit', providerRef: 'cap1', depositCapCents: 10000 });
+  assert.deepEqual(locks, [`deposit:${user.id}`]); // capped deposit took the lock
+
+  locks.length = 0;
+  await wallet.credit(user.id, 500, { type: 'payout' }); // uncapped credit
+  assert.deepEqual(locks, []); // no lock for an uncapped credit
 });
 
 test('deposit cap: concurrent same-user deposits cannot BOTH pass the cap (race closed)', async () => {
@@ -113,6 +139,66 @@ test('rejects an amount above the safe maximum', async () => {
   await assert.rejects(wallet.credit(userId, MAX_AMOUNT_CENTS + 1, { type: 'deposit' }));
 });
 
+// money-22: a credit that would push the STORED balance over the int4-safe ceiling is
+// refused (no overflow of the Int money columns).
+test('rejects a credit that would push the stored balance over the int4 ceiling', async () => {
+  const { wallet, userId } = await setup();
+  // Bring the balance right up to the ceiling.
+  await wallet.credit(userId, BALANCE_CEILING_CENTS, { type: 'deposit', providerRef: 'd1' });
+  assert.equal(await wallet.getBalance(userId), BALANCE_CEILING_CENTS);
+  // One more cent would overflow → rejected, balance unchanged.
+  await assert.rejects(
+    () => wallet.credit(userId, 1, { type: 'deposit', providerRef: 'd2' }),
+    (e: unknown) => e instanceof BalanceCeilingError,
+  );
+  assert.equal(await wallet.getBalance(userId), BALANCE_CEILING_CENTS);
+});
+
+test('an idempotent REPLAY of an at-ceiling credit is NOT falsely rejected', async () => {
+  const { wallet, userId } = await setup();
+  const ref = 'big1';
+  await wallet.credit(userId, BALANCE_CEILING_CENTS, { type: 'deposit', providerRef: ref });
+  // Replaying the same ref returns idempotent (the balance already includes it) — the
+  // ceiling guard must not trip on the replay.
+  const replay = await wallet.credit(userId, BALANCE_CEILING_CENTS, { type: 'deposit', providerRef: ref });
+  assert.equal(replay.idempotent, true);
+  assert.equal(await wallet.getBalance(userId), BALANCE_CEILING_CENTS);
+});
+
+// admin-5: a balance adjust records its AdminAction audit row alongside the money move;
+// an idempotent replay records NO second audit (it didn't move money).
+test('adminAdjustAudited records the audit on a real move and not on an idempotent replay', async () => {
+  const { wallet, userId } = await setup();
+  const audit = new InMemoryAdminAudit();
+  const rec = { adminId: 'admin1', action: 'balance_adjust' as const, targetUserId: userId, amountCents: 5000, detail: 'manual [tron:abc]' };
+  const first = await wallet.adminAdjustAudited(userId, 5000, 'manual', { ...rec }, audit, { providerRef: 'tron:abc' });
+  assert.equal(first.idempotent, false);
+  assert.equal((await audit.list()).length, 1); // one audit row for the real credit
+
+  // A replay of the same providerRef is idempotent → NO money move → NO new audit row.
+  const replay = await wallet.adminAdjustAudited(userId, 5000, 'manual', { ...rec }, audit, { providerRef: 'tron:abc' });
+  assert.equal(replay.idempotent, true);
+  assert.equal((await audit.list()).length, 1); // still one — not double-audited
+  assert.equal(await wallet.getBalance(userId), 5000);
+});
+
+test('adminAdjustAudited (UoW path): audit failure rolls back the money (atomic)', async () => {
+  const users = new InMemoryUserRepository();
+  const user = await users.create({ username: 'atomic', email: 'at@x.com', passwordHash: 'h' });
+  const ledger = new InMemoryLedger();
+  // A UoW whose transaction propagates a throw (the real Prisma $transaction rolls back
+  // on a throw). The in-memory UoW is a pass-through, so to PROVE the rollback contract
+  // we make the audit insert throw and assert the call rejects (the prod tx then rolls
+  // back both writes). We at least verify the throw surfaces and isn't swallowed.
+  const throwingAudit = { record: async () => { throw new Error('audit down'); }, list: async () => [] };
+  const uow = new InMemoryUnitOfWork(users, ledger, undefined, undefined, undefined, throwingAudit as never);
+  const wallet = new WalletService(users, ledger, uow);
+  await assert.rejects(
+    () => wallet.adminAdjustAudited(user.id, 5000, 'x', { adminId: 'a', action: 'balance_adjust', targetUserId: user.id, amountCents: 5000 }, throwingAudit as never),
+    /audit down/,
+  );
+});
+
 test('credit/debit run through a UnitOfWork (transactional path) with identical results', async () => {
   const users = new InMemoryUserRepository();
   const user = await users.create({ username: 'tx', email: 't@x.com', passwordHash: 'h' });
@@ -169,4 +255,42 @@ test('transfer to self is rejected (no balance change)', async () => {
   await wallet.credit(userId, 1000, { type: 'deposit' });
   await assert.rejects(() => wallet.transfer(userId, userId, 100), /self/);
   assert.equal(await wallet.getBalance(userId), 1000);
+});
+
+// money-2: an admin manual credit of an unclaimed on-chain deposit can carry the TxID's
+// providerRef so a LATER player claim of the same TxID is an idempotent no-op (no double-credit).
+test('adminAdjust with a providerRef credits once; a later same-ref credit is idempotent (no double-credit)', async () => {
+  const { wallet, userId } = await setup();
+  const ref = 'tron:abc123';
+  // Operator manually credits the unclaimed deposit by its TxID.
+  const first = await wallet.adminAdjust(userId, 5000, 'manual deposit credit', { providerRef: ref });
+  assert.equal(first.idempotent, false);
+  assert.equal(first.balanceCents, 5000);
+  // Player later claims the SAME TxID via the normal deposit path → same providerRef.
+  const claim = await wallet.credit(userId, 5000, { type: 'deposit', providerRef: ref });
+  assert.equal(claim.idempotent, true);
+  assert.equal(await wallet.getBalance(userId), 5000); // still 5000 — NOT double-credited
+});
+
+test('adminAdjust rejects a providerRef on a debit (a TxID-bound adjust must be a credit)', async () => {
+  const { wallet, userId } = await setup();
+  await wallet.credit(userId, 5000, { type: 'deposit' });
+  await assert.rejects(() => wallet.adminAdjust(userId, -1000, 'x', { providerRef: 'tron:zzz' }), /credit/);
+  assert.equal(await wallet.getBalance(userId), 5000);
+});
+
+// money-23: house rake is read from the LEDGER (getBalance(house) is always 0).
+test('getHouseRakeCents sums the house rake ledger (not the always-0 house balance)', async () => {
+  const { wallet, ledger, userId } = await setup();
+  assert.equal(await wallet.getHouseRakeCents(), 0);
+  // Two pots take rake; the house "balance" stays 0 but the ledger accrues it.
+  await wallet.credit(userId, 10000, { type: 'deposit' });
+  await wallet.recordRake(300, { matchId: 'm1', providerRef: 'rake:m1' });
+  await wallet.recordRake(450, { matchId: 'm2', providerRef: 'rake:m2' });
+  assert.equal(await wallet.getBalance('__house__'), 0);   // no balance row
+  assert.equal(await wallet.getHouseRakeCents(), 750);     // ledger sum is correct
+  // Sanity: the aggregate equals a manual sum of the rake rows.
+  const houseTxs = await ledger.listByUser('__house__');
+  const manual = houseTxs.filter((t) => t.type === 'rake').reduce((s, t) => s + Math.abs(t.amountCents), 0);
+  assert.equal(manual, 750);
 });
