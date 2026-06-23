@@ -838,10 +838,12 @@ select:focus-visible,
 }
 .tv-ls .ctrl-pass { left: 12%; }
 .tv-ls .ctrl-play { left: 88%; }
-/* The buttons must STAY exactly in place on press (owner: they were moving + imprecise).
-   Pin the transform with !important so no base :active/scale rule can shift them; the only
-   press cue is a brightness bump — zero movement. */
+/* The base `.btn:hover` / `.btn:active` set transform: translateY()/scale(), which WIPES
+   the translate(-50%,-50%) centering — and their specificity beats this rule, so on a tap
+   (touch fires :hover) the button JUMPED ~half its size = the "glitch". Re-assert the
+   centering on hover AND active with !important so it never moves; press cue = brightness. */
 .tv-ls .ctrl-pass, .tv-ls .ctrl-play { transition: filter .1s ease; }
+.tv-ls .ctrl-pass:hover, .tv-ls .ctrl-play:hover { transform: translate(-50%, -50%) !important; }
 .tv-ls .ctrl-pass:active, .tv-ls .ctrl-play:active { transform: translate(-50%, -50%) !important; filter: brightness(1.15); }
 
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */
