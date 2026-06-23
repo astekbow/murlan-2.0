@@ -33,7 +33,7 @@ const sortIds = (cards: Card[]): string[] =>
 // Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips
 // re-rendering on unrelated table updates (an opponent's move, a timer tick) — it
 // only re-renders when the cards/selection/eligibility actually change.
-export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, fit }: HandProps) {
+export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, dealAnimate, fit }: HandProps) {
   const byId = new Map(cards.map((c) => [cardKey(c), c] as const));
   const selectedSet = new Set(selected);
 
@@ -51,6 +51,34 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
 
   const ids = order.filter((id) => byId.has(id));
   const n = ids.length;
+
+  // Deal-in: stagger each card's entrance ONCE on a fresh deal (the hand going from empty
+  // to a full set), never on reorder/selection (those keep the same cards). We snapshot the
+  // sorted ids at deal time so the stagger index follows the dealt order, and clear the flag
+  // after the animation window so a later re-render doesn't replay it.
+  const prevCount = useRef(0);
+  const dealtIdsRef = useRef<string[]>([]);
+  const [deal, setDeal] = useState<{ key: number; active: boolean }>({ key: 0, active: false });
+  useEffect(() => {
+    const freshDeal = !!dealAnimate && prevCount.current === 0 && n > 0;
+    prevCount.current = n;
+    if (freshDeal) {
+      dealtIdsRef.current = ids;
+      // Bump the key (remounts the cards for a clean staggered entrance) AND mark active in
+      // one update so the very first render after the deal already carries dealDelayMs.
+      setDeal((d) => ({ key: d.key + 1, active: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n, dealAnimate]);
+  // Drop the stagger after the longest delay + the keyframe duration elapses so a later
+  // re-render (reorder/selection) doesn't replay it. Keeps the card MOUNTED (key is stable).
+  const dealKey = deal.key;
+  const dealing = deal.active;
+  useEffect(() => {
+    if (!deal.active) return;
+    const id = window.setTimeout(() => setDeal((d) => ({ ...d, active: false })), 700);
+    return () => window.clearTimeout(id);
+  }, [deal.active, deal.key]);
 
   // Fit the fan to the available width so all cards stay on-screen.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -74,11 +102,29 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   if (fit) {
     // LANDSCAPE CANVAS: cards are THINNER + TALLER than a normal card (ratio set below) —
     // a narrow card overlaps less, so the visible left sliver is wider and the FULL rank
-    // (incl. "10") shows; the extra height keeps them looking big. Constant size (no
-    // grow/shrink with count); the step (overlap) adapts so the fan never scrolls.
+    // (incl. "10"/"JK") shows; the extra height keeps them looking big.
     CARD_W = Math.min(w < 520 ? 96 : 116, Math.floor(w * 0.86));
     const maxStep = Math.round(CARD_W * 0.86);
-    step = n > 1 ? Math.min(maxStep, (w - CARD_W) / (n - 1)) : 0;
+    // STEP FLOOR: the visible left sliver (= step) must never drop below what a 2-char rank
+    // ("10"/"JK") needs in the top-left index band, or the trailing glyph hides under the next
+    // card — the exact misread the thin-tall redesign was meant to kill. ~0.32·CARD_W clears
+    // the index (left ~4cqw + the 2-glyph rank at ~20cqw).
+    const minStep = Math.round(CARD_W * 0.32);
+    if (n > 1) {
+      const fitStep = (w - CARD_W) / (n - 1);
+      if (fitStep >= minStep) {
+        step = Math.min(maxStep, fitStep);
+      } else {
+        // A full hand can't honour the floor at this card size on a narrow canvas → shrink the
+        // cards (keeping the tall ratio) just enough that the floor fits with NO scroll, instead
+        // of overlapping below the "10"-safe sliver. Cards stay as big as the floor allows.
+        step = minStep;
+        CARD_W = Math.max(60, Math.floor(w - minStep * (n - 1)));
+        step = Math.round(CARD_W * 0.32);
+      }
+    } else {
+      step = 0;
+    }
   } else {
     // PORTRAIT / DESKTOP — original behaviour, unchanged.
     // BIG, readable cards. `step` overlaps them to fit the width (no scroll); maxStep gives
@@ -159,19 +205,31 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
             // Straight row; a small lift while dragging so it reads as "picked up".
             style = { left, bottom: 0, transform: 'translateY(-16px)', zIndex: 50, transition: 'none' };
           } else {
-            // Flat row. A selected card rises BUT keeps its natural stacking (z = i,
-            // not on top of everything), so only its raised top edge (rank + gold ring)
-            // peeks above the row — it never covers the neighbouring cards. The lift +
-            // gold ring alone signal the pick (no dimming of the other cards).
-            style = { left: i * step, bottom: 0, transform: isSel ? 'translateY(calc(var(--card-lift, 32px) * -1))' : 'none', zIndex: i, transition: 'transform .12s ease' };
+            // Flat row. A selected card rises and is raised ABOVE its right neighbour (z = n+i)
+            // so its lifted top edge (rank + gold ring) is never covered; unselected cards keep
+            // natural stacking (z = i). `left` IS in the transition so neighbours GLIDE on a
+            // drag-reorder instead of snapping.
+            style = { left: i * step, bottom: 0, transform: isSel ? 'translateY(calc(var(--card-lift, 32px) * -1))' : 'none', zIndex: isSel ? n + i : i, transition: 'left .18s ease, transform .12s ease' };
           }
-          if (eligibleIds && !eligibleIds.has(id)) style = { ...style, opacity: 0.4 };
+          // Card-switch dim: INELIGIBLE cards are greyscaled + softly dimmed (reads as "not
+          // pickable", not "disabled/loading" like a flat 40% opacity, and red pips don't go
+          // pink); ELIGIBLE cards get a POSITIVE gold ring so the choice is obvious.
+          if (eligibleIds) {
+            style = eligibleIds.has(id)
+              ? { ...style, filter: 'drop-shadow(0 0 6px rgba(232,200,121,0.85))' }
+              : { ...style, opacity: 0.55, filter: 'grayscale(100%)' };
+          }
+          // Staggered deal-in: only on a fresh deal (dealing), following the dealt order.
+          const dealDelayMs = dealing ? dealtIdsRef.current.indexOf(id) * 35 : undefined;
           const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(id); }
           };
           return (
             <div
-              key={id}
+              // Key includes dealKey (bumps only on a fresh deal) so the cards remount ONCE
+              // per deal for a clean staggered entrance, but stay mounted across reorder/
+              // selection (no flicker) and across the dealing→idle transition.
+              key={`${id}#${dealKey}`}
               className="hand-card"
               style={style}
               // Keyboard + screen-reader access: each card is a labelled toggle
@@ -186,7 +244,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
               onPointerUp={(e) => onUp(id, e)}
               onPointerCancel={() => setDrag(null)}
             >
-              <CardView card={card} big selected={isSel} style={{ width: CARD_W, height: CARD_H, pointerEvents: 'none' }} />
+              <CardView card={card} big selected={isSel} dealDelayMs={dealDelayMs} style={{ width: CARD_W, height: CARD_H, pointerEvents: 'none' }} />
             </div>
           );
         })}

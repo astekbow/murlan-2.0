@@ -40,15 +40,16 @@ function CardViewImpl({ card, selected, small, big, onClick, dealDelayMs, style 
 /** Memoized: a card re-renders only when ITS OWN props change, not on every parent update. */
 export const CardView = memo(CardViewImpl);
 
-/** A face-down card (maroon club back). */
+/** A face-down card. Default = obsidian-&-gold pinstripe (on-brand); an equipped
+ *  cosmetic back (--cb, set by the table's cb_* class) overrides it. */
 function CardBackImpl({ small }: { small?: boolean }) {
   const size = small ? 'w-6 h-9' : 'w-9 h-[52px]';
   return (
     <div
       className={`${size} rounded-md`}
       style={{
-        background: 'repeating-linear-gradient(45deg,#8f2620 0 4px,#a23029 4px 8px)',
-        boxShadow: '0 4px 8px -3px #000, inset 0 0 0 1.5px #f1deae, inset 0 0 0 2px #8f2620',
+        background: 'var(--cb, var(--cb-default))',
+        boxShadow: '0 4px 8px -3px #000, inset 0 0 0 1.5px #f1deae, inset 0 0 0 2px rgba(0,0,0,0.35)',
       }}
       aria-hidden
     />
