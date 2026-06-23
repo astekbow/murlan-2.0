@@ -815,11 +815,12 @@ select:focus-visible,
   justify-content: flex-end;   /* bottom-anchor: a tall fan rises UP over the felt edge */
   overflow: visible;           /* let the fan peek above the zone (never clipped) */
 }
-/* Overlapped cards only show a narrow left sliver, so the rank+suit corner must be COMPACT
-   and pulled to the top-left to stay fully visible (esp. the 2-char "10"). Scoped to the
-   landscape hand only — the pile + portrait keep the big readable corner. */
-.tv-ls .tvc-hand .gc-r { font-size: 19cqw; left: 6cqw; top: 6cqw; }
-.tv-ls .tvc-hand .gc-s { font-size: 15cqw; left: 7cqw; top: 28cqw; }
+/* THINNER + TALLER cards (set in Hand.tsx) overlap less, so the visible left sliver is
+   wider. The rank+suit index is sized by the card's HEIGHT (cqh) — so it stays BIG and
+   clear even though the card is narrow — and tucked tight top-left so the full rank
+   (incl. the 2-char "10") always shows in the sliver. Landscape hand only. */
+.tv-ls .tvc-hand .gc-r { font-size: 13cqh; left: 5cqw; top: 3.5cqh; }
+.tv-ls .tvc-hand .gc-s { font-size: 10cqh; left: 7cqw; top: 17cqh; }
 /* The card-switch confirm bar sits ABOVE the fan; the fan still gets the full zone width. */
 .tv-ls .tvc-hand > .text-center { flex: 0 0 auto; }
 

@@ -72,13 +72,12 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   let CARD_W: number;
   let step: number;
   if (fit) {
-    // LANDSCAPE CANVAS: cards are a CONSTANT BIG size — they do NOT grow/shrink with the
-    // card count (that "small with many, big with few" wobble was the complaint). The
-    // step (overlap) is what adapts to fit the zone width, so the fan never scrolls:
-    // many cards → more overlap; few cards → spread out (capped). Card width is clamped
-    // to the zone only as a hard safety so it can't exceed a very narrow zone.
-    CARD_W = Math.min(w < 520 ? 112 : 132, Math.floor(w * 0.9));
-    const maxStep = Math.round(CARD_W * 0.72);
+    // LANDSCAPE CANVAS: cards are THINNER + TALLER than a normal card (ratio set below) —
+    // a narrow card overlaps less, so the visible left sliver is wider and the FULL rank
+    // (incl. "10") shows; the extra height keeps them looking big. Constant size (no
+    // grow/shrink with count); the step (overlap) adapts so the fan never scrolls.
+    CARD_W = Math.min(w < 520 ? 96 : 116, Math.floor(w * 0.86));
+    const maxStep = Math.round(CARD_W * 0.86);
     step = n > 1 ? Math.min(maxStep, (w - CARD_W) / (n - 1)) : 0;
   } else {
     // PORTRAIT / DESKTOP — original behaviour, unchanged.
@@ -92,7 +91,8 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     // hand truly can't fit at this spacing.
     step = n > 1 ? Math.max(27, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
   }
-  const CARD_H = Math.round(CARD_W * 1.4);
+  // Landscape cards are taller+thinner (1.66) so a narrow card still reads as big; portrait keeps 1.4.
+  const CARD_H = Math.round(CARD_W * (fit ? 1.66 : 1.4));
   const stageW = (n - 1) * step + CARD_W;
 
   const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
