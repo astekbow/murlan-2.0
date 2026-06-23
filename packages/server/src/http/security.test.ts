@@ -44,7 +44,9 @@ async function build(opts: { adminEmail?: string; email?: EmailProvider } = {}) 
   const tokens = new TokenService({ accessSecret: 'a', refreshSecret: 'r' });
   const refreshTokens = new InMemoryRefreshTokens();
   const verificationTokens = new InMemoryVerificationTokens();
-  const auth = new AuthService(repo, tokens, refreshTokens, { verificationTokens, email: opts.email });
+  // Mirror app.ts: the owner-protection (admin-3) is owned by AuthService.isProtectedOwner,
+  // which needs ownerEmail wired the same as config.adminEmail.
+  const auth = new AuthService(repo, tokens, refreshTokens, { verificationTokens, email: opts.email, ownerEmail: opts.adminEmail ?? null });
   const adminAudit = new InMemoryAdminAudit();
   const config = loadConfig({ NODE_ENV: 'test', ...(opts.adminEmail ? { ADMIN_EMAIL: opts.adminEmail } : {}) } as NodeJS.ProcessEnv);
   const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, adminAudit });

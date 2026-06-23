@@ -52,7 +52,7 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     resolveAdminUserId: async () => 'admin1',
     withdrawals: wd as never,
     payout: null,
-    audit: { record: async (a: { action: string; targetUserId?: string | null; amountCents?: number | null }) => { audit.push({ action: a.action, targetUserId: a.targetUserId ?? null, amountCents: a.amountCents ?? null }); }, list: async () => [] } as never,
+    audit: { record: async (a: { action: string; targetUserId?: string | null; amountCents?: number | null }) => { audit.push({ action: a.action, targetUserId: a.targetUserId ?? null, amountCents: a.amountCents ?? null }); }, list: async () => [], sumAdjustmentsBy: async (adminId: string) => audit.filter((x) => x.action === 'balance_adjust').reduce((s, x) => s + Math.abs(x.amountCents ?? 0), 0) } as never,
     wallet: { getBalance: async () => 100000 },
     listUsers: async () => [{ balanceCents: 2000 }, { balanceCents: 3000 }],
     largeWithdrawalCents: 20000,
@@ -292,6 +292,26 @@ test('/debit stages a NEGATIVE adjust', async () => {
   await bot.handleUpdate({ message: { message_id: 8, chat: { id: CHAT }, text: '/debit lojtari 2.50 penalty' } });
   await bot.handleUpdate(cbq(confirmCbs(calls).ok, 80));
   assert.equal(adjustCalls.at(-1)!.deltaCents, -250);
+});
+
+test('admin-6: the Telegram /credit path is bounded by the per-call ceiling (over → blocked, no adjust)', async () => {
+  const { deps, calls, adjustCalls } = makeDeps();
+  const bot = new TelegramAdminBot(deps);
+  // $5,000.01 is over MAX_ADJUST_CENTS → the confirm run refuses it (no adjust call).
+  await bot.handleUpdate({ message: { message_id: 50, chat: { id: CHAT }, text: '/credit lojtari 5000.01 big' } });
+  await bot.handleUpdate(cbq(confirmCbs(calls).ok, 500));
+  assert.equal(adjustCalls.length, 0, 'over-ceiling adjust must NOT execute via Telegram');
+  assert.match(calls.edits.at(-1)!.text, /maksimal/);
+});
+
+test('admin-6: the Telegram path blocks a self-credit (admin crediting their OWN account)', async () => {
+  // findUser resolves to the admin account (u9 === adminId) so the target IS the caller.
+  const { deps, calls, adjustCalls } = makeDeps({ resolveAdminUserId: async () => 'u9' });
+  const bot = new TelegramAdminBot(deps);
+  await bot.handleUpdate({ message: { message_id: 51, chat: { id: CHAT }, text: '/credit lojtari 5 self' } });
+  await bot.handleUpdate(cbq(confirmCbs(calls).ok, 510));
+  assert.equal(adjustCalls.length, 0, 'self-credit must NOT execute via Telegram');
+  assert.match(calls.edits.at(-1)!.text, /vetes/);
 });
 
 test('cancel tap on a staged adjust does NOT execute it', async () => {

@@ -71,6 +71,12 @@ services:
       # Four-eyes control: when true, a tournament champion payout needs a SECOND admin
       # to confirm before funds move (off by default — a solo operator has no 2nd admin).
       TOURNAMENT_DUAL_CONTROL: ${TOURNAMENT_DUAL_CONTROL:-false}
+      # Four-eyes on a MANUAL balance adjust (admin-6). OFF by default (solo owner). The
+      # per-call ceiling + per-admin 24h cap + no-self-credit apply regardless of this flag.
+      ADJUST_DUAL_CONTROL: ${ADJUST_DUAL_CONTROL:-false}
+      # Per-user 24h P2P transfer-OUT cap (cents). 0 = UNLIMITED (transfers stay open);
+      # >0 turns on the ledger-enforced AML rail (money-4/6).
+      DAILY_TRANSFER_CAP_CENTS: ${DAILY_TRANSFER_CAP_CENTS:-0}
       # When set, GET /metrics requires Authorization: Bearer <token> (else it's served
       # only to private/loopback IPs — fine behind Docker's internal network).
       METRICS_TOKEN: ${METRICS_TOKEN:-}
@@ -95,6 +101,10 @@ services:
       AUTO_WITHDRAW_MAX_CENTS: ${AUTO_WITHDRAW_MAX_CENTS:-0}
       AUTO_WITHDRAW_CURRENCY: ${AUTO_WITHDRAW_CURRENCY:-usdttrc20}
       DAILY_AUTO_WITHDRAW_CAP_CENTS: ${DAILY_AUTO_WITHDRAW_CAP_CENTS:-0}
+      # money-7: global 24h auto-payout budget across ALL users + per-destination-address
+      # 24h cap. 0 = off. With auto-pay ON, set at least one cap (boot WARNs otherwise).
+      GLOBAL_AUTO_WITHDRAW_CAP_CENTS: ${GLOBAL_AUTO_WITHDRAW_CAP_CENTS:-0}
+      DEST_AUTO_WITHDRAW_CAP_CENTS: ${DEST_AUTO_WITHDRAW_CAP_CENTS:-0}
       # "Time to sweep" Telegram alert: ping once the on-chain deposit-address USDT total
       # reaches this many CENTS (0 = off). e.g. 10000 = $100. Also surfaced by /deposits.
       SWEEP_ALERT_CENTS: ${SWEEP_ALERT_CENTS:-0}

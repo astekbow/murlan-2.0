@@ -19,6 +19,7 @@ import type { PaymentProvider } from '../money/paymentProvider.ts';
 import type { DepositIntentRepository } from '../money/depositIntents.ts';
 import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
+import { checkRealMoneyAccess } from '../compliance/realMoneyGate.ts';
 import { type Notifier, escapeHtml } from '../notify/notifier.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { TronDepositVerifier } from '../money/tronDeposit.ts';
@@ -41,6 +42,9 @@ export interface WalletRoutesDeps {
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
   dailyAutoWithdrawCapCents?: number; // 0/undefined = off; per-user 24h auto-payout cap
+  dailyTransferCapCents?: number; // money-4/6: 0/undefined = UNLIMITED; >0 = per-user 24h transfer-out cap
+  globalAutoWithdrawCapCents?: number; // money-7: 0/undefined = off; global 24h auto-payout budget
+  destAutoWithdrawCapCents?: number; // money-7: 0/undefined = off; per-destination-address 24h auto-payout cap
   tronDeposit?: TronDepositVerifier; // fee-free USDT-TRC20 deposits via on-chain TxID verify
   depositWallet?: TronHdWallet; // watch-only HD wallet → UNIQUE per-player deposit address (preferred)
   depositWatch?: DepositWatchRegistry; // mark the player as actively depositing → the auto-credit poller watches their address
@@ -160,10 +164,24 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     if (!deps.friends || !(await deps.friends.areFriends(caller.userId, toUserId))) {
       return reply.code(403).send({ error: { code: 'not_friends', message: "Mund t'u dërgosh lek vetëm shokëve." } });
     }
-    const from = await auth.checkAccountRealMoney(caller.userId);
+    // FULL real-money gate on BOTH parties (money-4/6): account-state AND — when the
+    // compliance/RG toggle is ON — KYC/age/geo/SELF-EXCLUSION. This closes the transfer
+    // bypass (a self-excluded player could otherwise shuffle funds to a confederate). With
+    // the toggle OFF (today's owner setting) this is account-state only — NO behavior change.
+    const gateDeps = { auth, compliance: deps.compliance, rg: deps.rg };
+    const from = await checkRealMoneyAccess(gateDeps, caller.userId);
     if (!from.allowed) return reply.code(403).send({ error: { code: from.code ?? 'account', message: from.message ?? 'Llogaria jote është e bllokuar.' } });
-    const to = await auth.checkAccountRealMoney(toUserId);
+    const to = await checkRealMoneyAccess(gateDeps, toUserId);
     if (!to.allowed) return reply.code(403).send({ error: { code: 'recipient_blocked', message: 'Marrësi nuk mund të pranojë lek tani.' } });
+    // Per-user rolling-24h transfer-OUT cap (AML rail). DEFAULT 0 = UNLIMITED (the owner keeps
+    // transfers open); >0 = ledger-enforced (sum of transfer_out in the last 24h + this one).
+    const cap = deps.dailyTransferCapCents ?? 0;
+    if (cap > 0) {
+      const sentToday = await wallet.transferredOutSince(caller.userId, Date.now() - 24 * 60 * 60 * 1000).catch(() => 0);
+      if (sentToday + amountCents > cap) {
+        return reply.code(422).send({ error: { code: 'transfer_cap', message: `Kufiri ditor i transfertave ($${(cap / 100).toLocaleString('en-US')}) u arrit.` } });
+      }
+    }
     try {
       const res = await wallet.transfer(caller.userId, toUserId, amountCents, { reason: `transfer to ${toUserId}` });
       return reply.send({ balanceCents: res.balanceCents });
@@ -251,17 +269,39 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         const priorTodayCents = recent
           .filter((w) => w.id !== rec.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
           .reduce((s, w) => s + w.amountCents, 0);
+        // money-7 signals — computed only when auto-pay COULD fire (a real provider + threshold
+        // on), so they add no reads on the manual-only path:
+        //   • globalTodayCents  — ALL users' auto-paid in 24h (global budget),
+        //   • destTodayCents    — auto-paid to THIS destination in 24h (per-destination cap),
+        //   • recentTransferInCents — P2P received in 24h (received funds → manual review).
+        const autoCouldFire = (deps.autoWithdrawMaxCents ?? 0) > 0 && !!deps.payout && deps.payout.name !== 'null';
+        const [globalTodayCents, destTodayCents, recentTransferInCents] = autoCouldFire
+          ? await Promise.all([
+              (deps.globalAutoWithdrawCapCents ?? 0) > 0 ? withdrawals.autoPaidSince(dayAgo).catch(() => 0) : Promise.resolve(0),
+              (deps.destAutoWithdrawCapCents ?? 0) > 0 ? withdrawals.autoPaidSince(dayAgo, rec.destination).catch(() => 0) : Promise.resolve(0),
+              wallet.transferredInSince(caller.userId, dayAgo).catch(() => 0),
+            ])
+          : [0, 0, 0];
+        // Auto-send only when a REAL payout provider is configured. The send is CLAIM-FIRST
+        // + refund-safe inside withdrawals.autoPayout (money-16): it claims the row before
+        // sending so a concurrent reject can't double-pay, and refunds ONLY on a definite
+        // failure (duplicate/ambiguous are left paid). No provider → sendAuto is null → the
+        // row stays pending for the operator (Approve sends it on-chain via payoutNow).
+        const realPayout = deps.payout && deps.payout.name !== 'null' ? deps.payout : null;
         const outcome = await processWithdrawal(
           { id: rec.id, amountCents: rec.amountCents, destination: rec.destination },
-          { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null, priorTodayCents },
-          { approve: (id, audit) => withdrawals.approve(id, audit), payout: deps.payout ?? null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0, dailyAutoCapCents: deps.dailyAutoWithdrawCapCents ?? 0 },
+          { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null, priorTodayCents, globalTodayCents, destTodayCents, recentTransferInCents },
+          { sendAuto: realPayout ? (id) => withdrawals.autoPayout(id, realPayout) : null, notifier: notifier ?? null, autoMaxCents: deps.autoWithdrawMaxCents ?? 0, dailyAutoCapCents: deps.dailyAutoWithdrawCapCents ?? 0, globalAutoCapCents: deps.globalAutoWithdrawCapCents ?? 0, destAutoCapCents: deps.destAutoWithdrawCapCents ?? 0 },
         ).catch((err) => { app.log.error({ err, withdrawalId: rec.id }, 'auto-payout processing threw'); return null; });
         if (outcome?.autoPaid) {
           autoPayouts.inc({ outcome: 'paid' });
           app.log.info({ withdrawalId: rec.id, amountCents: rec.amountCents }, 'auto-payout sent');
+        } else if (outcome?.ambiguous) {
+          autoPayouts.inc({ outcome: 'failed' });
+          app.log.error({ withdrawalId: rec.id, err: outcome.error }, 'auto-payout AMBIGUOUS → left paid, NOT refunded; verify on-chain');
         } else if (outcome && outcome.tier === 'auto' && outcome.error) {
           autoPayouts.inc({ outcome: 'failed' });
-          app.log.warn({ withdrawalId: rec.id, err: outcome.error }, 'auto-payout FAILED → manual');
+          app.log.warn({ withdrawalId: rec.id, err: outcome.error }, 'auto-payout FAILED → refunded, back to manual');
         }
         return rec;
       });

@@ -26,6 +26,13 @@ export interface NewAdminAction {
 export interface AdminAuditRepository {
   record(a: NewAdminAction): Promise<void>;
   list(limit?: number): Promise<AdminActionRecord[]>;
+  /**
+   * Sum the ABSOLUTE amountCents of one admin's `balance_adjust` actions since `sinceMs`
+   * (admin-6 rolling-24h governance cap). Credits and debits both count toward the cap
+   * (|delta|), so an admin can't structure around it by alternating sign. The store-level
+   * aggregate is authoritative (never the bounded `list()`).
+   */
+  sumAdjustmentsBy(adminId: string, sinceMs: number): Promise<number>;
 }
 
 export class InMemoryAdminAudit implements AdminAuditRepository {
@@ -45,5 +52,10 @@ export class InMemoryAdminAudit implements AdminAuditRepository {
   }
   async list(limit = 200): Promise<AdminActionRecord[]> {
     return this.rows.slice(-limit).reverse();
+  }
+  async sumAdjustmentsBy(adminId: string, sinceMs: number): Promise<number> {
+    return this.rows
+      .filter((r) => r.adminId === adminId && r.action === 'balance_adjust' && r.createdAt >= sinceMs)
+      .reduce((s, r) => s + Math.abs(r.amountCents ?? 0), 0);
   }
 }

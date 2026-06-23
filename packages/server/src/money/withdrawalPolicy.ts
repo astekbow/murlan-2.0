@@ -19,8 +19,20 @@ export interface WithdrawalClassification {
 export function classifyWithdrawal(
   // `kycStatus` is accepted but ignored (KYC removed) — kept in the shape so callers
   // and the Telegram alert payload don't need to change, and to ease re-enabling later.
-  input: { amountCents: number; kycStatus?: string | null | undefined; priorTodayCents?: number },
-  cfg: { autoMaxCents: number; dailyAutoCapCents?: number },
+  input: {
+    amountCents: number;
+    kycStatus?: string | null | undefined;
+    priorTodayCents?: number;       // this user's other 24h withdrawals (per-user cap)
+    globalTodayCents?: number;      // ALL users' auto-paid in 24h (money-7 global budget)
+    destTodayCents?: number;        // auto-paid to THIS destination in 24h (money-7 per-dest cap)
+    recentTransferInCents?: number; // P2P received in 24h (money-7: received funds → manual)
+  },
+  cfg: {
+    autoMaxCents: number;
+    dailyAutoCapCents?: number;     // per-user 24h cap (0 = off)
+    globalAutoCapCents?: number;    // money-7 global 24h budget (0 = off)
+    destAutoCapCents?: number;      // money-7 per-destination 24h cap (0 = off)
+  },
 ): WithdrawalClassification {
   const reasons: string[] = [];
   if (cfg.autoMaxCents <= 0) {
@@ -32,6 +44,22 @@ export function classifyWithdrawal(
   // user's recent withdrawals + this one exceed the cap, route to MANUAL review.
   if (cfg.dailyAutoCapCents && cfg.dailyAutoCapCents > 0 && (input.priorTodayCents ?? 0) + input.amountCents > cfg.dailyAutoCapCents) {
     reasons.push('above daily auto cap');
+  }
+  // money-7 GLOBAL 24h auto-payout budget (across ALL users): a hot-wallet-drain limiter
+  // that doesn't depend on any single user's pattern — once the day's total auto-pay + this
+  // one would breach, force MANUAL.
+  if (cfg.globalAutoCapCents && cfg.globalAutoCapCents > 0 && (input.globalTodayCents ?? 0) + input.amountCents > cfg.globalAutoCapCents) {
+    reasons.push('above global auto cap');
+  }
+  // money-7 PER-DESTINATION 24h cap: stops one address from auto-draining via many small
+  // withdrawals (collusion cash-out funnel).
+  if (cfg.destAutoCapCents && cfg.destAutoCapCents > 0 && (input.destTodayCents ?? 0) + input.amountCents > cfg.destAutoCapCents) {
+    reasons.push('above per-destination auto cap');
+  }
+  // money-7: funds RECENTLY received via P2P transfer must not auto-cash-out (chip-dump /
+  // laundering pass-through) — route to MANUAL so an operator eyeballs it.
+  if ((input.recentTransferInCents ?? 0) > 0) {
+    reasons.push('recent transfer-in (manual review)');
   }
   return { tier: reasons.length === 0 ? 'auto' : 'manual', reasons };
 }

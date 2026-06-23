@@ -169,7 +169,7 @@ export class GameGateway {
   // connect-flood would otherwise hit the DB twice per (re)connect (account-state +
   // profile). (1) A short cache of the per-user handshake reads dedupes a burst; (2) a
   // per-(userId+IP) connection-rate guard rejects an abusive reconnect storm.
-  private readonly handshakeCache = new Map<string, { at: number; allowed: boolean; code?: string; avatar: string | null }>();
+  private readonly handshakeCache = new Map<string, { at: number; ver: number; allowed: boolean; code?: string; avatar: string | null }>();
   private readonly handshakeRate = new Map<string, { count: number; windowStart: number }>();
   private static readonly HANDSHAKE_CACHE_MS = 3_000;   // re-read account-state/profile at most ~every 3s/user
   private static readonly HANDSHAKE_MAX_PER_WINDOW = 30; // connections per (userId+IP) per window
@@ -229,16 +229,17 @@ export class GameGateway {
       const token = (socket.handshake.auth?.token ?? socket.handshake.headers?.authorization?.replace(/^Bearer /, '')) as string | undefined;
       if (!token) return next(new Error('unauthorized'));
       try {
-        const { userId, username } = this.auth.verifyAccess(token);
+        const { userId, username, ver } = this.auth.verifyAccess(token);
         // Connection-rate guard: cap (re)connects per (userId + client IP) so a connect
         // flood can't hammer the DB or churn sockets. Verified-token only (no anon flood).
         const ip = socket.handshake.address || 'unknown';
         if (!this.allowHandshake(`${userId}|${ip}`)) return next(new Error('rate_limited'));
-        // Account-state gate (banned/suspended can't (re)connect even on a still-valid
-        // access token) + the cosmetic avatar. Both are DB reads → served from a short
-        // per-user cache so a burst doesn't re-query. Auth correctness is unchanged: a
-        // ban still blocks within HANDSHAKE_CACHE_MS, and live sockets are kicked instantly.
-        const resolved = await this.resolveHandshake(userId);
+        // Revocation-aware account-state gate: reject when the token's tokenVersion is
+        // stale (force-logout / ban / reset / logout-all bumped it — socket-1/auth-2) OR
+        // login is blocked (banned/suspended; frozen still allowed). Plus the cosmetic
+        // avatar. Both are DB reads → served from a short per-user cache, but the cache is
+        // SKIPPED when `ver` changed so a just-revoked token can't ride a stale cached OK.
+        const resolved = await this.resolveHandshake(userId, ver);
         if (!resolved.allowed) return next(new Error(resolved.code ?? 'blocked'));
         socket.data.userId = userId;
         socket.data.username = username;
@@ -270,16 +271,20 @@ export class GameGateway {
     return rec.count <= GameGateway.HANDSHAKE_MAX_PER_WINDOW;
   }
 
-  /** Resolve the per-user handshake reads (account-state gate + avatar) with a short
-   *  TTL cache so a connect-burst doesn't issue two DB reads per socket. */
-  private async resolveHandshake(userId: string): Promise<{ allowed: boolean; code?: string; avatar: string | null }> {
+  /** Resolve the per-user handshake reads (revocation-aware account-state gate + avatar)
+   *  with a short TTL cache so a connect-burst doesn't issue two DB reads per socket. The
+   *  cache is bypassed when the presented token's `ver` differs from the cached one, so a
+   *  freshly-revoked (ver-bumped) token is never accepted on a stale cached OK. */
+  private async resolveHandshake(userId: string, ver: number): Promise<{ allowed: boolean; code?: string; avatar: string | null }> {
     const cached = this.handshakeCache.get(userId);
-    if (cached && Date.now() - cached.at < GameGateway.HANDSHAKE_CACHE_MS) {
+    if (cached && cached.ver === ver && Date.now() - cached.at < GameGateway.HANDSHAKE_CACHE_MS) {
       return { allowed: cached.allowed, code: cached.code, avatar: cached.avatar };
     }
-    const gate = await this.auth.checkLogin(userId);
+    // checkSession resolves the user ONCE: rejects a stale tokenVersion (revocation) AND a
+    // blocked account-state in a single DB read (mirrors authorizeRequest for REST).
+    const gate = await this.auth.checkSession(userId, ver);
     const avatar = gate.allowed && this.profiles ? ((await this.profiles.getProfile(userId).catch(() => null))?.avatar ?? null) : null;
-    const entry = { at: Date.now(), allowed: gate.allowed, code: gate.code, avatar };
+    const entry = { at: Date.now(), ver, allowed: gate.allowed, code: gate.code, avatar };
     this.handshakeCache.set(userId, entry);
     if (this.handshakeCache.size > 10_000) {
       const cutoff = Date.now() - GameGateway.HANDSHAKE_CACHE_MS;
@@ -345,7 +350,7 @@ export class GameGateway {
         this.clientSeeds.set(socket.data.userId, seed);
       }
     });
-    socket.on('auth', (token, ack) => this.onReAuth(socket, token, ack));
+    socket.on('auth', (token, ack) => void this.onReAuth(socket, token, ack));
 
     // ----- Social: in-room emotes / quick-chat + friend room invites ---------
     socket.on('emote', (emote) => {
@@ -402,20 +407,33 @@ export class GameGateway {
     }
   }
 
-  private onReAuth(socket: IOSocket, token: string, ack: (res: Ack) => void): void {
+  private async onReAuth(socket: IOSocket, token: string, ack: (res: Ack) => void): Promise<void> {
     if (!this.rateOk(socket, ack)) return;
+    let userId: string;
+    let username: string;
+    let ver: number;
     try {
-      const { userId, username } = this.auth.verifyAccess(token);
-      // A connection may only REFRESH its own session, never rebind to a
-      // different user (that would desync rooms/seats and could leak hands).
-      if (userId !== socket.data.userId) {
-        return ack(ackError('identity_mismatch', 'Nuk mund të ndryshosh identitetin e lidhjes.'));
-      }
-      socket.data.username = username;
-      ack({ ok: true });
+      ({ userId, username, ver } = this.auth.verifyAccess(token));
     } catch {
-      ack(ackError('unauthorized', 'Token i pavlefshëm.'));
+      return ack(ackError('unauthorized', 'Token i pavlefshëm.'));
     }
+    // A connection may only REFRESH its own session, never rebind to a
+    // different user (that would desync rooms/seats and could leak hands).
+    if (userId !== socket.data.userId) {
+      return ack(ackError('identity_mismatch', 'Nuk mund të ndryshosh identitetin e lidhjes.'));
+    }
+    // Revocation-aware re-auth (socket-1): a token that was force-logged-out/banned after
+    // it was minted (stale `ver`) or now blocks login must be REJECTED here too — the
+    // handshake guard alone would otherwise let a long-lived socket re-arm on a dead token.
+    const gate = await this.auth.checkSession(userId, ver).catch(() => ({ allowed: false as const, code: 'unauthorized', message: 'Token i pavlefshëm.' }));
+    if (!gate.allowed) {
+      ack(ackError(gate.code ?? 'unauthorized', gate.message ?? 'Sesioni ka skaduar.'));
+      // Drop the socket: its session is revoked/blocked, so it must not keep playing.
+      this.disconnectUser(userId);
+      return;
+    }
+    socket.data.username = username;
+    ack({ ok: true });
   }
 
   // ---------- Intent handlers -------------------------------------------------

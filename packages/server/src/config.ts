@@ -66,6 +66,19 @@ const schema = z.object({
   // Four-eyes on the tournament champion payout — needs TWO distinct admins. OFF by
   // default (a solo operator has no second admin; it would block every payout).
   TOURNAMENT_DUAL_CONTROL: z.string().optional(),
+  // admin-6: require a 2nd distinct admin to confirm a manual balance adjustment. OFF by
+  // default (the owner is a solo admin; mandatory dual-control would lock them out). The
+  // per-call ceiling + per-admin rolling-24h cap + no-self-credit ALWAYS apply regardless.
+  ADJUST_DUAL_CONTROL: z.string().optional(),
+  // money-4/6: per-user rolling-24h cap on P2P transfers OUT (cents). 0 = UNLIMITED (the
+  // owner keeps transfers open by default); >0 turns on the DB/ledger-enforced AML rail.
+  DAILY_TRANSFER_CAP_CENTS: z.coerce.number().int().nonnegative().default(0),
+  // money-7: global rolling-24h auto-payout budget across ALL users (cents). 0 = OFF; >0 =
+  // once total auto-paid in 24h would breach this, further auto-sends are forced to MANUAL.
+  GLOBAL_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0),
+  // money-7: per-destination-ADDRESS rolling-24h auto-payout cap (cents). 0 = OFF; >0 =
+  // once a single address has received this much auto-pay in 24h, further ones go MANUAL.
+  DEST_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0),
 });
 
 const isTrue = (v: string | undefined): boolean => v === 'true' || v === '1';
@@ -119,6 +132,10 @@ export interface AppConfig {
   databaseUrl: string | null;
   rakeBps: number;
   tournamentDualControl: boolean; // require a 2nd distinct admin to confirm a champion payout
+  adjustDualControl: boolean; // admin-6: require a 2nd admin to confirm a manual balance adjust (OFF by default)
+  dailyTransferCapCents: number; // money-4/6: per-user 24h P2P transfer-out cap (0 = unlimited)
+  globalAutoWithdrawCapCents: number; // money-7: global 24h auto-payout budget (0 = off)
+  destAutoWithdrawCapCents: number; // money-7: per-destination-address 24h auto-payout cap (0 = off)
   depositPollMs: number; // auto-credit poller cadence for active depositors (0 = off)
   movelogRetentionDays: number; // prune move-logs older than this many days (0 = keep forever)
   turnMs: number;
@@ -250,6 +267,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: parsed.DATABASE_URL ?? null,
     rakeBps: parsed.RAKE_BPS,
     tournamentDualControl: isTrue(parsed.TOURNAMENT_DUAL_CONTROL),
+    adjustDualControl: isTrue(parsed.ADJUST_DUAL_CONTROL),
+    dailyTransferCapCents: parsed.DAILY_TRANSFER_CAP_CENTS,
+    globalAutoWithdrawCapCents: parsed.GLOBAL_AUTO_WITHDRAW_CAP_CENTS,
+    destAutoWithdrawCapCents: parsed.DEST_AUTO_WITHDRAW_CAP_CENTS,
     depositPollMs: parsed.DEPOSIT_POLL_MS,
     movelogRetentionDays: parsed.MOVELOG_RETENTION_DAYS,
     turnMs: parsed.TURN_MS,

@@ -131,3 +131,119 @@ test('a reject AFTER a successful payoutNow cannot refund the sent payout (no do
   await assert.rejects(svc.reject(rec.id), (e: unknown) => e instanceof WithdrawalError && e.code === 'not_pending');
   assert.equal(await wallet.getBalance(userId), 3000); // still paid — NOT refunded
 });
+
+// ===== money-16 / money-13 / money-17: auto-pay double-pay protection ========
+
+const dupPayout = (): PayoutProvider => ({ name: 'binance-payout', payout: async () => ({ ok: false, duplicate: true, providerRef: 'orig_W', error: 'duplicate withdrawOrderId' }) });
+const ambiguousPayout = (): PayoutProvider => ({ name: 'binance-payout', payout: async () => ({ ok: false, ambiguous: true, error: 'timeout' }) });
+
+const VALID_ADDR = 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6';
+
+test('autoPayout CLAIMS the row (pending→completed) BEFORE sending', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  let statusAtSend: string | null = null;
+  const provider: PayoutProvider = {
+    name: 'binance-payout',
+    payout: async () => { statusAtSend = (await svc.find(rec.id))!.status; return { ok: true, providerRef: 'W1' }; },
+  };
+  const r = await svc.autoPayout(rec.id, provider);
+  assert.equal(r.outcome, 'paid');
+  assert.equal(statusAtSend, 'completed'); // claimed BEFORE the provider was called
+  assert.equal(await wallet.getBalance(userId), 3000); // paid out, not refunded
+});
+
+test('autoPayout: a concurrent REJECT during the send window does NOT double-pay', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  assert.equal(await wallet.getBalance(userId), 3000); // held
+  // Provider send is in flight when a reject races in. The reject must lose (row already
+  // claimed 'completed') → no refund; the player is paid exactly once.
+  let releaseSend!: () => void;
+  const sendGate = new Promise<void>((res) => { releaseSend = res; });
+  const provider: PayoutProvider = { name: 'binance-payout', payout: async () => { await sendGate; return { ok: true, providerRef: 'W1' }; } };
+  const sending = svc.autoPayout(rec.id, provider);
+  // Fire the reject WHILE the send is pending (row is already claimed completed).
+  const rejected = await svc.reject(rec.id).catch((e) => e);
+  assert.ok(rejected instanceof WithdrawalError && rejected.code === 'not_pending'); // reject lost the race
+  releaseSend();
+  const r = await sending;
+  assert.equal(r.outcome, 'paid');
+  assert.equal(await wallet.getBalance(userId), 3000); // paid once, NOT refunded (would be 5000 on a double)
+  assert.equal((await svc.find(rec.id))!.status, 'completed');
+});
+
+test('autoPayout: a DUPLICATE-rejection marks completed and does NOT refund', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  const r = await svc.autoPayout(rec.id, dupPayout());
+  assert.equal(r.outcome, 'duplicate');
+  assert.equal((await svc.find(rec.id))!.status, 'completed'); // stays paid (original send stood)
+  assert.equal(await wallet.getBalance(userId), 3000); // NOT refunded (no double-credit)
+});
+
+test('autoPayout: an AMBIGUOUS failure does NOT refund and leaves the row completed', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  const r = await svc.autoPayout(rec.id, ambiguousPayout());
+  assert.equal(r.outcome, 'ambiguous');
+  assert.equal((await svc.find(rec.id))!.status, 'completed'); // maybe-sent → left paid, flagged
+  assert.equal(await wallet.getBalance(userId), 3000); // NEVER refunded on a maybe-sent payout
+});
+
+test('autoPayout: a DEFINITE failure refunds exactly once (idempotent) and reverses the row', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  assert.equal(await wallet.getBalance(userId), 3000); // held
+  const r = await svc.autoPayout(rec.id, failPayout('binance 400 bad address'));
+  assert.equal(r.outcome, 'failed');
+  assert.equal(await wallet.getBalance(userId), 5000); // refunded once
+  assert.equal((await svc.find(rec.id))!.status, 'rejected'); // reversed out of completed
+  // A reconciler re-run / second refund attempt is idempotent on providerRef — still 5000.
+  await wallet.credit(userId, 2000, { type: 'admin_adjust', reason: 'rikthim: auto-pagesa dështoi', providerRef: `withdrawal_refund:${rec.id}` });
+  assert.equal(await wallet.getBalance(userId), 5000);
+});
+
+test('payoutNow on a DUPLICATE → marks completed, NO refund (panel approve of a maybe-already-sent)', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  const w = await svc.payoutNow(rec.id, dupPayout(), { resolvedByAdminId: 'admin_1' });
+  assert.equal(w.status, 'completed');
+  assert.equal(await wallet.getBalance(userId), 3000); // NOT refunded
+});
+
+test('payoutNow on an AMBIGUOUS result → throws payout_ambiguous, NEVER refunds, row stays completed', async () => {
+  const { wallet, svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  await assert.rejects(
+    svc.payoutNow(rec.id, ambiguousPayout(), { resolvedByAdminId: 'admin_1' }),
+    (e: unknown) => e instanceof WithdrawalError && e.code === 'payout_ambiguous',
+  );
+  assert.equal(await wallet.getBalance(userId), 3000); // NOT refunded
+  assert.equal((await svc.find(rec.id))!.status, 'completed'); // left paid (maybe sent)
+});
+
+test('autoPayout refuses a row that is already not-pending (no send, no refund)', async () => {
+  const { svc, userId } = await setup();
+  const rec = await svc.request(userId, 2000, VALID_ADDR);
+  await svc.approve(rec.id); // resolve it first
+  let sent = false;
+  const provider: PayoutProvider = { name: 'binance-payout', payout: async () => { sent = true; return { ok: true }; } };
+  const r = await svc.autoPayout(rec.id, provider);
+  assert.equal(r.outcome, 'not_pending');
+  assert.equal(sent, false); // never sent
+});
+
+test('money-7: autoPaidSince counts ONLY auto-resolved completed rows (global + per-dest)', async () => {
+  const { svc, userId } = await setup();
+  // An AUTO-paid row (resolvedByAdminId stays null via autoPayout).
+  const a = await svc.request(userId, 1000, VALID_ADDR);
+  await svc.autoPayout(a.id, okPayout());
+  // A MANUALLY-approved row (resolvedByAdminId set) — must NOT count toward the auto cap.
+  const b = await svc.request(userId, 2000, VALID_ADDR);
+  await svc.payoutNow(b.id, okPayout(), { resolvedByAdminId: 'admin_1' });
+  const since = Date.now() - 24 * 60 * 60 * 1000;
+  assert.equal(await svc.autoPaidSince(since), 1000); // only the auto row
+  assert.equal(await svc.autoPaidSince(since, VALID_ADDR), 1000); // same address
+  assert.equal(await svc.autoPaidSince(since, 'TOtherAddress00000000000000000000'), 0); // other dest
+});

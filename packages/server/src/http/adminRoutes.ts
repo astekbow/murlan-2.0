@@ -19,6 +19,7 @@ import type { RoomManager } from '../room/roomManager.ts';
 import type { MatchesRepository } from '../money/matchesRepository.ts';
 import { revenueBreakdown } from '../money/revenueReport.ts';
 import { InMemoryAdminAudit, type AdminAuditRepository } from '../auth/adminAudit.ts';
+import { checkAdjustGovernance, MAX_ADJUST_CENTS } from '../money/adminAdjustPolicy.ts';
 import type { ChatService } from '../chat/chatService.ts';
 
 export interface AdminRoutesDeps {
@@ -46,9 +47,14 @@ export interface AdminRoutesDeps {
   // The configured owner account (lowercased ADMIN_EMAIL). Protected from demotion so
   // two admins can't gang-demote the owner and lock everyone out of the panel.
   adminEmail?: string | null;
+  // admin-6: require a 2nd distinct admin to confirm a manual balance adjustment. OFF by
+  // default (the owner is a solo admin; mandatory dual-control would lock them out).
+  adjustDualControl?: boolean;
 }
 
-const adjustSchema = z.object({ deltaCents: z.number().int(), reason: z.string().min(1).max(280) });
+// Per-call ceiling enforced at the schema too (a clear 400 on an over-limit number), with
+// the same bound + the rolling-24h cap + self-credit block enforced in checkAdjustGovernance.
+const adjustSchema = z.object({ deltaCents: z.number().int().min(-MAX_ADJUST_CENTS).max(MAX_ADJUST_CENTS), reason: z.string().min(1).max(280) });
 const kycSchema = z.object({ status: z.enum(['none', 'pending', 'verified']) });
 const accountStateSchema = z.object({
   state: z.enum(['active', 'frozen', 'suspended', 'banned']),
@@ -77,6 +83,17 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   const canModerate = requirePermission(auth, 'moderate_chat');
   const canRevenue = requirePermission(auth, 'view_revenue');
   const canVoid = requirePermission(auth, 'void_matches');
+
+  // Owner-protection predicate (admin-1/2/3). Authoritative via auth.isProtectedOwner, with
+  // a route-level email fallback so a wiring mismatch (auth without ownerEmail) can't silently
+  // disable the guard. Used by /account-state, /kyc, /role, /permissions.
+  const ownerEmail = deps.adminEmail ? deps.adminEmail.trim().toLowerCase() : null;
+  const isProtectedOwner = async (userId: string): Promise<boolean> => {
+    if (await auth.isProtectedOwner(userId)) return true;
+    if (!ownerEmail) return false;
+    const target = await auth.getUser(userId);
+    return !!target && target.email.trim().toLowerCase() === ownerEmail;
+  };
 
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await admin(req, reply))) return;
@@ -137,6 +154,9 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
       return reply.code(400).send({ error: { code: 'validation', message: 'Rregullim i pavlefshëm.' } });
     }
     const userId = (req.params as { id: string }).id;
+    // Governance (admin-6): per-call ceiling + per-admin rolling-24h cap + no self-credit.
+    const gov = await checkAdjustGovernance(audit, caller.userId, userId, parsed.data.deltaCents, { dualControl: deps.adjustDualControl });
+    if (!gov.ok) return reply.code(gov.code === 'self_credit' ? 403 : 422).send({ error: { code: gov.code, message: gov.message } });
     try {
       const res = await wallet.adminAdjust(userId, parsed.data.deltaCents, parsed.data.reason);
       await audit.record({ adminId: caller.userId, action: 'balance_adjust', targetUserId: userId, amountCents: parsed.data.deltaCents, detail: parsed.data.reason });
@@ -153,6 +173,11 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const parsed = kycSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Status KYC i pavlefshëm.' } });
     const userId = (req.params as { id: string }).id;
+    // Owner protection (admin-1): a scoped/rogue admin must not be able to neuter the
+    // owner's KYC (which, with KYC gating on, could block the owner's own money flows).
+    if (await isProtectedOwner(userId)) {
+      return reply.code(403).send({ error: { code: 'owner_protected', message: 'KYC e pronarit nuk mund të ndryshohet.' } });
+    }
     const user = await auth.updateCompliance(userId, { kycStatus: parsed.data.status });
     if (!user) return reply.code(404).send({ error: { code: 'not_found', message: 'Përdoruesi nuk u gjet.' } });
     await audit.record({ adminId: caller.userId, action: 'kyc_set', targetUserId: userId, detail: parsed.data.status });
@@ -165,6 +190,11 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const parsed = accountStateSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Gjendje llogarie e pavlefshme.' } });
     const userId = (req.params as { id: string }).id;
+    // Owner protection (admin-1): never freeze/suspend/ban the configured OWNER — a stray
+    // or malicious block must not lock the sole operator out of their own platform.
+    if (parsed.data.state !== 'active' && (await isProtectedOwner(userId))) {
+      return reply.code(403).send({ error: { code: 'owner_protected', message: 'Pronari i platformës nuk mund të bllokohet.' } });
+    }
     // A suspension carries an expiry; the other states are open-ended.
     const until = parsed.data.state === 'suspended' && parsed.data.durationMs ? Date.now() + parsed.data.durationMs : null;
     const res = await auth.setAccountState(userId, { state: parsed.data.state, reason: parsed.data.reason ?? null, until });
@@ -203,10 +233,15 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     }
     // Protect the configured OWNER (ADMIN_EMAIL) from demotion: two admins must not be
     // able to gang-demote the owner and lock everyone out of the panel.
-    if (role === 'user' && deps.adminEmail) {
+    if (role === 'user' && (await isProtectedOwner(userId))) {
+      return reply.code(403).send({ error: { code: 'owner_protected', message: 'Pronari i platformës nuk mund të zhgradohet.' } });
+    }
+    // A SCOPED admin must NOT be able to demote a FULL admin (empty list = all powers) —
+    // a peer/superior they shouldn't be able to strip (admin-2).
+    if (role === 'user' && callerPerms.length > 0) {
       const target = await auth.getUser(userId);
-      if (target && target.email.trim().toLowerCase() === deps.adminEmail) {
-        return reply.code(403).send({ error: { code: 'owner_protected', message: 'Pronari i platformës nuk mund të zhgradohet.' } });
+      if (target && target.role === 'admin' && (target.permissions ?? []).length === 0) {
+        return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm një admin i plotë mund të zhgradojë një admin të plotë.' } });
       }
     }
     const user = await auth.setRole(userId, role);
@@ -229,12 +264,26 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     if (userId === caller.userId) {
       return reply.code(400).send({ error: { code: 'self_scope', message: 'Nuk mund t’i kufizosh vetes lejet.' } });
     }
+    // Owner protection (admin-3): the owner is a FULL admin by definition; their permission
+    // list must not be reduced/neutered (boot also re-resets it to []).
+    if (await isProtectedOwner(userId)) {
+      return reply.code(403).send({ error: { code: 'owner_protected', message: 'Lejet e pronarit nuk mund të ndryshohen.' } });
+    }
     const perms = [...new Set(parsed.data.permissions.filter(isAdminPermission))];
+    const callerPerms = (await auth.getUser(caller.userId))?.permissions ?? [];
+    // A SCOPED admin (non-empty list) must NOT mutate the permissions of a FULL admin
+    // (empty list = all powers) — that's a peer/superior they shouldn't be able to neuter
+    // or capture (admin-2). A full admin (empty caller list) can manage anyone.
+    if (callerPerms.length > 0) {
+      const target = await auth.getUser(userId);
+      if (target && target.role === 'admin' && (target.permissions ?? []).length === 0) {
+        return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm një admin i plotë mund të ndryshojë lejet e një admini të plotë.' } });
+      }
+    }
     // Anti-escalation: a SCOPED admin (non-empty list) may only grant scopes they
     // themselves hold, and may NOT mint a full admin (empty list = all powers).
     // A full admin (empty list) can grant anything. Without this, a manage_admins-
     // only admin could create unrestricted admins and escalate past their own scope.
-    const callerPerms = (await auth.getUser(caller.userId))?.permissions ?? [];
     if (callerPerms.length > 0 && (perms.length === 0 || perms.some((p) => !callerPerms.includes(p)))) {
       return reply.code(403).send({ error: { code: 'forbidden', message: 'Mund të japësh vetëm leje që i ke vetë.' } });
     }

@@ -539,6 +539,9 @@ export class PrismaWithdrawals implements WithdrawalRepository {
   async listByUser(userId: string): Promise<WithdrawalRecord[]> {
     return (await this.db.withdrawal.findMany({ where: { userId } })).map(toWithdrawal);
   }
+  async listCompletedSince(sinceMs: number): Promise<WithdrawalRecord[]> {
+    return (await this.db.withdrawal.findMany({ where: { status: 'completed', resolvedAt: { gte: new Date(sinceMs) } } })).map(toWithdrawal);
+  }
 }
 
 export class PrismaDepositIntents implements DepositIntentRepository {
@@ -612,6 +615,16 @@ export class PrismaAdminAudit implements AdminAuditRepository {
       detail: row.detail,
       createdAt: ms(row.createdAt),
     }));
+  }
+  async sumAdjustmentsBy(adminId: string, sinceMs: number): Promise<number> {
+    // SUM(|amountCents|) of this admin's balance_adjust rows in the window. Postgres has no
+    // SUM(ABS()) helper here, so fetch the (bounded, indexed) rows and sum in JS — the
+    // window is 24h of one admin's adjustments, which is tiny in practice.
+    const rows = await this.db.adminAction.findMany({
+      where: { adminId, action: 'balance_adjust', createdAt: { gte: new Date(sinceMs) } },
+      select: { amountCents: true },
+    });
+    return rows.reduce((s: number, r: { amountCents: number | null }) => s + Math.abs(r.amountCents ?? 0), 0);
   }
 }
 

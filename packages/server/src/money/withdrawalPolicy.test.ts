@@ -51,3 +51,37 @@ test('daily auto cap of 0 = no cap (unbounded auto, per-tx limits still apply)',
   const c = classifyWithdrawal({ amountCents: 5000, kycStatus: 'verified', priorTodayCents: 999999 }, { autoMaxCents: 5000, dailyAutoCapCents: 0 });
   assert.equal(c.tier, 'auto');
 });
+
+// ===== money-7: global cap / per-destination cap / transfer-in → manual ======
+
+test('money-7 global cap: breaching the 24h global auto budget forces MANUAL', () => {
+  // global cap $1000; already $980 auto-paid today across all users; +$50 → 1030 > 1000 → manual
+  const over = classifyWithdrawal({ amountCents: 5000, globalTodayCents: 98_000 }, { autoMaxCents: 5000, globalAutoCapCents: 100_000 });
+  assert.equal(over.tier, 'manual');
+  assert.ok(over.reasons.includes('above global auto cap'));
+  // under the global cap → still auto
+  const under = classifyWithdrawal({ amountCents: 5000, globalTodayCents: 10_000 }, { autoMaxCents: 5000, globalAutoCapCents: 100_000 });
+  assert.equal(under.tier, 'auto');
+});
+
+test('money-7 global cap of 0 = off (no global limiting)', () => {
+  const c = classifyWithdrawal({ amountCents: 5000, globalTodayCents: 9_999_999 }, { autoMaxCents: 5000, globalAutoCapCents: 0 });
+  assert.equal(c.tier, 'auto');
+});
+
+test('money-7 per-destination cap: breaching one address 24h cap forces MANUAL', () => {
+  const over = classifyWithdrawal({ amountCents: 5000, destTodayCents: 9_000 }, { autoMaxCents: 5000, destAutoCapCents: 10_000 });
+  assert.equal(over.tier, 'manual');
+  assert.ok(over.reasons.includes('above per-destination auto cap'));
+  const under = classifyWithdrawal({ amountCents: 5000, destTodayCents: 1_000 }, { autoMaxCents: 5000, destAutoCapCents: 10_000 });
+  assert.equal(under.tier, 'auto');
+});
+
+test('money-7 transfer-in → manual: any recent P2P-received funds route to manual review', () => {
+  const c = classifyWithdrawal({ amountCents: 1000, recentTransferInCents: 500 }, { autoMaxCents: 5000 });
+  assert.equal(c.tier, 'manual');
+  assert.ok(c.reasons.includes('recent transfer-in (manual review)'));
+  // no recent transfer-in → still auto
+  const ok = classifyWithdrawal({ amountCents: 1000, recentTransferInCents: 0 }, { autoMaxCents: 5000 });
+  assert.equal(ok.tier, 'auto');
+});

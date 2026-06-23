@@ -15,6 +15,7 @@
 import { WithdrawalError, type WithdrawalService, type WithdrawalRecord } from '../money/withdrawals.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
+import { checkAdjustGovernance } from '../money/adminAdjustPolicy.ts';
 import { HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
 import { escapeHtml, type InlineButton } from '../notify/notifier.ts';
 import type { TelegramBot } from '../notify/telegramBot.ts';
@@ -156,6 +157,8 @@ export interface AdminBotDeps {
   // ---- Phase 3 (sensitive / occasional) — all optional, all confirm-gated ----
   /** Manual balance adjust (credit/debit). deltaCents>0 credits, <0 debits. */
   adminAdjust?: (userId: string, deltaCents: number, reason: string) => Promise<{ ok: true; balanceCents: number } | { ok: false; reason: string }>;
+  /** admin-6: require a 2nd distinct admin to confirm a manual adjustment. OFF by default. */
+  adjustDualControl?: boolean;
   /** Void + refund a live match (collusion). */
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<{ ok: true; matchId: string | null; refunded: boolean } | { ok: false; reason: string }>;
   /** Create a tournament (empty; players join via the app — buy-ins debit on join). */
@@ -446,6 +449,10 @@ export class TelegramAdminBot {
       run: async () => {
         const adminId = await this.deps.resolveAdminUserId();
         if (!adminId) return '⚠️ S’u gjet llogaria admin — veprimi u ndal.';
+        // SAME governance as the panel (admin-6): per-call ceiling + per-admin 24h cap + no
+        // self-credit — so the Telegram path is not a softer door than the HTTP route.
+        const gov = await checkAdjustGovernance(this.deps.audit, adminId, u.id, delta, { dualControl: this.deps.adjustDualControl });
+        if (!gov.ok) return `⚠️ ${escapeHtml(gov.message)}`;
         const res = await adjust(u.id, delta, reason).catch(() => ({ ok: false, reason: 'gabim' } as const));
         if (!res.ok) return `⚠️ ${res.reason === 'insufficient_funds' ? 'Bilanc i pamjaftueshëm për debitim.' : escapeHtml(res.reason)}`;
         await this.deps.audit.record({ adminId, action: 'balance_adjust', targetUserId: u.id, amountCents: delta, detail: `${reason} (telegram)` });

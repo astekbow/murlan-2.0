@@ -34,6 +34,11 @@ export interface AuthServiceDeps {
   now?: () => number;
   // Per-identifier (email) failed-login throttle. Defaults to 5 failures / 10 min.
   loginThrottle?: { maxFailures: number; windowMs: number };
+  // The configured platform OWNER (lowercased ADMIN_EMAIL). Exempted from the login
+  // account-state gate (admin-3) so a stray/erroneous ban can never lock the sole
+  // operator out of their own panel. Owner-targeting blocks are also refused at the
+  // admin routes, but this is the last-resort backstop.
+  ownerEmail?: string | null;
 }
 
 export class AuthError extends Error {
@@ -101,6 +106,7 @@ export class AuthService {
     this.now = deps.now ?? (() => Date.now());
     this.accountState = new AccountStateService(this.now);
     this.loginThrottle = deps.loginThrottle ?? { maxFailures: 5, windowMs: 10 * 60 * 1000 };
+    this.ownerEmail = deps.ownerEmail ? deps.ownerEmail.trim().toLowerCase() : null;
   }
 
   private readonly email: EmailProvider;
@@ -109,6 +115,15 @@ export class AuthService {
   private readonly now: () => number;
   private readonly accountState: AccountStateService;
   private readonly loginThrottle: { maxFailures: number; windowMs: number };
+  private readonly ownerEmail: string | null;
+  // Optional hook fired AFTER a force-logout (ban/suspend/reset/logout-all): drops the
+  // user's live sockets so a still-valid access token can't keep them connected. Wired
+  // to the gateway's disconnectUser in app.ts; absent in unit tests / HTTP-only setups.
+  private onSessionsRevoked: ((userId: string) => void) | null = null;
+  /** Wire the live-socket disconnect hook (gateway.disconnectUser). Idempotent. */
+  setSessionRevokedHook(fn: (userId: string) => void): void {
+    this.onSessionsRevoked = fn;
+  }
 
   // Per-identifier (email) FAILED-login throttle (MONEY-7/WEB-2). Counts only failures
   // in a fixed window; a correct password clears it, so a legit user is never locked by
@@ -155,6 +170,20 @@ export class AuthService {
   /** The lifecycle status carried on a user, for the account-state gate. */
   private statusOf(user: User): AccountStatus {
     return { state: user.accountState, reason: user.accountStateReason, until: user.accountStateUntil };
+  }
+
+  /** True if this user is the configured platform owner (ADMIN_EMAIL). Owner-targeting
+   *  account-state blocks are refused at the routes; this powers the login backstop. */
+  private isOwner(user: User): boolean {
+    return this.ownerEmail !== null && user.email.trim().toLowerCase() === this.ownerEmail;
+  }
+
+  /** True if `userId` is the configured platform owner (ADMIN_EMAIL). Used by the admin
+   *  routes to refuse banning/suspending/neutering the owner (admin-1/2/3). */
+  async isProtectedOwner(userId: string): Promise<boolean> {
+    if (this.ownerEmail === null) return false;
+    const user = await this.users.findById(userId);
+    return !!user && user.email.trim().toLowerCase() === this.ownerEmail;
   }
 
   /** Mint an access+refresh pair and PERSIST the refresh token (jti/family) so it
@@ -229,9 +258,13 @@ export class AuthService {
     // Correct credentials → clear the failure window (a real user is never locked out
     // by their own successful login).
     this.loginFailures.delete(email);
-    // Trust & safety: a banned / actively-suspended account cannot sign in.
-    const gate = this.accountState.checkLogin(this.statusOf(user));
-    if (!gate.allowed) throw new AuthError(gate.code!, gate.message!);
+    // Trust & safety: a banned / actively-suspended account cannot sign in — EXCEPT the
+    // configured owner (admin-3), who can never be locked out of their own platform by a
+    // stray ban (the admin routes also refuse banning the owner; this is the backstop).
+    if (!this.isOwner(user)) {
+      const gate = this.accountState.checkLogin(this.statusOf(user));
+      if (!gate.allowed) throw new AuthError(gate.code!, gate.message!);
+    }
     return { user: toPublicUser(user), tokens: await this.issueSession(user) };
   }
 
@@ -289,6 +322,11 @@ export class AuthService {
   async revokeAllSessions(userId: string): Promise<void> {
     await this.users.bumpTokenVersion(userId);
     await this.refreshTokens.revokeAllForUser(userId).catch(() => undefined);
+    // Drop any LIVE socket too (socket-1 / auth-9): bumping tokenVersion now rejects the
+    // socket on its next handshake/reAuth (ver check), but an already-connected socket
+    // must be kicked at once — otherwise logout-all / password-reset wouldn't end live
+    // play until the next (re)connect. Mirrors the ban/suspend kick. Best-effort.
+    try { this.onSessionsRevoked?.(userId); } catch { /* never let a kick failure block revoke */ }
   }
 
   // ---------- Email verification & password reset ---------------------------
@@ -474,9 +512,29 @@ export class AuthService {
    *  Used by the socket auth middleware so a banned user with a still-valid access
    *  token can't (re)connect — closing the live-token window after a ban. */
   async checkLogin(userId: string): Promise<AccountCheck> {
-    const status = await this.getAccountStatus(userId);
-    if (!status) return { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
-    return this.accountState.checkLogin(status);
+    const user = await this.users.findById(userId);
+    if (!user) return { allowed: false, code: 'unknown', message: 'Profil i panjohur.' };
+    // Owner is never locked out by a stray account-state block (admin-3 backstop).
+    if (this.isOwner(user)) return { allowed: true };
+    return this.accountState.checkLogin(this.statusOf(user));
+  }
+
+  /**
+   * Revocation-aware gate for a LIVE socket (handshake / reAuth), given the token's
+   * already-verified `ver` claim. Mirrors authorizeRequest but skips the token re-verify
+   * (the gateway already did it). Rejects when the user is gone, the token's tokenVersion
+   * is stale (force-logout / ban / reset / logout-all bumped it), or login is blocked
+   * (banned / active suspension; `frozen` is still allowed to play their own funds).
+   * Resolves the user ONCE so the socket layer issues a single DB read.
+   */
+  async checkSession(userId: string, ver: number): Promise<AccountCheck> {
+    const user = await this.users.findById(userId);
+    if (!user) return { allowed: false, code: 'unauthorized', message: 'Token i pavlefshëm.' };
+    // The `ver` (revocation) check ALWAYS applies — even the owner's old token must die on
+    // a logout-all/reset. Only the account-state block is owner-exempt.
+    if (ver !== user.tokenVersion) return { allowed: false, code: 'unauthorized', message: 'Sesioni ka skaduar. Hyr përsëri.' };
+    if (this.isOwner(user)) return { allowed: true };
+    return this.accountState.checkLogin(this.statusOf(user));
   }
 
   /** Update compliance fields (admin KYC verification, self-exclusion). Low-level
@@ -546,8 +604,12 @@ export class AuthService {
       // Stale token: a force-logout/ban/reset bumped tokenVersion after it was minted.
       return { ok: false, status: 401, code: 'unauthorized', message: 'Sesioni ka skaduar. Hyr përsëri.' };
     }
-    const gate = this.accountState.checkLogin(this.statusOf(user));
-    if (!gate.allowed) return { ok: false, status: 403, code: gate.code ?? 'blocked', message: gate.message ?? 'Llogaria është e bllokuar.' };
+    // Owner is never locked out by a stray account-state block (admin-3 backstop); the
+    // `ver` revocation check above still applies to everyone.
+    if (!this.isOwner(user)) {
+      const gate = this.accountState.checkLogin(this.statusOf(user));
+      if (!gate.allowed) return { ok: false, status: 403, code: gate.code ?? 'blocked', message: gate.message ?? 'Llogaria është e bllokuar.' };
+    }
     return { ok: true, userId: user.id, username: user.username };
   }
 }
