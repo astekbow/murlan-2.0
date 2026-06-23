@@ -28,7 +28,7 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
       {/* Stack layers: each earlier play is offset up-left and dimmed; the newest sits
           front-and-centre at full opacity. The first layer is in-flow (sizes the box);
           the rest are absolutely positioned relative to it. */}
-      <div className="relative">
+      <div className="relative grid place-items-center">
         {layers.map((combo, i) => {
           const back = top - i; // 0 = newest (front), higher = older (further back)
           const isTop = i === top;
@@ -41,8 +41,13 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
           return (
             <div
               key={layerKey}
-              className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' is-new' : ''}`}
+              // All layers share ONE grid cell and are centred (place-items-center on the parent),
+              // so EVERY play — whatever its width — lands dead-centre; only `back` nudges the older
+              // ones up-left. (Before, the box was sized by the OLDEST layer and the new play was
+              // inset to it, so a wider/narrower play drifted to the side before recentring.)
+              className={`pile-cards${isTop ? ' is-new' : ''}`}
               style={{
+                gridArea: '1 / 1',
                 transform: `translate(${-back * 11}px, ${-back * 13}px)`,
                 opacity: isTop ? 1 : 0.5, // older plays just dimmed (no blur), as before
                 zIndex: i + 1,
