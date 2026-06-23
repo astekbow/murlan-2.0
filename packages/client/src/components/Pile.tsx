@@ -44,10 +44,7 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
               className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' is-new' : ''}`}
               style={{
                 transform: `translate(${-back * 11}px, ${-back * 13}px)`,
-                // Older plays recede: dimmer AND blurred the further back they are (the current
-                // play stays sharp), like a fading memory behind the live card.
-                opacity: isTop ? 1 : Math.max(0.34, 0.6 - (back - 1) * 0.18),
-                filter: back === 0 ? undefined : `blur(${back * 1.8}px)`,
+                opacity: isTop ? 1 : 0.5, // older plays just dimmed (no blur), as before
                 zIndex: i + 1,
               }}
             >
