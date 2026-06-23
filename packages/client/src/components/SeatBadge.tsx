@@ -35,14 +35,7 @@ function TurnRing({ deadline }: { deadline: number }) {
       <circle
         key={deadline} // restart the animation on each new turn
         className="turn-ring-arc" cx="20" cy="20" r="18" pathLength={100}
-        style={{
-          animationDuration: `${remaining}ms`,
-          // Also expose the duration as --turn-ms so the reduced-motion rule can KEEP this
-          // functional countdown running (the universal 0.001ms kill would otherwise snap it to
-          // empty = a false "time's up").
-          // @ts-expect-error — custom prop consumed by the reduced-motion override
-          '--turn-ms': `${remaining}ms`,
-        }}
+        style={{ animationDuration: `${remaining}ms` }}
       />
     </svg>
   );
@@ -83,8 +76,7 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
       {name}{partner && ` · ${t('seat.partner')}`}
     </div>
   );
-  const teamEl = team !== null && !partner ? <span className="seat-team">{t('seat.team', { n: team + 1 })}</span> : null;
-  const lowCards = count > 0 && count <= 1; // final-card warning cue on the count
+  const teamEl = team !== null && !partner ? <span className="text-[11px] text-cream/80">{t('seat.team', { n: team + 1 })}</span> : null;
   const top = placement === 'top';
 
   // Unified layout: the card-fan + count "(N)" sit TOGETHER at the top (count next to the
@@ -95,7 +87,7 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
     <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${dimmed ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-1.5">
         {fan}
-        <span className={`seat-cnt ${lowCards ? 'low' : ''}`}>({count})</span>
+        <span className="seat-cnt">({count})</span>
       </div>
       {avatarEl}
       {nameEl}
@@ -108,7 +100,7 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
       {lastPlayer && top && (
         <span className="lastp absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap">{t('seat.ledLast')}</span>
       )}
-      {status && <div className="seat-status">{status}</div>}
+      {status && <div className="text-[11px] text-cream/80 leading-tight">{status}</div>}
     </div>
   );
 }

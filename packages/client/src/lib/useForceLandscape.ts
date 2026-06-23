@@ -20,12 +20,7 @@ export function useForceLandscape(): LandscapeState {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    // Gate the canvas on ASPECT-RATIO, not a magic max-height:560px (which stranded mid-size
-    // landscape devices at 561–840px tall in the portrait flow while physically sideways). Any
-    // wide-enough phone/tablet in landscape (≥1.5:1, capped so true desktops/large tablets are
-    // excluded by max-height) gets the fixed-aspect canvas; the portrait/landscape branches are
-    // now mutually exhaustive on a phone (a device is either wider-than-tall or not).
-    const realLandscape = window.matchMedia('(orientation: landscape) and (min-aspect-ratio: 3/2) and (max-height: 840px)');
+    const realLandscape = window.matchMedia('(orientation: landscape) and (max-height: 560px)');
     // Portrait phone → force-rotate. NOTE: no `(pointer: coarse)` clause — some phones
     // and device emulators don't report it, which silently disabled the rotation.
     const phonePortrait = window.matchMedia('(orientation: portrait) and (max-width: 932px)');

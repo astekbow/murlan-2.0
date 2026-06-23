@@ -22,10 +22,8 @@
   --hairline: rgba(255, 255, 255, 0.08);
   --hairline-gold: rgba(232, 200, 121, 0.22);
 
-  /* Game-table felt — DEFAULT is now obsidian-and-gold (near-black, faintly green-tinted)
-     so the largest surface no longer fights the gold chrome. Themeable via cosmetics
-     (the felt_* classes still override these vars). */
-  --felt: #142019; --felt-hi: #1d2c23; --felt-edge: #070b09;
+  /* Game-table felt (UNCHANGED — themeable via cosmetics). */
+  --felt: #1c6b3e; --felt-hi: #2c9258; --felt-edge: #0a3a20;
 
   /* Gold — the signature accent. */
   --gold: #e8c879; --gold-hi: #fff3cf; --gold-deep: #a9842f; --gold-line: #c9a14d;
@@ -37,9 +35,6 @@
   /* Card + seat colors (table identity — kept). */
   --blue: #3f6fd6; --green: #34c46a;
   --cream: #fbfaf5; --ink: #14110c; --red: #c21f1f;
-  /* Default card-back: obsidian slate + gold pinstripe (on-brand). Maroon is an opt-in
-     cosmetic now, not the default. Cosmetic .cb_* classes override --cb. */
-  --cb-default: repeating-linear-gradient(45deg, #1a1d24 0 4px, #c9a14d 4px 5px, #20242d 5px 9px);
 
   /* Text contrast ladder (cooler/cleaner than the old warm beige). */
   --txt-hi: #f6f1e8; --txt: #d9d2c6; --txt-lo: #b8b0c8; --txt-faint: rgba(184, 176, 200, 0.80);
@@ -378,10 +373,8 @@ select:focus-visible,
   /* The betting ring — a faint gold ellipse where the pile is played. */
   .felt-ring {
     position: absolute; inset: 17% 13%; border-radius: 50%;
-    /* Resting gold ring lifted (0.45 → 0.6) so the table reads as gold-accented even before a
-       play lands — the centrepiece always shows the brand. */
-    border: 2.5px solid rgba(232, 200, 121, 0.6);
-    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 22px rgba(232, 200, 121, 0.18);
+    border: 2.5px solid rgba(232, 200, 121, 0.45);
+    box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.3), inset 0 0 22px rgba(232, 200, 121, 0.14);
     pointer-events: none; z-index: 1;
     /* Border + glow ramp TOGETHER (softer idle → solid gold) so the zone 'glows in' as
        the cards land, instead of the border snapping ahead of the shadow. */
@@ -407,16 +400,10 @@ select:focus-visible,
   /* ---- Seat avatar + status rings --------------------------------------- */
   .av {
     position: relative; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
-    font-family: 'Oswald', sans-serif; font-weight: 800; font-size: 16px; color: #0c1410;
-    /* Idle ring = a NEUTRAL cream hairline wrapped in a dark halo so it reads on ANY felt
-       (the old saturated blue vanished on a blue felt). Only the active turn uses real hue (gold). */
-    background: linear-gradient(180deg, #dfe9f5, #9fb3cf);
-    box-shadow: 0 8px 18px -8px #000, 0 0 0 2px rgba(0, 0, 0, 0.55);
-    border: 3px solid rgba(246, 241, 232, 0.78);
+    font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 16px; color: #0c1410;
+    background: linear-gradient(180deg, #dfe9f5, #9fb3cf); box-shadow: 0 8px 18px -8px #000; border: 3px solid var(--blue);
   }
-  /* "Led last" = a muted gold/amber outline (was neon green) — still neutral-ish, reserves
-     real hue for the active turn. */
-  .av.green { border-color: var(--gold-deep); box-shadow: 0 8px 18px -8px #000, 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 10px rgba(169, 132, 47, 0.45); }
+  .av.green { border-color: var(--green); }
   /* Active opponent: a thick gold halo that PULSES — readable in peripheral vision even
      at the 36px landscape avatar, where the thin depleting ring alone was easy to miss. */
   .av.turn { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(232, 200, 121, 0.78), 0 0 22px rgba(230, 197, 112, 0.7); animation: turn-pulse 1.4s ease-in-out infinite; }
@@ -476,23 +463,15 @@ select:focus-visible,
     box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
   }
   @keyframes deplete-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
-  /* Count + name + status all share ONE family (Oswald) so the seat pod reads as one unit
-     and there's no typeface mismatch where the name and "(N)" touch. The count is cream/gold
-     with a dark halo (was neon green = green-on-green + off-palette). */
-  .seat-cnt { font-family: 'Oswald', sans-serif; font-weight: 800; font-size: 13px; color: var(--gold-hi); text-shadow: 0 1px 2px #000, 0 0 4px rgba(0, 0, 0, 0.7); }
-  /* Final-card warning: the count goes warm-amber only when an opponent is down to their last card. */
-  .seat-cnt.low { color: #ffd27a; text-shadow: 0 1px 2px #000, 0 0 6px rgba(255, 122, 77, 0.5); }
-  .seat-nm { font-family: 'Oswald', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.2px; color: var(--txt-hi); text-shadow: 0 1px 3px #000, 0 0 4px rgba(0, 0, 0, 0.6); }
-  .seat-nm.partner { color: var(--gold-hi); }
-  .seat-status { font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; color: var(--cream); opacity: 0.85; text-shadow: 0 1px 2px #000; line-height: 1.1; }
-  .seat-team { font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 600; color: var(--cream); opacity: 0.8; }
-  /* "Led last" badge → a gold-bordered dark chip (was solid blue → blue-on-blue invisible). */
-  .lastp { font-family: 'Oswald', sans-serif; font-size: 10px; font-weight: 700; color: var(--gold-hi); background: rgba(0, 0, 0, 0.55); border: 1px solid var(--gold-line); border-radius: 6px; padding: 2px 8px; letter-spacing: 0.3px; text-shadow: 0 1px 2px #000; }
+  .seat-cnt { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 13px; color: #7cffa8; text-shadow: 0 1px 2px #000; }
+  .seat-nm { font-size: 12px; font-weight: 600; color: var(--muted-sm); text-shadow: 0 1px 3px #000; }
+  .seat-nm.partner { color: #9bd0f5; }
+  .lastp { font-size: 10px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 2px 8px; letter-spacing: 0.3px; }
 
   /* ---- Face-down mini fan (opponents — COUNT only, never identities) ----- */
   .mini {
     width: 22px; height: 32px; border-radius: 4px; margin-left: -13px;
-    background: var(--cb, var(--cb-default));
+    background: var(--cb, repeating-linear-gradient(45deg, #8f2620 0 4px, #a23029 4px 8px));
     box-shadow: 0 4px 8px -3px #000, inset 0 0 0 1.5px #f1deae, inset 0 0 0 2px rgba(0, 0, 0, 0.25);
   }
   .mini:first-child { margin-left: 0; }
@@ -520,6 +499,11 @@ select:focus-visible,
 
   /* ---- Hand (drag-to-reorder fan; cards absolutely placed by JS) ---------- */
   .hand-stage { position: relative; margin: 0 auto; --card-lift: 32px; }
+  /* On a short landscape (small phone), a 32px selected-lift eats too much vertical
+     room — clamp it so the raised card never peeks into the top bar. */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .hand-stage { --card-lift: 20px; }
+  }
   .hand-card {
     position: absolute; transform-origin: bottom center; cursor: grab; touch-action: none;
     transition: left 0.18s ease, transform 0.18s ease;
@@ -557,12 +541,10 @@ select:focus-visible,
    (which .rail-inner reads) and the card-back gradient var (which .mini reads). */
 .felt_red { --felt-hi: #94202b; --felt: #7c1620; --felt-edge: #330a0e; }
 .felt_emerald { --felt-hi: #1f9a6a; --felt: #0f6a44; --felt-edge: #06281a; }
-/* Cosmetic blues — desaturated to a subtle tint over a near-black base so the gold ring
-   stays the hero and the obsidian-&-gold identity holds (was royal/saturated blue). */
-.felt_sapphire { --felt-hi: #1e2c46; --felt: #121a2c; --felt-edge: #060a12; }
+.felt_sapphire { --felt-hi: #2f57b0; --felt: #18306e; --felt-edge: #0a1430; }
 .felt_wine { --felt-hi: #7a2240; --felt: #571530; --felt-edge: #2a0a18; }
 .felt_obsidian { --felt-hi: #2a2f3a; --felt: #15181f; --felt-edge: #060708; }
-.felt_midnight { --felt-hi: #1c2540; --felt: #121829; --felt-edge: #060912; }
+.felt_midnight { --felt-hi: #2a3a6a; --felt: #16224a; --felt-edge: #070c1c; }
 .cb_gold { --cb: repeating-linear-gradient(45deg, #9a7528 0 4px, #c9a14d 4px 8px); }
 .cb_emerald { --cb: repeating-linear-gradient(45deg, #0f6a44 0 4px, #1f9a6a 4px 8px); }
 .cb_sapphire { --cb: repeating-linear-gradient(45deg, #18306e 0 4px, #2f57b0 4px 8px); }
@@ -572,7 +554,7 @@ select:focus-visible,
 
 /* Shop preview swatches: a mini card-back / felt rendered from the theme vars. */
 .cosmo-swatch { width: 42px; height: 58px; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.6); }
-.cosmo-swatch.cardback { background: var(--cb, var(--cb-default)); }
+.cosmo-swatch.cardback { background: var(--cb, repeating-linear-gradient(45deg, #8f2620 0 4px, #a23029 4px 8px)); }
 .cosmo-swatch.felt { background: radial-gradient(125% 96% at 50% 35%, var(--felt-hi), var(--felt) 55%, var(--felt-edge)); }
 .cosmo-swatch.is-preview { outline: 2px solid var(--gold); outline-offset: 2px; }
 
@@ -586,7 +568,7 @@ select:focus-visible,
 .shop-cb {
   width: 46px; height: 64px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow: 0 9px 18px -8px rgba(0, 0, 0, 0.7);
-  background: var(--cb, var(--cb-default));
+  background: var(--cb, repeating-linear-gradient(45deg, #8f2620 0 4px, #a23029 4px 8px));
 }
 
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
@@ -617,16 +599,13 @@ select:focus-visible,
   55%  { opacity: 1; transform: translateY(-7px) scale(1.05) rotate(-2deg); }
   100% { opacity: 1; transform: none; }
 }
-/* Cards fly UP from the hand, overshoot a touch, then settle — a smooth "throw". SCOPED to the
-   NEW top layer (.is-new) only: settled history layers keep their content key (no remount) and
-   never re-run the throw on an unrelated play. throwin alone is the entrance — no animate-pop
-   on top of it, so the card can't double-bounce from two stacked timelines. */
-.pile-cards.is-new .gcard { animation: throwin 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.pile-cards.is-new .gcard:nth-child(2) { animation-delay: 0.04s; }
-.pile-cards.is-new .gcard:nth-child(3) { animation-delay: 0.08s; }
-.pile-cards.is-new .gcard:nth-child(4) { animation-delay: 0.12s; }
-.pile-cards.is-new .gcard:nth-child(5) { animation-delay: 0.16s; }
-.pile-cards.is-new .gcard:nth-child(n + 6) { animation-delay: 0.2s; }
+/* Cards fly UP from the hand, overshoot a touch, then settle — a smooth "throw". */
+.pile-cards .gcard { animation: throwin 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.pile-cards .gcard:nth-child(2) { animation-delay: 0.04s; }
+.pile-cards .gcard:nth-child(3) { animation-delay: 0.08s; }
+.pile-cards .gcard:nth-child(4) { animation-delay: 0.12s; }
+.pile-cards .gcard:nth-child(5) { animation-delay: 0.16s; }
+.pile-cards .gcard:nth-child(n + 6) { animation-delay: 0.2s; }
 
 /* "Going out" slow-mo: when a player empties their hand, the centre pile gets a
    brief, slow scale-up + gold glow to mark the finish. Keyed off a state flag in
@@ -637,10 +616,7 @@ select:focus-visible,
   40% { transform: scale(1.16); filter: drop-shadow(0 0 18px rgba(241, 222, 174, 0.85)); }
   100% { transform: scale(1); filter: none; }
 }
-/* Go-out finish: a single slow-mo scale on the pile CONTAINER. Delayed ~0.32s so the new
-   card's `throwin` (0.36s, on the card) finishes FIRST — the two motions sequence instead of
-   stacking three transforms on one element (animate-pop was removed). */
-.finish-pop { animation: finishpop 0.78s cubic-bezier(0.16, 0.84, 0.28, 1) 0.32s both; }
+.finish-pop { animation: finishpop 0.78s cubic-bezier(0.16, 0.84, 0.28, 1) both; }
 
 /* Winner pot-slide: a gold chip stack slides up into the winnings figure when the
    match-end overlay reveals a staked payout. Plays once (mounts with the overlay).
@@ -740,21 +716,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  /* The letterbox bars (on phone ratios ≠ 1280/590) are painted with the app's OBSIDIAN
-     gradient — not pure black — so the dead strips read as on-brand chrome, never a broken
-     black bar around a live table. Also carries the device safe-area as PADDING so the %-based
-     canvas grid stays constant (insets don't deform the canvas itself). */
-  background:
-    radial-gradient(120% 80% at 50% -8%, rgba(232, 200, 121, 0.07), transparent 55%),
-    radial-gradient(100% 90% at 50% 118%, rgba(58, 15, 22, 0.5), transparent 62%),
-    linear-gradient(180deg, var(--bg-1), var(--bg-0) 64%);
-  background-color: var(--bg-0);
-  padding:
-    env(safe-area-inset-top)
-    env(safe-area-inset-right)
-    env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
-  box-sizing: border-box;
+  background: transparent;   /* let the app's patterned dark background show through the letterbox */
   z-index: 0;
 }
 /* THE canvas. aspect-ratio + width:min(...) = contain. container-type:size enables
@@ -762,13 +724,8 @@ select:focus-visible,
 .tv-ls .tv-canvas {
   position: relative;
   aspect-ratio: 1280 / 590;
-  /* CONTAIN within the wrap's content box. We subtract the safe-area insets from the available
-     viewport so the canvas never slides under a notch and the %-based grid stays constant
-     (the wrap also pads by the insets; the flex centring keeps it tidy on every ratio). */
-  --avail-w: calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right));
-  --avail-h: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-  width: min(var(--avail-w), calc(var(--avail-h) * 1280 / 590));
-  height: min(var(--avail-h), calc(var(--avail-w) * 590 / 1280));
+  width: min(100vw, calc(100dvh * 1280 / 590));
+  height: min(100dvh, calc(100vw * 590 / 1280));
   container-type: size;
   overflow: visible;           /* raised cards / seat fans may peek past the edge */
 }
@@ -783,30 +740,19 @@ select:focus-visible,
    the timer + ☰ history + 💬 chat + 😊 emoji anchor right (chat ~88.5%, emoji
    ~94%, ☰ just-left-of-chat). Centered vertically at ~cy 7-8%. ------------- */
 .tv-ls .tvc-topbar {
-  /* Safe-area is now reserved by the canvas-wrap PADDING (not here) so these % stay constant
-     on notched phones — the left/right groups can no longer slide under the Dynamic Island. */
-  left: 2%;
-  right: 2%;
-  top: 1.5%;
+  left: max(2%, env(safe-area-inset-left));
+  right: max(2%, env(safe-area-inset-right));
+  top: max(1.5%, env(safe-area-inset-top));
   height: 9%;                  /* shorter → the score/buttons sit HIGH, clear of the table */
-  min-height: 40px;            /* floor so the bar + its pills never collapse under the felt */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1.5%;
   z-index: 8;                  /* above the felt */
 }
-/* Left (Largohu + score) and right (timer + chat/emoji) groups each get a width budget so
-   they can't collide; the score truncates instead of overrunning. */
-.tv-ls .tvc-topbar > * { min-width: 0; }
-.tv-ls .tvc-topbar > *:first-child { max-width: 58%; }
-.tv-ls .tvc-topbar > *:last-child { max-width: 42%; flex: 0 0 auto; }
-.tv-ls .tvc-topbar .font-display { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* Sized as % of canvas WIDTH (cqw); a ≥44px FLOOR keeps them tappable once the canvas is
-   scaled down for a phone (the old min-width/min-height:0 silently defeated the global 44px
-   WCAG safeguard). Larger base (6.6cqw) + a bit more inter-button gap (see topbar gap). */
+/* Sized as % of canvas WIDTH (cqw) like the spec (Ø ~4.5%w = 42pt) — cqh made them tiny. */
 .tv-ls .tvc-topbar .iconbtn {
-  width: 6.6cqw; height: 6.6cqw; min-width: 44px; min-height: 44px; font-size: 3cqw;
+  width: 5cqw; height: 5cqw; min-width: 0; min-height: 0; font-size: 2.7cqw;
   background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
   border: 1px solid var(--hairline-gold) !important;
   backdrop-filter: blur(7px);
@@ -817,19 +763,13 @@ select:focus-visible,
   border-color: var(--gold) !important;
   box-shadow: 0 8px 20px -12px #000, 0 0 16px rgba(232, 200, 121, 0.2);
 }
-/* A bit more breathing room between the right-cluster controls (timer + 💬 + 😊) so the
-   ≥44px hit areas don't touch (they were spaced only ~1.5% apart). */
-.tv-ls .tvc-topbar > *:last-child { gap: 2.6cqw !important; }
-/* Largohu (FORFEIT) — a glass pill, but DANGER-tinted (subtle red hairline + warm text) so
-   leaving a live paid match never looks like the throwaway chat/emoji buttons; extra right
-   margin separates it from everything else. The confirm modal still gates the action. */
+/* Largohu — elegant glass pill (obsidian-&-gold), position unchanged. */
 .tv-ls .tvc-topbar .btn {
   padding: 1.5cqh 3.2cqw !important;
-  margin-right: 1.5cqw;
   font-size: 2.4cqw !important;
   border-radius: 9999px !important;
-  background: linear-gradient(180deg, rgba(46, 22, 24, 0.72), rgba(20, 10, 12, 0.66)) !important;
-  border: 1px solid rgba(216, 71, 58, 0.45) !important;
+  background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
+  border: 1px solid var(--hairline-gold) !important;
   color: var(--txt-hi) !important;
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
@@ -837,72 +777,40 @@ select:focus-visible,
   letter-spacing: 0.3px;
 }
 .tv-ls .tvc-topbar .btn:hover:not(:disabled) {
-  border-color: var(--danger) !important;
-  box-shadow: 0 8px 20px -12px #000, 0 0 16px rgba(216, 71, 58, 0.3) !important;
+  border-color: var(--gold) !important;
+  box-shadow: 0 8px 20px -12px #000, 0 0 16px rgba(232, 200, 121, 0.2) !important;
 }
-/* Score (T1/T2 → target): compact up top but with a 12px floor so it never drops below the
-   comfortable arm's-length landscape minimum on a small phone. */
-.tv-ls .tvc-topbar .seat-cnt, .tv-ls .tvc-topbar .text-sm, .tv-ls .tvc-topbar .text-xs { font-size: clamp(12px, 1.9cqw, 16px); }
-/* Timer + spectator pills: scale in cqh/cqw like the rest of the bar (their fixed px padding
-   stayed put while neighbours scaled, and a fixed py could exceed the bar). Padding in cqh/cqw,
-   height capped to the bar, font in cqw with a 12px floor. The countdown is the highest-stakes
-   info — now unified with the other controls. */
-.tv-ls .tvc-topbar .tvc-timer,
-.tv-ls .tvc-topbar .tvc-spectators {
-  padding: 1.1cqh 2.4cqw !important;
-  font-size: clamp(12px, 1.9cqw, 16px) !important;
-  max-height: 7cqh;
-  line-height: 1;
-}
+/* Score (T1/T2 → target): smaller so it stays compact up top and never reaches the felt. */
+.tv-ls .tvc-topbar .seat-cnt, .tv-ls .tvc-topbar .text-sm, .tv-ls .tvc-topbar .text-xs { font-size: 1.7cqw; }
 
-/* ---- Felt / table: lifted (top 10%) + SHORTER (42%) so a real gutter opens between the
-   felt bottom (~52%) and the bottom-anchored TALL hand fan (cards stay tall — owner's
-   choice — we buy the separation from the felt, not by shrinking cards). Slightly WIDER
-   (60%) so the side seats clear the rim. */
+/* ---- Felt / table: lowered a touch (top 12%) vs the spec's 9% — it read as "too high". */
 .tv-ls .tvc-felt {
-  left: 20%;
-  top: 10%;
-  width: 60%;
-  height: 42%;
+  left: 22%;
+  top: 12%;
+  width: 56%;
+  height: 48%;
   z-index: 1;
 }
-.tv-ls .tvc-felt .rail-outer { height: 100%; padding: 1.4cqh; border-radius: 18% / 30%; box-shadow: 0 52px 100px -34px #000, inset 0 3px 4px rgba(255, 255, 255, 0.14), inset 0 -7px 16px rgba(0, 0, 0, 0.75), inset 0 0 0 1px var(--hairline-gold); }
-/* Thin resting gold rail on the felt edge (owner removed the wordmark, so the gold accent
-   comes from the rim, not a logo) — keeps a quiet gold presence on the idle table. */
-.tv-ls .tvc-felt .rail-inner {
-  height: 100%; min-height: 0; border-radius: 16% / 26%;
-  box-shadow: inset 0 0 0 1px var(--hairline-gold), inset 0 0 0 3px rgba(0, 0, 0, 0.4), inset 0 0 120px rgba(0, 0, 0, 0.62), inset 0 8px 30px rgba(255, 255, 255, 0.06);
-}
+.tv-ls .tvc-felt .rail-outer { height: 100%; padding: 1.4cqh; border-radius: 18% / 30%; }
+.tv-ls .tvc-felt .rail-inner { height: 100%; min-height: 0; border-radius: 16% / 26%; }
 .tv-ls .tvc-felt .felt-ring { inset: 14% 18%; }
 .tv-ls .tvc-felt .tlogo { display: none; }   /* owner: remove the MURLAN logo from the table */
 
-/* ---- Centre played pile: centred on the betting-ring centre (cx 50%, cy ~31% — felt
-   top 10% + half of its 42% height). Lifted to match the felt so a clear gutter opens
-   below it, above the bottom-anchored hand. ----------- */
+/* ---- Centre played pile: center cx 50% cy 38.5%, each card ≈ 8%w ----------- */
 .tv-ls .tvc-pile {
   left: 50%;
-  top: 31%;
+  top: 39.5%;
   transform: translate(-50%, -50%);
   z-index: 4;
   pointer-events: none;
-  /* History drift expressed RELATIVE to the canvas (cqw) so the stack scales with the table,
-     not a fixed px spread; small values keep the (capped) history inside the betting ring. */
-  --pile-step-x: 0.9cqw;
-  --pile-step-y: 1.1cqw;
 }
-/* Card ≈ 8% of canvas WIDTH; height from the SAME 1.82 ratio as the hand (a card no longer
-   changes shape between hand and pile). Pile cards overlap a touch tighter so the rank tuck
-   stays visible. */
+/* Card ≈ 8% of canvas WIDTH; height auto from the 1.4 ratio (≈ 0.08*1280*1.4 px). */
 .tv-ls .tvc-pile .pile-cards .gcard {
   width: 8cqw;
-  height: calc(8cqw * 1.82);
-  margin-left: -3cqw;          /* overlap (looser → the rank corner of each card shows) */
+  height: calc(8cqw * 1.4);
+  margin-left: -4cqw;          /* overlap */
 }
 .tv-ls .tvc-pile .pile-cards .gcard:first-child { margin-left: 0; }
-/* Pile rank tuck: with the canvas pile cards sharing the hand's tall geometry, tuck the index
-   tight to the top-left so it isn't covered by the next card in the overlap. */
-.tv-ls .tvc-pile .gc-r { font-size: 20cqw; left: 6cqw; top: 6cqw; }
-.tv-ls .tvc-pile .gc-s { font-size: 16cqw; left: 7cqw; top: 30cqw; }
 
 /* ---- Opponent seats. Each wrapper is centered on its (cx,cy) via JS inline
    left/top + this translate; the avatar Ø = 5% of canvas width. ------------- */
@@ -913,17 +821,10 @@ select:focus-visible,
   align-items: center;
   z-index: 6;
 }
-/* Avatar initials raised to ~2.5cqw (was 1.8cqw → only ~36% of the disc); the disc keeps a
-   2.5cqw-equivalent ring so the idle hairline reads on any felt. */
-.tv-ls .tvc-seat .av { width: 5cqw; height: 5cqw; font-size: 2.5cqw; border-width: 0.55cqw; }
-/* Side-seat name clamped to ~11cqw so the (center-aligned) label can't overrun onto the felt
-   rail (felt spans 20–80%); seat/score type bumped off the 11px floor via clamp() with a 12px
-   floor for arm's-length legibility. ALL seat type is cqw now (no fixed px), incl. status+team. */
-.tv-ls .tvc-seat .seat-nm { max-width: 11cqw; font-size: clamp(12px, 2cqw, 18px); }
-.tv-ls .tvc-seat .seat-cnt { font-size: clamp(12px, 2.1cqw, 18px); }
-.tv-ls .tvc-seat .seat-status { font-size: clamp(11px, 1.6cqw, 15px); }
-.tv-ls .tvc-seat .seat-team { font-size: clamp(11px, 1.5cqw, 15px); }
-.tv-ls .tvc-seat .lastp { font-size: clamp(10px, 1.5cqw, 14px); padding: 0.2cqw 1cqw; }
+.tv-ls .tvc-seat .av { width: 5cqw; height: 5cqw; font-size: 1.8cqw; border-width: 2px; }
+.tv-ls .tvc-seat .seat-nm { max-width: 16cqw; font-size: 1.7cqw; }
+.tv-ls .tvc-seat .seat-cnt { font-size: 1.8cqw; }
+.tv-ls .tvc-seat .lastp { font-size: 1.4cqw; padding: 0.2cqw 1cqw; }
 .tv-ls .tvc-seat .mini { width: 2.4cqw; height: 3.4cqw; margin-left: -1.4cqw; }
 .tv-ls .tvc-seat .mini:first-child { margin-left: 0; }
 
@@ -945,22 +846,8 @@ select:focus-visible,
    wider. The rank+suit index is sized by the card's WIDTH (cqw) so it tracks that sliver —
    the full rank (incl. the 2-char "10") always fits — and is INDEPENDENT of card height,
    so making the cards taller never re-clips the rank. Tucked tight top-left. Landscape only. */
-/* Selected-card lift = a fraction of the canvas HEIGHT (cqh) so it scales with the
-   container-derived card, BOUNDED so a raised card can't intrude up into the felt on a short
-   phone. Set on the .hand-stage itself (the nearest ancestor that reads --card-lift) so it wins
-   over the base 32px. Replaces the old fixed 32/20px. */
-.tv-ls .tvc-hand .hand-stage { --card-lift: clamp(14px, 5cqh, 30px); }
-/* Index tucked tight top-LEFT (left 4cqw) and sized at 20cqw so the FULL 2-char rank
-   ("10"/"JK") fits inside the visible left sliver (Hand.tsx enforces a step floor ≥0.32·card
-   width to guarantee the room). Sized off card WIDTH so it tracks the sliver and never
-   re-clips when the card gets taller. */
-.tv-ls .tvc-hand .gc-r { font-size: 20cqw; left: 4cqw; top: 5cqw; line-height: 1; letter-spacing: -0.04em; }
-.tv-ls .tvc-hand .gc-s { font-size: 16cqw; left: 5cqw; top: 28cqw; }
-/* Second always-visible mark in the upper band: the centre suit pip is dead-centre (hidden
-   under the next card) and the bottom-right index is in the clipped tail — so on a tall card
-   the face was a blank cream slab. Pull a faint large suit pip into the upper-LEFT band, under
-   the index, so the card reads as a card (redundant corner + body mark) in the visible sliver. */
-.tv-ls .tvc-hand .gc-big { top: 52cqw; left: 5cqw; transform: none; font-size: 30cqw; opacity: 0.18; }
+.tv-ls .tvc-hand .gc-r { font-size: 22cqw; left: 5cqw; top: 5cqw; }
+.tv-ls .tvc-hand .gc-s { font-size: 17cqw; left: 6cqw; top: 30cqw; }
 /* The card-switch confirm bar sits ABOVE the fan; the fan still gets the full zone width. */
 .tv-ls .tvc-hand > .text-center { flex: 0 0 auto; }
 
@@ -1004,72 +891,29 @@ select:focus-visible,
 /* Text + Konfirmo + Anulo stay on a SINGLE row (no wrap → no button dropping to a 2nd line). */
 .tv-ls .tvc-switch .text-center > .flex { gap: 2.4cqw !important; flex-wrap: nowrap !important; }
 .tv-ls .tvc-switch span { font-size: 2.3cqw; color: var(--txt-hi); font-family: 'Oswald', sans-serif; letter-spacing: 0.3px; white-space: nowrap; }
-/* Konfirmo / Anulo: real tap targets (≥44px floor — the old min-height:0 defeated the WCAG
-   guard). Konfirmo stays dominant gold (btn-gold); Anulo gets a SOLID obsidian secondary fill
-   (not a transparent ghost) so both read as real buttons. */
-.tv-ls .tvc-switch .btn { font-size: 2.2cqw; padding: 1.4cqh 4cqw; min-height: 44px; min-width: 22cqw; border-radius: 9999px; white-space: nowrap; }
-.tv-ls .tvc-switch .btn-ghost {
-  background: linear-gradient(180deg, rgba(34, 31, 43, 0.96), rgba(13, 12, 18, 0.97)) !important;
-  border: 1px solid var(--gold-line) !important;
-  color: var(--gold-hi) !important;
-}
+.tv-ls .tvc-switch .btn { font-size: 2.2cqw; padding: 1.4cqh 3.4cqw; min-height: 0; border-radius: 9999px; white-space: nowrap; }
 
-/* ---- Pas / Luaj: round, cy 81%. Real primary/secondary hierarchy:
-   • Luaj (PLAY)  = gold-filled, LARGER (13.5cqw) + gold glow → the dominant "commit".
-   • Pas  (PASS)  = solid OBSIDIAN disc + gold hairline, SMALLER (11cqw) → a real secondary
-                    button, NOT a ghost outline (which read as disabled on busy felt). --- */
+/* ---- Pas / Luaj: round, Ø 12% of WIDTH, cx 12%/88%, cy 81% ----------------- */
 .tv-ls .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
 .tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
 .tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
 .tv-ls .ctrl-pass, .tv-ls .ctrl-play {
   position: absolute; top: 81%; z-index: 25;
+  width: 12cqw; height: 12cqw;
   transform: translate(-50%, -50%);
   flex: none !important; padding: 0 !important; border-radius: 9999px !important;
   display: flex; align-items: center; justify-content: center; line-height: 1;
-  font-weight: 800; white-space: nowrap;
-  box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
-  transition: filter .1s ease, transform .1s ease, box-shadow .15s ease;
+  font-weight: 700; font-size: 2.6cqw; box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75);
 }
-/* Pas — secondary: solid obsidian glass disc, gold hairline (not transparent). */
-.tv-ls .ctrl-pass {
-  left: 12%;
-  width: 11cqw; height: 11cqw; font-size: 2.5cqw;
-  color: var(--gold-hi) !important;
-  background: linear-gradient(180deg, rgba(34, 31, 43, 0.96), rgba(13, 12, 18, 0.97)) !important;
-  border: 1.5px solid var(--gold-line) !important;
-}
-/* Luaj — primary: gold-filled, larger, gold glow. */
-.tv-ls .ctrl-play {
-  left: 88%;
-  width: 13.5cqw; height: 13.5cqw; font-size: 2.8cqw;
-  color: var(--ink) !important;
-  background: linear-gradient(180deg, var(--gold-hi), var(--gold)) !important;
-  border: 0 !important;
-  box-shadow: 0 7px 18px -6px rgba(0, 0, 0, 0.75), 0 0 26px rgba(232, 200, 121, 0.45);
-}
-/* The base `.btn:hover/:active` set transform: translateY()/scale(), which WIPES the
-   translate(-50%,-50%) centering (the button JUMPED on tap). Re-assert centering AND add a
-   real press cue by SCALING AROUND the translate (.93) — tactile, never moves off-centre. */
-.tv-ls .ctrl-pass:hover:not(:disabled), .tv-ls .ctrl-play:hover:not(:disabled) { transform: translate(-50%, -50%) !important; filter: brightness(1.06); }
-.tv-ls .ctrl-pass:active:not(:disabled), .tv-ls .ctrl-play:active:not(:disabled) { transform: translate(-50%, -50%) scale(0.93) !important; filter: brightness(1.12); }
-/* Circular keyboard focus ring (the global fallback uses a 6px-radius rectangle, which the
-   round buttons fight; pin a round black-gold sandwich). */
-.tv-ls .ctrl-pass:focus-visible, .tv-ls .ctrl-play:focus-visible {
-  outline: none;
-  border-radius: 9999px !important;
-  box-shadow: 0 0 0 2px var(--ink), 0 0 0 5px var(--gold-hi), 0 7px 18px -6px rgba(0, 0, 0, 0.75);
-}
-/* Explicit DISABLED state, distinct from the active fills (in landscape the hint text + Clear
-   button are hidden, so the buttons carry the whole "can I act?" affordance). A flat, de-glowed,
-   dashed-hairline disc reads clearly as "not available" — not a dimmed gold twin. */
-.tv-ls .ctrl-pass:disabled, .tv-ls .ctrl-play:disabled {
-  background: rgba(20, 18, 26, 0.7) !important;
-  color: var(--txt-faint) !important;
-  border: 1.5px dashed rgba(232, 200, 121, 0.28) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4) !important;
-  filter: none !important;
-  opacity: 1 !important;
-}
+.tv-ls .ctrl-pass { left: 12%; }
+.tv-ls .ctrl-play { left: 88%; }
+/* The base `.btn:hover` / `.btn:active` set transform: translateY()/scale(), which WIPES
+   the translate(-50%,-50%) centering — and their specificity beats this rule, so on a tap
+   (touch fires :hover) the button JUMPED ~half its size = the "glitch". Re-assert the
+   centering on hover AND active with !important so it never moves; press cue = brightness. */
+.tv-ls .ctrl-pass, .tv-ls .ctrl-play { transition: filter .1s ease; }
+.tv-ls .ctrl-pass:hover, .tv-ls .ctrl-play:hover { transform: translate(-50%, -50%) !important; }
+.tv-ls .ctrl-pass:active, .tv-ls .ctrl-play:active { transform: translate(-50%, -50%) !important; filter: brightness(1.15); }
 
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */
 .pfp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
@@ -1129,12 +973,6 @@ select:focus-visible,
   }
   .spark,
   .tag-live .pls { animation: none; opacity: 0.7; }
-  /* FUNCTIONAL countdowns are EXEMPT: their animation-duration encodes the remaining turn
-     time (money-relevant). The universal 0.001ms kill made them snap to empty = a false
-     "time's up". Restore real durations; only the decorative GLOW loop on the bar is muted. */
-  .turn-ring-arc { animation-duration: var(--turn-ms, 0ms) !important; }
-  .local-turn-bar-fill { animation-duration: var(--turn-ms, 0ms) !important; }
-  .local-turn-bar, .av.turn { animation: none !important; }
 }
 
 /* ============================================================================

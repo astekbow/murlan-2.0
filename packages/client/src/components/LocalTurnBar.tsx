@@ -58,15 +58,7 @@ export function LocalTurnBar({ deadline }: { deadline: number | null }) {
       </div>
       <div className={`local-turn-bar${low ? ' low' : ''}`} aria-hidden>
         {/* key={deadline} restarts the depletion animation on each new turn */}
-        <div
-          key={deadline}
-          className={`local-turn-bar-fill ${low ? 'low' : ''}`}
-          style={{
-            animationDuration: `${remainingMs}ms`,
-            // @ts-expect-error — custom prop consumed by the reduced-motion override
-            '--turn-ms': `${remainingMs}ms`,
-          }}
-        />
+        <div key={deadline} className={`local-turn-bar-fill ${low ? 'low' : ''}`} style={{ animationDuration: `${remainingMs}ms` }} />
       </div>
     </div>
   );

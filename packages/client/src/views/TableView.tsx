@@ -57,12 +57,9 @@ const LS_SEAT_SLOT: Record<SeatPosition, 'top' | 'left' | 'right' | null> = {
 };
 /** center (cx,cy) of each opponent seat group, as % of the canvas. */
 const LS_SEAT_CXY: Record<'top' | 'left' | 'right', { cx: number; cy: number }> = {
-  // Top seat lowered to cy 18% so its fan + "(N)" count (rendered ABOVE the avatar) clear the
-  // top bar's right-side chat/emoji cluster — two HUD layers no longer overlap.
-  top: { cx: 49, cy: 18 },
-  // Side seats pushed slightly outward (cx 13/87) so they sit cleanly in the gutter, off the felt rim.
-  left: { cx: 13, cy: 42 },
-  right: { cx: 87, cy: 42 },
+  top: { cx: 49, cy: 12 },
+  left: { cx: 15, cy: 40 },
+  right: { cx: 86, cy: 40 },
 };
 
 /** A transient emote/quick-chat speech bubble above a seat. */
@@ -176,7 +173,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   }, [room.status, matchResult]);
 
   const { cardBack, tableFelt } = useCosmeticsStore();
-  const feltClass = tableFelt ?? ''; // '' → default obsidian-&-gold felt; else felt_red/felt_emerald/felt_midnight…
+  const feltClass = tableFelt ?? ''; // '' → default green felt; else felt_red/felt_emerald/felt_midnight
   const cbClass = cardBack && cardBack !== 'cb_classic' ? cardBack : '';
 
   const numPlayers = PLAYERS_PER_TYPE[room.type];
@@ -298,8 +295,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     haptics.tap();
     setFinishFx(true);
     if (finishTimer.current) window.clearTimeout(finishTimer.current);
-    // 1150ms = the finish-pop's 0.32s delay (lets throwin settle first) + its 0.78s run.
-    finishTimer.current = window.setTimeout(() => setFinishFx(false), 1150);
+    finishTimer.current = window.setTimeout(() => setFinishFx(false), 800);
   }, [game]);
 
   useEffect(() => () => {
@@ -345,7 +341,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               <b className="text-gold-hi tabular-nums">{s.val}</b>
             </span>
           ))}
-          <span className="opacity-70 ml-0.5 text-sm">→ {scoreboard.target}</span>
+          <span className="opacity-50 ml-0.5 text-xs">→ {scoreboard.target}</span>
         </span>
       )}
     </div>
@@ -355,7 +351,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
       {spectators > 0 && (
         <span
-          className="tvc-spectators inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
+          className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
           title={t('table.spectators', { n: spectators })}
           aria-label={t('table.spectators', { n: spectators })}
         >
@@ -585,7 +581,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             {[0, 1, 2, 3].map((i) => (
               // Use the player's equipped card-back (--cb, set by cbClass) so a
               // purchased back is actually visible to its buyer during the shuffle.
-              <div key={i} className="w-9 h-14 rounded-lg animate-shuffle" style={{ animationDelay: `${i * 90}ms`, background: 'var(--cb, var(--cb-default))', boxShadow: 'inset 0 0 0 1.5px #f1deae' }} />
+              <div key={i} className="w-9 h-14 rounded-lg animate-shuffle" style={{ animationDelay: `${i * 90}ms`, background: 'var(--cb, repeating-linear-gradient(45deg,#8f2620 0 4px,#a23029 4px 8px))', boxShadow: 'inset 0 0 0 1.5px #f1deae' }} />
             ))}
           </div>
           <div className="gold-text font-display font-semibold tracking-wide">{t('table.shuffling')}</div>
@@ -707,10 +703,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                   <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-0.5">{t('table.ratingMmr')}</div>
                   <div className="flex items-center justify-center gap-2">
                     <span className="font-display font-bold text-2xl tracking-wide text-txt tabular-nums">{myDelta.newRating}</span>
-                    <span
-                      className="font-display font-semibold text-lg tabular-nums"
-                      style={{ color: change >= 0 ? 'var(--success)' : 'var(--danger)' }}
-                    >
+                    <span className={`font-display font-semibold text-lg tabular-nums ${change >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
                       {change >= 0 ? `+${change}` : change}
                     </span>
                   </div>
