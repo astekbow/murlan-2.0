@@ -9,9 +9,9 @@ import { useT } from '../lib/i18n.ts';
  *  shows the whole trick instead of cards vanishing on every play. */
 function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[] }) {
   const t = useT();
-  // Oldest first → current last (rendered on top). Cap the visible depth so the stack
-  // never grows unwieldy in a long trick.
-  const layers = [...history, ...(pile ? [pile] : [])].slice(-6);
+  // Oldest first → current last (rendered on top). Keep only the current play + the 2
+  // previous ones; older plays drop off so the centre stays tidy.
+  const layers = [...history, ...(pile ? [pile] : [])].slice(-3);
 
   if (layers.length === 0) {
     return (
@@ -44,7 +44,10 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
               className={`pile-cards${i === 0 ? '' : ' absolute inset-0'}${isTop ? ' is-new' : ''}`}
               style={{
                 transform: `translate(${-back * 11}px, ${-back * 13}px)`,
-                opacity: isTop ? 1 : 0.5,
+                // Older plays recede: dimmer AND blurred the further back they are (the current
+                // play stays sharp), like a fading memory behind the live card.
+                opacity: isTop ? 1 : Math.max(0.34, 0.6 - (back - 1) * 0.18),
+                filter: back === 0 ? undefined : `blur(${back * 1.8}px)`,
                 zIndex: i + 1,
               }}
             >
