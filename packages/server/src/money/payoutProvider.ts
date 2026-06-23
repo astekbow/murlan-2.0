@@ -17,6 +17,14 @@ export interface PayoutResult {
   ok: boolean;
   providerRef?: string; // the provider's payout/batch id, on success
   error?: string;       // a short reason, on failure
+  // money-16: a failure is one of THREE kinds, and the caller MUST treat them differently:
+  //   • (neither flag) DEFINITE failure — the send did NOT happen → safe to refund.
+  //   • duplicate:true — the provider rejected because THIS withdrawal id was already
+  //     submitted (idempotency hit) → the original send stands → mark COMPLETED, NEVER refund.
+  //   • ambiguous:true — the outcome is UNKNOWN (network throw / timeout / 5xx) — the funds
+  //     MAY have left → NEVER refund; leave completed/flagged + alert; the reconciler decides.
+  duplicate?: boolean;
+  ambiguous?: boolean;
 }
 
 export interface PayoutProvider {

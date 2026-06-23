@@ -275,6 +275,26 @@ export class WalletService {
     return this.ledger.listByUser(userId);
   }
 
+  /** Sum a user's P2P transfers SENT (transfer_out) since `sinceMs`, as a POSITIVE cents
+   *  total (transfer_out rows are stored negative). Powers the rolling-24h transfer cap
+   *  (money-4/6) — ledger-derived so it's authoritative + can't be evaded by retries. */
+  async transferredOutSince(userId: string, sinceMs: number): Promise<number> {
+    const rows = await this.ledger.listByUser(userId);
+    return rows
+      .filter((t) => t.type === 'transfer_out' && t.createdAt >= sinceMs)
+      .reduce((s, t) => s + Math.abs(t.amountCents), 0);
+  }
+
+  /** Sum a user's P2P transfers RECEIVED (transfer_in) since `sinceMs`. Powers the money-7
+   *  "received funds can't auto-cash-out" signal — a withdrawal by a user who just received
+   *  P2P money is routed to MANUAL review (anti chip-dump / laundering pass-through). */
+  async transferredInSince(userId: string, sinceMs: number): Promise<number> {
+    const rows = await this.ledger.listByUser(userId);
+    return rows
+      .filter((t) => t.type === 'transfer_in' && t.createdAt >= sinceMs)
+      .reduce((s, t) => s + Math.abs(t.amountCents), 0);
+  }
+
   /** Bounded, newest-first page of a user's transactions for DISPLAY lists (HTTP
    *  history / GDPR export). `take` is clamped to [1, 500] (default 200); `cursor` is a
    *  transaction id for keyset paging. Unlike listTransactions() this never loads the

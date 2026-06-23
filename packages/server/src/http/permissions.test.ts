@@ -107,7 +107,10 @@ test('anti-escalation: a manage_admins-only admin cannot grant scopes it lacks o
   const { app, repo, tokenFor } = await build();
   const scopedAdmin = await repo.create({ username: 'rbadmin', email: 'rb@x.com', passwordHash: 'h', role: 'admin' });
   await repo.setPermissions(scopedAdmin.id, ['manage_admins']); // ONLY manage_admins
+  // The target is already a SCOPED admin (not a full one) — a scoped caller may only touch
+  // scoped admins (admin-2: it can NEVER mutate a FULL admin's permissions; see below test).
   const target = await repo.create({ username: 'tgt', email: 'tg@x.com', passwordHash: 'h', role: 'admin' });
+  await repo.setPermissions(target.id, ['moderate_chat']); // make it scoped, not full
   const tok = tokenFor(scopedAdmin.id, scopedAdmin.username);
 
   // Cannot grant a scope it does not hold.
@@ -116,10 +119,21 @@ test('anti-escalation: a manage_admins-only admin cannot grant scopes it lacks o
   // Cannot mint a FULL admin (empty list = all powers).
   const denyFull = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(tok), payload: { permissions: [] } });
   assert.equal(denyFull.statusCode, 403);
-  // CAN grant a subset of what it holds.
+  // CAN grant a subset of what it holds (to a scoped, non-full admin).
   const ok = await app.inject({ method: 'POST', url: `/api/admin/users/${target.id}/permissions`, headers: authH(tok), payload: { permissions: ['manage_admins'] } });
   assert.equal(ok.statusCode, 200);
   assert.deepEqual((await repo.findById(target.id))!.permissions, ['manage_admins']);
+  await app.close();
+});
+
+test('admin-2: a SCOPED admin cannot mutate the permissions of a FULL (peer) admin', async () => {
+  const { app, repo, tokenFor } = await build();
+  const scopedAdmin = await repo.create({ username: 'rbadmin2', email: 'rb2@x.com', passwordHash: 'h', role: 'admin' });
+  await repo.setPermissions(scopedAdmin.id, ['manage_admins']);
+  const fullPeer = await repo.create({ username: 'fullpeer', email: 'fp@x.com', passwordHash: 'h', role: 'admin' }); // permissions [] = full
+  const res = await app.inject({ method: 'POST', url: `/api/admin/users/${fullPeer.id}/permissions`, headers: authH(tokenFor(scopedAdmin.id, scopedAdmin.username)), payload: { permissions: ['manage_admins'] } });
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual((await repo.findById(fullPeer.id))!.permissions, []); // unchanged
   await app.close();
 });
 

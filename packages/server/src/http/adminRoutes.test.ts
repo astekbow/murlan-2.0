@@ -107,3 +107,42 @@ test('revenue breakdown reports rake + payout liability (players only, read-only
   assert.ok(Array.isArray(body.byDay) && Array.isArray(body.byType));
   await app.close();
 });
+
+// ===== admin-6: manual balance-adjust governance ============================
+
+test('adjust OVER the per-call ceiling is rejected (schema 400)', async () => {
+  const { app, userId, adminToken } = await build();
+  const res = await app.inject({ method: 'POST', url: `/api/admin/users/${userId}/adjust`, headers: authH(adminToken), payload: { deltaCents: 5_000_01, reason: 'too big' } });
+  assert.equal(res.statusCode, 400); // > $5,000 fails the schema bound
+  await app.close();
+});
+
+test('adjust over the per-ADMIN rolling-24h cap is rejected (422 over_daily_cap)', async () => {
+  const { app, userId, adminToken } = await build();
+  const url = `/api/admin/users/${userId}/adjust`;
+  // 4 × $5,000 = $20,000 (exactly the cap) all succeed; the 5th breaches → 422.
+  for (let i = 0; i < 4; i++) {
+    const ok = await app.inject({ method: 'POST', url, headers: authH(adminToken), payload: { deltaCents: 5_000_00, reason: `batch ${i}` } });
+    assert.equal(ok.statusCode, 200);
+  }
+  const over = await app.inject({ method: 'POST', url, headers: authH(adminToken), payload: { deltaCents: 100, reason: 'one more' } });
+  assert.equal(over.statusCode, 422);
+  assert.equal(over.json().error.code, 'over_daily_cap');
+  await app.close();
+});
+
+test('an admin CANNOT credit their OWN account (self_credit, 403)', async () => {
+  const { app, adminId, adminToken } = await build();
+  const res = await app.inject({ method: 'POST', url: `/api/admin/users/${adminId}/adjust`, headers: authH(adminToken), payload: { deltaCents: 1000, reason: 'self top-up' } });
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.json().error.code, 'self_credit');
+  await app.close();
+});
+
+test('an admin CAN debit their own account (only self-CREDIT is blocked)', async () => {
+  const { app, wallet, adminId, adminToken } = await build();
+  await wallet.adminAdjust(adminId, 2000, 'seed'); // give the admin a balance to debit (seed bypasses the route)
+  const res = await app.inject({ method: 'POST', url: `/api/admin/users/${adminId}/adjust`, headers: authH(adminToken), payload: { deltaCents: -500, reason: 'correction' } });
+  assert.equal(res.statusCode, 200);
+  await app.close();
+});

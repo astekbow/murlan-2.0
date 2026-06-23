@@ -8,7 +8,7 @@
 
 import { WalletService, InsufficientFundsError } from './walletService.ts';
 import type { UnitOfWork } from './unitOfWork.ts';
-import type { PayoutProvider } from './payoutProvider.ts';
+import type { PayoutProvider, PayoutResult } from './payoutProvider.ts';
 import { isValidTronAddress } from './tronAddress.ts';
 
 export type WithdrawalStatus = 'pending' | 'completed' | 'rejected';
@@ -56,6 +56,9 @@ export interface WithdrawalRepository {
   setAudit(id: string, audit: WithdrawalResolution): Promise<void>;
   listPending(): Promise<WithdrawalRecord[]>;
   listByUser(userId: string): Promise<WithdrawalRecord[]>;
+  /** Every COMPLETED withdrawal resolved at/after `sinceMs` — for the global + per-destination
+   *  rolling-24h auto-payout caps (money-7). Single-instance aggregate (one replica). */
+  listCompletedSince(sinceMs: number): Promise<WithdrawalRecord[]>;
 }
 
 export class InMemoryWithdrawals implements WithdrawalRepository {
@@ -105,6 +108,9 @@ export class InMemoryWithdrawals implements WithdrawalRepository {
   }
   async listByUser(userId: string): Promise<WithdrawalRecord[]> {
     return this.rows.filter((r) => r.userId === userId).map((r) => ({ ...r }));
+  }
+  async listCompletedSince(sinceMs: number): Promise<WithdrawalRecord[]> {
+    return this.rows.filter((r) => r.status === 'completed' && (r.resolvedAt ?? r.createdAt) >= sinceMs).map((r) => ({ ...r }));
   }
 }
 
@@ -240,7 +246,24 @@ export class WithdrawalService {
       return { ...claimed, providerRef: r.providerRef ?? null };
     }
 
-    // Send FAILED → refund the held funds FIRST (idempotent providerRef, so a re-run
+    // money-16: a failure is one of THREE kinds — only a DEFINITE failure may refund.
+    //   • duplicate: our withdrawOrderId was already submitted → the original send STANDS.
+    //     Keep the row COMPLETED, stamp the note, NEVER refund (would double-pay the player).
+    //   • ambiguous: the outcome is unknown (timeout/5xx/network) → the funds MAY have left.
+    //     Keep COMPLETED + flag for ops, NEVER refund; the reconciler reverses it ONLY if
+    //     Binance history confirms the send failed.
+    if (r.duplicate) {
+      await this.repo.setAudit(id, { providerRef: r.providerRef ?? null, failureReason: 'duplicate send (already paid) — marked paid, no refund' }).catch(() => {});
+      return { ...claimed, providerRef: r.providerRef ?? null, failureReason: 'duplicate send (already paid)' };
+    }
+    if (r.ambiguous) {
+      await this.repo.setAudit(id, { failureReason: `AMBIGUOUS send — left as paid, NOT refunded (verify on-chain): ${r.error ?? ''}`.slice(0, 280) }).catch(() => {});
+      // Surface as a special error so the admin UI/Telegram flags it, but the row stays
+      // 'completed' and the funds stay debited (no refund on a maybe-sent payout).
+      throw new WithdrawalError('payout_ambiguous', `Pagesa është e PASIGURT (mund të jetë dërguar): ${r.error ?? 'e panjohur'}. NUK u rikthye — verifiko on-chain para se ta provosh sërish.`);
+    }
+
+    // DEFINITE failure → refund the held funds FIRST (idempotent providerRef, so a re-run
     // can't double-refund) so the player is never short, then reverse the row.
     await this.wallet.credit(rec.userId, rec.amountCents, {
       type: 'admin_adjust', reason: 'rikthim: pagesa e tërheqjes dështoi', providerRef: `withdrawal_refund:${id}`,
@@ -249,11 +272,65 @@ export class WithdrawalService {
     throw new WithdrawalError('payout_failed', `Pagesa dështoi: ${r.error ?? 'e panjohur'}. Fondet u kthyen lojtarit — provoje sërish ose dërgo manualisht.`);
   }
 
+  /**
+   * AUTO-PAY path (off the response, fired by autoPayout.processWithdrawal). Identical
+   * safety to payoutNow — CLAIM the row (pending→completed) BEFORE sending, only send if
+   * the claim won (a concurrent reject/approve can't double-pay), refund ONLY on a DEFINITE
+   * failure (duplicate/ambiguous never refund) — but returns a structured outcome instead
+   * of throwing, since this runs in the background. Requires a REAL provider (the route
+   * only calls this for tier 'auto' with a configured provider).
+   */
+  async autoPayout(id: string, payout: PayoutProvider): Promise<{ outcome: 'paid' | 'duplicate' | 'ambiguous' | 'failed' | 'not_pending' | 'bad_destination'; providerRef?: string | null; error?: string }> {
+    const rec = await this.repo.find(id);
+    if (!rec) return { outcome: 'not_pending', error: 'not_found' };
+    if (rec.status !== 'pending') return { outcome: 'not_pending' };
+    // Defense-in-depth: never auto-send to a malformed address.
+    if (!isValidTronAddress(rec.destination)) return { outcome: 'bad_destination', error: 'invalid destination' };
+
+    // CLAIM first (atomic pending→completed): only ONE path proceeds. A racing reject()
+    // then sees not-pending and can't refund a payout we're about to send.
+    const claimed = await this.repo.setStatusIfPending(id, 'completed');
+    if (!claimed) return { outcome: 'not_pending' };
+
+    const r = await payout.payout({ withdrawalId: id, amountCents: rec.amountCents, address: rec.destination })
+      .catch((e): PayoutResult => ({ ok: false, ambiguous: true, error: `payout threw (ambiguous): ${String(e)}` }));
+
+    if (r.ok) {
+      await this.repo.setAudit(id, { providerRef: r.providerRef ?? null }).catch(() => {});
+      return { outcome: 'paid', providerRef: r.providerRef ?? null };
+    }
+    if (r.duplicate) {
+      await this.repo.setAudit(id, { providerRef: r.providerRef ?? null, failureReason: 'duplicate send (already paid) — auto, no refund' }).catch(() => {});
+      return { outcome: 'duplicate', providerRef: r.providerRef ?? null, error: r.error };
+    }
+    if (r.ambiguous) {
+      await this.repo.setAudit(id, { failureReason: `AMBIGUOUS auto-send — left paid, NOT refunded: ${r.error ?? ''}`.slice(0, 280) }).catch(() => {});
+      return { outcome: 'ambiguous', error: r.error };
+    }
+    // DEFINITE failure → idempotent refund + reverse out of completed (player made whole).
+    await this.wallet.credit(rec.userId, rec.amountCents, {
+      type: 'admin_adjust', reason: 'rikthim: auto-pagesa dështoi', providerRef: `withdrawal_refund:${id}`,
+    }).catch(() => {});
+    await this.repo.markReversed(id).catch(() => {});
+    return { outcome: 'failed', error: r.error };
+  }
+
   listPending(): Promise<WithdrawalRecord[]> {
     return this.repo.listPending();
   }
   listByUser(userId: string): Promise<WithdrawalRecord[]> {
     return this.repo.listByUser(userId);
+  }
+
+  /** money-7: total AUTO-paid (system-resolved, resolvedByAdminId===null) cents in the last
+   *  `windowMs`, optionally restricted to one destination address. Powers the global +
+   *  per-destination rolling-24h auto-payout caps. Excludes manually-approved payouts (which
+   *  an operator already vetted) — the caps bound the UNATTENDED auto-send blast radius. */
+  async autoPaidSince(sinceMs: number, destination?: string): Promise<number> {
+    const rows = await this.repo.listCompletedSince(sinceMs);
+    return rows
+      .filter((w) => w.resolvedByAdminId === null && (destination === undefined || w.destination === destination))
+      .reduce((s, w) => s + w.amountCents, 0);
   }
   find(id: string): Promise<WithdrawalRecord | null> {
     return this.repo.find(id);

@@ -301,6 +301,9 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
       notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,
+      dailyTransferCapCents: deps.config.dailyTransferCapCents, // money-4/6 (0 = unlimited)
+      globalAutoWithdrawCapCents: deps.config.globalAutoWithdrawCapCents, // money-7 (0 = off)
+      destAutoWithdrawCapCents: deps.config.destAutoWithdrawCapCents, // money-7 (0 = off)
       tronDeposit: deps.tronDeposit, depositWallet: deps.depositWallet, depositWatch: deps.depositWatch, tronDepositAddress: deps.config.tronDepositAddress,
       // Hosted-checkout deposits are disabled in prod when only the mock provider is
       // wired (real deposits use the on-chain TxID flow) — removes dead money surface.
@@ -308,7 +311,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser, adminEmail: deps.config.adminEmail });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, kickUser: deps.kickUser, adminEmail: deps.config.adminEmail, adjustDualControl: deps.config.adjustDualControl });
   }
 
   // Inbound Telegram admin bot: only mounted when the bot + its webhook secret are
@@ -526,6 +529,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   let payout: PayoutProvider = new NullPayoutProvider();
   if (config.autoWithdrawMaxCents > 0 && config.binanceApiKey && config.binanceApiSecret) {
     payout = new BinancePayoutProvider({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret, currency: config.autoWithdrawCurrency });
+    // money-7: auto-pay is LIVE (it moves real money unattended). WARN loudly if NO 24h cap
+    // is set (per-user, global, or per-destination are all 0) — an uncapped auto-pay rail is
+    // an unbounded hot-wallet-drain surface. Not fatal (the owner may run it deliberately
+    // small via AUTO_WITHDRAW_MAX_CENTS), but it must be a conscious choice.
+    if (config.dailyAutoWithdrawCapCents === 0 && config.globalAutoWithdrawCapCents === 0 && config.destAutoWithdrawCapCents === 0) {
+      // eslint-disable-next-line no-console
+      console.warn('⚠️  AUTO-PAYOUT is ENABLED (AUTO_WITHDRAW_MAX_CENTS>0 + Binance keys) but NO 24h cap is set (DAILY_AUTO_WITHDRAW_CAP_CENTS / GLOBAL_AUTO_WITHDRAW_CAP_CENTS / DEST_AUTO_WITHDRAW_CAP_CENTS are all 0). The auto-pay rail is then bounded only by per-tx AUTO_WITHDRAW_MAX_CENTS — set at least one 24h cap to limit the hot-wallet-drain blast radius.');
+    }
   }
   // Fee-free USDT-TRC20 deposits via on-chain TxID verify. PREFERRED: a watch-only
   // HD wallet (TRON_DEPOSIT_XPUB) gives every player a UNIQUE deposit address, so a
@@ -596,6 +607,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     verificationTokens: verificationTokensRepo,
     appUrl: config.clientOrigin,
     email,
+    ownerEmail: config.adminEmail, // owner is never locked out by a stray account-state block (admin-3)
   });
 
   // Admin bootstrap: promote the configured ADMIN_EMAIL to admin on boot (if that
@@ -603,10 +615,19 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // owner reach the admin panel without manual DB surgery.
   if (config.adminEmail) {
     void repo.findByEmail(config.adminEmail).then(async (u) => {
-      if (u && u.role !== 'admin') {
+      if (!u) return;
+      if (u.role !== 'admin') {
         await repo.setRole(u.id, 'admin');
         // eslint-disable-next-line no-console
         console.log(`[admin] promoted ${config.adminEmail} to admin`);
+      }
+      // Owner is a FULL admin by definition: reset any scoped permission list back to []
+      // on boot (admin-3). A scoped admin must never be able to neuter the owner's powers
+      // by stamping them a restrictive list — boot always restores them to full.
+      if (Array.isArray(u.permissions) && u.permissions.length > 0) {
+        await repo.setPermissions(u.id, []);
+        // eslint-disable-next-line no-console
+        console.log(`[admin] reset ${config.adminEmail} permissions to full (owner)`);
       }
     }).catch((e) => {
       // eslint-disable-next-line no-console
@@ -766,6 +787,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         };
       },
       // ---- Phase 3: balance adjust / void / tournaments (confirm-gated) ----
+      adjustDualControl: config.adjustDualControl, // admin-6 (OFF by default — solo owner)
       adminAdjust: async (userId, deltaCents, reason) => {
         try {
           const res = await wallet.adminAdjust(userId, deltaCents, reason);
@@ -927,6 +949,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   voidHolder.fn = (roomId, meta) => gateway.adminVoidMatch(roomId, meta);
   kickHolder.fn = (userId) => gateway.disconnectUser(userId);
   tournamentRunHolder.fn = (id) => void gateway.runTournamentMatches(id);
+  // Force-logout (logout-all / password-reset / ban via revokeAllSessions) must also drop
+  // the user's LIVE sockets, not just block the next (re)connect (socket-1 / auth-9).
+  auth.setSessionRevokedHook((userId) => gateway.disconnectUser(userId));
 
   // Crash recovery: refund any match a previous (crashed) process left 'active'
   // with stakes still escrowed. At boot no room is live yet, so every active row
