@@ -803,6 +803,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         const depositedToday = txs.some((t) => t.type === 'deposit' && Math.floor(t.createdAt / 86_400_000) === day);
         const withdrewToday = wds.some((w) => Math.floor(w.createdAt / 86_400_000) === day);
         const completed = wds.filter((w) => w.status === 'completed');
+        // Lifetime ledger sums, by type — "where did this player's money come from?".
+        const sumType = (t: string) => txs.filter((x) => x.type === t).reduce((s, x) => s + x.amountCents, 0);
+        const wonCents = sumType('payout');
+        const wageredCents = sumType('bet'); // negative
         return {
           userId: u.id,
           username: u.username,
@@ -814,6 +818,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           completedWithdrawals: completed.length,
           priorWithdrawalsCents: completed.reduce((s, w) => s + w.amountCents, 0),
           sameDayDepositWithdraw: depositedToday && withdrewToday,
+          funds: {
+            depositedCents: sumType('deposit'),
+            wonCents,
+            wageredCents,
+            transferInCents: sumType('transfer_in'),
+            transferOutCents: sumType('transfer_out'),
+            netGameCents: wonCents + wageredCents,
+          },
         };
       },
       listFlags: (minSeverity, limit) => antiCheat.listFlags({ minSeverity, limit }),

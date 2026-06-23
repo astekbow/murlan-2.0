@@ -67,7 +67,7 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     tournamentCreate: async (name: string, buyInCents: number, capacity: number) => { tCreate.push({ name, buyInCents, capacity }); return { ok: true as const, id: 'trn1', name }; },
     tournamentCancel: async (id: string) => { tCancel.push(id); return { ok: true as const }; },
     // Tier-2 fakes
-    userRisk: async (userId: string, anchorMs?: number) => { riskCalls.push({ userId, anchorMs }); return { userId, username: 'lojtari', accountAgeDays: 0.5, kycStatus: 'none', accountState: 'active', balanceCents: 1500, priorWithdrawals: 2, completedWithdrawals: 1, priorWithdrawalsCents: 800, sameDayDepositWithdraw: true }; },
+    userRisk: async (userId: string, anchorMs?: number) => { riskCalls.push({ userId, anchorMs }); return { userId, username: 'lojtari', accountAgeDays: 0.5, kycStatus: 'none', accountState: 'active', balanceCents: 1500, priorWithdrawals: 2, completedWithdrawals: 1, priorWithdrawalsCents: 800, sameDayDepositWithdraw: true, funds: { depositedCents: 2000, wonCents: 500, wageredCents: -700, transferInCents: 0, transferOutCents: 0, netGameCents: -200 } }; },
     listFlags: async (_min: number, _limit: number) => [{ id: 'f1', userId: 'u9', type: 'chip_dump', severity: 3, detail: 'humbi 3 herë radhazi te i njëjti', matchId: 'm1', createdAt: 0 }],
     messagePlayer: async (userId: string, title: string, body: string) => { msgCalls.push({ userId, title, body }); },
     liveState: async () => ({ matches: 2, potCents: 3000, byType: [{ type: 'quick', count: 2, potCents: 3000 }] }),

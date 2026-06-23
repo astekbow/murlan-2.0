@@ -71,6 +71,16 @@ export interface UserRiskView {
   completedWithdrawals: number;
   priorWithdrawalsCents: number;   // sum of completed payouts
   sameDayDepositWithdraw: boolean; // deposited AND withdrawing the same UTC day (cash-out abuse / laundering)
+  /** Where the player's money CAME FROM — lifetime ledger sums (cents) — so the operator
+   *  can tell at a glance if a cash-out is winnings vs just deposited funds passing through. */
+  funds: {
+    depositedCents: number;    // total deposited (top-ups / on-chain)
+    wonCents: number;          // total won from pots (payout credits)
+    wageredCents: number;      // total staked into pots (bet debits — negative)
+    transferInCents: number;   // received from other players (P2P)
+    transferOutCents: number;  // sent to other players (P2P — negative)
+    netGameCents: number;      // won + wagered (net result of actually playing)
+  };
 }
 
 /** One anti-cheat flag (mirrors SuspicionFlag) the operator can act on. */
@@ -659,8 +669,11 @@ export class TelegramAdminBot {
     // "today"), so an overnight-pending withdrawal is still judged against its real day.
     const r = await this.deps.userRisk(w.userId, w.createdAt).catch(() => null);
     if (!r) return void (await this.deps.bot.sendMessage('⚠️ S’u lexua dot profili i rrezikut.'));
+    const f = r.funds;
     const flags: string[] = [];
     if (r.sameDayDepositWithdraw) flags.push('⚠️ Depozitoi DHE po tërheq të njëjtën ditë');
+    // Cashing out money that was DEPOSITED (or received), not WON — a laundering / pass-through signal.
+    if (f.netGameCents <= 0 && f.depositedCents + f.transferInCents > 0) flags.push('⚠️ Po tërheq fonde të depozituara/marra, JO fitime nga loja');
     if (r.accountAgeDays < 1) flags.push('⚠️ Llogari < 24h e vjetër');
     if (r.kycStatus !== 'verified') flags.push(`KYC: ${escapeHtml(r.kycStatus)}`);
     if (r.accountState !== 'active') flags.push(`Gjendja: ${escapeHtml(r.accountState)}`);
@@ -668,6 +681,10 @@ export class TelegramAdminBot {
       `🔎 <b>Rreziku — ${escapeHtml(r.username)}</b>\n` +
       `Llogaria: ${Math.floor(r.accountAgeDays)} ditë · Bilanci: ${usd(r.balanceCents)}\n` +
       `Tërheqje më parë: ${r.priorWithdrawals} (${r.completedWithdrawals} të paguara, ${usd(r.priorWithdrawalsCents)})\n` +
+      `\n💰 <b>Nga vijnë lekët</b> (gjithë kohën)\n` +
+      `Depozituar: <b>${usd(f.depositedCents)}</b>\n` +
+      `Fituar në lojë: <b>${usd(f.wonCents)}</b> · vënë bast: ${usd(-f.wageredCents)} → neto loja: <b>${usd(f.netGameCents)}</b>\n` +
+      (f.transferInCents || f.transferOutCents ? `Nga shokë: +${usd(f.transferInCents)} / -${usd(-f.transferOutCents)}\n` : '') +
       (flags.length ? `\n${flags.join('\n')}` : '\n✅ Asnjë flamur i dukshëm rreziku.');
     const buttons: InlineButton[][] = [];
     if (this.deps.setAccountState) buttons.push([{ text: '🧊 Ngrij', callbackData: `us:freeze:${r.userId}` }, { text: '🚫 Blloko', callbackData: `us:ban:${r.userId}` }]);
