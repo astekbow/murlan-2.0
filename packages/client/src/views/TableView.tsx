@@ -541,9 +541,14 @@ export function TableView({ room }: { room: RoomStateDTO }) {
 
         {/* Hand zone — left 30% top 60% w 43% h 35% (center 51.5%, 77%). */}
         <div className="tvc-hand">
-          {switchOrBubble}
+          {!switching ? switchOrBubble : null}
           {handBlock}
         </div>
+
+        {/* During the card switch the confirm bar must NOT live inside the tall, bottom-
+            anchored hand zone (the cards bury it). Render it as a clear floating panel on
+            TOP of everything — Play/Pass are hidden during the switch so the bottom is free. */}
+        {switching ? <div className="tvc-switch">{switchOrBubble}</div> : null}
 
         {/* Pas / Luaj round buttons — CSS pins them to cx 12%/88%, cy 81%. */}
         {controlsBlock}

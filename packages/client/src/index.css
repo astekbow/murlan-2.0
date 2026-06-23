@@ -824,6 +824,27 @@ select:focus-visible,
 /* The card-switch confirm bar sits ABOVE the fan; the fan still gets the full zone width. */
 .tv-ls .tvc-hand > .text-center { flex: 0 0 auto; }
 
+/* Card-switch confirm bar (landscape): a clear floating panel pinned bottom-centre, ON TOP
+   of the cards, so the give-card confirm is always visible + tappable (Play/Pass are hidden
+   during the switch, so the bottom is free). */
+.tv-ls .tvc-switch {
+  position: absolute;
+  left: 50%;
+  bottom: 3%;
+  transform: translateX(-50%);
+  z-index: 40;                 /* above cards (20) + buttons (25) */
+  pointer-events: auto;
+  max-width: 94%;
+  background: rgba(13, 12, 18, 0.95);
+  border: 1px solid var(--gold-line);
+  border-radius: 14px;
+  padding: 2cqh 3cqw;
+  box-shadow: 0 12px 34px -10px #000;
+}
+.tv-ls .tvc-switch .text-center { padding: 0 !important; }
+.tv-ls .tvc-switch span { font-size: 2.3cqw; }
+.tv-ls .tvc-switch .btn { font-size: 2.3cqw; padding: 1.4cqh 3cqw; min-height: 0; }
+
 /* ---- Pas / Luaj: round, Ø 12% of WIDTH, cx 12%/88%, cy 81% ----------------- */
 .tv-ls .ctrl-wrap { padding: 0 !important; gap: 0 !important; }
 .tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
