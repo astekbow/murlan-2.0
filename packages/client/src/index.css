@@ -915,9 +915,13 @@ select:focus-visible,
    see on the felt). Luaj keeps its gold fill + a gold glow so the primary action pops. */
 .tv-ls .ctrl-pass {
   left: 12%;
-  background: linear-gradient(180deg, rgba(40, 37, 50, 0.96), rgba(13, 12, 18, 0.97)) !important;
-  border: 1.5px solid var(--gold-line) !important;
-  color: var(--txt-hi) !important;
+  /* Clearly visible on the felt: a LIGHTER slate disc (not near-black, which blended in),
+     a bright 2px gold ring + soft gold glow, and gold text. Distinct from the gold-FILLED
+     Luaj, but obviously a real button. */
+  background: radial-gradient(120% 120% at 50% 28%, #423c52, #1b1925) !important;
+  border: 2px solid var(--gold) !important;
+  color: var(--gold-hi) !important;
+  box-shadow: 0 0 16px rgba(232, 200, 121, 0.32), 0 8px 20px -6px rgba(0, 0, 0, 0.8) !important;
 }
 .tv-ls .ctrl-play {
   left: 88%;
