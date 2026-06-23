@@ -59,6 +59,7 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     findUser: async (q: string) => (q === user.id || q === user.email || q === user.username ? { ...user } : null),
     setAccountState: async (userId: string, patch) => { stateCalls.push({ userId, state: patch.state, until: patch.until }); user.accountState = patch.state; user.accountStateReason = patch.reason; user.accountStateUntil = patch.until; return true; },
     kickUser: (userId: string) => { kicked.push(userId); },
+    usernameFor: async (id: string) => ({ u1: 'Beni', u9: 'Lira' } as Record<string, string>)[id] ?? null,
     support: { list: async () => tickets, get: async () => tickets[0], resolve: async (id: string) => { resolved.push(id); return { ...tickets[0]!, status: 'resolved' }; }, create: async () => tickets[0], listByUser: async () => tickets } as never,
     digest: async () => ({ players: 12, newSignups24h: 3, rake24hCents: 4200, pendingWithdrawals: 1, pendingWithdrawalsCents: 5000, liabilitiesCents: 9000 }),
     // Phase 3 fakes
@@ -208,6 +209,9 @@ test('/tickets lists open tickets with Reply + Resolve buttons', async () => {
   const cbs = rows[0]!.map((b) => b.callbackData);
   assert.ok(cbs.includes('tk:reply:t1'), 'has a Reply button');
   assert.ok(cbs.includes('tk:res:t1'), 'has a Resolve button');
+  // Shows the player's USERNAME, not the raw userId.
+  assert.match(sent.text, /Lira/, 'ticket shows the username');
+  assert.ok(!sent.text.includes('u9'), 'ticket does NOT show the raw userId');
 });
 
 test('reply tap → next message is sent to the player as the reply + resolves the ticket', async () => {

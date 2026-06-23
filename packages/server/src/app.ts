@@ -746,6 +746,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       },
       setAccountState: async (userId, patch) => !!(await auth.setAccountState(userId, patch)),
       kickUser,
+      // Resolve userId → username so the bot shows names (tickets, flags) instead of raw ids.
+      usernameFor: async (id) => (await repo.findById(id).catch(() => null))?.username ?? null,
       support: supportRepo,
       digest: async () => {
         const dayAgo = Date.now() - 24 * 60 * 60 * 1000;

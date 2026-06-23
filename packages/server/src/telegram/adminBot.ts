@@ -142,6 +142,8 @@ export interface AdminBotDeps {
   // ---- Phase 2 (players + support + digest) — all optional ----
   /** Look up a user by email or username (for /user). */
   findUser?: (query: string) => Promise<UserSummary | null>;
+  /** Resolve a userId → its username (so the operator sees names, not raw ids, everywhere). */
+  usernameFor?: (userId: string) => Promise<string | null>;
   /** Apply an account state (freeze/suspend/ban/reactivate). Returns false if not found. */
   setAccountState?: (userId: string, patch: { state: AccountStateValue; reason: string | null; until: number | null }) => Promise<boolean>;
   /** Force-disconnect a user's live sockets (on ban/suspend), mirrors the panel. */
@@ -372,17 +374,24 @@ export class TelegramAdminBot {
     const CAP = 10;
     await this.deps.bot.sendMessage(`🎫 <b>${open.length}</b> bileta të hapura${open.length > CAP ? ` (po shfaq ${CAP})` : ''}:`);
     for (const t of open.slice(0, CAP)) {
-      await this.deps.bot.sendMessage(this.renderTicket(t), { buttons: this.ticketButtons(t.id) });
+      await this.deps.bot.sendMessage(this.renderTicket(t, await this.nameFor(t.userId)), { buttons: this.ticketButtons(t.id) });
     }
   }
 
-  private renderTicket(t: SupportTicket): string {
+  /** Resolve a userId → its username for display (raw ids are noise for the operator).
+   *  Falls back to a short id if the lookup isn't wired or the user is gone. */
+  private async nameFor(userId: string): Promise<string> {
+    const name = this.deps.usernameFor ? await this.deps.usernameFor(userId).catch(() => null) : null;
+    return name ?? `#${userId.slice(0, 8)}`;
+  }
+
+  private renderTicket(t: SupportTicket, playerName: string): string {
     const msg = t.message.length > 240 ? `${t.message.slice(0, 240)}…` : t.message;
     return (
       `🎫 <b>${escapeHtml(t.subject)}</b> · ${escapeHtml(t.category)}\n` +
       `${escapeHtml(msg)}\n` +
       (t.matchId ? `Ndeshja: <code>${escapeHtml(t.matchId)}</code>\n` : '') +
-      `Lojtari: <code>${escapeHtml(t.userId)}</code>`
+      `Lojtari: <b>${escapeHtml(playerName)}</b>`
     );
   }
 
@@ -704,17 +713,17 @@ export class TelegramAdminBot {
       if (this.deps.findUser) row.push({ text: '👤 Lojtari', callbackData: `us:show:${f.userId}` });
       if (this.deps.setAccountState) row.push({ text: '🚫 Blloko', callbackData: `us:ban:${f.userId}` });
       if (row.length) buttons.push(row);
-      await this.deps.bot.sendMessage(this.renderFlag(f), buttons.length ? { buttons } : {});
+      await this.deps.bot.sendMessage(this.renderFlag(f, await this.nameFor(f.userId)), buttons.length ? { buttons } : {});
     }
   }
 
-  private renderFlag(f: FlagView): string {
+  private renderFlag(f: FlagView, playerName: string): string {
     const sev = f.severity >= 3 ? '🔴 lartë' : f.severity >= 2 ? '🟠 mesatar' : '🟡 ulët';
     return (
       `🚩 <b>${escapeHtml(f.type)}</b> · ${sev}\n` +
       `${escapeHtml(f.detail)}\n` +
       (f.matchId ? `Ndeshja: <code>${escapeHtml(f.matchId)}</code>\n` : '') +
-      `Lojtari: <code>${escapeHtml(f.userId)}</code>`
+      `Lojtari: <b>${escapeHtml(playerName)}</b>`
     );
   }
 
@@ -804,7 +813,7 @@ export class TelegramAdminBot {
    *  route on create). Best-effort: a Telegram failure never affects ticket creation. */
   async notifyNewTicket(ticket: SupportTicket): Promise<void> {
     if (!this.deps.support) return;
-    await this.deps.bot.sendMessage(`🆕 <b>Biletë e re</b>\n${this.renderTicket(ticket)}`, { buttons: this.ticketButtons(ticket.id) }).catch(() => undefined);
+    await this.deps.bot.sendMessage(`🆕 <b>Biletë e re</b>\n${this.renderTicket(ticket, await this.nameFor(ticket.userId))}`, { buttons: this.ticketButtons(ticket.id) }).catch(() => undefined);
   }
 
   private async onApproveTap(id: string, ref: MessageRef, callbackId: string): Promise<void> {
