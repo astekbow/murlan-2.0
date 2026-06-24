@@ -789,6 +789,9 @@ const STRINGS: Record<string, Entry> = {
   'topbar.adminPanel': { sq: 'Paneli i Adminit', en: 'Admin Panel' },
   'topbar.support': { sq: 'Ndihmë', en: 'Support' },
   'topbar.logout': { sq: 'Dil', en: 'Log out' },
+  // Responsible-gaming session clock (TopBar indicator)
+  'session.playing': { sq: 'Po luan:', en: 'Playing:' },
+  'session.elapsedTitle': { sq: 'Sa kohë ke luajtur këtë sesion. Luaj me mend 🔞', en: 'Time played this session. Play responsibly 🔞' },
   'profile.title': { sq: 'Profili', en: 'Profile' },
   'profile.loading': { sq: 'Po hapet…', en: 'Loading…' },
   'profile.loadFailed': { sq: 'S’u hap dot profili.', en: 'Failed to load the profile.' },
@@ -828,6 +831,11 @@ const STRINGS: Record<string, Entry> = {
   'notifs.title': { sq: 'NJOFTIMET', en: 'NOTIFICATIONS' },
   'notifs.empty': { sq: 'Ende s\'ke njoftime.', en: 'No notifications yet.' },
   'notifs.clear': { sq: 'Pastro', en: 'Clear' },
+  // Deep-link + inline actions on a notification
+  'notifs.tapToOpen': { sq: 'prek për ta hapur', en: 'tap to open' },
+  'notifs.openHint': { sq: 'Hape', en: 'Open' },
+  'notifs.accept': { sq: 'Prano', en: 'Accept' },
+  'notifs.decline': { sq: 'Refuzo', en: 'Decline' },
   'install.title': { sq: 'INSTALO APLIKACIONIN', en: 'INSTALL THE APP' },
   'install.subtitle': { sq: 'Luaje si aplikacion — në ekran të plotë, më shpejt.', en: 'Play as an app — full screen, faster.' },
   'install.cta': { sq: 'Instalo', en: 'Install' },

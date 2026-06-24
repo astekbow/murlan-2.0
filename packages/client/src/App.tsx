@@ -29,6 +29,7 @@ import { dollars } from './lib/money.ts';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 import { lazyWithRetry } from './lib/lazyWithRetry.ts';
 import { useCosmeticsStore } from './store/cosmeticsStore.ts';
+import { useSessionStore } from './store/sessionStore.ts';
 import { useT, translate, useLangStore } from './lib/i18n.ts';
 import { maybeSubscribePush } from './lib/push.ts';
 
@@ -169,6 +170,14 @@ export function App() {
       disconnect();
     }
   }, [status, accessToken, user, socket, connect, disconnect]);
+
+  // Responsible-gaming session clock: stamp the start time once signed in (idempotent
+  // across token refreshes) and reset it when the session ends. Drives the TopBar
+  // "Po luan: 42m" indicator.
+  useEffect(() => {
+    if (status === 'authed') useSessionStore.getState().start();
+    else useSessionStore.getState().clear();
+  }, [status]);
 
   // Load equipped cosmetics (felt theme / card-back) once signed in.
   useEffect(() => {

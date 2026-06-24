@@ -416,7 +416,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     socket.on('match:end', (dto) => {
       const won = dto.winnerSeats.includes(get().mySeat ?? -1);
-      useNotifications.getState().push(won ? tg('msg.matchWon') : tg('msg.matchEnded'), won ? 'win' : 'info');
+      useNotifications.getState().push(
+        won ? tg('msg.matchWon') : tg('msg.matchEnded'),
+        won ? 'win' : 'info',
+        won ? { view: 'leaderboard' } : undefined,
+      );
       set((s) => ({
         matchResult: dto,
         scoreboard: dto.scoreboard,
@@ -445,11 +449,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       setTimeout(() => set((s) => ({ bubbles: s.bubbles.filter((b) => b.id !== id) })), 4500);
     });
     socket.on('invited', (dto) => {
-      useNotifications.getState().push(`📨 ${tg('msg.invitedToGame', { name: dto.fromUsername })}`, 'invite');
+      useNotifications.getState().push(`📨 ${tg('msg.invitedToGame', { name: dto.fromUsername })}`, 'invite', { action: 'invite' });
       set({ invite: dto, toast: tg('msg.invitedToGame', { name: dto.fromUsername }), toastKind: 'info' });
     });
     socket.on('club:invited', (dto) => {
-      useNotifications.getState().push(`🛡️ ${tg('msg.invitedToClub', { name: dto.fromUsername, club: dto.clubName })}`, 'invite');
+      useNotifications.getState().push(`🛡️ ${tg('msg.invitedToClub', { name: dto.fromUsername, club: dto.clubName })}`, 'invite', { view: 'clubs' });
       set({ clubInvite: dto, toast: tg('msg.invitedToClub', { name: dto.fromUsername, club: dto.clubName }), toastKind: 'info' });
     });
     socket.on('tournament:matchReady', (dto) => {
@@ -459,7 +463,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       void get().joinRoom(dto.roomId);
     });
     socket.on('friend:request', (dto) => {
-      useNotifications.getState().push(`👥 ${tg('msg.friendRequestFrom', { name: dto.fromUsername })}`, 'invite');
+      useNotifications.getState().push(`👥 ${tg('msg.friendRequestFrom', { name: dto.fromUsername })}`, 'invite', { view: 'friends' });
       set((s) => ({ socialRev: s.socialRev + 1 })); // refresh an open Friends page instantly
     });
     // A friends-list change concerning me (my request was answered / I was unfriended).

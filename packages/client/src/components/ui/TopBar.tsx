@@ -18,6 +18,7 @@ import { ProfileModal } from './ProfileModal.tsx';
 import { NotificationsPanel } from './NotificationsPanel.tsx';
 import { useFocusTrap } from './useFocusTrap.ts';
 import { useNotifications } from '../../store/notificationsStore.ts';
+import { useSessionMinutes, formatSessionDuration } from '../../store/sessionStore.ts';
 import { profileApi, type Profile } from '../../lib/api.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
@@ -34,6 +35,7 @@ export function TopBar() {
   const { user, logout } = useAuthStore();
   const setView = useUiStore((s) => s.setView);
   const connected = useGameStore((s) => s.connected);
+  const sessionMinutes = useSessionMinutes();
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -98,6 +100,13 @@ export function TopBar() {
 
       {/* Right cluster */}
       <div className="flex items-center gap-2.5 min-w-0">
+        {/* Responsible-gaming session clock — subtle, hidden on the smallest screens. */}
+        <span
+          className="hidden md:inline text-xs text-muted shrink-0 tabular-nums"
+          title={t('session.elapsedTitle')}
+        >
+          {t('session.playing')} {formatSessionDuration(sessionMinutes)}
+        </span>
         {!connected && (
           <span className="hidden sm:inline text-xs text-muted shrink-0">
             <span className="inline-block w-2 h-2 rounded-full bg-suit mr-1.5 animate-twinkle align-middle" />
