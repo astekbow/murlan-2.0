@@ -117,6 +117,21 @@ function serializeWithdraw<T>(userId: string, fn: () => Promise<T>): Promise<T> 
   return next;
 }
 
+// GLOBAL serialization (audit M4): the per-user chain above is enough for the per-USER daily
+// cap, but the global / per-destination 24h budgets are shared across users — two DIFFERENT
+// users could both read the same stale "auto-paid today" total before either completes and
+// each auto-pay past the GLOBAL ceiling. When a global/dest cap is configured we therefore run
+// the whole classify+send critical section on ONE chain so those reads + the auto-pay are
+// atomic across users. Single-instance only (the auto-pay calls an external provider, so a DB
+// lock can't span it); multi-instance auto-pay would need a DB-backed budget. Default caps off
+// → this never engages and withdrawals stay per-user-concurrent.
+let globalWithdrawChain: Promise<unknown> = Promise.resolve();
+function serializeGlobalWithdraw<T>(fn: () => Promise<T>): Promise<T> {
+  const next = globalWithdrawChain.then(fn, fn);
+  globalWithdrawChain = next.catch(() => undefined);
+  return next;
+}
+
 export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps): Promise<void> {
   const { auth, wallet, withdrawals, provider, intents, notifier } = deps;
   const guard = requireAuth(auth);
@@ -256,7 +271,12 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
       // ordered unit per user, so concurrent withdrawals can't all read a stale "prior today"
       // and each auto-pay past the daily cap — each queued one counts every earlier row. We
       // AWAIT it (slightly slower response) precisely so the cap decision is correct in order.
-      const record = await serializeWithdraw(caller.userId, async () => {
+      // When a GLOBAL/dest auto-payout cap is configured, serialize ALL users' critical
+      // sections on one chain (M4) so the shared-budget read + auto-pay are atomic across
+      // users; otherwise the per-user chain (sufficient for the per-user daily cap) keeps
+      // different users concurrent.
+      const globalCapsOn = (deps.globalAutoWithdrawCapCents ?? 0) > 0 || (deps.destAutoWithdrawCapCents ?? 0) > 0;
+      const critical = async () => {
         const rec = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
         const [u, comp, recent] = await Promise.all([
           auth.getUser(caller.userId).catch(() => null),
@@ -304,7 +324,10 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
           app.log.warn({ withdrawalId: rec.id, err: outcome.error }, 'auto-payout FAILED → refunded, back to manual');
         }
         return rec;
-      });
+      };
+      const record = globalCapsOn
+        ? await serializeGlobalWithdraw(critical)
+        : await serializeWithdraw(caller.userId, critical);
       return reply.code(201).send({ withdrawal: record });
     } catch (e) {
       if (e instanceof WithdrawalError) {
