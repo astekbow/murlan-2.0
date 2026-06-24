@@ -36,6 +36,7 @@ import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 import type { ProfileService } from '../profile/profileService.ts';
 import type { FriendsService } from '../social/friendsService.ts';
+import type { ClubService } from '../social/clubService.ts';
 import type { Presence } from './presence.ts';
 import type { RankedService } from '../ranked/rankedService.ts';
 import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
@@ -65,6 +66,7 @@ export interface GatewayOptions {
   ranked?: RankedService;    // updates MMR/season ladder at match end (isolated; competitive/cosmetic only)
   antiCheat?: AntiCheatService; // flags suspicious matches for manual review at match end (isolated)
   friends?: FriendsService;  // gates/handles friend room invites
+  clubs?: ClubService;       // resolves the inviter's club for club invites (social only)
   presence?: Presence;       // tracks who is online (shared with the friends routes)
   games?: GamesRepository;   // persists provably-fair seeds per game (durable audit)
   matchLog?: MatchActionsRepository; // persists the move-log for replay/dispute (isolated; never blocks play)
@@ -121,6 +123,7 @@ export class GameGateway {
   private readonly ranked: RankedService | null;
   private readonly antiCheat: AntiCheatService | null;
   private readonly friends: FriendsService | null;
+  private readonly clubs: ClubService | null;
   private readonly presence: Presence | null;
   private readonly games: GamesRepository | null;
   private readonly matchLog: MatchActionsRepository | null;
@@ -211,6 +214,7 @@ export class GameGateway {
     this.friends?.setSocialNotifier((userId) => {
       this.io.to(personalRoom(userId)).emit('social:refresh');
     });
+    this.clubs = opts.clubs ?? null;
     this.presence = opts.presence ?? null;
     this.games = opts.games ?? null;
     this.matchLog = opts.matchLog ?? null;
@@ -380,6 +384,7 @@ export class GameGateway {
       this.io.to(room.id).emit('chat', { seat, username: socket.data.username, text: text.slice(0, 80) });
     });
     socket.on('room:invite', (payload, ack) => void this.onInvite(socket, payload, ack));
+    socket.on('club:invite', (payload, ack) => void this.onClubInvite(socket, payload, ack));
     socket.on('club:message', (payload, ack) => void this.onClubMessage(socket, payload, ack));
     socket.on('practice:start', (payload, ack) => this.onPracticeStart(socket, payload, ack));
 
@@ -1602,6 +1607,35 @@ export class GameGateway {
     }
     this.io.to(personalRoom(friendId)).emit('invited', {
       roomId: room.id, fromUsername: socket.data.username, type: room.type, stakeCents: room.stakeCents,
+    });
+    ack({ ok: true });
+  }
+
+  /**
+   * A club member invites an online friend to their club. No invite-state table —
+   * the friend joins via the normal join/joinByCode paths. The private joinCode is
+   * emitted ONLY for a private club (the member-only secret, fine to hand to a friend
+   * the member chose); public clubs are open so no code is needed. Gated by
+   * caller-in-club + areFriends — a non-friend can never receive a private code.
+   */
+  private async onClubInvite(socket: IOSocket, payload: { friendUserId: string }, ack: (res: Ack) => void): Promise<void> {
+    const userId = socket.data.userId;
+    if (!this.limiter.allow(userId)) return ack(ackError('rate', 'Shumë veprime — prit pak.'));
+    if (!this.clubs) return ack(ackError('disabled', 'Klubet s’janë aktive.'));
+    const friendId = payload?.friendUserId;
+    if (typeof friendId !== 'string' || !friendId) return ack(ackError('bad_request', 'Mik i pavlefshëm.'));
+    const club = await this.clubs.getMyClub(userId);
+    if (!club) return ack(ackError('no_club', 'Nuk je në një klub.'));
+    if (this.friends && !(await this.friends.areFriends(userId, friendId))) {
+      return ack(ackError('not_friends', 'Mund të ftosh vetëm miqtë.'));
+    }
+    this.io.to(personalRoom(friendId)).emit('club:invited', {
+      clubId: club.id,
+      clubName: club.name,
+      tag: club.tag,
+      // Hand the code ONLY for a private club (member-only secret); public clubs are open.
+      joinCode: club.private ? (club.joinCode ?? null) : null,
+      fromUsername: socket.data.username,
     });
     ack({ ok: true });
   }

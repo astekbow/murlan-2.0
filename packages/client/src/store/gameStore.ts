@@ -7,11 +7,13 @@ import type {
 } from '@murlan/shared';
 import { PLAYERS_PER_TYPE } from '@murlan/shared';
 import { connectSocket, request, type MurlanSocket } from '../lib/socket.ts';
-import { refreshAccessToken } from '../lib/api.ts';
+import { refreshAccessToken, clubsApi } from '../lib/api.ts';
 import { ackText } from '../lib/errors.ts';
 import { translate, useLangStore, type TVars } from '../lib/i18n.ts';
 import { toggleCard, selectedCards } from '../lib/selection.ts';
 import { useNotifications } from './notificationsStore.ts';
+import { useAuthStore } from './authStore.ts';
+import { useUiStore } from './uiStore.ts';
 
 // Localized toast text for store actions (outside React render → read live lang).
 const tg = (key: string, vars?: TVars) => translate(key, useLangStore.getState().lang, vars);
@@ -52,6 +54,16 @@ export interface Invite {
   fromUsername: string;
   type: MatchType;
   stakeCents: number;
+}
+
+/** An incoming CLUB invite from a friend. `joinCode` is set for a private club (the
+ *  one-tap authorization to join it); null for a public club (joined by id). */
+export interface ClubInvite {
+  clubId: string;
+  clubName: string;
+  tag: string;
+  joinCode: string | null;
+  fromUsername: string;
 }
 
 interface Ack {
@@ -125,6 +137,8 @@ interface GameStore {
   /** Club chat messages (history seed + live appends). */
   clubChat: ChatMessageDTO[];
   invite: Invite | null;
+  /** Incoming club invite from a friend (null = none). Drives the club-invite banner. */
+  clubInvite: ClubInvite | null;
   /** Ranked matchmaking status while waiting (null = not queued). */
   queue: { matchType: MatchType; size: number; needed: number } | null;
   /** True while watching a live match as a spectator (read-only, not seated). */
@@ -151,6 +165,11 @@ interface GameStore {
   sendEmote: (emote: string) => void;
   sendChat: (text: string) => void;
   inviteFriend: (friendUserId: string) => Promise<boolean>;
+  /** Invite an online friend to MY club (socket). Toast on failure. */
+  inviteToClub: (friendUserId: string) => Promise<boolean>;
+  /** Accept the incoming club invite: join by code (private) or by id (public), then clear. */
+  acceptClubInvite: () => Promise<void>;
+  dismissClubInvite: () => void;
   /** Club chat: seed history (REST) + send a message (socket). */
   setClubChat: (messages: ChatMessageDTO[]) => void;
   sendClubMessage: (text: string) => Promise<boolean>;
@@ -224,6 +243,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   toast: null,
   toastKind: 'error',
   invite: null,
+  clubInvite: null,
   queue: null,
   spectating: false,
 
@@ -422,6 +442,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       useNotifications.getState().push(`📨 ${tg('msg.invitedToGame', { name: dto.fromUsername })}`, 'invite');
       set({ invite: dto, toast: tg('msg.invitedToGame', { name: dto.fromUsername }), toastKind: 'info' });
     });
+    socket.on('club:invited', (dto) => {
+      useNotifications.getState().push(`🛡️ ${tg('msg.invitedToClub', { name: dto.fromUsername, club: dto.clubName })}`, 'invite');
+      set({ clubInvite: dto, toast: tg('msg.invitedToClub', { name: dto.fromUsername, club: dto.clubName }), toastKind: 'info' });
+    });
     socket.on('tournament:matchReady', (dto) => {
       // The bracket paired us — auto-join our tournament match (the gateway gated the
       // room to us; the match plays + advances the bracket automatically).
@@ -446,7 +470,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   disconnect() {
     get().socket?.close();
-    set({ socket: null, connected: false, lobby: [], live: [], log: [], toast: null, toastKind: 'error', invite: null, queue: null, spectating: false, ...emptyRoomState });
+    set({ socket: null, connected: false, lobby: [], live: [], log: [], toast: null, toastKind: 'error', invite: null, clubInvite: null, queue: null, spectating: false, ...emptyRoomState });
   },
 
   refreshLobby() {
@@ -644,6 +668,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (res.ok) set({ toast: tg('msg.inviteSent'), toastKind: 'success' });
     else set({ toast: ackText(res.error, 'err.inviteFailed'), toastKind: 'error' });
     return res.ok;
+  },
+  async inviteToClub(friendUserId) {
+    const socket = get().socket;
+    if (!socket) return false;
+    const res = await request<Ack>(socket, 'club:invite', { friendUserId });
+    if (res.ok) set({ toast: tg('msg.inviteSent'), toastKind: 'success' });
+    else set({ toast: ackText(res.error, 'err.inviteFailed'), toastKind: 'error' });
+    return res.ok;
+  },
+  async acceptClubInvite() {
+    const inv = get().clubInvite;
+    if (!inv) return;
+    set({ clubInvite: null });
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    try {
+      // The joinCode (private clubs) is the authorization; public clubs join by id.
+      if (inv.joinCode) await clubsApi.joinByCode(token, inv.joinCode);
+      else await clubsApi.join(token, inv.clubId);
+      set({ toast: tg('msg.clubJoined', { club: inv.clubName }), toastKind: 'success' });
+      useUiStore.getState().setView('clubs'); // open Clubs so they see their new club
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : tg('err.joinFailed');
+      set({ toast: msg, toastKind: 'error' });
+    }
+  },
+  dismissClubInvite() {
+    set({ clubInvite: null });
   },
   watchLeaderboard() {
     get().socket?.emit('leaderboard:watch'); // idempotent; no-op if not connected yet

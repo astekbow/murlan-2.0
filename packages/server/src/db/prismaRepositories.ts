@@ -989,6 +989,17 @@ export class PrismaClubs implements ClubRepository {
   async setFounder(clubId: string, founderId: string): Promise<void> {
     await this.db.club.update({ where: { id: clubId }, data: { founderId } }).catch(() => undefined);
   }
+  async setPrivacy(clubId: string, priv: boolean): Promise<void> {
+    // Read the row first to preserve/generate the joinCode: going private mints one
+    // only if absent; an existing code is preserved (and kept even when going public).
+    const row = await this.db.club.findUnique({ where: { id: clubId } });
+    if (!row) return;
+    const existing = row.joinCode ?? null;
+    await this.db.club.update({
+      where: { id: clubId },
+      data: { private: priv, joinCode: priv ? (existing ?? genClubCode()) : existing },
+    }).catch(() => undefined);
+  }
   async memberOf(userId: string): Promise<ClubMember | null> {
     const row = await this.db.clubMember.findUnique({ where: { userId } });
     return row ? toMember(row) : null;

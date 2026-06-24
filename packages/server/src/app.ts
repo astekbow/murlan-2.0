@@ -943,6 +943,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     antiCheat,
     matchmaking,
     friends,
+    clubs,
     presence,
     games: gamesRepo,
     matchLog: matchLogRepo,

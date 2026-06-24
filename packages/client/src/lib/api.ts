@@ -338,6 +338,7 @@ export const clubsApi = {
   get: (token: string, id: string) => request<{ club: ClubDetailDTO }>(`/clubs/${encodeURIComponent(id)}`, { token }),
   create: (token: string, name: string, tag: string, priv?: boolean) => request<{ club: ClubDetailDTO }>('/clubs', { method: 'POST', token, body: { name, tag, private: priv } }),
   join: (token: string, id: string) => request<{ club: ClubDetailDTO }>(`/clubs/${encodeURIComponent(id)}/join`, { method: 'POST', token }),
+  setPrivacy: (token: string, priv: boolean) => request<{ club: ClubDetailDTO }>('/clubs/privacy', { method: 'POST', token, body: { private: priv } }),
   joinByCode: (token: string, code: string) => request<{ club: ClubDetailDTO }>('/clubs/joinByCode', { method: 'POST', token, body: { code } }),
   leave: (token: string) => request<{ ok: boolean }>('/clubs/leave', { method: 'POST', token }),
   messages: (token: string, clubId: string) => request<{ messages: ChatMessageDTO[] }>(`/clubs/${encodeURIComponent(clubId)}/messages`, { token }),

@@ -56,6 +56,10 @@ export interface ClubRepository {
   listClubs(limit: number): Promise<Array<Club & { memberCount: number }>>;
   deleteClub(id: string): Promise<void>;
   setFounder(clubId: string, founderId: string): Promise<void>;
+  /** Founder toggles the club between public and private. Going private generates a
+   *  joinCode if one doesn't exist yet (an existing code is preserved); going public
+   *  keeps the existing code (never nulled) so a re-privatised club keeps the same code. */
+  setPrivacy(clubId: string, priv: boolean): Promise<void>;
   memberOf(userId: string): Promise<ClubMember | null>;
   addMember(m: { userId: string; clubId: string; role: ClubRole }): Promise<ClubMember>;
   removeMember(userId: string): Promise<void>;
@@ -117,6 +121,14 @@ export class InMemoryClubRepository implements ClubRepository {
   async setFounder(clubId: string, founderId: string): Promise<void> {
     const c = this.clubs.get(clubId);
     if (c) c.founderId = founderId;
+  }
+  async setPrivacy(clubId: string, priv: boolean): Promise<void> {
+    const c = this.clubs.get(clubId);
+    if (!c) return;
+    c.private = priv;
+    // Going private mints a code if there isn't one yet; an existing code is preserved
+    // (and kept even when going public) so the share code is stable across toggles.
+    if (priv && !c.joinCode) c.joinCode = genClubCode();
   }
   async memberOf(userId: string): Promise<ClubMember | null> {
     const m = this.members.get(userId);

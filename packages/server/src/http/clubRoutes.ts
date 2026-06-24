@@ -21,6 +21,7 @@ const createSchema = z.object({
   tag: z.string().trim().min(2).max(5),
   private: z.boolean().optional(),
 });
+const privacySchema = z.object({ private: z.boolean() });
 const reportSchema = z.object({ reason: z.string().trim().min(1).max(280) });
 const founderMuteSchema = z.object({
   userId: z.string().min(1),
@@ -32,7 +33,10 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
   const { auth, clubs } = deps;
   const guard = requireAuth(auth);
   const fail = (reply: any, e: unknown) => {
-    if (e instanceof ClubError) return reply.code(e.code === 'no_club' ? 404 : 409).send({ error: { code: e.code, message: e.message } });
+    if (e instanceof ClubError) {
+      const status = e.code === 'no_club' ? 404 : e.code === 'forbidden' ? 403 : 409;
+      return reply.code(status).send({ error: { code: e.code, message: e.message } });
+    }
     throw e;
   };
 
@@ -88,6 +92,19 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
     if (typeof code !== 'string' || code.trim().length < 4) return reply.code(400).send({ error: { code: 'validation', message: 'Kod i pavlefshëm.' } });
     try {
       return reply.send({ club: await clubs.joinByCode(caller.userId, code) });
+    } catch (e) {
+      return fail(reply, e);
+    }
+  });
+
+  // The FOUNDER switches the club between public and private (founder-only — 403 otherwise).
+  app.post('/api/clubs/privacy', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const parsed = privacySchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
+    try {
+      return reply.send({ club: await clubs.setPrivacy(caller.userId, parsed.data.private) });
     } catch (e) {
       return fail(reply, e);
     }

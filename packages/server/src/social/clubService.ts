@@ -118,6 +118,18 @@ export class ClubService {
     return this.detail(c, true); // the caller just joined → a member
   }
 
+  /** The FOUNDER toggles the club between public and private. Going private generates a
+   *  share code (if absent); going public keeps the code. Founder-only (role check). */
+  async setPrivacy(userId: string, priv: boolean): Promise<ClubDetailDTO> {
+    const m = await this.clubs.memberOf(userId);
+    if (!m) throw new ClubError('not_in_club', 'Nuk je në një klub.');
+    if (m.role !== 'founder') throw new ClubError('forbidden', 'Vetëm themeluesi mund ta ndryshojë.');
+    await this.clubs.setPrivacy(m.clubId, priv);
+    const c = await this.clubs.getClub(m.clubId);
+    if (!c) throw new ClubError('no_club', 'Klubi nuk ekziston.');
+    return this.detail(c, true); // the founder is, by definition, a member
+  }
+
   /** Leave the current club. Empties the club → delete it; founder leaves with
    *  members remaining → promote the oldest remaining member to founder. */
   async leave(userId: string): Promise<{ ok: boolean }> {

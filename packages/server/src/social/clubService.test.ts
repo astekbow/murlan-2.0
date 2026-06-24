@@ -97,3 +97,49 @@ test('public club: joinCode is null and detail is visible to a non-member', asyn
   assert.ok(view);
   assert.equal(view!.joinCode, null);
 });
+
+// FEATURE 3: a PRIVATE club's joinCode is the sole authorization to join it.
+test('joinByCode: correct code admits; wrong code fails; rejected when already in a club', async () => {
+  const { clubs, a, b, c } = await setup();
+  const club = await clubs.create(a.id, 'Code Club', 'COD', true); // private → has a joinCode
+  assert.ok(club.joinCode, 'a private club has a share code');
+
+  // A second user joins by the correct code → becomes a member.
+  const joined = await clubs.joinByCode(b.id, club.joinCode!);
+  assert.equal(joined.memberCount, 2);
+  const mine = await clubs.getMyClub(b.id);
+  assert.equal(mine!.id, club.id);
+  assert.equal(mine!.members.find((m) => m.userId === b.id)!.role, 'member');
+
+  // A wrong code finds no club → 'no_club'.
+  await assert.rejects(clubs.joinByCode(c.id, 'ZZZZZZ'), (e) => e instanceof ClubError && e.code === 'no_club');
+
+  // Already-a-member b cannot joinByCode again (one club per player).
+  await assert.rejects(clubs.joinByCode(b.id, club.joinCode!), (e) => e instanceof ClubError && e.code === 'already_in_club');
+});
+
+// FEATURE 1: only the FOUNDER may toggle privacy; going private mints a stable code.
+test('setPrivacy: founder-only; private mints a code, public keeps it; non-founder forbidden', async () => {
+  const { clubs, a, b } = await setup();
+  const club = await clubs.create(a.id, 'Toggle Club', 'TOG'); // public, no code yet
+  assert.equal(club.private, false);
+  assert.equal(club.joinCode, null);
+
+  // Founder switches to private → a code is minted and exposed (founder is a member).
+  const priv = await clubs.setPrivacy(a.id, true);
+  assert.equal(priv.private, true);
+  assert.ok(priv.joinCode, 'going private mints a join code');
+  const code = priv.joinCode!;
+
+  // Switching back to public keeps the same code (stable across toggles).
+  const pub = await clubs.setPrivacy(a.id, false);
+  assert.equal(pub.private, false);
+  assert.equal(pub.joinCode, code);
+
+  // A non-founder member cannot toggle privacy.
+  await clubs.join(b.id, club.id);
+  await assert.rejects(clubs.setPrivacy(b.id, true), (e) => e instanceof ClubError && e.code === 'forbidden');
+  // Someone in no club at all errors with 'not_in_club'.
+  const { clubs: c2, a: lone } = await setup();
+  await assert.rejects(c2.setPrivacy(lone.id, true), (e) => e instanceof ClubError && e.code === 'not_in_club');
+});

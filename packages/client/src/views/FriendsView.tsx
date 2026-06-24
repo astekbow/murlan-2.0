@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { friendsApi, walletApi, ApiError, type FriendEntry } from '../lib/api.ts';
+import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -30,6 +30,14 @@ export function FriendsView() {
   const [sending, setSending] = useState(false);
   const balanceCents = useWalletStore((s) => s.balanceCents);
   useEffect(() => { void useWalletStore.getState().refresh(); }, []); // load my balance for the transfer UI
+
+  // Whether the caller is in a club → enables the per-friend "invite to club" action.
+  const [inClub, setInClub] = useState(false);
+  useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    clubsApi.mine(token).then((r) => setInClub(!!r.club)).catch(() => setInClub(false));
+  }, []);
 
   const sendMoney = async () => {
     if (!sendTo || sending) return;
@@ -271,6 +279,11 @@ export function FriendsView() {
                     {inRoom && (
                       <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} disabled={acting} className="btn btn-gold">
                         {t('friends.invite')}
+                      </button>
+                    )}
+                    {inClub && (
+                      <button onClick={() => void useGameStore.getState().inviteToClub(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('clubs.inviteFriend')}>
+                        🛡️ {t('clubs.inviteToClub')}
                       </button>
                     )}
                     <button onClick={() => { setSendTo(f); setAmount(''); }} disabled={acting} className="btn btn-ghost" title={t('friends.sendMoney')}>💸 {t('friends.sendMoney')}</button>

@@ -2,7 +2,7 @@
 // clubs to join, or create your own. One club per player.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { clubsApi, tournamentsApi, ApiError, type ClubSummaryDTO, type ClubDetailDTO, type ChatMessageDTO, type TournamentDTO } from '../lib/api.ts';
+import { clubsApi, tournamentsApi, friendsApi, ApiError, type ClubSummaryDTO, type ClubDetailDTO, type ChatMessageDTO, type TournamentDTO, type FriendEntry } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -31,6 +31,9 @@ export function ClubsView() {
   const landscape = useLandscapePage();
   const [tab, setTab] = useState<'turne' | 'chat'>('turne');
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
+  const myId = useAuthStore((s) => s.user?.id ?? null);
+  // The caller founded this club → they may toggle its privacy + invite friends.
+  const isFounder = !!mine && mine.members.find((m) => m.userId === myId)?.role === 'founder';
 
   const token = () => useAuthStore.getState().accessToken;
 
@@ -83,9 +86,16 @@ export function ClubsView() {
                 <span className="text-xs text-muted">{t('clubs.memberCount', { n: mine.memberCount })}</span>
                 <button disabled={busy} onClick={async () => { if (await confirm({ title: t('clubs.leaveClub'), message: t('clubs.confirmLeaveM'), danger: true, confirmLabel: t('clubs.leaveClub') })) void act(() => clubsApi.leave(token()!)); }} className="btn btn-danger btn-sm">{t('clubs.leaveClub')}</button>
               </div>
+              {isFounder && (
+                <div className="flex items-center gap-1 mb-2" role="group" aria-label={t('clubs.privacy')}>
+                  <button disabled={busy} aria-pressed={!mine.private} onClick={() => { if (mine.private) void act(() => clubsApi.setPrivacy(token()!, false)); }} className={`btn btn-sm flex-1 ${mine.private ? 'btn-ghost' : 'btn-gold'}`}>{t('clubs.makePublic')}</button>
+                  <button disabled={busy} aria-pressed={mine.private} onClick={() => { if (!mine.private) void act(() => clubsApi.setPrivacy(token()!, true)); }} className={`btn btn-sm flex-1 ${mine.private ? 'btn-gold' : 'btn-ghost'}`}>{t('clubs.makePrivate')}</button>
+                </div>
+              )}
               {mine.private && mine.joinCode && (
                 <button onClick={() => { void navigator.clipboard?.writeText(mine.joinCode!).then(() => useGameStore.setState({ toast: t('clubs.codeCopied'), toastKind: 'success' })).catch(() => {}); }} aria-label={t('common.copyCode')} className="w-full mb-2 rounded-lg px-3 py-1.5 border border-gold/40 bg-gold/[.06] font-mono tracking-[0.3em] gold-text font-bold text-sm">{mine.joinCode}</button>
               )}
+              <InviteFriendsPanel compact />
               <ul className="pg-ls-scroll space-y-1.5 pr-1">
                 {mine.members.map((m) => (
                   <li key={m.userId} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 border border-white/10 bg-white/[.03]">
@@ -175,6 +185,13 @@ export function ClubsView() {
             <button disabled={busy} onClick={async () => { if (await confirm({ title: t('clubs.leaveClub'), message: t('clubs.confirmLeaveM'), danger: true, confirmLabel: t('clubs.leaveClub') })) void act(() => clubsApi.leave(token()!)); }} className="btn btn-danger">{t('clubs.leaveClub')}</button>
           </div>
           <div className="text-xs text-muted">{t('clubs.memberCount', { n: mine.memberCount })}</div>
+          {isFounder && (
+            <div className="flex items-center gap-2" role="group" aria-label={t('clubs.privacy')}>
+              <span className="text-xs text-muted shrink-0">{t('clubs.privacy')}</span>
+              <button disabled={busy} aria-pressed={!mine.private} onClick={() => { if (mine.private) void act(() => clubsApi.setPrivacy(token()!, false)); }} className={`btn btn-sm ${mine.private ? 'btn-ghost' : 'btn-gold'}`}>{t('clubs.makePublic')}</button>
+              <button disabled={busy} aria-pressed={mine.private} onClick={() => { if (!mine.private) void act(() => clubsApi.setPrivacy(token()!, true)); }} className={`btn btn-sm ${mine.private ? 'btn-gold' : 'btn-ghost'}`}>{t('clubs.makePrivate')}</button>
+            </div>
+          )}
           {mine.private && mine.joinCode && (
             <div className="rounded-xl px-4 py-3 border border-gold/40 bg-gold/[.06] text-center">
               <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-0.5">{t('clubs.shareCode')}</div>
@@ -197,6 +214,7 @@ export function ClubsView() {
               </li>
             ))}
           </ul>
+          <InviteFriendsPanel />
           {error && <p className="text-xs text-red-300">{error}</p>}
         </section>
       ) : null}
@@ -443,5 +461,58 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
       </form>
       {dialog}
     </section>
+  );
+}
+
+// ---- Invite-a-friend panel -------------------------------------------------
+// Any club member can invite an online accepted friend to the club. The invite is
+// delivered over the socket (gameStore.inviteToClub) and gated server-side by
+// caller-in-club + areFriends. Shown in both the portrait + landscape layouts.
+function InviteFriendsPanel({ compact = false }: { compact?: boolean }) {
+  const t = useT();
+  const token = () => useAuthStore.getState().accessToken;
+  const inviteToClub = useGameStore((s) => s.inviteToClub);
+  const [friends, setFriends] = useState<FriendEntry[]>([]);
+  const [open, setOpen] = useState(false);
+  const [invited, setInvited] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const tk = token();
+    if (!tk) return;
+    friendsApi.list(tk).then((r) => setFriends(r.friends.filter((f) => f.direction === 'friends'))).catch(() => setFriends([]));
+  }, []);
+
+  const send = async (userId: string) => {
+    const ok = await inviteToClub(userId);
+    if (ok) setInvited((m) => ({ ...m, [userId]: true }));
+  };
+
+  return (
+    <div className={compact ? 'mt-2' : ''}>
+      <button onClick={() => setOpen((o) => !o)} className={`btn btn-ghost ${compact ? 'btn-sm w-full' : ''}`} aria-expanded={open}>
+        🛡️ {t('clubs.inviteFriend')}
+      </button>
+      {open && (
+        friends.length === 0 ? (
+          <p className="text-xs text-muted py-2">{t('clubs.noFriendsToInvite')}</p>
+        ) : (
+          <ul className="space-y-1.5 mt-2">
+            {friends.map((f) => (
+              <li key={f.id} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 border border-white/10 bg-white/[.03]">
+                <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`} aria-hidden />
+                <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{f.user.username}</span>
+                <button
+                  disabled={!!invited[f.user.id]}
+                  onClick={() => void send(f.user.id)}
+                  className="btn btn-gold btn-sm shrink-0"
+                >
+                  {invited[f.user.id] ? t('clubs.invited') : t('friends.invite')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+    </div>
   );
 }

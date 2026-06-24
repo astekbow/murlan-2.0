@@ -86,6 +86,9 @@ export interface ClientToServerEvents {
   'emote': (emote: string) => void;
   'chat': (text: string) => void;
   'room:invite': (payload: { friendUserId: string }, ack: (res: Ack) => void) => void;
+  // Invite an online friend to YOUR club. Reuses join/joinByCode — the joinCode (only
+  // for a PRIVATE club) is the authorization, handed only to the chosen friend.
+  'club:invite': (payload: { friendUserId: string }, ack: (res: Ack) => void) => void;
   // Club chat (§9 social): send a message to your club's channel (membership-gated,
   // rate-limited, mute-aware server-side). clubId is derived from membership, never
   // client-supplied.
@@ -138,6 +141,9 @@ export interface ServerToClientEvents {
   'emote': (dto: { seat: Seat; emote: string }) => void;
   'chat': (dto: { seat: Seat; username: string; text: string }) => void;
   'invited': (dto: { roomId: string; fromUsername: string; type: MatchType; stakeCents: number }) => void;
+  // A friend invited you to their club. `joinCode` is set ONLY for a private club (the
+  // member-only secret, fine to hand to the invited friend); null for a public club.
+  'club:invited': (dto: { clubId: string; clubName: string; tag: string; joinCode: string | null; fromUsername: string }) => void;
   // A tournament pairing is ready: the client auto-joins `roomId` to play it. The
   // bracket runs in the live gateway (no admin reporting) — the match result advances
   // it automatically, and a disconnect forfeits to the opponent.

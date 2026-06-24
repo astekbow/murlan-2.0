@@ -10,6 +10,7 @@ import { Toast } from './components/Toast.tsx';
 import { Background } from './components/ui/Background.tsx';
 import { TopBar } from './components/ui/TopBar.tsx';
 import { InviteBanner } from './components/ui/InviteBanner.tsx';
+import { ClubInviteBanner } from './components/ui/ClubInviteBanner.tsx';
 import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
 import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { CookieNotice } from './components/ui/CookieNotice.tsx';
@@ -208,6 +209,7 @@ export function App() {
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
       {status === 'authed' && <InviteBanner />}
+      {status === 'authed' && <ClubInviteBanner />}
       {/* First-run welcome takes precedence; the install prompt waits until it's done. */}
       {status === 'authed' && !room && !spectating && !onboarded && <OnboardingModal />}
       {status === 'authed' && !room && !spectating && onboarded && <InstallModal />}
