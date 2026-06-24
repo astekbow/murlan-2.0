@@ -2,5 +2,12 @@
 # CADDY_DOMAIN env var — a real domain OR a free `<IP>.sslip.io` for quick testing.
 # Caddy fetches + renews a Let's Encrypt cert automatically (ports 80/443 must be open).
 {$CADDY_DOMAIN} {
+	# Defense-in-depth: the inner nginx already sets the full security-header set, but set
+	# HSTS + strip the Server banner here too so headers don't vanish if the topology ever
+	# changes (e.g. Caddy → server directly). Harmless duplication of HSTS otherwise.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
 	reverse_proxy client:80
 }

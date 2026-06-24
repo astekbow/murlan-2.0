@@ -154,6 +154,10 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     // configurable via TRUST_PROXY), so a client that ever reaches the server directly
     // can't spoof its IP. The proxy must set XFF authoritatively.
     trustProxy: deps.config.trustProxy,
+    // Cap request bodies well below Fastify's 1 MB default — every authed route is small
+    // (avatar data-URL ≤24 KB, client-error reports ≤8 KB); 256 KB is generous headroom and
+    // shrinks the heap/event-loop pressure an attacker can apply under the 300/min/IP limiter.
+    bodyLimit: 256 * 1024,
   });
 
   // Capture the RAW JSON body (needed for webhook signature verification) while
