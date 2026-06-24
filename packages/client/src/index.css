@@ -1109,21 +1109,4 @@ select:focus-visible,
   background: var(--panel); border: 1px solid var(--panel-line); color: var(--muted); }
 .pg-ls-tab.on { color: var(--gold-hi); border-color: var(--gold-line); background: rgba(232, 200, 121, 0.10); }
 
-/* Lobby HUB in landscape: the 4 mode cards as a 2×2 grid that FILLS the body (no
-   page scroll). Reuses the .mode visuals but drops the tall min-height + shrinks
-   the type scale so all four fit the short frame. */
-.pg-ls-modes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; }
-.pg-ls-modes .mode { min-height: 0; padding: 8px 10px; border-radius: 14px; gap: 2px; animation: none; }
-.pg-ls-modes .mode .micon { font-size: clamp(20px, 5vh, 30px); }
-.pg-ls-modes .mode .mname { font-size: clamp(13px, 3.2vh, 18px); letter-spacing: 0.4px; }
-.pg-ls-modes .mode .mdesc { font-size: 10.5px; margin-top: 0; max-width: 96%; }
-.pg-ls-modes .mode .mcta { margin-top: 4px; font-size: 11px; padding: 4px 14px; }
-.pg-ls-modes .mode .mode-badge { top: 6px; right: 6px; font-size: 9px; padding: 2px 6px; }
-/* Compact secondary-nav strip (the 6 rail icons) below the cards. Never scrolls. */
-.pg-ls-nav { flex: 0 0 auto; display: flex; justify-content: center; gap: 6px; }
-.pg-ls-nav .pg-ls-navbtn {
-  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
-  padding: 5px 4px; border-radius: 10px; background: var(--panel); border: 1px solid var(--panel-line);
-  color: var(--gold-hi); font-size: 17px; line-height: 1; cursor: pointer;
-}
-.pg-ls-nav .pg-ls-navbtn .lbl { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 9px; letter-spacing: 0.4px; }
+/* (Lobby HUB keeps its original layout in landscape — no landscape-console grid here.) */
