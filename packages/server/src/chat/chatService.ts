@@ -107,4 +107,27 @@ export class ChatService {
   listReports(limit = 200): Promise<ChatReportRecord[]> {
     return this.repo.listReports(limit);
   }
+
+  /**
+   * The report queue enriched with the REPORTED message's text + author username, so an
+   * admin sees WHAT was reported (not just the reporter id). One batched message lookup
+   * keyed by the reports' messageIds — no N+1. A message that was since deleted/purged
+   * yields null text/author (the report row still stands).
+   */
+  async listReportsEnriched(limit = 200): Promise<EnrichedChatReport[]> {
+    const reports = await this.repo.listReports(limit);
+    const ids = [...new Set(reports.map((r) => r.messageId))];
+    const byId = new Map((await this.repo.getMessages(ids)).map((m) => [m.id, m]));
+    return reports.map((r) => {
+      const msg = byId.get(r.messageId);
+      return { ...r, messageText: msg?.text ?? null, authorUsername: msg?.username ?? null, authorId: msg?.userId ?? null };
+    });
+  }
+}
+
+/** A chat report joined with the text + author of the message it concerns (null if the message is gone). */
+export interface EnrichedChatReport extends ChatReportRecord {
+  messageText: string | null;
+  authorUsername: string | null;
+  authorId: string | null;
 }

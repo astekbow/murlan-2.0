@@ -220,6 +220,66 @@ function MatchRow({ m }: { m: AdminMatch }) {
   );
 }
 
+// Animated placeholder rows shown while an admin list loads (instead of a blank panel).
+// Inline Tailwind only — `animate-pulse` + faint bars. aria-busy/role flag it to AT.
+function SkeletonRows({ rows = 4 }: { rows?: number }) {
+  const t = useT();
+  return (
+    <ul className="space-y-2.5" aria-busy="true" aria-label={t('admin.loading')}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <li key={i} className="rounded-xl px-4 py-3 border border-white/10 bg-white/[.02] animate-pulse">
+          <div className="flex items-center justify-between gap-3">
+            <div className="h-3.5 w-1/3 bg-white/5 rounded" />
+            <div className="h-3.5 w-16 bg-white/5 rounded" />
+          </div>
+          <div className="h-2.5 w-1/2 bg-white/5 rounded mt-2" />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// The reject-reason body for the withdrawal Reject dialog: quick-pick chips that FILL
+// the free-text field (still fully editable). Manages its own input state and reports
+// every change up via `onChange` (the parent stores it in a ref read after confirm).
+function RejectReasonField({ onChange }: { onChange: (v: string) => void }) {
+  const t = useT();
+  const [value, setValue] = useState('');
+  const presets: Array<{ key: string; label: string }> = [
+    { key: 'badAddress', label: t('admin.rejectPreset.badAddress') },
+    { key: 'kycFailed', label: t('admin.rejectPreset.kycFailed') },
+    { key: 'tooFrequent', label: t('admin.rejectPreset.tooFrequent') },
+    { key: 'flagged', label: t('admin.rejectPreset.flagged') },
+  ];
+  const set = (v: string) => { setValue(v); onChange(v); };
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="field-label">{t('admin.rejectPresets')}</span>
+        {presets.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => set(p.label)}
+            aria-pressed={value === p.label}
+            className={`btn btn-xs ${value === p.label ? 'btn-gold' : 'btn-ghost'}`}
+          >{p.label}</button>
+        ))}
+        {/* "Other" clears the field so the admin types their own reason. */}
+        <button type="button" onClick={() => set('')} className="btn btn-xs btn-ghost">{t('admin.rejectPreset.other')}</button>
+      </div>
+      <input
+        autoFocus
+        maxLength={500}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        placeholder={t('admin.rejectReasonPlaceholder')}
+        className="field w-full"
+      />
+    </div>
+  );
+}
+
 // A clickable overview tile: a count + label that jumps to its tab.
 function StatCard({ label, value, accent, onClick }: { label: string; value: string | number; accent?: boolean; onClick: () => void }) {
   return (
@@ -285,7 +345,7 @@ function RankedSeasonCard() {
 export function AdminView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
-  const { users, withdrawals, matches, revenueCents, error, notice, refresh, approve, reject, treasury, treasuryLoading, loadTreasury,
+  const { users, withdrawals, matches, revenueCents, error, notice, loading, refresh, approve, reject, treasury, treasuryLoading, loadTreasury,
     userSort, userOffset, userTotal, userPageSize, setUserQuery, setUserSort, setUserPage } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
   // Captures the (optional) rejection reason typed in the reject confirm dialog. A ref —
@@ -298,14 +358,20 @@ export function AdminView() {
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
   const [reports, setReports] = useState<AdminChatReport[]>([]);
   const [revenue, setRevenue] = useState<RevenueBreakdown | null>(null);
+  // First-load flag for the depth lists (support/audit/reports) so they show skeleton
+  // rows the first time instead of an empty-state flash; stays false on later refreshes.
+  const [depthLoading, setDepthLoading] = useState(true);
 
   const loadDepth = () => {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
-    void adminApi.support(token).then((r) => setTickets(r.tickets)).catch(() => {});
-    void adminApi.audit(token).then((r) => setAuditLog(r.actions)).catch(() => {});
-    void adminApi.chatReports(token).then((r) => setReports(r.reports)).catch(() => {});
-    void adminApi.revenueBreakdown(token).then(setRevenue).catch(() => {});
+    setDepthLoading(true);
+    void Promise.allSettled([
+      adminApi.support(token).then((r) => setTickets(r.tickets)),
+      adminApi.audit(token).then((r) => setAuditLog(r.actions)),
+      adminApi.chatReports(token).then((r) => setReports(r.reports)),
+      adminApi.revenueBreakdown(token).then(setRevenue),
+    ]).finally(() => setDepthLoading(false));
   };
 
   useEffect(() => { void refresh(); loadDepth(); }, [refresh]);
@@ -463,7 +529,9 @@ export function AdminView() {
       {tab === 'withdrawals' && (
         <section className="panel p-5 animate-rise">
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.pendingWithdrawals')}</h2>
-          {withdrawals.length === 0 ? (
+          {loading && withdrawals.length === 0 ? (
+            <SkeletonRows rows={3} />
+          ) : withdrawals.length === 0 ? (
             <p className="text-sm text-muted italic">{t('admin.noPendingWithdrawals')}</p>
           ) : (
             <ul className="space-y-2.5">
@@ -485,14 +553,7 @@ export function AdminView() {
                           message: (
                             <div className="space-y-2">
                               <p>{t('admin.confirmRejectM', { amount: dollars(w.amountCents) })}</p>
-                              <input
-                                autoFocus
-                                maxLength={500}
-                                defaultValue=""
-                                onChange={(e) => { rejectReasonRef.current = e.target.value; }}
-                                placeholder={t('admin.rejectReasonPlaceholder')}
-                                className="field w-full"
-                              />
+                              <RejectReasonField onChange={(v) => { rejectReasonRef.current = v; }} />
                             </div>
                           ),
                         });
@@ -520,9 +581,13 @@ export function AdminView() {
               {userSort === 'balance' ? t('admin.sortBalance') : t('admin.sortName')}
             </button>
           </div>
-          <ul className="space-y-2">
-            {users.map((u) => <UserRow key={u.id} user={u} />)}
-          </ul>
+          {loading && users.length === 0 ? (
+            <SkeletonRows rows={5} />
+          ) : (
+            <ul className="space-y-2">
+              {users.map((u) => <UserRow key={u.id} user={u} />)}
+            </ul>
+          )}
           {userTotal > userPageSize && (
             <div className="flex items-center justify-center gap-3 mt-3">
               <button disabled={userOffset === 0} onClick={() => setUserPage(userOffset - userPageSize)} className="btn btn-ghost btn-sm">{t('admin.prev')}</button>
@@ -537,7 +602,9 @@ export function AdminView() {
       {tab === 'matches' && (
         <section className="panel p-5 animate-rise">
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.activeMatches')}</h2>
-          {matches.length === 0 ? (
+          {loading && matches.length === 0 ? (
+            <SkeletonRows rows={3} />
+          ) : matches.length === 0 ? (
             <p className="text-sm text-muted italic">{t('admin.noActiveMatches')}</p>
           ) : (
             <ul className="space-y-2.5">{matches.map((m) => <MatchRow key={m.roomId} m={m} />)}</ul>
@@ -552,7 +619,9 @@ export function AdminView() {
             {t('admin.support')}
             {openTickets.length > 0 && <span className="tag tag-live">{openTickets.length}</span>}
           </h2>
-          {tickets.length === 0 ? (
+          {depthLoading && tickets.length === 0 ? (
+            <SkeletonRows rows={4} />
+          ) : tickets.length === 0 ? (
             <p className="text-sm text-muted italic">{t('admin.noTickets')}</p>
           ) : (
             <ul className="space-y-2.5">
@@ -580,7 +649,9 @@ export function AdminView() {
             {t('admin.moderation')}
             {newReports.length > 0 && <span className="tag tag-live">{newReports.length}</span>}
           </h2>
-          {reports.length === 0 ? (
+          {depthLoading && reports.length === 0 ? (
+            <SkeletonRows rows={4} />
+          ) : reports.length === 0 ? (
             <p className="text-sm text-muted italic">{t('admin.noReports')}</p>
           ) : (
             <ul className="space-y-2.5 max-h-[60vh] overflow-y-auto -mr-1 pr-1">
@@ -589,6 +660,18 @@ export function AdminView() {
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="font-display font-semibold tracking-wide text-txt text-sm break-words">{r.reason || t('admin.reportNoReason')}</span>
                     <span className={`tag ${r.reviewed ? 'tag-open' : 'tag-live'}`}>{r.reviewed ? t('admin.reviewed') : t('admin.reportNew')}</span>
+                  </div>
+                  {/* The reported message itself (joined server-side) — what the admin is judging. */}
+                  <div className="mt-2 rounded-lg border border-white/10 bg-white/[.03] px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-muted/70">
+                      {t('admin.reportedMsg')}
+                      {r.authorUsername ? <span className="text-muted/90"> · {t('admin.reportAuthor', { user: r.authorUsername })}</span> : null}
+                    </div>
+                    {r.messageText != null ? (
+                      <p className="text-sm text-txt mt-0.5 break-words whitespace-pre-wrap">{r.messageText}</p>
+                    ) : (
+                      <p className="text-xs text-muted/70 italic mt-0.5">{t('admin.reportMsgGone')}</p>
+                    )}
                   </div>
                   <p className="text-[11px] text-muted mt-1">{t('admin.reportMeta', { club: r.clubId.slice(0, 8), reporter: r.reporterId.slice(0, 8) })} · {new Date(r.createdAt).toLocaleString()}</p>
                 </li>
@@ -602,7 +685,9 @@ export function AdminView() {
       {tab === 'audit' && (
         <section className="panel p-5 animate-rise">
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.auditLog')}</h2>
-          {auditLog.length === 0 ? (
+          {depthLoading && auditLog.length === 0 ? (
+            <SkeletonRows rows={6} />
+          ) : auditLog.length === 0 ? (
             <p className="text-sm text-muted italic">{t('admin.noAudit')}</p>
           ) : (
             <ul className="space-y-1.5 max-h-[70vh] overflow-y-auto -mr-1 pr-1">

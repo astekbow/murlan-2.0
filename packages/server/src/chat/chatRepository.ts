@@ -25,6 +25,8 @@ export interface ChatReportRecord {
 export interface ChatRepository {
   addMessage(m: { clubId: string; userId: string; username: string; text: string }): Promise<ChatMessageRecord>;
   getMessage(id: string): Promise<ChatMessageRecord | null>;
+  /** Batched fetch (one query, no N+1) — used to attach reported-message text to the report queue. */
+  getMessages(ids: string[]): Promise<ChatMessageRecord[]>;
   /** Most-recent `limit` messages for a club, returned oldest→newest for display. */
   listByClub(clubId: string, limit: number): Promise<ChatMessageRecord[]>;
   addReport(r: { messageId: string; clubId: string; reporterId: string; reason: string }): Promise<void>;
@@ -50,6 +52,10 @@ export class InMemoryChatRepository implements ChatRepository {
   async getMessage(id: string): Promise<ChatMessageRecord | null> {
     const m = this.messages.find((x) => x.id === id);
     return m ? { ...m } : null;
+  }
+  async getMessages(ids: string[]): Promise<ChatMessageRecord[]> {
+    const want = new Set(ids);
+    return this.messages.filter((m) => want.has(m.id)).map((m) => ({ ...m }));
   }
   async listByClub(clubId: string, limit: number): Promise<ChatMessageRecord[]> {
     return this.messages.filter((m) => m.clubId === clubId).slice(-Math.max(0, limit)).map((m) => ({ ...m }));

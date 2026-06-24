@@ -953,6 +953,11 @@ export class PrismaChat implements ChatRepository {
     const row = await this.db.chatMessage.findUnique({ where: { id } });
     return row ? { id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) } : null;
   }
+  async getMessages(ids: string[]): Promise<ChatMessageRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.chatMessage.findMany({ where: { id: { in: ids } } });
+    return rows.map((row: any) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));
+  }
   async listByClub(clubId: string, limit: number): Promise<ChatMessageRecord[]> {
     const rows = await this.db.chatMessage.findMany({ where: { clubId }, orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
     return rows.reverse().map((row: any) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));

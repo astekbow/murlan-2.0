@@ -594,6 +594,13 @@ const STRINGS: Record<string, Entry> = {
   'admin.approve': { sq: 'Aprovo', en: 'Approve' },
   'admin.reject': { sq: 'Refuzo', en: 'Reject' },
   'admin.rejectReasonPlaceholder': { sq: 'Arsyeja (opsionale) — i shfaqet përdoruesit', en: 'Reason (optional) — shown to the user' },
+  // Quick-pick reasons for a withdrawal rejection (fill the free-text field faster).
+  'admin.rejectPresets': { sq: 'Arsye të shpejta:', en: 'Quick reasons:' },
+  'admin.rejectPreset.badAddress': { sq: 'Adresë e gabuar', en: 'Wrong address' },
+  'admin.rejectPreset.kycFailed': { sq: 'Dështoi verifikimi (KYC)', en: 'Verification failed (KYC)' },
+  'admin.rejectPreset.tooFrequent': { sq: 'Tërheqje shumë e shpeshta', en: 'Withdrawals too frequent' },
+  'admin.rejectPreset.flagged': { sq: 'E shenjuar për shqyrtim', en: 'Flagged for review' },
+  'admin.rejectPreset.other': { sq: 'Tjetër', en: 'Other' },
   'admin.activeMatches': { sq: 'NDESHJET AKTIVE', en: 'ACTIVE MATCHES' },
   'admin.support': { sq: 'TIKETAT E NDIHMËS', en: 'SUPPORT TICKETS' },
   'admin.noTickets': { sq: 'S’ka tiketa.', en: 'No tickets.' },
@@ -608,6 +615,12 @@ const STRINGS: Record<string, Entry> = {
   'admin.reportNew': { sq: 'I ri', en: 'New' },
   'admin.reviewed': { sq: 'Shqyrtuar', en: 'Reviewed' },
   'admin.reportMeta': { sq: 'Klub {club} · raportoi {reporter}', en: 'Club {club} · reported by {reporter}' },
+  // The reported message itself (joined server-side) — what the moderator is judging.
+  'admin.reportedMsg': { sq: 'Mesazhi i raportuar', en: 'Reported message' },
+  'admin.reportAuthor': { sq: 'nga {user}', en: 'by {user}' },
+  'admin.reportMsgGone': { sq: '(mesazhi nuk është më i disponueshëm)', en: '(message no longer available)' },
+  // Accessible label for the skeleton placeholders shown while an admin list loads.
+  'admin.loading': { sq: 'Po ngarkohet…', en: 'Loading…' },
   'admin.mute': { sq: 'Heshtje 24h', en: 'Mute 24h' },
   'admin.unmute': { sq: 'Hiq heshtjen', en: 'Unmute' },
   'admin.confirmMuteM': { sq: 'Ta heshtësh {user} në bisedë për 24 orë? Veprimi mbetet në audit.', en: 'Mute {user} from chat for 24 hours? This is recorded in the audit log.' },

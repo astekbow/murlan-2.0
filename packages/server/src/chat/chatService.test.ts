@@ -78,3 +78,19 @@ test('report requires the reporter to share the message’s club', async () => {
   assert.equal((await chat.report(member.id, msgId, 'abuse')).ok, true);
   assert.equal((await chat.listReports()).length, 1);
 });
+
+test('listReportsEnriched attaches the reported message text + author (one batched lookup)', async () => {
+  const { chat, member } = await setup();
+  const sent = await chat.send(member.id, 'member', 'this is the bad message');
+  assert.ok(sent.ok);
+  const msgId = sent.ok ? sent.message.id : '';
+  assert.equal((await chat.report(member.id, msgId, 'abuse')).ok, true);
+
+  const enriched = await chat.listReportsEnriched();
+  assert.equal(enriched.length, 1);
+  const row = enriched[0]!;
+  assert.equal(row.reason, 'abuse');
+  assert.equal(row.messageText, 'this is the bad message');
+  assert.equal(row.authorUsername, 'member');
+  assert.equal(row.authorId, member.id);
+});

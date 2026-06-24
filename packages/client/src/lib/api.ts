@@ -438,6 +438,10 @@ export interface AdminChatReport {
   reason: string;
   reviewed: boolean;
   createdAt: number;
+  // The reported message's text + author, joined server-side (null if the message is gone).
+  messageText?: string | null;
+  authorUsername?: string | null;
+  authorId?: string | null;
 }
 
 export interface TreasurySnapshot {

@@ -425,7 +425,9 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     const chat = deps.chat;
     app.get('/api/admin/chat-reports', async (req, reply) => {
       if (!(await admin(req, reply))) return;
-      return reply.send({ reports: await chat.listReports() });
+      // Enrich each report with the REPORTED message's text + author username (one batched
+      // lookup, no N+1) so the moderator sees what was actually reported, not just an id.
+      return reply.send({ reports: await chat.listReportsEnriched() });
     });
 
     app.post('/api/admin/users/:id/mute', async (req, reply) => {
