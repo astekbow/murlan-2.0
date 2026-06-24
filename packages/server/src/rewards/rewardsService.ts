@@ -54,29 +54,39 @@ function dailyDealId(now: number): string | null {
 // XP — never the wallet). New items added below: a few XP-priced + a couple money-priced.
 // An XP item carries cost:0 (so it's excluded from the money-only daily deal automatically).
 export const COSMETICS: Cosmetic[] = [
-  // Card backs
+  // ── Card backs ──────────────────────────────────────────────────────────
   { id: 'cb_classic', name: 'Pas klasik', type: 'cardBack', cost: 0 },
-  { id: 'cb_gold', name: 'Pas ari', type: 'cardBack', cost: 300 },                       // money
-  { id: 'cb_emerald', name: 'Pas smerald', type: 'cardBack', cost: 0, costXp: 800 },      // XP (was 350¢)
-  { id: 'cb_sapphire', name: 'Pas safir', type: 'cardBack', cost: 0, costXp: 1200 },      // XP (was 350¢)
-  { id: 'cb_rose', name: 'Pas trëndafili', type: 'cardBack', cost: 0, costXp: 2000 },     // XP (was 450¢)
-  { id: 'cb_carbon', name: 'Pas karboni', type: 'cardBack', cost: 500 },                  // money
-  { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600, featured: true }, // money
-  // NEW card backs
-  { id: 'cb_ivory', name: 'Pas fildishi', type: 'cardBack', cost: 0, costXp: 500 },       // XP (new, cheapest)
-  { id: 'cb_jade', name: 'Pas jadeje', type: 'cardBack', cost: 0, costXp: 3500 },         // XP (new)
-  { id: 'cb_platinum', name: 'Pas platini', type: 'cardBack', cost: 800, featured: true },// money (new, premium)
-  // Table felts
+  // XP-priced (earned from play/challenges) — prices LOWERED so a few sessions unlock them.
+  { id: 'cb_ivory', name: 'Pas fildishi', type: 'cardBack', cost: 0, costXp: 150 },
+  { id: 'cb_ocean', name: 'Pas oqeani', type: 'cardBack', cost: 0, costXp: 250 },
+  { id: 'cb_crimson', name: 'Pas të kuq', type: 'cardBack', cost: 0, costXp: 250 },
+  { id: 'cb_emerald', name: 'Pas smerald', type: 'cardBack', cost: 0, costXp: 350 },
+  { id: 'cb_sunset', name: 'Pas perëndimi', type: 'cardBack', cost: 0, costXp: 350 },
+  { id: 'cb_sapphire', name: 'Pas safir', type: 'cardBack', cost: 0, costXp: 500 },
+  { id: 'cb_violet', name: 'Pas vjollcë', type: 'cardBack', cost: 0, costXp: 500 },
+  { id: 'cb_rose', name: 'Pas trëndafili', type: 'cardBack', cost: 0, costXp: 800 },
+  { id: 'cb_jade', name: 'Pas jadeje', type: 'cardBack', cost: 0, costXp: 1200 },
+  // Money-priced (premium)
+  { id: 'cb_gold', name: 'Pas ari', type: 'cardBack', cost: 300 },
+  { id: 'cb_carbon', name: 'Pas karboni', type: 'cardBack', cost: 500 },
+  { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600, featured: true },
+  { id: 'cb_platinum', name: 'Pas platini', type: 'cardBack', cost: 800, featured: true },
+  // ── Table felts ─────────────────────────────────────────────────────────
   { id: 'felt_red', name: 'Çoha e kuqe', type: 'tableFelt', cost: 0 },
-  { id: 'felt_emerald', name: 'Çoha smerald', type: 'tableFelt', cost: 0, costXp: 1000 }, // XP (was 400¢)
-  { id: 'felt_sapphire', name: 'Çoha safir', type: 'tableFelt', cost: 0, costXp: 1500 },  // XP (was 400¢)
-  { id: 'felt_wine', name: 'Çoha verë', type: 'tableFelt', cost: 450 },                   // money
-  { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },           // money
-  { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700, featured: true }, // money
-  // NEW table felts
-  { id: 'felt_forest', name: 'Çoha pyll', type: 'tableFelt', cost: 0, costXp: 700 },      // XP (new)
-  { id: 'felt_amber', name: 'Çoha qelibar', type: 'tableFelt', cost: 0, costXp: 5000 },   // XP (new, priciest XP)
-  { id: 'felt_royalblue', name: 'Çoha blu mbretërore', type: 'tableFelt', cost: 900, featured: true }, // money (new, premium)
+  // XP-priced
+  { id: 'felt_charcoal', name: 'Çoha qymyr', type: 'tableFelt', cost: 0, costXp: 150 },
+  { id: 'felt_forest', name: 'Çoha pyll', type: 'tableFelt', cost: 0, costXp: 250 },
+  { id: 'felt_teal', name: 'Çoha bruz', type: 'tableFelt', cost: 0, costXp: 250 },
+  { id: 'felt_sand', name: 'Çoha rëre', type: 'tableFelt', cost: 0, costXp: 250 },
+  { id: 'felt_emerald', name: 'Çoha smerald', type: 'tableFelt', cost: 0, costXp: 350 },
+  { id: 'felt_sapphire', name: 'Çoha safir', type: 'tableFelt', cost: 0, costXp: 500 },
+  { id: 'felt_plum', name: 'Çoha kumbull', type: 'tableFelt', cost: 0, costXp: 500 },
+  { id: 'felt_amber', name: 'Çoha qelibar', type: 'tableFelt', cost: 0, costXp: 800 },
+  // Money-priced (premium)
+  { id: 'felt_wine', name: 'Çoha verë', type: 'tableFelt', cost: 450 },
+  { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },
+  { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700, featured: true },
+  { id: 'felt_royalblue', name: 'Çoha blu mbretërore', type: 'tableFelt', cost: 900, featured: true },
 ];
 
 type Metric = 'gamesPlayed' | 'wins' | 'level' | 'currentStreak';

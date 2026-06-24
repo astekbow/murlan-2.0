@@ -737,6 +737,8 @@ const STRINGS: Record<string, Entry> = {
 
   // Club tournaments
   'clubs.tournaments': { sq: 'TURNETË E KLUBIT', en: 'CLUB TOURNAMENTS' },
+  'clubs.founderOpensTournaments': { sq: 'Si themelues, ti i hap turnet e klubit.', en: 'As the founder, you open the club tournaments.' },
+  'clubs.onlyFounderOpens': { sq: 'Vetëm themeluesi i klubit mund të hapë turne.', en: 'Only the club founder can open tournaments.' },
   'clubs.createTournament': { sq: 'Krijo turne', en: 'Create tournament' },
   'clubs.noTournaments': { sq: 'Ende pa turne — krijo të parin!', en: 'No tournaments yet — create the first one!' },
   'clubs.register': { sq: 'Regjistrohu', en: 'Register' },

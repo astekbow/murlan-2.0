@@ -551,6 +551,21 @@ select:focus-visible,
 .cb_rose { --cb: repeating-linear-gradient(45deg, #8a2a55 0 4px, #c0477f 4px 8px); }
 .cb_carbon { --cb: repeating-linear-gradient(45deg, #1a1d24 0 5px, #2a2f3a 5px 10px); }
 .cb_royal { --cb: repeating-linear-gradient(45deg, #2f2467 0 4px, #5a4a9a 4px 8px); }
+/* Added cosmetics (XP + premium) — every catalog id needs a class here or it renders blank. */
+.felt_royalblue { --felt-hi: #3b6fd6; --felt: #1f47a8; --felt-edge: #0c1c44; }
+.felt_charcoal { --felt-hi: #3a3f48; --felt: #23272f; --felt-edge: #0c0e12; }
+.felt_forest { --felt-hi: #2f7d4f; --felt: #18532f; --felt-edge: #082014; }
+.felt_teal { --felt-hi: #1f9a8f; --felt: #0f6a62; --felt-edge: #06282a; }
+.felt_sand { --felt-hi: #b89a5e; --felt: #8a6f3c; --felt-edge: #3a2c14; }
+.felt_plum { --felt-hi: #7a3a8a; --felt: #54215e; --felt-edge: #260a2a; }
+.felt_amber { --felt-hi: #c8902f; --felt: #9a6312; --felt-edge: #3a2406; }
+.cb_ivory { --cb: repeating-linear-gradient(45deg, #d8cfb8 0 4px, #f2ead2 4px 8px); }
+.cb_ocean { --cb: repeating-linear-gradient(45deg, #186a8e 0 4px, #2f9ac0 4px 8px); }
+.cb_crimson { --cb: repeating-linear-gradient(45deg, #8a1f2a 0 4px, #c0303f 4px 8px); }
+.cb_sunset { --cb: repeating-linear-gradient(45deg, #c0562f 0 4px, #e0894f 4px 8px); }
+.cb_violet { --cb: repeating-linear-gradient(45deg, #5a2f9a 0 4px, #8a5ac0 4px 8px); }
+.cb_jade { --cb: repeating-linear-gradient(45deg, #1f8a5a 0 4px, #3fbf86 4px 8px); }
+.cb_platinum { --cb: repeating-linear-gradient(45deg, #8a8f99 0 4px, #c8ccd4 4px 8px); }
 
 /* Shop preview swatches: a mini card-back / felt rendered from the theme vars. */
 .cosmo-swatch { width: 42px; height: 58px; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.6); }

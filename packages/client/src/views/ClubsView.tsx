@@ -334,6 +334,7 @@ function ClubTournaments({ club }: { club: ClubDetailDTO }) {
   return (
     <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.08s' }}>
       <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('clubs.tournaments')}</h2>
+      <p className="text-xs text-muted">{isFounder ? `👑 ${t('clubs.founderOpensTournaments')}` : t('clubs.onlyFounderOpens')}</p>
 
       {isFounder && (
         <div className="flex flex-wrap gap-3 items-end rounded-xl px-4 py-3 border border-gold/30 bg-gold/[.05]">

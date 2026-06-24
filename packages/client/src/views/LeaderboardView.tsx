@@ -446,6 +446,7 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
         <span className="flex-1">{t('lb.player')}</span>
         <span className="w-28 text-right">{t('lb.mmr')}</span>
         <span className="w-16 text-right">{t('lb.games')}</span>
+        <span className="w-16 text-right">{t('lb.wins')}</span>
         <span className="w-20 text-right">{t('lb.winPct')}</span>
       </div>
       {rows.length >= 3 && (
@@ -485,6 +486,7 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
                 <span className="block text-[10px] text-muted/70">{t('lb.peak', { n: r.peakRating })}</span>
               </div>
               <div className="hidden sm:block w-16 text-right font-display font-semibold tracking-wide text-txt">{r.games}</div>
+              <div className="hidden sm:block w-16 text-right font-display font-semibold tracking-wide text-txt">{r.wins}</div>
               <div className="hidden sm:block w-20 text-right font-display font-semibold tracking-wide text-emerald-300">{Math.round(r.winRate * 100)}%</div>
             </li>
           );
