@@ -60,6 +60,11 @@ export interface ClientToServerEvents {
   'room:joinByCode': (payload: RoomJoinByCodePayload, ack: (res: Ack) => void) => void;
   'room:leave': (ack: (res: Ack) => void) => void;
   'room:ready': (ready: boolean, ack: (res: Ack) => void) => void;
+  // Rematch: at match-end, a seated player opts in to replay the SAME room (same
+  // opponents, seats/teams, stake). When every present player has opted in within the
+  // offer window the room resets + a new match deals. Cash rooms + practice only —
+  // ranked re-queues, tournaments advance their bracket (both rejected server-side).
+  'room:rematch': (ack: (res: Ack) => void) => void;
   'game:play': (payload: GamePlayPayload, ack: (res: Ack) => void) => void;
   'game:pass': (ack: (res: Ack) => void) => void;
   'game:switchGive': (payload: SwitchGivePayload, ack: (res: Ack) => void) => void;
@@ -119,6 +124,11 @@ export interface ServerToClientEvents {
   'hand:continueState': (dto: { ready: Seat[]; humans: number }) => void;
   'match:scoreboard': (dto: ScoreboardDTO) => void;
   'match:end': (dto: MatchEndDTO) => void;
+  // Rematch offer state: who has opted in + when the window closes (epoch ms), so the
+  // match-over screen can show "2/3 want a rematch". `cancelled` fires when the window
+  // lapses or a player leaves — the room stays finished and players can leave/re-offer.
+  'rematch:offer': (dto: { roomId: string; accepted: string[]; deadline: number }) => void;
+  'rematch:cancelled': (dto: { roomId: string; reason: string }) => void;
   'ranked:queue:update': (dto: RankedQueueDTO) => void; // matchmaking status while waiting
   'fair:commit': (dto: FairCommitDTO) => void;  // before the match
   'fair:reveal': (dto: FairRevealDTO) => void;  // after the match (verifiable)

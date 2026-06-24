@@ -155,6 +155,28 @@ test('play is forwarded to the Match and a finished match flips the room to fini
   assert.equal(m.roomStateDTO('room_1')!.status, 'finished');
 });
 
+test('resetForRematch returns a finished room to a startable waiting state with the same roster', () => {
+  const m = mgr({ startTarget: 1, dealerFactory: scripted([[[c('3', 'S')], [c('4', 'S')]]]) });
+  m.createRoom(U(1), { type: '1v1', stakeCents: 100 });
+  m.joinRoom(U(2), 'room_1');
+  m.setReady('u1', true);
+  m.setReady('u2', true);
+  m.startMatch('room_1');
+  m.play('u1', [c('3', 'S')]); // seat 0 empties its hand → wins → match finished
+  assert.equal(m.roomStateDTO('room_1')!.status, 'finished');
+
+  assert.equal(m.resetForRematch('room_1'), true);
+  assert.equal(m.roomStateDTO('room_1')!.status, 'waiting'); // fresh waiting room
+  assert.equal(m.isFull('room_1'), true);                    // same two players kept
+  assert.equal(m.allReady('room_1'), false);                 // ready flags dropped
+  assert.equal(m.resetForRematch('room_1'), false);          // no longer finished → no-op
+
+  // It replays cleanly as a brand-new match.
+  m.setReady('u1', true);
+  m.setReady('u2', true);
+  assert.ok(m.startMatch('room_1').ok);
+});
+
 test('acting in a room without an active match is rejected', () => {
   const m = mgr();
   m.createRoom(U(1), { type: '1v1', stakeCents: 100 });

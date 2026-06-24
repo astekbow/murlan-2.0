@@ -112,6 +112,10 @@ interface GameStore {
    *  loser), shown on the table. Cleared shortly after the switch completes. */
   switchCards: { given: Card | null; returned: Card | null } | null;
   matchResult: MatchEndDTO | null;
+  /** Open rematch offer for the just-finished room: who has opted in + the window
+   *  deadline (epoch ms). null when no offer is open. Drives the "2/3 want a rematch"
+   *  state on the match-over screen. */
+  rematchOffer: { accepted: string[]; deadline: number } | null;
   fairCommit: FairCommitDTO | null;
   fairReveal: FairRevealDTO | null;
   log: LogEntry[];
@@ -199,6 +203,7 @@ const emptyRoomState = {
   noSwapNotice: false,
   switchCards: null,
   matchResult: null,
+  rematchOffer: null,
   fairCommit: null,
   fairReveal: null,
   bubbles: [] as Bubble[],
@@ -249,7 +254,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     socket.on('room:spectators', (dto) => set({ spectators: dto.count }));
 
     socket.on('match:start', (room) => {
-      set((s) => ({ room, queue: null, log: appendLog(s.log, tg('log.matchStarted')) }));
+      // A (re)match is starting → clear the previous match-over overlay + any rematch offer.
+      set((s) => ({ room, queue: null, matchResult: null, rematchOffer: null, log: appendLog(s.log, tg('log.matchStarted')) }));
+    });
+
+    // Rematch offer state for the just-finished room ("2/3 want a rematch").
+    socket.on('rematch:offer', (dto) => set({ rematchOffer: { accepted: dto.accepted, deadline: dto.deadline } }));
+    socket.on('rematch:cancelled', () => {
+      if (get().rematchOffer) useNotifications.getState().push(tg('rematch.cancelled'), 'info');
+      set({ rematchOffer: null });
     });
 
     // Ranked matchmaking status while waiting (cleared once we're seated/matched).
@@ -469,19 +482,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return res.ok;
   },
 
-  // "Luaj sërish": from a finished match, open a FRESH room of the same type/stake
-  // (and my same team in 2v2) and land in it waiting for opponents. The prior
-  // match is fully settled — this is its own room/escrow, never a continuation.
-  // One-room-per-user means we must leave the finished room first.
+  // "Luaj sërish": opt into a rematch of the SAME finished room — same opponents,
+  // seats/teams and stake. We STAY in the room; when every present player opts in
+  // (within the ~20s window) the server resets it and a new match deals (fresh matchId +
+  // re-escrow). rematch:offer drives the "2/3" progress; match:start clears the overlay.
+  // Ranked/tournament rooms are rejected server-side with a clear message.
   async rematch() {
-    const { room, mySeat } = get();
-    if (!room) return;
-    const type = room.type;
-    const stakeCents = room.stakeCents;
-    const team = type === '2v2' && mySeat !== null ? room.seats[mySeat]?.team ?? undefined : undefined;
-    get().dismissResult();
-    await get().leaveRoom();
-    await get().createRoom(type, stakeCents, team ?? undefined);
+    const socket = get().socket;
+    if (!socket || !get().room) return;
+    const res = await request<Ack>(socket, 'room:rematch');
+    if (!res.ok) set({ toast: ackText(res.error, 'rematch.unavailable'), toastKind: 'error' });
+    // On success we stay put; the offer + match:start events take over.
   },
 
   async startPractice(type, tier) {

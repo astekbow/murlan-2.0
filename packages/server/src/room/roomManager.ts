@@ -378,6 +378,23 @@ export class RoomManager {
     return { ...res, roomId: room.id };
   }
 
+  /** Reset a FINISHED room to a fresh waiting state for a REMATCH: same roster, seats,
+   *  teams, stake and type — only the match is cleared, ready flags dropped, and the
+   *  target reset to a fresh game (so the rematch is a new match to startTarget, not a
+   *  continuation). The next beginMatch mints a new matchId + re-escrows via the normal
+   *  path. Valid ONLY from 'finished' (and never a tournament/ranked room — the caller
+   *  gates that). Returns false if the room isn't resettable. */
+  resetForRematch(roomId: string): boolean {
+    const room = this.rooms.get(roomId);
+    if (!room || room.status !== 'finished') return false;
+    if (room.tournament) return false; // bracket rooms never rematch
+    room.match = null;
+    room.target = this.startTarget;
+    room.status = 'waiting';
+    for (const s of room.seats) s.ready = false;
+    return true;
+  }
+
   /** After a match ends, free every seat whose player had abandoned (so a rematch
    *  starts clean). Present players keep their seats. */
   clearGoneSeats(roomId: string): void {

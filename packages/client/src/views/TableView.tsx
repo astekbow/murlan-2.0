@@ -136,13 +136,13 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
-    game, pileHistory, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult,
+    game, pileHistory, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult, rematchOffer,
     fairReveal, bubbles, handStandings, handReady, handHumans, spectators,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch, continueHand,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, pileHistory: s.pileHistory, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
-      scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult,
+      scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult, rematchOffer: s.rematchOffer,
       fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans, spectators: s.spectators,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
       giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch, continueHand: s.continueHand,
@@ -757,9 +757,22 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                   ))}
             </div>
 
-            <button autoFocus onClick={() => { sound.play('button'); void rematch(); }} className="btn btn-gold btn-lg btn-block">
-              {t('table.playAgain')}
-            </button>
+            {(() => {
+              const total = room.seats.filter((s) => s.userId).length;
+              const iAccepted = !!rematchOffer && myUserId != null && rematchOffer.accepted.includes(myUserId);
+              if (iAccepted) {
+                return (
+                  <button disabled className="btn btn-gold btn-lg btn-block opacity-80">
+                    {t('table.rematchWaiting', { n: rematchOffer!.accepted.length, total })}
+                  </button>
+                );
+              }
+              return (
+                <button autoFocus onClick={() => { sound.play('button'); void rematch(); }} className="btn btn-gold btn-lg btn-block">
+                  {rematchOffer ? t('table.rematchJoin', { n: rematchOffer.accepted.length, total }) : t('table.playAgain')}
+                </button>
+              );
+            })()}
             <button onClick={() => { dismissResult(); void leaveRoom(); }} className="btn btn-ghost btn-block mt-2">
               {t('table.returnLobby')}
             </button>

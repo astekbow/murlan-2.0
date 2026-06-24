@@ -53,6 +53,7 @@ type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEv
 export interface GatewayOptions {
   turnMs?: number;       // per-turn timer; default 30s
   countdownMs?: number;  // ready-check countdown before a match starts; default 3s
+  rematchMs?: number;    // how long a rematch offer stays open for everyone to opt in; default 20s
   handPauseMs?: number;  // inter-hand standings pause before the next hand deals; default 0 (off — prod wires it via config); 0 = immediate
   money?: MoneyService;  // when present, stakes are escrowed/settled (Phase 6)
   rakeBps?: number;      // house rake in basis points; default 1000 (10%)
@@ -108,6 +109,7 @@ export type AdminVoidResult =
 export class GameGateway {
   private readonly turnMs: number;
   private readonly countdownMs: number;
+  private readonly rematchMs: number;
   private readonly handPauseMs: number;
   private readonly money: MoneyService | null;
   private readonly rakeBps: number;
@@ -131,6 +133,10 @@ export class GameGateway {
   // Per tournament-room no-show timers: if a paired player never joins, the match
   // is walked over to whoever did, so the bracket can't stall. roomId → timer.
   private tournamentNoShowTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Rematch offers: roomId → who has opted in + the window deadline (epoch ms), plus the
+  // timer that cancels the offer if consensus isn't reached in time.
+  private rematchAccepts = new Map<string, { users: Set<string>; deadline: number }>();
+  private rematchTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // How long to wait for both paired players to join before a walkover (ms).
   private readonly tournamentJoinMs = 45_000;
   private readonly botDelayMs: number | null;
@@ -183,6 +189,7 @@ export class GameGateway {
   ) {
     this.turnMs = opts.turnMs ?? 30_000;
     this.countdownMs = opts.countdownMs ?? 3_000;
+    this.rematchMs = opts.rematchMs ?? 20_000;
     this.handPauseMs = opts.handPauseMs ?? 0; // off unless wired (prod sets it via config); keeps tests deterministic
     this.money = opts.money ?? null;
     this.rakeBps = opts.rakeBps ?? 1_000;
@@ -330,6 +337,7 @@ export class GameGateway {
     socket.on('room:joinByCode', (payload, ack) => this.onJoinByCode(socket, payload, ack));
     socket.on('room:leave', (ack) => void this.onLeave(socket, ack));
     socket.on('room:ready', (ready, ack) => this.onReady(socket, ready, ack));
+    socket.on('room:rematch', (ack) => void this.onRematch(socket, ack));
     socket.on('game:play', (payload, ack) => this.onPlay(socket, payload, ack));
     socket.on('game:pass', (ack) => this.onPass(socket, ack));
     socket.on('game:switchGive', (payload, ack) => this.onSwitchGive(socket, payload, ack));
@@ -548,6 +556,8 @@ export class GameGateway {
     // throttled player must still be able to quit a room/match).
     const roomId = socket.data.roomId;
     if (!roomId) return reply(ackError('no_room', 'Nuk je në një dhomë.'));
+    // Leaving the room voids any open rematch offer (the roster just broke).
+    this.cancelRematch(roomId, 'left');
     const room = this.rooms.getRoom(roomId);
     const seat = this.rooms.seatOf(roomId, socket.data.userId);
     const userId = socket.data.userId;
@@ -579,6 +589,67 @@ export class GameGateway {
       console.error('[gateway] onLeave teardown failed:', e);
       reply({ ok: true }); // the socket is already out of the room — report success
     }
+  }
+
+  /** A seated player opts into a REMATCH of the just-finished room. When every present
+   *  player has opted in within the window, the room resets + a new match deals (same
+   *  seats/teams/stake) via the normal beginMatch path (fresh matchId + re-escrow).
+   *  Tournament + ranked rooms are rejected (they have their own flow); bots auto-accept. */
+  private async onRematch(socket: IOSocket, ack: (res: Ack) => void): Promise<void> {
+    const reply = safeAck(ack);
+    const roomId = socket.data.roomId;
+    const userId = socket.data.userId;
+    if (!roomId || !userId) return reply(ackError('no_room', 'Nuk je në një dhomë.'));
+    const room = this.rooms.getRoom(roomId);
+    if (!room || room.status !== 'finished') return reply(ackError('no_room', 'Ndeshja nuk ka mbaruar ende.'));
+    if (room.tournament) return reply(ackError('rematch_unavailable', 'Turnet nuk kanë rivanç.'));
+    if (room.ranked) return reply(ackError('rematch_unavailable', 'Për ranked, kërko ndeshje të re.'));
+    if (!room.seats.some((s) => s.userId === userId)) return reply(ackError('no_seat', 'Nuk ke vend në dhomë.'));
+    // The full roster must still be present — a seat freed by someone leaving means we
+    // can't reseat the same people (they can open a fresh room instead).
+    const rosterPresent = room.seats.every((s) => s.userId !== null && (isBot(s.userId) || s.connected));
+    if (!rosterPresent) return reply(ackError('rematch_unavailable', 'Dikush u largua — nuk ka rivanç.'));
+
+    let offer = this.rematchAccepts.get(roomId);
+    if (!offer) {
+      offer = { users: new Set<string>(), deadline: Date.now() + this.rematchMs };
+      // Bots can't opt in → auto-accept their seats so a practice rematch needs only the human.
+      for (const s of room.seats) if (s.userId && isBot(s.userId)) offer.users.add(s.userId);
+      this.rematchAccepts.set(roomId, offer);
+      this.rematchTimers.set(roomId, setTimeout(() => this.cancelRematch(roomId, 'timeout'), this.rematchMs));
+    }
+    offer.users.add(userId);
+    reply({ ok: true });
+
+    const accepted = [...offer.users].filter((id) => !isBot(id));
+    this.io.to(roomId).emit('rematch:offer', { roomId, accepted, deadline: offer.deadline });
+
+    // Everyone present opted in? → reset + ready all + start. Escrow runs in beginMatch;
+    // a seat that can't cover the stake is unreadied there (same as a normal ready-up).
+    const everyone = room.seats.every((s) => !s.userId || offer!.users.has(s.userId));
+    if (everyone) {
+      this.clearRematch(roomId);
+      if (this.rooms.resetForRematch(roomId)) {
+        for (const s of room.seats) if (s.userId) this.rooms.setReady(s.userId, true);
+        this.broadcastRoomState(roomId);
+        this.maybeStartCountdown(roomId); // all ready ⇒ countdown ⇒ beginMatch (escrow + deal)
+      }
+    }
+  }
+
+  /** Cancel an open rematch offer (window lapsed / a player left). The room stays
+   *  finished; clients fall back to leaving or re-offering. No-op if no offer is open. */
+  private cancelRematch(roomId: string, reason: string): void {
+    if (!this.rematchAccepts.has(roomId)) return;
+    this.clearRematch(roomId);
+    this.io.to(roomId).emit('rematch:cancelled', { roomId, reason });
+  }
+
+  /** Drop the offer bookkeeping + its timer (on success, cancel, or room teardown). */
+  private clearRematch(roomId: string): void {
+    const t = this.rematchTimers.get(roomId);
+    if (t) { clearTimeout(t); this.rematchTimers.delete(roomId); }
+    this.rematchAccepts.delete(roomId);
   }
 
   private onReady(socket: IOSocket, ready: boolean, ack: (res: Ack) => void): void {
