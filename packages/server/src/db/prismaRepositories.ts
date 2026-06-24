@@ -10,6 +10,7 @@
 // ============================================================================
 
 import type { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, type UserRole, DuplicateUserError } from '../auth/userRepository.ts';
 import { levelInfo } from '../profile/level.ts';
 import {
@@ -41,6 +42,16 @@ import type { MatchType } from '@murlan/shared';
 
 const ms = (d: Date): number => d.getTime();
 const msOrNull = (d: Date | null): number | null => (d ? d.getTime() : null);
+
+/** Coerce a Prisma Json anchor column into a typed PeriodAnchor (or null). Defensive
+ *  against a malformed/legacy value — a bad shape reads as null (period rolls over,
+ *  baseline re-snapshots to current; no crash). */
+function toAnchor(v: any): { period: string; games: number; wins: number } | null {
+  if (v && typeof v === 'object' && typeof v.period === 'string' && typeof v.games === 'number' && typeof v.wins === 'number') {
+    return { period: v.period, games: v.games, wins: v.wins };
+  }
+  return null;
+}
 
 function toUser(row: any): User {
   return {
@@ -81,6 +92,8 @@ function toUser(row: any): User {
     claimedDailies: row.claimedDailies ?? [],
     claimedWeeklies: row.claimedWeeklies ?? [],
     collectedMilestones: row.collectedMilestones ?? [],
+    dailyAnchor: toAnchor(row.dailyAnchor),
+    weeklyAnchor: toAnchor(row.weeklyAnchor),
   };
 }
 
@@ -263,6 +276,9 @@ export class PrismaUserRepository implements UserRepository {
     if (patch.claimedChallenges !== undefined) data.claimedChallenges = patch.claimedChallenges;
     if (patch.claimedDailies !== undefined) data.claimedDailies = patch.claimedDailies;
     if (patch.claimedWeeklies !== undefined) data.claimedWeeklies = patch.claimedWeeklies;
+    // Json columns: a null clears via Prisma.JsonNull (DB NULL); an object stores as-is.
+    if (patch.dailyAnchor !== undefined) data.dailyAnchor = patch.dailyAnchor ?? Prisma.JsonNull;
+    if (patch.weeklyAnchor !== undefined) data.weeklyAnchor = patch.weeklyAnchor ?? Prisma.JsonNull;
     if (patch.collectedMilestones !== undefined) data.collectedMilestones = patch.collectedMilestones;
     const row = await this.db.user.update({ where: { id }, data }).catch(() => null);
     return row ? toUser(row) : null;

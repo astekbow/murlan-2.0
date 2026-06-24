@@ -72,6 +72,12 @@ export interface User {
   claimedDailies: string[];
   claimedWeeklies: string[];
   collectedMilestones: number[];
+  // Per-period anchors so daily/weekly quest progress is measured WITHIN the period (a
+  // snapshot of cumulative gamesPlayed/wins at the start of the current period). null until
+  // the first status read in a period; lazily refreshed on rollover. (Structurally a
+  // PeriodAnchor from rewards/quests — kept inline here to avoid an import cycle.)
+  dailyAnchor: { period: string; games: number; wins: number } | null;
+  weeklyAnchor: { period: string; games: number; wins: number } | null;
 }
 
 /** Patch for reward/cosmetic fields. */
@@ -85,6 +91,8 @@ export interface RewardsPatch {
   claimedDailies?: string[];
   claimedWeeklies?: string[];
   collectedMilestones?: number[];
+  dailyAnchor?: { period: string; games: number; wins: number } | null;
+  weeklyAnchor?: { period: string; games: number; wins: number } | null;
 }
 
 /** A finished-match result applied to a player's cosmetic stats/XP. */
@@ -258,6 +266,8 @@ export class InMemoryUserRepository implements UserRepository {
       claimedDailies: [],
       claimedWeeklies: [],
       collectedMilestones: [],
+      dailyAnchor: null,
+      weeklyAnchor: null,
     };
     this.byId.set(user.id, user);
     this.byEmail.set(email, user.id);
@@ -416,6 +426,8 @@ export class InMemoryUserRepository implements UserRepository {
     if (patch.claimedDailies !== undefined) user.claimedDailies = [...patch.claimedDailies];
     if (patch.claimedWeeklies !== undefined) user.claimedWeeklies = [...patch.claimedWeeklies];
     if (patch.collectedMilestones !== undefined) user.collectedMilestones = [...patch.collectedMilestones];
+    if (patch.dailyAnchor !== undefined) user.dailyAnchor = patch.dailyAnchor ? { ...patch.dailyAnchor } : null;
+    if (patch.weeklyAnchor !== undefined) user.weeklyAnchor = patch.weeklyAnchor ? { ...patch.weeklyAnchor } : null;
     return { ...user };
   }
 

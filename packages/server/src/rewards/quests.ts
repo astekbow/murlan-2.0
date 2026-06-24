@@ -166,8 +166,44 @@ export function weeklyClaimKey(now: number, questId: string): string {
   return `${isoWeekKey(now)}:${questId}`;
 }
 
-/** Read a quest metric off the user (level is derived from xp). */
+/** Read a quest metric off the user (level is derived from xp). POINT-IN-TIME value —
+ *  used for streak/level quests and as the source for anchor snapshots. */
 export function questMetricValue(u: User, m: QuestMetric): number {
   if (m === 'level') return levelInfo(u.xp).level;
   return u[m];
+}
+
+// ── Per-period anchors (so daily/weekly progress is measured WITHIN the period) ──
+// Cumulative stats (gamesPlayed/wins) only ever increase over a player's lifetime, so a
+// raw "win 2 today" goal would read as already-done for any active player. An anchor
+// snapshots the cumulative stats at the START of the current period; per-period progress
+// for a COUNT metric is (current − anchor), clamped ≥ 0. STREAK/LEVEL are naturally
+// point-in-time (a streak resets on a loss; level is "have you reached…"), so they ignore
+// the anchor entirely.
+export interface PeriodAnchor {
+  period: string; // the period key this snapshot belongs to ('YYYY-MM-DD' or 'YYYY-Www')
+  games: number;  // gamesPlayed at the start of the period
+  wins: number;   // wins at the start of the period
+}
+
+/** Count metrics measure a per-period DELTA from the anchor; others are point-in-time. */
+export function isCountMetric(m: QuestMetric): m is 'gamesPlayed' | 'wins' {
+  return m === 'gamesPlayed' || m === 'wins';
+}
+
+/** The EFFECTIVE baseline for `period`: the stored anchor if it's for the current period,
+ *  otherwise a fresh snapshot of the user's CURRENT cumulative stats (period just rolled
+ *  over → the new period starts at 0 progress). Pure — callers persist the result when it
+ *  differs from what's stored (lazy refresh). */
+export function effectiveAnchor(u: User, period: string, stored: PeriodAnchor | null): PeriodAnchor {
+  if (stored && stored.period === period) return stored;
+  return { period, games: u.gamesPlayed, wins: u.wins };
+}
+
+/** Per-period progress for a quest metric: count metrics use (current − baseline) clamped
+ *  ≥ 0; streak/level are point-in-time. */
+export function questPeriodProgress(u: User, m: QuestMetric, baseline: PeriodAnchor): number {
+  if (m === 'gamesPlayed') return Math.max(0, u.gamesPlayed - baseline.games);
+  if (m === 'wins') return Math.max(0, u.wins - baseline.wins);
+  return questMetricValue(u, m); // currentStreak / level — unchanged
 }

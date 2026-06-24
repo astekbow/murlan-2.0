@@ -12,8 +12,9 @@ import { levelInfo } from '../profile/level.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
 import {
   dailyQuestsFor, weeklyQuestsFor, dailyClaimKey, weeklyClaimKey,
-  questMetricValue, milestoneFor, MILESTONE_STEP,
-  type QuestDef,
+  utcDayKey, isoWeekKey, effectiveAnchor, questPeriodProgress,
+  milestoneFor, MILESTONE_STEP,
+  type QuestDef, type PeriodAnchor,
 } from './quests.ts';
 
 /** The wallet capability the shop needs: debit to charge, credit to REFUND a charge
@@ -166,12 +167,12 @@ export class RewardsService {
     return isFreeDefault || u.cosmetics.includes(c.id);
   }
 
-  /** Map this period's quest pool to display rows (progress + per-period claimed flag).
-   *  `claimedKeys` is the user's claimed list for the period; `claimKeyFor` builds the
-   *  composite 'period:questId' key so a claim is scoped to today / this week. */
-  private questRows(u: User, quests: QuestDef[], claimedKeys: string[], claimKeyFor: (id: string) => string) {
+  /** Map this period's quest pool to display rows. Progress is PER-PERIOD: count metrics
+   *  (gamesPlayed/wins) measure (current − baseline) so a fresh day/week starts at 0;
+   *  streak/level are point-in-time. `claimKeyFor` builds the 'period:questId' claim key. */
+  private questRows(u: User, quests: QuestDef[], baseline: PeriodAnchor, claimedKeys: string[], claimKeyFor: (id: string) => string) {
     return quests.map((q) => {
-      const progress = Math.min(questMetricValue(u, q.metric), q.goal);
+      const progress = Math.min(questPeriodProgress(u, q.metric, baseline), q.goal);
       return {
         id: q.id,
         title: q.title,
@@ -182,6 +183,23 @@ export class RewardsService {
         rewardXp: q.rewardXp,
       };
     });
+  }
+
+  /** Resolve BOTH per-period anchors for `now`, lazily refreshing (and persisting) any that
+   *  rolled over into a new period — the new period's count progress then starts at 0. Returns
+   *  the effective baselines to measure progress against. Called by status() AND the claim
+   *  paths so a claim can't bypass the rollover (e.g. claiming right after midnight). */
+  private async resolveAnchors(userId: string, u: User, now: number): Promise<{ daily: PeriodAnchor; weekly: PeriodAnchor }> {
+    const dayKey = utcDayKey(now);
+    const weekKey = isoWeekKey(now);
+    const daily = effectiveAnchor(u, dayKey, u.dailyAnchor);
+    const weekly = effectiveAnchor(u, weekKey, u.weeklyAnchor);
+    // Persist only what actually changed (rolled over) — avoids a write on every read.
+    const patch: { dailyAnchor?: PeriodAnchor; weeklyAnchor?: PeriodAnchor } = {};
+    if (!u.dailyAnchor || u.dailyAnchor.period !== dayKey) patch.dailyAnchor = daily;
+    if (!u.weeklyAnchor || u.weeklyAnchor.period !== weekKey) patch.weeklyAnchor = weekly;
+    if (patch.dailyAnchor || patch.weeklyAnchor) await this.users.setRewards(userId, patch);
+    return { daily, weekly };
   }
 
   /** The next REACHED-but-uncollected level milestone, or null. Walks milestone levels
@@ -200,6 +218,9 @@ export class RewardsService {
   async status(userId: string, now: number): Promise<RewardsStatus | null> {
     const u = await this.users.findById(userId);
     if (!u) return null;
+    // Lazily roll over + persist the per-period anchors so daily/weekly progress is measured
+    // WITHIN the period (a fresh day/week reads 0 on count-based quests).
+    const anchors = await this.resolveAnchors(userId, u, now);
     const today = dayIndex(now);
     const lastDay = u.lastDailyClaim != null ? dayIndex(u.lastDailyClaim) : -Infinity;
     const canClaim = today > lastDay;
@@ -214,8 +235,8 @@ export class RewardsService {
         const progress = Math.min(metricValue(u, c.metric), c.goal);
         return { id: c.id, title: c.title, goal: c.goal, progress, done: progress >= c.goal, claimed: u.claimedChallenges.includes(c.id), rewardXp: c.rewardXp };
       }),
-      dailyQuests: this.questRows(u, dailyQuestsFor(now), u.claimedDailies, (id) => dailyClaimKey(now, id)),
-      weeklyQuests: this.questRows(u, weeklyQuestsFor(now), u.claimedWeeklies, (id) => weeklyClaimKey(now, id)),
+      dailyQuests: this.questRows(u, dailyQuestsFor(now), anchors.daily, u.claimedDailies, (id) => dailyClaimKey(now, id)),
+      weeklyQuests: this.questRows(u, weeklyQuestsFor(now), anchors.weekly, u.claimedWeeklies, (id) => weeklyClaimKey(now, id)),
       levelReward: this.pendingMilestone(u),
       shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, ...(isXpPriced(c) ? { costXp: c.costXp } : {}), owned: this.owns(u, c), featured: !!c.featured })),
       equipped: { cardBack: u.cardBack, tableFelt: u.tableFelt },
@@ -263,7 +284,10 @@ export class RewardsService {
     if (!u) return null;
     const key = dailyClaimKey(now, def.id);
     if (u.claimedDailies.includes(key)) return null; // already claimed today
-    if (questMetricValue(u, def.metric) < def.goal) return null; // not completed
+    // Per-period progress (count metrics measure today's delta from the anchor). Resolving
+    // anchors here also rolls them over if the claim is the first interaction of the day.
+    const { daily } = await this.resolveAnchors(userId, u, now);
+    if (questPeriodProgress(u, def.metric, daily) < def.goal) return null; // not completed today
     await this.users.addXp(userId, def.rewardXp);
     await this.users.setRewards(userId, { claimedDailies: [...u.claimedDailies, key] });
     return { rewardXp: def.rewardXp };
@@ -278,7 +302,9 @@ export class RewardsService {
     if (!u) return null;
     const key = weeklyClaimKey(now, def.id);
     if (u.claimedWeeklies.includes(key)) return null; // already claimed this week
-    if (questMetricValue(u, def.metric) < def.goal) return null; // not completed
+    // Per-period progress (count metrics measure this week's delta from the anchor).
+    const { weekly } = await this.resolveAnchors(userId, u, now);
+    if (questPeriodProgress(u, def.metric, weekly) < def.goal) return null; // not completed this week
     await this.users.addXp(userId, def.rewardXp);
     await this.users.setRewards(userId, { claimedWeeklies: [...u.claimedWeeklies, key] });
     return { rewardXp: def.rewardXp };

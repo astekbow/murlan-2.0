@@ -181,13 +181,20 @@ const MON = Date.UTC(2026, 5, 22, 12, 0, 0);  // 2026-06-22, ISO 2026-W26
 const NEXT_DAY = Date.UTC(2026, 5, 23, 12, 0, 0);
 const NEXT_WEEK = Date.UTC(2026, 5, 29, 12, 0, 0); // 2026-W27
 
-/** Fresh service + a real in-memory user, with stats driven via applyMatchResult. */
+// MON daily pool (deterministic): d_play4(games=4), d_play2(games=2), d_win3(wins=3) — all
+// COUNT-based, so they exercise the per-period delta. MON weekly pool: w_level(level=1),
+// w_win10(wins=10), w_win20(wins=20).
+
+/** Play `n` matches (all wins by default) for a user via the stats path. */
+async function play(users: InMemoryUserRepository, id: string, n: number, won = true) {
+  for (let i = 0; i < n; i++) await users.applyMatchResult(id, { won, potCents: 0, xpGain: 0 });
+}
+
+/** Fresh service + a real in-memory user (no games yet → anchors unset). */
 async function questSetup() {
   const users = new InMemoryUserRepository();
   const u = await users.create({ username: 'q', email: 'q@x.com', passwordHash: 'h' });
   const rewards = new RewardsService(users, true, new FakeWallet());
-  // Drive plenty of games + wins so ALL quest goals (play/win/streak) are met.
-  for (let i = 0; i < 50; i++) await users.applyMatchResult(u.id, { won: true, potCents: 0, xpGain: 0 });
   return { users, rewards, userId: u.id };
 }
 
@@ -198,52 +205,101 @@ test('status exposes today\'s daily + this week\'s weekly quests (matching the p
   assert.deepEqual(status.weeklyQuests.map((q) => q.id), weeklyQuestsFor(MON).map((q) => q.id));
 });
 
-test('a daily quest claims ONCE per day, then is fresh again the next day', async () => {
-  const { rewards, userId } = await questSetup();
-  const quest = dailyQuestsFor(MON)[0]!;
+test('count-based daily progress is PER-DAY: lifetime games do NOT pre-complete it', async () => {
+  const { users, rewards, userId } = await questSetup();
+  // High LIFETIME activity (already played 50) — but BEFORE today's anchor exists.
+  await play(users, userId, 50);
+  // First status read of the day snapshots the anchor at games=50 → today's progress is 0.
+  const fresh = (await rewards.status(userId, MON))!;
+  const play4 = fresh.dailyQuests.find((q) => q.id === 'd_play4')!;
+  assert.equal(play4.progress, 0, 'a fresh day starts a count quest at 0 despite 50 lifetime games');
+  assert.equal(play4.done, false);
 
-  const first = await rewards.claimDailyQuest(userId, quest.id, MON);
-  assert.deepEqual(first, { rewardXp: quest.rewardXp });
+  // Playing TODAY advances it; 4 plays after the anchor completes "play 4 today".
+  await play(users, userId, 4);
+  const after = (await rewards.status(userId, MON))!;
+  assert.equal(after.dailyQuests.find((q) => q.id === 'd_play4')!.progress, 4);
+  assert.ok(after.dailyQuests.find((q) => q.id === 'd_play4')!.done);
+  // And it's now claimable.
+  assert.deepEqual(await rewards.claimDailyQuest(userId, 'd_play4', MON), { rewardXp: 45 });
+});
+
+test('a daily quest claims ONCE per day, then is fresh again the next day', async () => {
+  const { users, rewards, userId } = await questSetup();
+  // Establish today's anchor (games=0), then play enough for d_play4 (goal 4).
+  await rewards.status(userId, MON);
+  await play(users, userId, 4);
+
+  const first = await rewards.claimDailyQuest(userId, 'd_play4', MON);
+  assert.deepEqual(first, { rewardXp: 45 });
   // Second claim SAME day → null (already claimed).
-  assert.equal(await rewards.claimDailyQuest(userId, quest.id, MON), null);
+  assert.equal(await rewards.claimDailyQuest(userId, 'd_play4', MON), null);
   // Reflected in status for that day.
   const sameDay = (await rewards.status(userId, MON))!;
-  assert.ok(sameDay.dailyQuests.find((q) => q.id === quest.id)!.claimed);
+  assert.ok(sameDay.dailyQuests.find((q) => q.id === 'd_play4')!.claimed);
 
-  // Next UTC day → a (possibly different) pool; if THIS quest is in tomorrow's pool it's
-  // claimable again, otherwise it simply isn't offered. Either way it's NOT marked claimed.
+  // Next UTC day → the pool rotates AND the anchor rolls over (count progress resets to 0).
   const tomorrowStatus = (await rewards.status(userId, NEXT_DAY))!;
-  const stillThere = tomorrowStatus.dailyQuests.find((q) => q.id === quest.id);
-  if (stillThere) assert.equal(stillThere.claimed, false, 'claim resets next day');
+  const playQuest = tomorrowStatus.dailyQuests.find((q) => q.id === 'd_play6'); // NEXT_DAY pool
+  if (playQuest) {
+    assert.equal(playQuest.claimed, false, 'claim resets next day');
+    assert.equal(playQuest.progress, 0, 'count progress resets next day (anchor rolled over)');
+  }
 });
 
 test('claimDailyQuest refuses a quest NOT in today\'s pool', async () => {
-  const { rewards, userId } = await questSetup();
+  const { users, rewards, userId } = await questSetup();
+  await rewards.status(userId, MON);
+  await play(users, userId, 30);
   const todayIds = new Set(dailyQuestsFor(MON).map((q) => q.id));
   const notToday = DAILY_POOL_IDS.find((id) => !todayIds.has(id));
   if (notToday) assert.equal(await rewards.claimDailyQuest(userId, notToday, MON), null);
 });
 
 test('a weekly quest claims ONCE per ISO week, fresh again next week', async () => {
-  const { rewards, userId } = await questSetup();
-  const quest = weeklyQuestsFor(MON)[0]!;
+  const { users, rewards, userId } = await questSetup();
+  // w_win10 needs 10 wins THIS week. Establish the weekly anchor, then win 10.
+  await rewards.status(userId, MON);
+  await play(users, userId, 10, true);
 
-  const first = await rewards.claimWeeklyQuest(userId, quest.id, MON);
-  assert.deepEqual(first, { rewardXp: quest.rewardXp });
-  assert.equal(await rewards.claimWeeklyQuest(userId, quest.id, MON), null, 'no double claim same week');
+  const first = await rewards.claimWeeklyQuest(userId, 'w_win10', MON);
+  assert.deepEqual(first, { rewardXp: 200 });
+  assert.equal(await rewards.claimWeeklyQuest(userId, 'w_win10', MON), null, 'no double claim same week');
 
+  // Next ISO week → anchor rolls over; the within-week win count resets to 0.
   const nextWeekStatus = (await rewards.status(userId, NEXT_WEEK))!;
-  const stillThere = nextWeekStatus.weeklyQuests.find((q) => q.id === quest.id);
-  if (stillThere) assert.equal(stillThere.claimed, false, 'claim resets next ISO week');
+  const winQuest = nextWeekStatus.weeklyQuests.find((q) => q.id === 'w_play20'); // NEXT_WEEK pool
+  if (winQuest) assert.equal(winQuest.progress, 0, 'within-week progress resets next ISO week');
 });
 
-test('claimDailyQuest rejects an INCOMPLETE quest (goal not met)', async () => {
-  const users = new InMemoryUserRepository();
-  const u = await users.create({ username: 'z', email: 'z@x.com', passwordHash: 'h' });
-  const rewards = new RewardsService(users, true, new FakeWallet());
-  // No games played → no daily quest goal is met.
-  const quest = dailyQuestsFor(MON)[0]!;
-  assert.equal(await rewards.claimDailyQuest(u.id, quest.id, MON), null);
+test('claimDailyQuest rejects an INCOMPLETE quest (per-day goal not met)', async () => {
+  const { users, rewards, userId } = await questSetup();
+  // 50 lifetime games but the anchor snapshots them → 0 progress today, so not claimable.
+  await play(users, userId, 50);
+  await rewards.status(userId, MON); // sets anchor at games=50
+  assert.equal(await rewards.claimDailyQuest(userId, 'd_play4', MON), null, 'lifetime games do not satisfy a per-day quest');
+  // Play only 2 today → still short of the goal of 4.
+  await play(users, userId, 2);
+  assert.equal(await rewards.claimDailyQuest(userId, 'd_play4', MON), null, 'still incomplete (2 < 4)');
+});
+
+test('rollover snapshots a FRESH anchor lazily and persists it', async () => {
+  const { users, rewards, userId } = await questSetup();
+  await play(users, userId, 12);
+  // No anchor yet.
+  assert.equal((await users.findById(userId))!.dailyAnchor, null);
+  await rewards.status(userId, MON);
+  const a = (await users.findById(userId))!.dailyAnchor!;
+  assert.deepEqual(a, { period: '2026-06-22', games: 12, wins: 12 }, 'anchor snapshots current stats on first read');
+
+  // A read the SAME day does not move the anchor (even after more play).
+  await play(users, userId, 3);
+  await rewards.status(userId, MON);
+  assert.deepEqual((await users.findById(userId))!.dailyAnchor, { period: '2026-06-22', games: 12, wins: 12 });
+
+  // A read the NEXT day rolls the anchor forward to the now-current stats (15 games).
+  await rewards.status(userId, NEXT_DAY);
+  assert.deepEqual((await users.findById(userId))!.dailyAnchor, { period: '2026-06-23', games: 15, wins: 15 });
 });
 
 test('level milestone reward is granted ONCE (idempotent) and collects in order', async () => {
