@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useAuthStore } from '../store/authStore.ts';
 import { authApi } from '../lib/api.ts';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
 
 export function AuthView() {
@@ -13,6 +14,7 @@ export function AuthView() {
 
   const { status, error, login, register, clearError } = useAuthStore();
   const t = useT();
+  const landscape = useLandscapePage();
   const loading = status === 'loading';
 
   async function submit(e: FormEvent) {
@@ -59,63 +61,70 @@ export function AuthView() {
   }
 
   return (
-    <div className="relative z-10 min-h-full flex items-center justify-center p-4">
-      <form onSubmit={submit} className="panel-solid w-full max-w-sm p-7 space-y-5 animate-rise">
+    <div className="relative z-10 min-h-full flex items-center justify-center p-3">
+      {/* On a short LANDSCAPE phone the stacked form is taller than the screen → it scrolls. There
+          we switch to a compact two-column card (branding | form) so it fits with NO scroll. */}
+      <form
+        onSubmit={submit}
+        className={`panel-solid w-full animate-rise ${landscape ? 'max-w-2xl p-5 grid grid-cols-2 gap-6 items-center' : 'max-w-sm p-7 space-y-5'}`}
+      >
         <div className="text-center">
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">CARD CLUB</div>
-          <h1 className="gold-text font-display font-bold text-4xl tracking-wide leading-none">CRYPTO-MURLAN</h1>
+          <h1 className={`gold-text font-display font-bold tracking-wide leading-none ${landscape ? 'text-3xl' : 'text-4xl'}`}>CRYPTO-MURLAN</h1>
         </div>
 
-        <div className="seg grid grid-cols-2 w-full" role="radiogroup" aria-label={t('auth.login')}>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === 'login'}
-            onClick={() => { setMode('login'); clearError(); }}
-            className={`seg-tab text-center ${mode === 'login' ? 'active' : ''}`}
-          >
-            {t('auth.login')}
+        <div className={landscape ? 'space-y-3 min-w-0' : 'space-y-5'}>
+          <div className="seg grid grid-cols-2 w-full" role="radiogroup" aria-label={t('auth.login')}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'login'}
+              onClick={() => { setMode('login'); clearError(); }}
+              className={`seg-tab text-center ${mode === 'login' ? 'active' : ''}`}
+            >
+              {t('auth.login')}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'register'}
+              onClick={() => { setMode('register'); clearError(); }}
+              className={`seg-tab text-center ${mode === 'register' ? 'active' : ''}`}
+            >
+              {t('auth.register')}
+            </button>
+          </div>
+
+          {mode === 'register' && (
+            <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
+          )}
+          <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
+          <Field
+            label={t('auth.password')}
+            type="password"
+            value={password}
+            onChange={setPassword}
+            autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+            required
+            minLength={mode === 'register' ? 8 : undefined}
+            invalid={!!error}
+            describedBy={error ? 'auth-error' : undefined}
+          />
+
+          {error && (
+            <div id="auth-error" role="alert" className="text-sm text-red-300 bg-suit/15 border border-suit/40 rounded-lg px-3 py-2">{error}</div>
+          )}
+
+          <button type="submit" disabled={loading} className={`btn btn-gold btn-block ${landscape ? '' : 'btn-lg'}`}>
+            {loading ? t('auth.processing') : mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
           </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === 'register'}
-            onClick={() => { setMode('register'); clearError(); }}
-            className={`seg-tab text-center ${mode === 'register' ? 'active' : ''}`}
-          >
-            {t('auth.register')}
-          </button>
+
+          {mode === 'login' && (
+            <button type="button" onClick={() => { setMode('forgot'); clearError(); }} className="block w-full text-center text-xs text-gold-hi border-b border-dashed border-gold/40 pb-0.5 mx-auto" style={{ width: 'fit-content' }}>
+              {t('auth.forgot')}
+            </button>
+          )}
         </div>
-
-        {mode === 'register' && (
-          <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
-        )}
-        <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
-        <Field
-          label={t('auth.password')}
-          type="password"
-          value={password}
-          onChange={setPassword}
-          autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-          required
-          minLength={mode === 'register' ? 8 : undefined}
-          invalid={!!error}
-          describedBy={error ? 'auth-error' : undefined}
-        />
-
-        {error && (
-          <div id="auth-error" role="alert" className="text-sm text-red-300 bg-suit/15 border border-suit/40 rounded-lg px-3 py-2">{error}</div>
-        )}
-
-        <button type="submit" disabled={loading} className="btn btn-gold btn-lg btn-block">
-          {loading ? t('auth.processing') : mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
-        </button>
-
-        {mode === 'login' && (
-          <button type="button" onClick={() => { setMode('forgot'); clearError(); }} className="block w-full text-center text-xs text-gold-hi border-b border-dashed border-gold/40 pb-0.5 mx-auto" style={{ width: 'fit-content' }}>
-            {t('auth.forgot')}
-          </button>
-        )}
       </form>
     </div>
   );
