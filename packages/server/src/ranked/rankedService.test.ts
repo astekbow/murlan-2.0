@@ -132,3 +132,53 @@ test('tiers() exposes the full ladder with the next-tier link', async () => {
   assert.equal(tiers[tiers.length - 1]!.key, 'master');
   assert.equal(tiers[tiers.length - 1]!.next, null);
 });
+
+test('archiving a season grants placement badges to the ending season\'s top players', async () => {
+  const { users, ranked, a, b, c } = await setup();
+  await ranked.createSeason('Sezoni 1');
+  // Build a clear final standing: a > b > c by feeding wins/losses (rating math only).
+  // a beats b and c repeatedly so a is #1; b beats c so b is #2; c trails as #3.
+  for (let i = 0; i < 5; i += 1) {
+    await ranked.recordMatchResult([{ userId: a.id, won: true }, { userId: b.id, won: false }]);
+    await ranked.recordMatchResult([{ userId: a.id, won: true }, { userId: c.id, won: false }]);
+    await ranked.recordMatchResult([{ userId: b.id, won: true }, { userId: c.id, won: false }]);
+  }
+  const board = await ranked.leaderboard();
+  assert.deepEqual(board.map((r) => r.userId), [a.id, b.id, c.id], 'standings a > b > c');
+
+  // Opening season 2 ARCHIVES season 1 → grants its placement badges.
+  await ranked.createSeason('Sezoni 2');
+
+  const ua = await users.findById(a.id);
+  const ub = await users.findById(b.id);
+  const uc = await users.findById(c.id);
+  // #1 → champion + top3 + finalist
+  assert.deepEqual(
+    [...ua!.badges].sort(),
+    ['season_1_champion', 'season_1_finalist', 'season_1_top3'].sort(),
+  );
+  // #2 → top3 + finalist (no champion)
+  assert.deepEqual([...ub!.badges].sort(), ['season_1_finalist', 'season_1_top3'].sort());
+  // #3 → top3 + finalist (only 3 players, so all are top 3)
+  assert.deepEqual([...uc!.badges].sort(), ['season_1_finalist', 'season_1_top3'].sort());
+});
+
+test('season badge grant is idempotent and money/MMR are untouched', async () => {
+  const { users, seasons, ranked, a, b } = await setup();
+  const s1 = await ranked.createSeason('Sezoni 1');
+  await ranked.recordMatchResult([{ userId: a.id, won: true }, { userId: b.id, won: false }]);
+  const balanceBefore = (await users.findById(a.id))!.balanceCents;
+  const ratingBefore = (await seasons.getUserSeason(a.id, s1.id))!.rating;
+
+  await ranked.createSeason('Sezoni 2'); // archives s1, grants badges
+  const badgesAfterFirst = [...(await users.findById(a.id))!.badges];
+  assert.ok(badgesAfterFirst.includes('season_1_champion'));
+
+  // Money + the ended season's MMR are unchanged by the badge grant.
+  assert.equal((await users.findById(a.id))!.balanceCents, balanceBefore, 'no money change');
+  assert.equal((await seasons.getUserSeason(a.id, s1.id))!.rating, ratingBefore, 'ended-season MMR unchanged');
+
+  // Re-archiving the SAME ended season must not duplicate badges (idempotent).
+  await ranked['grantSeasonBadges'](s1.id, s1.number);
+  assert.deepEqual([...(await users.findById(a.id))!.badges].sort(), badgesAfterFirst.sort(), 'no duplicate badges');
+});

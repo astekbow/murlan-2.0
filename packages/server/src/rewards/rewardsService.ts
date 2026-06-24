@@ -16,6 +16,7 @@ import {
   milestoneFor, MILESTONE_STEP,
   type QuestDef, type PeriodAnchor,
 } from './quests.ts';
+import { ACHIEVEMENTS, achievementValue, newlyEarnedAchievements } from './achievements.ts';
 
 /** The wallet capability the shop needs: debit to charge, credit to REFUND a charge
  *  whose cosmetic grant then failed (so a player is never charged for nothing). */
@@ -145,6 +146,9 @@ export interface RewardsStatus {
   // The single NEXT uncollected level-up milestone the player has already REACHED (claimable
   // now), or null if none is pending. Surfaces a "claim your level reward" affordance.
   levelReward: { level: number; cosmeticId: string | null; bonusXp: number } | null;
+  // Achievements (§2.6 badges): each carries its earned flag + progress to its threshold.
+  // Server-evaluated; `earned` items have already had their badge id added to `user.badges`.
+  achievements: Array<{ id: string; title: string; desc: string; icon: string; goal: number; progress: number; earned: boolean }>;
   // `costXp` is set on XP-priced items (cost is then 0); money items carry cost > 0.
   shop: Array<{ id: string; name: string; type: CosmeticType; cost: number; costXp?: number; owned: boolean; featured: boolean }>;
   equipped: { cardBack: string | null; tableFelt: string | null };
@@ -216,8 +220,18 @@ export class RewardsService {
   }
 
   async status(userId: string, now: number): Promise<RewardsStatus | null> {
-    const u = await this.users.findById(userId);
+    let u = await this.users.findById(userId);
     if (!u) return null;
+    // Lazily GRANT any achievement whose stat threshold is now met (idempotent — only ids
+    // not already held are appended). Badges are cosmetic, so a write hiccup must never break
+    // the status read. Done BEFORE the anchors so the anchor refresh sees the latest `u`.
+    const newly = newlyEarnedAchievements(u);
+    if (newly.length > 0) {
+      const updated = await this.users
+        .setRewards(userId, { badges: [...u.badges, ...newly] })
+        .catch(() => null);
+      if (updated) u = updated;
+    }
     // Lazily roll over + persist the per-period anchors so daily/weekly progress is measured
     // WITHIN the period (a fresh day/week reads 0 on count-based quests).
     const anchors = await this.resolveAnchors(userId, u, now);
@@ -238,6 +252,10 @@ export class RewardsService {
       dailyQuests: this.questRows(u, dailyQuestsFor(now), anchors.daily, u.claimedDailies, (id) => dailyClaimKey(now, id)),
       weeklyQuests: this.questRows(u, weeklyQuestsFor(now), anchors.weekly, u.claimedWeeklies, (id) => weeklyClaimKey(now, id)),
       levelReward: this.pendingMilestone(u),
+      achievements: ACHIEVEMENTS.map((a) => {
+        const progress = Math.min(achievementValue(u, a.metric), a.threshold);
+        return { id: a.id, title: a.title, desc: a.desc, icon: a.icon, goal: a.threshold, progress, earned: u.badges.includes(a.id) };
+      }),
       shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, ...(isXpPriced(c) ? { costXp: c.costXp } : {}), owned: this.owns(u, c), featured: !!c.featured })),
       equipped: { cardBack: u.cardBack, tableFelt: u.tableFelt },
       dailyDeal: (() => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { rewardsApi, ApiError } from '../lib/api.ts';
-import type { RewardsStatus, RewardChallenge } from '../lib/api.ts';
+import type { RewardsStatus, RewardChallenge, RewardAchievement } from '../lib/api.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -419,9 +419,67 @@ export function RewardsView() {
               </ul>
             )}
           </section>
+
+          {/* Achievements / badges ("Arritjet") */}
+          {status.achievements.length > 0 && (
+            <section className="panel p-5 animate-rise" style={{ animationDelay: '.16s' }}>
+              <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.achievements')}</h2>
+                <span className="text-xs text-muted">
+                  {t('rewards.achEarnedCount', { n: status.achievements.filter((a) => a.earned).length, total: status.achievements.length })}
+                </span>
+              </div>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {status.achievements.map((a, i) => (
+                  <AchievementRow key={a.id} achievement={a} index={i} />
+                ))}
+              </ul>
+            </section>
+          )}
         </>
       )}
     </div>
+  );
+}
+
+interface AchievementRowProps {
+  achievement: RewardAchievement;
+  index: number;
+}
+
+function AchievementRow({ achievement, index }: AchievementRowProps) {
+  const t = useT();
+  const { title, desc, icon, goal, progress, earned } = achievement;
+  const pct = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : 0;
+
+  return (
+    <li
+      title={desc}
+      className={`rounded-xl px-4 py-3 border animate-rise ${
+        earned
+          ? 'border-gold/40 bg-gold/[.08]'
+          : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'
+      }`}
+      style={{ animationDelay: `${index * 0.04}s` }}
+    >
+      <div className="flex items-center gap-3">
+        <span className={`text-2xl leading-none shrink-0 ${earned ? '' : 'opacity-30 grayscale'}`} aria-hidden>{icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className={`font-display font-semibold tracking-wide truncate ${earned ? 'text-gold-hi' : 'text-txt'}`}>{title}</div>
+          <div className="text-xs text-muted mt-0.5 truncate">{desc}</div>
+        </div>
+        {earned ? (
+          <span className="tag tag-open shrink-0">{t('rewards.achEarned')}</span>
+        ) : (
+          <span className="text-xs font-display font-semibold text-muted shrink-0 whitespace-nowrap">{progress}/{goal}</span>
+        )}
+      </div>
+      {!earned && (
+        <div className="xpbar mt-2.5" style={{ width: '100%' }} role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={goal}>
+          <i style={{ width: `${pct}%` }} />
+        </div>
+      )}
+    </li>
   );
 }
 

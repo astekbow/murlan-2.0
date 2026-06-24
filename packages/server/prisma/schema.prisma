@@ -149,6 +149,7 @@ model User {
   // rollover. Nullable/default-null → existing rows are unaffected.
   dailyAnchor         Json?
   weeklyAnchor        Json?
+  badges            String[]  @default([]) // earned achievement/season badge ids (append-only)
 
   transactions         Transaction[]
   withdrawals          Withdrawal[]  @relation("WithdrawalUser")

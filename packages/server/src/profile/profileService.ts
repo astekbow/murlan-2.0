@@ -8,6 +8,7 @@
 
 import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo, XP_PLAY, XP_WIN, type LevelInfo } from './level.ts';
+import { newlyEarnedAchievements } from '../rewards/achievements.ts';
 import { vipTierFor, stakedVolume } from '../vip/vipService.ts';
 import type { VipTierInfo } from '@murlan/shared';
 import type { Transaction } from '../money/ledger.ts';
@@ -81,6 +82,8 @@ export interface PublicProfile {
   currentStreak: number;
   /** Cosmetic VIP tier (bronze+) for the avatar ring; null for standard/no-ledger. */
   vipTier: VipTierInfo | null;
+  /** Earned achievement/season BADGE ids (cosmetic). The client maps ids → icon/label. */
+  badges: string[];
 }
 
 export interface LeaderboardRow {
@@ -110,6 +113,7 @@ function toPublic(u: User, vipTier: VipTierInfo | null = null): PublicProfile {
     biggestPotCents: u.biggestPotCents,
     currentStreak: u.currentStreak,
     vipTier,
+    badges: u.badges,
   };
 }
 
@@ -181,8 +185,16 @@ export class ProfileService {
   ) {}
 
   async getProfile(userId: string): Promise<PublicProfile | null> {
-    const u = await this.users.findById(userId);
+    let u = await this.users.findById(userId);
     if (!u) return null;
+    // Lazily GRANT any achievement this user has now earned (idempotent — only ids not
+    // already held are appended), so badges appear on the profile even if they never open
+    // the Rewards view. Cosmetic + best-effort: a write hiccup must never block the read.
+    const newly = newlyEarnedAchievements(u);
+    if (newly.length > 0) {
+      const updated = await this.users.setRewards(userId, { badges: [...u.badges, ...newly] }).catch(() => null);
+      if (updated) u = updated;
+    }
     // Derive the cosmetic VIP tier from lifetime staked volume (same source as VipService).
     // Read-only + best-effort: a ledger hiccup must never block viewing a profile.
     let vipTier: VipTierInfo | null = null;

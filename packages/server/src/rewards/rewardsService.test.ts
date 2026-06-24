@@ -343,3 +343,63 @@ test('no level reward is pending below the first milestone', async () => {
   assert.equal(status.levelReward, null);
   assert.equal(await rewards.claimLevelReward(u.id), null);
 });
+
+// ---- Achievements / badges (granted lazily in status when a threshold is crossed) -----
+
+test('status grants an achievement badge ONCE when its stat threshold is crossed (not twice)', async () => {
+  const wallet = new FakeWallet();
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'ach', email: 'ach@x.com', passwordHash: 'h' });
+  const rewards = new RewardsService(users, true, wallet);
+
+  // No wins yet → no first_win badge, and the achievement reads as not earned.
+  let status = await rewards.status(u.id, DAY1);
+  assert.ok(!status!.achievements.find((a) => a.id === 'first_win')!.earned);
+  assert.deepEqual((await users.findById(u.id))!.badges, []);
+
+  // Cross the threshold: one win.
+  await users.applyMatchResult(u.id, { won: true, potCents: 0, xpGain: 0 });
+
+  status = await rewards.status(u.id, DAY1);
+  assert.ok(status!.achievements.find((a) => a.id === 'first_win')!.earned, 'first_win now earned');
+  assert.deepEqual((await users.findById(u.id))!.badges, ['first_win'], 'badge granted once');
+
+  // A SECOND status read must not duplicate the badge (idempotent grant).
+  await rewards.status(u.id, DAY1);
+  assert.deepEqual((await users.findById(u.id))!.badges, ['first_win'], 'no duplicate on re-read');
+});
+
+test('multiple thresholds crossed at once each grant exactly one badge', async () => {
+  const wallet = new FakeWallet();
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'multi', email: 'multi@x.com', passwordHash: 'h' });
+  const rewards = new RewardsService(users, true, wallet);
+
+  // 10 wins in a row ⇒ first_win, wins_10, streak_5 are all met together.
+  for (let i = 0; i < 10; i += 1) await users.applyMatchResult(u.id, { won: true, potCents: 0, xpGain: 0 });
+  await rewards.status(u.id, DAY1);
+
+  const badges = (await users.findById(u.id))!.badges;
+  assert.ok(badges.includes('first_win'));
+  assert.ok(badges.includes('wins_10'));
+  assert.ok(badges.includes('streak_5'));
+  assert.ok(badges.includes('streak_10'));
+  // No duplicates.
+  assert.equal(new Set(badges).size, badges.length, 'badge ids are unique');
+});
+
+test('a reset streak does NOT remove an already-earned streak badge (append-only)', async () => {
+  const wallet = new FakeWallet();
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'streak', email: 'streak@x.com', passwordHash: 'h' });
+  const rewards = new RewardsService(users, true, wallet);
+
+  for (let i = 0; i < 5; i += 1) await users.applyMatchResult(u.id, { won: true, potCents: 0, xpGain: 0 });
+  await rewards.status(u.id, DAY1);
+  assert.ok((await users.findById(u.id))!.badges.includes('streak_5'), 'earned at streak 5');
+
+  // A loss resets currentStreak to 0, but the badge stays.
+  await users.applyMatchResult(u.id, { won: false, potCents: 0, xpGain: 0 });
+  await rewards.status(u.id, DAY1);
+  assert.ok((await users.findById(u.id))!.badges.includes('streak_5'), 'badge retained after reset');
+});

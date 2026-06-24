@@ -94,6 +94,7 @@ function toUser(row: any): User {
     collectedMilestones: row.collectedMilestones ?? [],
     dailyAnchor: toAnchor(row.dailyAnchor),
     weeklyAnchor: toAnchor(row.weeklyAnchor),
+    badges: row.badges ?? [],
   };
 }
 
@@ -280,6 +281,7 @@ export class PrismaUserRepository implements UserRepository {
     if (patch.dailyAnchor !== undefined) data.dailyAnchor = patch.dailyAnchor ?? Prisma.JsonNull;
     if (patch.weeklyAnchor !== undefined) data.weeklyAnchor = patch.weeklyAnchor ?? Prisma.JsonNull;
     if (patch.collectedMilestones !== undefined) data.collectedMilestones = patch.collectedMilestones;
+    if (patch.badges !== undefined) data.badges = patch.badges;
     const row = await this.db.user.update({ where: { id }, data }).catch(() => null);
     return row ? toUser(row) : null;
   }

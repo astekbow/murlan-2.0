@@ -78,6 +78,9 @@ export interface User {
   // PeriodAnchor from rewards/quests — kept inline here to avoid an import cycle.)
   dailyAnchor: { period: string; games: number; wins: number } | null;
   weeklyAnchor: { period: string; games: number; wins: number } | null;
+  // Earned achievement/season BADGE ids (§2.6). Append-only, never removed.
+  // Stored like `cosmetics` (TEXT[]); a milestone grant adds an id once.
+  badges: string[];
 }
 
 /** Patch for reward/cosmetic fields. */
@@ -93,6 +96,7 @@ export interface RewardsPatch {
   collectedMilestones?: number[];
   dailyAnchor?: { period: string; games: number; wins: number } | null;
   weeklyAnchor?: { period: string; games: number; wins: number } | null;
+  badges?: string[];
 }
 
 /** A finished-match result applied to a player's cosmetic stats/XP. */
@@ -268,6 +272,7 @@ export class InMemoryUserRepository implements UserRepository {
       collectedMilestones: [],
       dailyAnchor: null,
       weeklyAnchor: null,
+      badges: [],
     };
     this.byId.set(user.id, user);
     this.byEmail.set(email, user.id);
@@ -428,6 +433,7 @@ export class InMemoryUserRepository implements UserRepository {
     if (patch.collectedMilestones !== undefined) user.collectedMilestones = [...patch.collectedMilestones];
     if (patch.dailyAnchor !== undefined) user.dailyAnchor = patch.dailyAnchor ? { ...patch.dailyAnchor } : null;
     if (patch.weeklyAnchor !== undefined) user.weeklyAnchor = patch.weeklyAnchor ? { ...patch.weeklyAnchor } : null;
+    if (patch.badges !== undefined) user.badges = [...patch.badges];
     return { ...user };
   }
 

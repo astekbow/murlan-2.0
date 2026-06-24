@@ -7,28 +7,40 @@ const base: Profile = {
   id: 'u', username: 'x', avatar: null, xp: 0, level: 1,
   levelInfo: { level: 1, intoLevel: 0, levelSpan: 100, pct: 0 },
   gamesPlayed: 0, wins: 0, winRate: 0, biggestPotCents: 0, currentStreak: 0, vipTier: null,
+  badges: [],
 };
 
-test('a fresh profile has no badges', () => {
+test('a profile with no server badges shows nothing', () => {
   assert.deepEqual(earnedBadges(base), []);
 });
 
-test('thresholds award the right badges', () => {
-  const ids = (p: Partial<Profile>) => earnedBadges({ ...base, ...p }).map((b) => b.id);
-  assert.deepEqual(ids({ level: 10 }), ['elite']);
-  assert.deepEqual(ids({ wins: 50 }).sort(), ['master', 'winner']); // 50 wins ⇒ both win badges
-  assert.ok(ids({ gamesPlayed: 100 }).includes('veteran'));
-  assert.ok(ids({ biggestPotCents: 10_000 }).includes('bigpot'));
-  assert.ok(ids({ currentStreak: 5 }).includes('streak'));
-  assert.ok(ids({ gamesPlayed: 20, winRate: 0.6 }).includes('consistent'));
+test('server badge ids resolve to display metadata (icon + label)', () => {
+  const badges = earnedBadges({ ...base, badges: ['first_win'] });
+  assert.equal(badges.length, 1);
+  assert.equal(badges[0]!.id, 'first_win');
+  assert.equal(badges[0]!.icon, '🥇');
+  assert.ok(badges[0]!.name.length > 0);
 });
 
-test('just-below thresholds award nothing', () => {
-  assert.deepEqual(earnedBadges({ ...base, level: 9, wins: 9, gamesPlayed: 99, currentStreak: 4, biggestPotCents: 9_999 }), []);
+test('unknown badge ids are dropped', () => {
+  assert.deepEqual(earnedBadges({ ...base, badges: ['not_a_real_badge'] }), []);
 });
 
-test('badges are ordered most-prestigious first', () => {
-  const ids = earnedBadges({ ...base, level: 10, wins: 50, gamesPlayed: 100 }).map((b) => b.id);
-  assert.equal(ids[0], 'elite'); // 👑 leads
-  assert.ok(ids.indexOf('master') < ids.indexOf('winner'));
+test('season badge ids resolve with the season number interpolated', () => {
+  const badges = earnedBadges({ ...base, badges: ['season_3_champion'] });
+  assert.equal(badges.length, 1);
+  assert.equal(badges[0]!.icon, '👑');
+  assert.ok(badges[0]!.name.includes('3'), 'season number is shown');
+});
+
+test('achievements sort above season badges; more prestigious first', () => {
+  const ids = earnedBadges({
+    ...base,
+    badges: ['season_1_finalist', 'first_win', 'wins_100', 'season_2_champion'],
+  }).map((b) => b.id);
+  // Achievements lead (wins_100 is more prestigious than first_win), then season badges.
+  assert.ok(ids.indexOf('wins_100') < ids.indexOf('first_win'));
+  assert.ok(ids.indexOf('first_win') < ids.indexOf('season_2_champion'));
+  // Newer season (2) before older (1).
+  assert.ok(ids.indexOf('season_2_champion') < ids.indexOf('season_1_finalist'));
 });

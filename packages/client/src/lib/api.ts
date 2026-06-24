@@ -160,6 +160,8 @@ export interface Profile {
   currentStreak: number;
   /** Cosmetic VIP tier (bronze+) for the avatar ring; null for standard. */
   vipTier: VipTierInfo | null;
+  /** Earned achievement/season badge ids (cosmetic); the client maps ids → icon/label. */
+  badges: string[];
 }
 export interface LeaderboardRow {
   rank: number;
@@ -224,6 +226,9 @@ export type CosmeticType = 'cardBack' | 'tableFelt';
 export interface RewardChallenge {
   id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number;
 }
+export interface RewardAchievement {
+  id: string; title: string; desc: string; icon: string; goal: number; progress: number; earned: boolean;
+}
 export interface ShopItem {
   id: string; name: string; type: CosmeticType; cost: number;
   /** Set on XP-priced items (cost is then 0). Bought with spendable XP, never the wallet. */
@@ -252,6 +257,7 @@ export interface RewardsStatus {
   weeklyQuests: RewardQuest[];
   /** The next claimable level-up reward, or null when none is pending. */
   levelReward: LevelReward | null;
+  achievements: RewardAchievement[];
   shop: ShopItem[];
   equipped: { cardBack: string | null; tableFelt: string | null };
   dailyDeal: { id: string; pct: number; priceCents: number } | null;

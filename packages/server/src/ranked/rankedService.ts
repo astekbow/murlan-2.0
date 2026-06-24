@@ -16,6 +16,13 @@ import type { Season, SeasonRepository, UserSeason } from './seasonRepository.ts
 import {
   DEFAULT_RATING, TIERS, tierFromRating, applyMatchRatings, calculateNewRating, expectedScore, softReset, type Tier,
 } from './ranking.ts';
+import { seasonBadgeId } from '../rewards/achievements.ts';
+
+// Reward tiers for the ENDING season's final standings (by rating). Bounded — one
+// leaderboard query + at most this many badge writes. Cosmetic/status ONLY.
+const SEASON_FINALIST_TOP = 100; // top 100 → finalist badge
+const SEASON_TOP3 = 3;           // top 3   → top3 badge (also finalist)
+// #1 (rank 0) → champion badge (also top3 + finalist).
 
 export interface RankedSeat {
   userId: string;
@@ -82,6 +89,12 @@ export class RankedService {
     const number = prev ? prev.number + 1 : 1;
     const season = await this.seasons.createSeason({ number, name, decayFactor, startedAt: now });
 
+    // Reward the players of the season that just ENDED, from its FINAL standings. This is
+    // a pure cosmetic-badge grant — it never touches money, MMR, the soft-reset carry below,
+    // or the season open/archive flow. Best-effort: a badge-write failure must NEVER block a
+    // new season from opening.
+    if (prev) await this.grantSeasonBadges(prev.id, prev.number).catch(() => undefined);
+
     if (prev) {
       const carry = await this.seasons.listUserSeasons(prev.id);
       await Promise.all(
@@ -100,6 +113,35 @@ export class RankedService {
       );
     }
     return toSeasonDTO(season);
+  }
+
+  /**
+   * Grant season-placement BADGES to the top players of an ENDED season, from its final
+   * rating standings. Bounded: ONE leaderboard query (top SEASON_FINALIST_TOP) + at most
+   * that many user reads + writes. Each placement is cumulative — the champion also holds
+   * top3 + finalist. Idempotent: a badge already held is not re-added (so re-running the
+   * archive is harmless). Tolerant of an empty/playerless season (no rows ⇒ no-op). This
+   * grants COSMETIC badges only — no money, no MMR, no rating writes.
+   */
+  private async grantSeasonBadges(seasonId: string, seasonNumber: number): Promise<void> {
+    const standings = await this.seasons.topByRating(seasonId, SEASON_FINALIST_TOP);
+    if (standings.length === 0) return; // no players (e.g. a brand-new ladder) — nothing to award
+    const ids = standings.map((r) => r.userId);
+    const users = await this.users.findManyByIds(ids).catch(() => []);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    await Promise.all(
+      standings.map((row, rank) => {
+        const u = byId.get(row.userId);
+        if (!u) return undefined; // user gone (anonymized/deleted) — skip
+        // Cumulative placement badges (rank is 0-based): #1 champion ⊃ top3 ⊃ finalist.
+        const earn: string[] = [seasonBadgeId(seasonNumber, 'finalist')];
+        if (rank < SEASON_TOP3) earn.push(seasonBadgeId(seasonNumber, 'top3'));
+        if (rank === 0) earn.push(seasonBadgeId(seasonNumber, 'champion'));
+        const add = earn.filter((b) => !u.badges.includes(b)); // idempotent — only the missing ones
+        if (add.length === 0) return undefined;
+        return this.users.setRewards(row.userId, { badges: [...u.badges, ...add] }).catch(() => undefined);
+      }),
+    );
   }
 
   private async ensureUserSeason(userId: string, seasonId: string): Promise<UserSeason> {
