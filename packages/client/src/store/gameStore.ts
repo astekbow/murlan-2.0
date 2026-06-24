@@ -384,10 +384,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const mine = dto.seat === get().mySeat;
       const name = dto.username ?? tg('common.aPlayer');
       const idle = dto.reason === 'idle'; // removed for not playing 3 turns in a row
+      if (mine) {
+        // I was removed from the match (idled out 3 turns in a row, or forfeited): EJECT me to
+        // the lobby — I don't get to keep spectating a game I'm no longer part of. The server has
+        // already freed my seat, so just clear local room/match state (no room:leave round-trip).
+        set({ ...emptyRoomState, toast: idle ? tg('msg.youIdleRemoved') : tg('msg.youLeftMatch'), toastKind: 'info' });
+        get().refreshLobby();
+        return;
+      }
       set((s) => ({
-        toast: mine
-          ? (idle ? tg('msg.youIdleRemoved') : tg('msg.youLeftMatch'))
-          : (idle ? tg('msg.playerIdleRemoved', { name }) : tg('msg.playerLeftContinues', { name })),
+        toast: idle ? tg('msg.playerIdleRemoved', { name }) : tg('msg.playerLeftContinues', { name }),
         toastKind: 'info',
         log: appendLog(s.log, tg(idle ? 'log.playerIdleRemoved' : 'log.playerLeft', { name })),
       }));
