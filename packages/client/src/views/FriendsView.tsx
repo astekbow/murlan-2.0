@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry } from '../lib/api.ts';
+import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry, type UserSearchResult } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -23,6 +23,10 @@ export function FriendsView() {
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
+  // Live username search (debounced) for the add-friend input.
+  const [results, setResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false); // whether the current query has resolved (for no-results)
   // One mutating action at a time: disables the row buttons + pauses the poll so a rapid
   // click can't double-fire and a stale 8s refetch can't clobber a just-made change.
   const [acting, setActing] = useState(false);
@@ -121,15 +125,47 @@ export function FriendsView() {
     }
   }, [load, t]);
 
-  const addFriend = async () => {
-    const name = username.trim();
-    if (!name || busy) return;
+  // Debounced live search as the user types (≥2 chars, ~250ms). A seq guard drops a stale
+  // response when a newer query supersedes it. <2 chars clears the results list.
+  const searchSeq = useRef(0);
+  useEffect(() => {
+    const q = username.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearching(false);
+      setSearched(false);
+      return;
+    }
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setSearching(true);
+    const seq = ++searchSeq.current;
+    const id = setTimeout(async () => {
+      try {
+        const { users } = await friendsApi.search(token, q);
+        if (seq !== searchSeq.current) return; // a newer query won
+        setResults(users);
+      } catch {
+        if (seq === searchSeq.current) setResults([]);
+      } finally {
+        if (seq === searchSeq.current) { setSearching(false); setSearched(true); }
+      }
+    }, 250);
+    return () => clearTimeout(id);
+  }, [username]);
+
+  // Send a friend request to a specific username (from the search results or the input).
+  const addByUsername = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     setBusy(true);
     try {
-      await friendsApi.request(token, name);
+      await friendsApi.request(token, trimmed);
       setUsername('');
+      setResults([]);
+      setSearched(false);
       useGameStore.setState({ toast: t('friends.requestSent'), toastKind: 'success' });
       await load();
     } catch (e) {
@@ -138,6 +174,9 @@ export function FriendsView() {
       setBusy(false);
     }
   };
+
+  // Enter-to-add (manual) still works — adds whatever is typed verbatim.
+  const addFriend = () => addByUsername(username);
 
   const respond = (id: string, accept: boolean) =>
     act(() => friendsApi.respond(useAuthStore.getState().accessToken!, id, accept).then(() => undefined), 'friends.errAction');
@@ -187,6 +226,33 @@ export function FriendsView() {
     </div>
   );
 
+  // Shared search-results dropdown for the add-friend input (both layouts). Shows a small
+  // list of matches (avatar + name + level), each with an "Add" button (sends a request),
+  // plus searching / no-results states. The friends list already excludes existing friends
+  // by relationship — duplicate requests are handled server-side, so we show all matches.
+  const searchResults = username.trim().length >= 2 && (
+    <div className="rounded-lg border border-white/10 bg-white/[.03] overflow-hidden">
+      {searching ? (
+        <p className="text-xs text-muted px-3 py-2">{t('friends.searching')}</p>
+      ) : results.length === 0 ? (
+        searched ? <p className="text-xs text-muted px-3 py-2">{t('friends.searchNoResults')}</p> : null
+      ) : (
+        <ul className="max-h-56 overflow-y-auto divide-y divide-white/5">
+          {results.map((u) => (
+            <li key={u.id} className="flex items-center gap-2 px-3 py-2">
+              <span className="pfp shrink-0" style={{ width: 28, height: 28 }}><AvatarFace id={u.avatar} fill className="text-sm leading-none" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-display font-semibold text-txt text-sm truncate">{u.username}</span>
+                <span className="block text-[11px] text-muted">{t('friends.level', { n: u.level })}</span>
+              </span>
+              <button onClick={() => void addByUsername(u.username)} disabled={busy} className="btn btn-gold btn-sm shrink-0">{t('friends.add')}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
   // ---- Landscape "console": LEFT = add-friend + requests + friends list (tap to select);
   // RIGHT = the selected friend's actions. Portaled to <body> to escape the ViewTransition transform.
   if (landscape) {
@@ -205,10 +271,11 @@ export function FriendsView() {
           {/* LEFT — add friend + incoming requests + friends list */}
           <div className="pg-ls-left panel p-3">
             <div className="flex gap-2 items-center mb-2">
-              <input className="field flex-1 min-w-0" placeholder={t('friends.username')} value={username}
+              <input className="field flex-1 min-w-0" placeholder={t('friends.searchPlaceholder')} value={username}
                 onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addFriend(); }} aria-label={t('friends.addFriend')} />
               <button onClick={() => void addFriend()} disabled={busy || !username.trim()} className="btn btn-gold btn-sm shrink-0">{busy ? t('friends.sending') : t('friends.add')}</button>
             </div>
+            {searchResults && <div className="mb-2">{searchResults}</div>}
             {incoming.length > 0 && (
               <details className="mb-2 rounded-lg border border-gold/30 bg-gold/[.05] px-2.5 py-1.5">
                 <summary className="cursor-pointer text-xs font-display font-semibold text-gold-hi">{t('friends.requests')} ({incoming.length})</summary>
@@ -327,15 +394,15 @@ export function FriendsView() {
         <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('friends.title')}</h1>
       </section>
 
-      {/* Add friend */}
+      {/* Add friend — search by username (debounced) or type a full name + Enter */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.08s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('friends.addFriend')}</h2>
         <div className="flex gap-3 items-end">
           <label className="flex-1">
-            <span className="field-label">{t('friends.username')}</span>
+            <span className="field-label">{t('friends.searchLabel')}</span>
             <input
               className="field"
-              placeholder={t('friends.username')}
+              placeholder={t('friends.searchPlaceholder')}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void addFriend(); }}
@@ -345,6 +412,7 @@ export function FriendsView() {
             {busy ? t('friends.sending') : t('friends.add')}
           </button>
         </div>
+        {searchResults}
       </section>
 
       {loading ? (

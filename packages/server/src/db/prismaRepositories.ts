@@ -11,6 +11,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, type UserRole, DuplicateUserError } from '../auth/userRepository.ts';
+import { levelInfo } from '../profile/level.ts';
 import {
   type LedgerRepository, type Transaction, type NewTransaction, type TransactionType, type TransactionStatus,
   type LedgerPageOpts,
@@ -65,6 +66,7 @@ function toUser(row: any): User {
     dailyDepositLimitCents: row.dailyDepositLimitCents ?? null,
     dailyLossLimitCents: row.dailyLossLimitCents ?? null,
     xp: row.xp ?? 0,
+    xpSpent: row.xpSpent ?? 0,
     gamesPlayed: row.gamesPlayed ?? 0,
     wins: row.wins ?? 0,
     biggestPotCents: row.biggestPotCents ?? 0,
@@ -119,6 +121,26 @@ export class PrismaUserRepository implements UserRepository {
   async findByUsername(username: string): Promise<User | null> {
     const row = await this.db.user.findUnique({ where: { usernameLower: username.toLowerCase() } });
     return row ? toUser(row) : null;
+  }
+
+  async searchByUsername(q: string, limit: number, excludeUserId?: string): Promise<Array<{ id: string; username: string; avatar: string | null; level: number }>> {
+    const needle = q.trim().toLowerCase();
+    if (needle.length === 0) return [];
+    const cap = Math.max(0, Math.min(20, Math.floor(limit)));
+    if (cap === 0) return [];
+    // Case-insensitive substring match on the lowercased lookup key (indexed unique field).
+    // Select only the minimal public columns — never email/stats.
+    const rows = await this.db.user.findMany({
+      where: {
+        usernameLower: { contains: needle },
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      },
+      select: { id: true, username: true, avatar: true, xp: true },
+      orderBy: { usernameLower: 'asc' },
+      take: cap,
+    });
+    return rows.map((r: { id: string; username: string; avatar: string | null; xp: number }) =>
+      ({ id: r.id, username: r.username, avatar: r.avatar ?? null, level: levelInfo(r.xp).level }));
   }
 
   /**
@@ -277,6 +299,27 @@ export class PrismaUserRepository implements UserRepository {
     const u = await this.db.user.findUnique({ where: { id } });
     if (!u) return { ok: false, code: 'not_found' };
     if (u.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
+    return { ok: false, code: 'insufficient_xp' };
+  }
+
+  async purchaseCosmeticXp(id: string, cosmeticId: string, costXp: number): Promise<{ ok: boolean; code?: string }> {
+    // One atomic conditional update: increment `xpSpent` + grant ONLY if (xp - xpSpent) is
+    // affordable AND the cosmetic isn't already owned. A raw UPDATE is used because the
+    // affordability check compares two columns (xp vs xpSpent) — Prisma's typed `where`
+    // can't express a column-to-column comparison. `xp` is never touched, so the level
+    // (levelInfo(xp)) is unaffected. array_append is the SQL equivalent of `cosmetics: push`.
+    const cost = Math.max(0, Math.floor(costXp));
+    const count = await this.db.$executeRaw`
+      UPDATE "users"
+      SET "xpSpent" = "xpSpent" + ${cost},
+          "cosmetics" = array_append("cosmetics", ${cosmeticId})
+      WHERE "id" = ${id}
+        AND "xp" - "xpSpent" >= ${cost}
+        AND NOT (${cosmeticId} = ANY("cosmetics"))`;
+    if (count === 1) return { ok: true };
+    const u = await this.db.user.findUnique({ where: { id } });
+    if (!u) return { ok: false, code: 'not_found' };
+    if (u.cosmetics.includes(cosmeticId)) return { ok: true }; // idempotent: already owned
     return { ok: false, code: 'insufficient_xp' };
   }
 

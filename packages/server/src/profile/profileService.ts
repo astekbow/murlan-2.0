@@ -113,8 +113,72 @@ function toPublic(u: User, vipTier: VipTierInfo | null = null): PublicProfile {
   };
 }
 
+// ----------------------------------------------------------------------------
+// Demo leaderboard roster (§ klasifikimi). When `demoLeaderboard` is on, ~100
+// DETERMINISTIC demo players are merged into the global XP board so a fresh launch
+// looks populated. Deterministic = derived from a fixed seeded list (no per-call
+// randomness), so the board is stable across refreshes. Each demo row carries an
+// `id` of `demo_<n>` so the client can detect them and render them non-interactive
+// (a profile fetch would 404). The XP spread mostly EXCEEDS a fresh account (≈200..
+// 80000) so a brand-new real player lands MID/LOW pack, never #1.
+// ----------------------------------------------------------------------------
+
+// Albanian first names + a handful of surnames, cycled to build the roster.
+const DEMO_FIRST_NAMES = [
+  'Andi', 'Besa', 'Marsel', 'Ana', 'Erjon', 'Klara', 'Gent', 'Drita', 'Florian', 'Ina',
+  'Arben', 'Elira', 'Bujar', 'Vesa', 'Dritan', 'Lira', 'Gezim', 'Majlinda', 'Sokol', 'Teuta',
+  'Endrit', 'Blerta', 'Kreshnik', 'Fjolla', 'Ilir', 'Suela', 'Agron', 'Mira', 'Petrit', 'Donika',
+  'Genc', 'Albana', 'Lulzim', 'Rudina', 'Shpend', 'Valbona', 'Astrit', 'Edona', 'Bardhyl', 'Jonida',
+] as const;
+const DEMO_SURNAMES = ['Hoxha', 'Krasniqi', 'Berisha', 'Gashi', 'Shala', 'Dauti', 'Leka', 'Prifti'] as const;
+
+export interface DemoPlayer { id: string; username: string; avatar: string; xp: number; wins: number; gamesPlayed: number }
+
+const DEMO_COUNT = 100;
+
+/** A small deterministic PRNG (mulberry32) so the roster is identical every boot/refresh. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Build the fixed ~100-player demo roster once (module-level, so it's stable + cheap). */
+function buildDemoRoster(): DemoPlayer[] {
+  const rnd = mulberry32(0x4d55524c); // 'MURL' — a fixed seed → deterministic across runs
+  const out: DemoPlayer[] = [];
+  for (let i = 0; i < DEMO_COUNT; i++) {
+    const first = DEMO_FIRST_NAMES[i % DEMO_FIRST_NAMES.length]!;
+    // Every 5th player gets a surname; others get a number suffix to keep names unique.
+    const username = i % 5 === 0
+      ? `${first} ${DEMO_SURNAMES[(i * 3) % DEMO_SURNAMES.length]!}`
+      : `${first}${Math.floor(i / DEMO_FIRST_NAMES.length) > 0 ? i : ''}` || first;
+    // XP spread ≈200..80000, biased so MOST demo players sit comfortably above a fresh
+    // account: rank 0 (i=0) ~ highest. Use an exponential-ish curve over the index.
+    const frac = 1 - i / DEMO_COUNT; // 1.0 (top) .. ~0.0 (bottom)
+    const xp = Math.round(200 + Math.pow(frac, 1.8) * 79_800); // ~200..80000
+    const gamesPlayed = 20 + Math.floor(rnd() * 480); // 20..500 games
+    const winRate = 0.3 + rnd() * 0.35;               // 0.30..0.65
+    const wins = Math.round(gamesPlayed * winRate);
+    const avatar = AVATARS[Math.floor(rnd() * AVATARS.length)]!;
+    out.push({ id: `demo_${i}`, username, avatar, xp, wins, gamesPlayed });
+  }
+  return out;
+}
+
+const DEMO_ROSTER: DemoPlayer[] = buildDemoRoster();
+
 export class ProfileService {
-  constructor(private readonly users: UserRepository, private readonly ledger?: LedgerReader) {}
+  /** `demoLeaderboard`: when true, merge the deterministic demo roster into leaderboard(). */
+  constructor(
+    private readonly users: UserRepository,
+    private readonly ledger?: LedgerReader,
+    private readonly demoLeaderboard = false,
+  ) {}
 
   async getProfile(userId: string): Promise<PublicProfile | null> {
     const u = await this.users.findById(userId);
@@ -155,9 +219,11 @@ export class ProfileService {
   }
 
   async leaderboard(limit = 50): Promise<LeaderboardRow[]> {
-    const top = await this.users.topByXp(limit);
-    return top.map((u, i) => ({
-      rank: i + 1,
+    // Always include the REAL top users. Fetch up to `limit` of them so a signed-in
+    // owner can still land at their natural rank among the merged set.
+    const real = await this.users.topByXp(limit);
+    type Row = Omit<LeaderboardRow, 'rank'>;
+    const rows: Row[] = real.map((u) => ({
       id: u.id,
       username: u.username,
       avatar: u.avatar,
@@ -167,5 +233,32 @@ export class ProfileService {
       gamesPlayed: u.gamesPlayed,
       winRate: u.gamesPlayed > 0 ? u.wins / u.gamesPlayed : 0,
     }));
+
+    if (this.demoLeaderboard) {
+      // Merge the deterministic demo roster. Demo `xp` mostly EXCEEDS a fresh account, so a
+      // brand-new real player sorts into the MID/LOW pack — never #1.
+      for (const d of DEMO_ROSTER) {
+        rows.push({
+          id: d.id,
+          username: d.username,
+          avatar: d.avatar,
+          level: levelInfo(d.xp).level,
+          xp: d.xp,
+          wins: d.wins,
+          gamesPlayed: d.gamesPlayed,
+          winRate: d.gamesPlayed > 0 ? d.wins / d.gamesPlayed : 0,
+        });
+      }
+    }
+
+    // Sort by XP desc (tie-break wins desc, then id for a STABLE order across refreshes),
+    // assign ranks, return the top `limit`.
+    rows.sort((a, b) => b.xp - a.xp || b.wins - a.wins || a.id.localeCompare(b.id));
+    return rows.slice(0, Math.max(0, limit)).map((r, i) => ({ rank: i + 1, ...r }));
+  }
+
+  /** Username search for friend discovery — minimal public shape, bounded, caller excluded. */
+  async searchUsers(q: string, limit: number, excludeUserId?: string): Promise<Array<{ id: string; username: string; avatar: string | null; level: number }>> {
+    return this.users.searchByUsername(q, limit, excludeUserId);
   }
 }

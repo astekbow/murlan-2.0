@@ -341,13 +341,18 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
       <ul className="space-y-2.5">
         {(rows.length >= 3 ? rows.slice(3) : rows).map((r, i) => {
           const isMe = myId !== null && r.id === myId;
+          // Demo players (id starts with `demo_`) have no real profile — render them
+          // non-interactive (no tappable hover affordance) so a tap can't 404 a profile.
+          const isDemo = r.id.startsWith('demo_');
           return (
             <li
               key={r.id}
               className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all animate-rise ${
                 isMe
                   ? 'border-gold bg-gradient-to-b from-gold/[.14] to-gold/[.04]'
-                  : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold hover:translate-x-0.5'
+                  : isDemo
+                    ? 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'
+                    : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold hover:translate-x-0.5'
               }`}
               style={{ animationDelay: `${Math.min(i, 12) * 0.05}s` }}
             >
@@ -384,6 +389,8 @@ function GlobalLadderList({ rows, myId }: { rows: LeaderboardRow[]; myId: string
   const t = useT();
   return (
     <ul className="space-y-1.5">
+      {/* Demo rows (id `demo_*`) are inherently non-interactive here — this compact list
+          has no tap-to-open-profile affordance, so no extra guard is needed. */}
       {rows.map((r) => {
         const isMe = myId !== null && r.id === myId;
         return (

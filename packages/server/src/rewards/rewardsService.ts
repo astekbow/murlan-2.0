@@ -23,8 +23,17 @@ export interface Cosmetic {
   id: string;
   name: string;
   type: CosmeticType;
-  cost: number; // PRICE IN CENTS (wallet money); 0 = free/default (always owned)
+  // PRICE IN CENTS (wallet money); 0 = free/default (always owned) OR an XP-priced item.
+  cost: number;
+  // When set (> 0), this is an XP-PRICED item: bought with spendable XP (xp - xpSpent),
+  // NEVER the wallet, and its money `cost` is treated as 0. Mutually exclusive with `cost`.
+  costXp?: number;
   featured?: boolean; // show a "NEW" badge (owner-curated, not date-based)
+}
+
+/** True when an item is bought with XP (costXp set) rather than wallet money. */
+function isXpPriced(c: Cosmetic): boolean {
+  return (c.costXp ?? 0) > 0;
 }
 
 // Daily deal: one paid cosmetic per UTC day at a fixed % off. Deterministic (day-indexed)
@@ -40,22 +49,34 @@ function dailyDealId(now: number): string | null {
   return paid[Math.floor(now / DAY_MS) % paid.length]!.id;
 }
 
+// "Some XP, some money" (owner's call): the PREMIUM card-backs/felts stay MONEY-priced
+// (cost in cents); several mid/lower cosmetics are XP-PRICED (costXp, bought with spendable
+// XP — never the wallet). New items added below: a few XP-priced + a couple money-priced.
+// An XP item carries cost:0 (so it's excluded from the money-only daily deal automatically).
 export const COSMETICS: Cosmetic[] = [
   // Card backs
   { id: 'cb_classic', name: 'Pas klasik', type: 'cardBack', cost: 0 },
-  { id: 'cb_gold', name: 'Pas ari', type: 'cardBack', cost: 300 },
-  { id: 'cb_emerald', name: 'Pas smerald', type: 'cardBack', cost: 350 },
-  { id: 'cb_sapphire', name: 'Pas safir', type: 'cardBack', cost: 350 },
-  { id: 'cb_rose', name: 'Pas trëndafili', type: 'cardBack', cost: 450 },
-  { id: 'cb_carbon', name: 'Pas karboni', type: 'cardBack', cost: 500 },
-  { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600, featured: true },
+  { id: 'cb_gold', name: 'Pas ari', type: 'cardBack', cost: 300 },                       // money
+  { id: 'cb_emerald', name: 'Pas smerald', type: 'cardBack', cost: 0, costXp: 800 },      // XP (was 350¢)
+  { id: 'cb_sapphire', name: 'Pas safir', type: 'cardBack', cost: 0, costXp: 1200 },      // XP (was 350¢)
+  { id: 'cb_rose', name: 'Pas trëndafili', type: 'cardBack', cost: 0, costXp: 2000 },     // XP (was 450¢)
+  { id: 'cb_carbon', name: 'Pas karboni', type: 'cardBack', cost: 500 },                  // money
+  { id: 'cb_royal', name: 'Pas mbretëror', type: 'cardBack', cost: 600, featured: true }, // money
+  // NEW card backs
+  { id: 'cb_ivory', name: 'Pas fildishi', type: 'cardBack', cost: 0, costXp: 500 },       // XP (new, cheapest)
+  { id: 'cb_jade', name: 'Pas jadeje', type: 'cardBack', cost: 0, costXp: 3500 },         // XP (new)
+  { id: 'cb_platinum', name: 'Pas platini', type: 'cardBack', cost: 800, featured: true },// money (new, premium)
   // Table felts
   { id: 'felt_red', name: 'Çoha e kuqe', type: 'tableFelt', cost: 0 },
-  { id: 'felt_emerald', name: 'Çoha smerald', type: 'tableFelt', cost: 400 },
-  { id: 'felt_sapphire', name: 'Çoha safir', type: 'tableFelt', cost: 400 },
-  { id: 'felt_wine', name: 'Çoha verë', type: 'tableFelt', cost: 450 },
-  { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },
-  { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700, featured: true },
+  { id: 'felt_emerald', name: 'Çoha smerald', type: 'tableFelt', cost: 0, costXp: 1000 }, // XP (was 400¢)
+  { id: 'felt_sapphire', name: 'Çoha safir', type: 'tableFelt', cost: 0, costXp: 1500 },  // XP (was 400¢)
+  { id: 'felt_wine', name: 'Çoha verë', type: 'tableFelt', cost: 450 },                   // money
+  { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },           // money
+  { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700, featured: true }, // money
+  // NEW table felts
+  { id: 'felt_forest', name: 'Çoha pyll', type: 'tableFelt', cost: 0, costXp: 700 },      // XP (new)
+  { id: 'felt_amber', name: 'Çoha qelibar', type: 'tableFelt', cost: 0, costXp: 5000 },   // XP (new, priciest XP)
+  { id: 'felt_royalblue', name: 'Çoha blu mbretërore', type: 'tableFelt', cost: 900, featured: true }, // money (new, premium)
 ];
 
 type Metric = 'gamesPlayed' | 'wins' | 'level' | 'currentStreak';
@@ -72,6 +93,14 @@ const CHALLENGES: ChallengeDef[] = [
   { id: 'win5', title: 'Fito 5 lojëra', goal: 5, metric: 'wins', rewardXp: 90 },
   { id: 'level3', title: 'Arri Nivelin 3', goal: 3, metric: 'level', rewardXp: 60 },
   { id: 'streak3', title: 'Seri 3 fitore', goal: 3, metric: 'currentStreak', rewardXp: 70 },
+  // More ways to earn XP (achievable, consistent with the structure above).
+  { id: 'play10', title: 'Luaj 10 lojëra', goal: 10, metric: 'gamesPlayed', rewardXp: 120 },
+  { id: 'play25', title: 'Luaj 25 lojëra', goal: 25, metric: 'gamesPlayed', rewardXp: 250 },
+  { id: 'win10', title: 'Fito 10 lojëra', goal: 10, metric: 'wins', rewardXp: 180 },
+  { id: 'win25', title: 'Fito 25 lojëra', goal: 25, metric: 'wins', rewardXp: 400 },
+  { id: 'level5', title: 'Arri Nivelin 5', goal: 5, metric: 'level', rewardXp: 150 },
+  { id: 'level10', title: 'Arri Nivelin 10', goal: 10, metric: 'level', rewardXp: 350 },
+  { id: 'streak5', title: 'Seri 5 fitore', goal: 5, metric: 'currentStreak', rewardXp: 140 },
 ];
 
 const DAY_MS = 86_400_000;
@@ -87,11 +116,15 @@ export interface RewardsStatus {
   enabled: boolean;
   xp: number;
   level: number;
+  /** Spendable XP balance for the XP shop = max(0, xp - xpSpent). Lifetime `xp` is unchanged. */
+  spendableXp: number;
   daily: { canClaim: boolean; streak: number; rewardXp: number };
   challenges: Array<{ id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number }>;
-  shop: Array<{ id: string; name: string; type: CosmeticType; cost: number; owned: boolean; featured: boolean }>;
+  // `costXp` is set on XP-priced items (cost is then 0); money items carry cost > 0.
+  shop: Array<{ id: string; name: string; type: CosmeticType; cost: number; costXp?: number; owned: boolean; featured: boolean }>;
   equipped: { cardBack: string | null; tableFelt: string | null };
   // Today's discounted cosmetic (null if none). priceCents is the ENFORCED deal price.
+  // MONEY-only — XP items are never discounted (dailyDealId filters cost > 0).
   dailyDeal: { id: string; pct: number; priceCents: number } | null;
 }
 
@@ -103,7 +136,10 @@ export class RewardsService {
   ) {}
 
   private owns(u: User, c: Cosmetic): boolean {
-    return c.cost === 0 || u.cosmetics.includes(c.id);
+    // Free/default = cost 0 AND not XP-priced (an XP item ALSO has cost 0 but must be
+    // BOUGHT, so it is not implicitly owned).
+    const isFreeDefault = c.cost === 0 && !isXpPriced(c);
+    return isFreeDefault || u.cosmetics.includes(c.id);
   }
 
   async status(userId: string, now: number): Promise<RewardsStatus | null> {
@@ -117,12 +153,13 @@ export class RewardsService {
       enabled: this.enabled,
       xp: u.xp,
       level: levelInfo(u.xp).level,
+      spendableXp: Math.max(0, u.xp - u.xpSpent),
       daily: { canClaim, streak: u.dailyStreak, rewardXp: dailyReward(canClaim ? nextStreak : u.dailyStreak) },
       challenges: CHALLENGES.map((c) => {
         const progress = Math.min(metricValue(u, c.metric), c.goal);
         return { id: c.id, title: c.title, goal: c.goal, progress, done: progress >= c.goal, claimed: u.claimedChallenges.includes(c.id), rewardXp: c.rewardXp };
       }),
-      shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, owned: this.owns(u, c), featured: !!c.featured })),
+      shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, ...(isXpPriced(c) ? { costXp: c.costXp } : {}), owned: this.owns(u, c), featured: !!c.featured })),
       equipped: { cardBack: u.cardBack, tableFelt: u.tableFelt },
       dailyDeal: (() => {
         const id = dailyDealId(now);
@@ -163,6 +200,8 @@ export class RewardsService {
   async buy(userId: string, cosmeticId: string, now: number = Date.now()): Promise<{ ok: boolean; code?: string }> {
     const c = COSMETICS.find((x) => x.id === cosmeticId);
     if (!c) return { ok: false, code: 'not_found' };
+    // An XP-priced item must go through buyXp() — never charge the wallet for it.
+    if (isXpPriced(c)) return { ok: false, code: 'wrong_currency' };
     if (c.cost === 0) return { ok: false, code: 'owned' }; // free/default — always owned
     const u = await this.users.findById(userId);
     if (!u) return { ok: false, code: 'not_found' };
@@ -193,6 +232,21 @@ export class RewardsService {
   /** Best-effort compensating credit for a charge whose grant failed. */
   private async refundPurchase(userId: string, cents: number, cosmeticId: string): Promise<void> {
     await this.wallet.credit(userId, cents, { type: 'purchase', reason: `cosmetic-refund:${cosmeticId}` }).catch(() => undefined);
+  }
+
+  /** Buy an XP-priced cosmetic with SPENDABLE XP (xp - xpSpent). Mirrors buy() but NEVER
+   *  touches the wallet — the grant + xpSpent increment is one atomic repo update, so there
+   *  is nothing to refund. No daily-deal discount (XP items are full price). */
+  async buyXp(userId: string, cosmeticId: string): Promise<{ ok: boolean; code?: string }> {
+    const c = COSMETICS.find((x) => x.id === cosmeticId);
+    if (!c) return { ok: false, code: 'not_found' };
+    // A money item must go through buy() — refuse to "spend" XP on it.
+    if (!isXpPriced(c)) return { ok: false, code: 'wrong_currency' };
+    const u = await this.users.findById(userId);
+    if (!u) return { ok: false, code: 'not_found' };
+    if (u.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
+    // Atomic: deduct spendable XP (xpSpent += costXp) AND grant, or reject if short.
+    return this.users.purchaseCosmeticXp(userId, cosmeticId, c.costXp!);
   }
 
   /** Equip an owned cosmetic into its slot. */

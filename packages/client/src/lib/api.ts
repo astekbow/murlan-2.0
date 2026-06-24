@@ -187,8 +187,13 @@ export const profileApi = {
   leaderboard: () => request<{ rows: LeaderboardRow[] }>('/leaderboard'),
 };
 
+export interface UserSearchResult { id: string; username: string; avatar: string | null; level: number }
+
 export const friendsApi = {
   list: (token: string) => request<{ friends: FriendEntry[] }>('/friends', { token }),
+  // Username search for adding friends (≥2 chars; minimal public shape, caller excluded).
+  search: (token: string, q: string) =>
+    request<{ users: UserSearchResult[] }>(`/users/search?q=${encodeURIComponent(q)}`, { token }),
   request: (token: string, username: string) => request<{ ok: boolean }>('/friends/request', { method: 'POST', token, body: { username } }),
   respond: (token: string, id: string, accept: boolean) => request<{ ok: boolean }>(`/friends/${id}/respond`, { method: 'POST', token, body: { accept } }),
   remove: (token: string, id: string) => request<{ ok: boolean }>(`/friends/${id}`, { method: 'DELETE', token }),
@@ -204,12 +209,17 @@ export interface RewardChallenge {
   id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number;
 }
 export interface ShopItem {
-  id: string; name: string; type: CosmeticType; cost: number; owned: boolean; featured: boolean;
+  id: string; name: string; type: CosmeticType; cost: number;
+  /** Set on XP-priced items (cost is then 0). Bought with spendable XP, never the wallet. */
+  costXp?: number;
+  owned: boolean; featured: boolean;
 }
 export interface RewardsStatus {
   enabled: boolean;
   xp: number;
   level: number;
+  /** Spendable XP balance for the XP shop = max(0, xp - xpSpent). */
+  spendableXp: number;
   daily: { canClaim: boolean; streak: number; rewardXp: number };
   challenges: RewardChallenge[];
   shop: ShopItem[];
@@ -222,6 +232,8 @@ export const rewardsApi = {
   claimDaily: (token: string) => request<{ rewardXp: number; streak: number }>('/rewards/daily', { method: 'POST', token }),
   claimChallenge: (token: string, id: string) => request<{ rewardXp: number }>(`/rewards/challenge/${id}`, { method: 'POST', token }),
   buy: (token: string, id: string) => request<{ ok: boolean }>('/shop/buy', { method: 'POST', token, body: { id } }),
+  // XP-priced items: spends earned XP (xp - xpSpent), never the wallet.
+  buyXp: (token: string, id: string) => request<{ ok: boolean }>('/shop/buy-xp', { method: 'POST', token, body: { id } }),
   equip: (token: string, id: string) => request<{ ok: boolean }>('/cosmetics/equip', { method: 'POST', token, body: { id } }),
 };
 

@@ -53,9 +53,25 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
     }
   });
 
-  // Leaderboard (global, by XP). Client highlights the viewer's own row.
+  // Leaderboard (global, by XP). Client highlights the viewer's own row. Limit 100 so the
+  // ~100 demo players (when DEMO_LEADERBOARD is on) actually fill the board. (The ranked
+  // leaderboard is separate and unchanged.)
   app.get('/api/leaderboard', async () => {
-    return { rows: await profiles.leaderboard(50) };
+    return { rows: await profiles.leaderboard(100) };
+  });
+
+  // Username SEARCH for friend discovery (miqt). Auth-guarded; requires q ≥ 2 chars;
+  // returns a MINIMAL public shape (id/username/avatar/level) — never email/stats. This
+  // intentionally lets a player discover usernames (that is the point of a search); the
+  // friend-request flow still validates the actual relationship server-side.
+  app.get('/api/users/search', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const { q } = (req.query ?? {}) as { q?: string };
+    const needle = (q ?? '').trim();
+    if (needle.length < 2) return { users: [] }; // too short → no enumeration of single chars
+    const users = await profiles.searchUsers(needle, 20, caller.userId);
+    return { users };
   });
 
   // ----- Friends ------------------------------------------------------------

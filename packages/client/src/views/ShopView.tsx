@@ -22,12 +22,29 @@ function costLabel(cost: number): string {
   return cost === 0 ? tr('shop.free') : dollars(cost);
 }
 
+/** Price label for an item: "★ N XP" for XP items, else the money label. */
+function priceLabel(item: ShopItem): string {
+  const xp = item.costXp ?? 0;
+  return xp > 0 ? tr('shop.xpPrice').replace('{xp}', String(xp)) : costLabel(item.cost);
+}
+
 // A subtle price-tier accent (left edge) so the value spread reads at a glance.
 function rarityAccent(cost: number): string {
   if (cost === 0) return 'rgba(255,255,255,0.10)'; // free / default
   if (cost <= 350) return '#9aa4b2';               // common — slate
   if (cost <= 500) return '#5b8cff';               // rare — blue
   return '#b07cff';                                // epic — violet
+}
+
+// XP items get a warm gold accent so the parallel XP economy reads distinctly from money.
+function itemAccent(item: ShopItem): string {
+  return (item.costXp ?? 0) > 0 ? '#e8c879' : rarityAccent(item.cost);
+}
+
+/** A single number for sorting that orders money items by cents and XP items by XP,
+ *  keeping each currency comparable within its own group. */
+function sortKey(item: ShopItem): number {
+  return (item.costXp ?? 0) > 0 ? (item.costXp ?? 0) : item.cost;
 }
 
 export function ShopView() {
@@ -75,12 +92,14 @@ export function ShopView() {
     if (busyId) return;
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
+    const isXp = (item.costXp ?? 0) > 0;
     setBusyId(item.id);
     try {
-      await rewardsApi.buy(token, item.id);
+      // XP items spend earned XP (never the wallet) → the XP buy endpoint; money items → /shop/buy.
+      await (isXp ? rewardsApi.buyXp(token, item.id) : rewardsApi.buy(token, item.id));
       useGameStore.setState({ toast: tr('shop.itemBought').replace('{name}', item.name), toastKind: 'success' });
       await load();
-      await useAuthStore.getState().refreshMe();
+      if (!isXp) await useAuthStore.getState().refreshMe(); // money buy changed the wallet balance
     } catch (e) {
       useGameStore.setState({ toast: e instanceof ApiError ? e.message : tr('shop.buyFailed'), toastKind: 'error' });
     } finally {
@@ -113,7 +132,10 @@ export function ShopView() {
         <div className="pg-ls-top">
           <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
           <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('shop.title')}</h1>
-          <span className="text-sm font-display font-semibold text-gold-hi shrink-0"><CountUp valueCents={balanceCents} /></span>
+          <span className="flex items-center gap-2 shrink-0">
+            {status && <span className="text-sm font-display font-semibold text-gold-hi">{t('shop.xpBalance', { xp: status.spendableXp })}</span>}
+            <span className="text-sm font-display font-semibold text-gold-hi"><CountUp valueCents={balanceCents} /></span>
+          </span>
         </div>
 
         {loading ? (
@@ -150,7 +172,7 @@ export function ShopView() {
               <div className="pg-ls-scroll pr-1 space-y-3">
                 {GROUPS.map((group) => {
                   const base = status.shop.filter((it) => it.type === group.type);
-                  const items = priceSort === 'default' ? base : [...base].sort((a, b) => priceSort === 'asc' ? a.cost - b.cost : b.cost - a.cost);
+                  const items = priceSort === 'default' ? base : [...base].sort((a, b) => priceSort === 'asc' ? sortKey(a) - sortKey(b) : sortKey(b) - sortKey(a));
                   if (items.length === 0) return null;
                   return (
                     <section key={group.type} className="panel p-3">
@@ -198,9 +220,12 @@ export function ShopView() {
           <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('shop.title')}</h1>
         </div>
         {status && (
-          <div className="text-right">
-            <div className="text-[11px] uppercase tracking-wider text-muted/70">{t('shop.yourBalance')}</div>
-            <CountUp valueCents={balanceCents} className="block font-display font-semibold tracking-wide text-gold-hi text-2xl leading-none" />
+          <div className="text-right space-y-1">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-muted/70">{t('shop.yourBalance')}</div>
+              <CountUp valueCents={balanceCents} className="block font-display font-semibold tracking-wide text-gold-hi text-2xl leading-none" />
+            </div>
+            <div className="font-display font-semibold tracking-wide text-gold-hi text-sm leading-none">{t('shop.xpBalance', { xp: status.spendableXp })}</div>
           </div>
         )}
       </section>
@@ -261,7 +286,7 @@ export function ShopView() {
           <div className="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
           {GROUPS.map((group, gi) => {
           const base = status.shop.filter((it) => it.type === group.type);
-          const items = priceSort === 'default' ? base : [...base].sort((a, b) => priceSort === 'asc' ? a.cost - b.cost : b.cost - a.cost);
+          const items = priceSort === 'default' ? base : [...base].sort((a, b) => priceSort === 'asc' ? sortKey(a) - sortKey(b) : sortKey(b) - sortKey(a));
           if (items.length === 0) return null;
           return (
             <section
@@ -317,14 +342,17 @@ interface ShopItemRowProps {
 
 function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb, compact = false, onPreview, onBuy, onEquip }: ShopItemRowProps) {
   const t = useT();
+  const isXp = (item.costXp ?? 0) > 0;
   const isEquipped = status.equipped[item.type] === item.id;
-  const isDeal = status.dailyDeal?.id === item.id && !item.owned;
+  // The daily deal is MONEY-only (XP items are never the deal), so an XP item never discounts.
+  const isDeal = !isXp && status.dailyDeal?.id === item.id && !item.owned;
   const price = isDeal ? status.dailyDeal!.priceCents : item.cost;
-  const canAfford = balanceCents >= price;
+  // XP items check spendable XP; money items check the wallet balance.
+  const canAfford = isXp ? status.spendableXp >= (item.costXp ?? 0) : balanceCents >= price;
   const btnSize = compact ? 'btn btn-gold btn-sm' : 'btn btn-gold';
   return (
     <li
-      style={{ borderLeftColor: rarityAccent(item.cost), borderLeftWidth: item.cost > 0 ? 3 : 1 }}
+      style={{ borderLeftColor: itemAccent(item), borderLeftWidth: (isXp || item.cost > 0) ? 3 : 1 }}
       className={`flex items-center gap-2.5 rounded-xl border transition-all ${compact ? 'px-2.5 py-2' : 'px-4 py-3'} ${
         isEquipped ? 'border-gold bg-gradient-to-b from-gold/[.14] to-gold/[.04]' : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'
       }`}
@@ -342,6 +370,7 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
         <div className="flex items-center gap-2">
           <span className={`font-display font-semibold tracking-wide text-txt truncate ${compact ? 'text-sm' : ''}`}>{item.name}</span>
           {item.featured && !item.owned && <span className="tag tag-live shrink-0 text-[10px]">{t('shop.new')}</span>}
+          {isXp && !item.owned && <span className="tag tag-open shrink-0 text-[10px] text-gold-hi">XP</span>}
           {isDeal && <span className="tag tag-open shrink-0 text-[10px] text-emerald-300">−{status.dailyDeal!.pct}%</span>}
         </div>
         <div className="text-xs text-muted mt-0.5">
@@ -350,7 +379,7 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
               <span className="line-through opacity-60 mr-1.5">{costLabel(item.cost)}</span>
               <span className="text-emerald-300 font-semibold">{costLabel(price)}</span>
             </>
-          ) : costLabel(item.cost)}
+          ) : priceLabel(item)}
         </div>
       </div>
       <div className="ml-auto flex items-center gap-2">
@@ -361,7 +390,7 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
             <button onClick={onEquip} disabled={busy} className={btnSize}>{busy ? t('shop.equipping') : t('shop.equip')}</button>
           )
         ) : (
-          <button onClick={onBuy} disabled={busy || !canAfford} className={btnSize} title={!canAfford ? t('shop.notEnoughBalance') : undefined}>
+          <button onClick={onBuy} disabled={busy || !canAfford} className={btnSize} title={!canAfford ? (isXp ? t('shop.notEnoughXp') : t('shop.notEnoughBalance')) : undefined}>
             {busy ? t('shop.buying') : t('shop.buy')}
           </button>
         )}

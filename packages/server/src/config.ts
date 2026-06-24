@@ -64,6 +64,10 @@ const schema = z.object({
   RESPONSIBLE_GAMING: z.string().optional(),
   // Engagement rewards (§2.6) — ON by default; set false to disable per jurisdiction.
   REWARDS_ENABLED: z.string().optional(),
+  // Demo leaderboard: seed the global (XP) leaderboard with ~100 deterministic demo
+  // players so a fresh launch looks populated. ON by default; set false to show ONLY
+  // real users once there's an organic player base.
+  DEMO_LEADERBOARD: z.string().optional(),
   // Four-eyes on the tournament champion payout — needs TWO distinct admins. OFF by
   // default (a solo operator has no second admin; it would block every payout).
   TOURNAMENT_DUAL_CONTROL: z.string().optional(),
@@ -169,6 +173,7 @@ export interface AppConfig {
     responsibleGaming: boolean;
   };
   rewardsEnabled: boolean;
+  demoLeaderboard: boolean; // seed the global XP leaderboard with ~100 demo players (ON by default)
   isProd: boolean;
   /** Staging/demo only: permit the stub payment/email providers in production. Never enable for real money. */
   allowStubProviders: boolean;
@@ -339,6 +344,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       responsibleGaming: isTrue(parsed.RESPONSIBLE_GAMING),
     },
     rewardsEnabled: parsed.REWARDS_ENABLED === undefined ? true : isTrue(parsed.REWARDS_ENABLED),
+    demoLeaderboard: parsed.DEMO_LEADERBOARD === undefined ? true : isTrue(parsed.DEMO_LEADERBOARD),
     isProd,
     // In prod, stubs require the explicit phrase (a bare `true` already threw above).
     // In dev/test, keep the simple `true`/`1` toggle for convenience.

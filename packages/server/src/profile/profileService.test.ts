@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { ProfileService, AVATARS } from './profileService.ts';
+import { levelInfo } from './level.ts';
 
 async function setup() {
   const users = new InMemoryUserRepository();
@@ -47,4 +48,72 @@ test('avatar: an oversized data-URL is rejected before decode', async () => {
   const { svc, userId } = await setup();
   const huge = `data:image/png;base64,${'A'.repeat(20_000)}`;
   await assert.rejects(() => svc.setAvatar(userId, huge), /invalid avatar/);
+});
+
+// ---- Demo leaderboard (klasifikimi) -----------------------------------------
+
+test('leaderboard: with demoLeaderboard ON, the board has ~100 rows and a fresh real user is NOT rank 1', async () => {
+  const users = new InMemoryUserRepository();
+  const fresh = await users.create({ username: 'newbie', email: 'n@x.com', passwordHash: 'h' }); // 0 xp
+  const svc = new ProfileService(users, undefined, /* demoLeaderboard */ true);
+
+  const rows = await svc.leaderboard(100);
+  assert.equal(rows.length, 100, 'board is filled to the limit by demo players');
+
+  // Ranks are 1..N and the demo rows are detectable by their id prefix.
+  assert.equal(rows[0]!.rank, 1);
+  assert.ok(rows.some((r) => r.id.startsWith('demo_')), 'demo rows are present');
+
+  const me = rows.find((r) => r.id === fresh.id) ?? null;
+  // A fresh (0 xp) account either lands near the BOTTOM or falls off the top-100 entirely —
+  // either way it is NEVER rank 1 (the whole point of seeding the board).
+  if (me) assert.notEqual(me.rank, 1, 'a brand-new user is not #1');
+  assert.notEqual(rows[0]!.id, fresh.id, 'the top row is not the fresh user');
+});
+
+test('leaderboard: deterministic across calls (stable demo roster)', async () => {
+  const users = new InMemoryUserRepository();
+  const svc = new ProfileService(users, undefined, true);
+  const a = await svc.leaderboard(100);
+  const b = await svc.leaderboard(100);
+  assert.deepEqual(a.map((r) => r.id), b.map((r) => r.id), 'same order every call');
+});
+
+test('leaderboard: with demoLeaderboard OFF, only real users appear', async () => {
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'solo', email: 's@x.com', passwordHash: 'h' });
+  await users.addXp(u.id, 500);
+  const svc = new ProfileService(users, undefined, false);
+  const rows = await svc.leaderboard(100);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.id, u.id);
+  assert.equal(rows[0]!.rank, 1);
+});
+
+// ---- Username search (miqt) -------------------------------------------------
+
+test('searchUsers: case-insensitive substring match, excludes the caller, minimal shape', async () => {
+  const users = new InMemoryUserRepository();
+  const me = await users.create({ username: 'Andi', email: 'a@x.com', passwordHash: 'h' });
+  const b = await users.create({ username: 'Andrea', email: 'b@x.com', passwordHash: 'h' });
+  await users.create({ username: 'Besa', email: 'c@x.com', passwordHash: 'h' });
+  await users.addXp(b.id, 1000);
+  const svc = new ProfileService(users);
+
+  const res = await svc.searchUsers('and', 20, me.id); // matches Andi + Andrea, case-insensitive
+  const ids = res.map((r) => r.id);
+  assert.ok(ids.includes(b.id), 'Andrea matched');
+  assert.ok(!ids.includes(me.id), 'caller excluded');
+  // Minimal public shape only — no email/stats.
+  assert.deepEqual(Object.keys(res[0]!).sort(), ['avatar', 'id', 'level', 'username']);
+  const andrea = res.find((r) => r.id === b.id)!;
+  assert.equal(andrea.level, levelInfo(1000).level, 'level derived from xp');
+});
+
+test('searchUsers: bounded to ≤ 20 results', async () => {
+  const users = new InMemoryUserRepository();
+  for (let i = 0; i < 30; i++) await users.create({ username: `Player${i}`, email: `p${i}@x.com`, passwordHash: 'h' });
+  const svc = new ProfileService(users);
+  const res = await svc.searchUsers('player', 50, undefined); // ask for 50 → still capped at 20
+  assert.equal(res.length, 20);
 });

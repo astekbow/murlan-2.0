@@ -118,6 +118,10 @@ model User {
   // Progression & cosmetics (§2.3) — XP/stats only, never cashable. Level is
   // DERIVED from xp (see profile/level helper), not stored.
   xp              Int     @default(0)
+  // Lifetime XP SPENT in the XP shop (§2.6 XP economy). `xp` is lifetime-earned and
+  // NEVER decreases (level = levelInfo(xp) stays monotonic); the SPENDABLE balance is
+  // (xp - xpSpent), clamped ≥ 0. Buying an XP cosmetic increments this, not xp.
+  xpSpent         Int     @default(0)
   gamesPlayed     Int     @default(0)
   wins            Int     @default(0)
   biggestPotCents Int     @default(0)

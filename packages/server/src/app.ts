@@ -647,7 +647,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
 
   const wallet = new WalletService(repo, ledger, uow);
   // ProfileService takes the wallet (read-only) so a profile can show its VIP-tier ring.
-  const profiles = new ProfileService(repo, wallet);
+  // demoLeaderboard seeds the global board with ~100 demo players (config-gated, ON by default).
+  const profiles = new ProfileService(repo, wallet, config.demoLeaderboard);
   const rewards = new RewardsService(repo, config.rewardsEnabled, wallet);
   const money = new MoneyService(wallet, matchesRepo, uow);
   // Pass the UoW (Prisma only) so a withdrawal's debit + record-insert are one atomic

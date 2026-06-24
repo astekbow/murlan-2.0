@@ -69,6 +69,22 @@ export async function rewardsRoutes(app: FastifyInstance, deps: RewardsRoutesDep
     return { ok: true };
   });
 
+  // Buy an XP-priced cosmetic with SPENDABLE XP — NEVER touches the wallet, so the
+  // real-money compliance gate does NOT apply (XP is cosmetic progression, not money).
+  // A frozen/self-excluded account can still spend its earned XP on cosmetics.
+  app.post('/api/shop/buy-xp', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!rewards.enabled) return disabled(reply);
+    const { id } = (req.body ?? {}) as { id?: string };
+    const res = await rewards.buyXp(caller.userId, String(id));
+    if (!res.ok) {
+      if (res.code === 'insufficient_xp') return reply.code(402).send({ error: { code: 'insufficient_xp', message: 'XP i pamjaftueshëm.' } });
+      return reply.code(400).send({ error: { code: res.code ?? 'failed', message: 'Blerja dështoi.' } });
+    }
+    return { ok: true };
+  });
+
   app.post('/api/cosmetics/equip', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;

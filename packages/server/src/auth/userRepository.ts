@@ -6,6 +6,8 @@
 // Balances live here as integer USD cents (money is settled in Phase 6).
 // ============================================================================
 
+import { levelInfo } from '../profile/level.ts';
+
 export type UserRole = 'user' | 'admin';
 export type KycStatus = 'none' | 'pending' | 'verified';
 /**
@@ -48,6 +50,9 @@ export interface User {
   dailyLossLimitCents: number | null;
   // Progression & cosmetics (§2.3) — XP/stats only, never cashable.
   xp: number;
+  // Lifetime XP SPENT in the XP shop (§2.6). `xp` is lifetime-earned and never decreases
+  // (level stays levelInfo(xp)); the SPENDABLE XP balance = max(0, xp - xpSpent).
+  xpSpent: number;
   gamesPlayed: number;
   wins: number;
   biggestPotCents: number;
@@ -123,6 +128,12 @@ export interface UserRepository {
   findByEmail(email: string): Promise<User | null>;       // case-insensitive
   findByUsername(username: string): Promise<User | null>; // case-insensitive
   /**
+   * Case-insensitive substring search on the username, for friend discovery. Bounded
+   * (limit clamped ≤ 20), excludes `excludeUserId` (the caller). Returns a MINIMAL public
+   * shape (id/username/avatar/level) — no email/stats. `level` is derived from xp.
+   */
+  searchByUsername(q: string, limit: number, excludeUserId?: string): Promise<Array<{ id: string; username: string; avatar: string | null; level: number }>>;
+  /**
    * Atomically apply a signed delta to a balance and return the new balance.
    * Rejects (returns null) if the result would be negative — callers must
    * pre-check funds. Production impl runs this inside a DB transaction.
@@ -168,6 +179,13 @@ export interface UserRepository {
    * read-check-write race that could double-spend XP or duplicate the grant.
    */
   purchaseCosmetic(id: string, cosmeticId: string, cost: number): Promise<{ ok: boolean; code?: string }>;
+  /**
+   * Atomically buy a cosmetic with SPENDABLE XP (xp - xpSpent): succeed ONLY if it isn't
+   * already owned AND (xp - xpSpent) >= costXp, incrementing `xpSpent` (never `xp`, so the
+   * level is unaffected) and appending the id in one operation. The XP economy parallels
+   * the money one — it NEVER touches the wallet.
+   */
+  purchaseCosmeticXp(id: string, cosmeticId: string, costXp: number): Promise<{ ok: boolean; code?: string }>;
   /** Mark a user's email verified/unverified. */
   setEmailVerified(id: string, verified: boolean): Promise<void>;
   /** Replace the password hash (password reset). */
@@ -215,6 +233,7 @@ export class InMemoryUserRepository implements UserRepository {
       dailyDepositLimitCents: null,
       dailyLossLimitCents: null,
       xp: 0,
+      xpSpent: 0,
       gamesPlayed: 0,
       wins: 0,
       biggestPotCents: 0,
@@ -267,6 +286,20 @@ export class InMemoryUserRepository implements UserRepository {
   async findByUsername(username: string): Promise<User | null> {
     const id = this.byUsername.get(username.toLowerCase());
     return id ? this.findById(id) : null;
+  }
+
+  async searchByUsername(q: string, limit: number, excludeUserId?: string): Promise<Array<{ id: string; username: string; avatar: string | null; level: number }>> {
+    const needle = q.trim().toLowerCase();
+    if (needle.length === 0) return [];
+    const cap = Math.max(0, Math.min(20, Math.floor(limit)));
+    const out: Array<{ id: string; username: string; avatar: string | null; level: number }> = [];
+    for (const u of this.byId.values()) {
+      if (u.id === excludeUserId) continue;
+      if (!u.username.toLowerCase().includes(needle)) continue;
+      out.push({ id: u.id, username: u.username, avatar: u.avatar, level: levelInfo(u.xp).level });
+      if (out.length >= cap) break;
+    }
+    return out;
   }
 
   async adjustBalance(id: string, deltaCents: number): Promise<number | null> {
@@ -383,6 +416,17 @@ export class InMemoryUserRepository implements UserRepository {
     if (user.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
     if (user.xp < cost) return { ok: false, code: 'insufficient_xp' };
     user.xp -= cost;
+    user.cosmetics = [...user.cosmetics, cosmeticId];
+    return { ok: true };
+  }
+
+  async purchaseCosmeticXp(id: string, cosmeticId: string, costXp: number): Promise<{ ok: boolean; code?: string }> {
+    const user = this.byId.get(id); // synchronous read-modify-write is atomic in-memory
+    if (!user) return { ok: false, code: 'not_found' };
+    if (user.cosmetics.includes(cosmeticId)) return { ok: true }; // idempotent: already owned
+    const spendable = Math.max(0, user.xp - user.xpSpent);
+    if (spendable < costXp) return { ok: false, code: 'insufficient_xp' };
+    user.xpSpent += costXp; // SPEND from the parallel balance — `xp` (and level) untouched
     user.cosmetics = [...user.cosmetics, cosmeticId];
     return { ok: true };
   }
