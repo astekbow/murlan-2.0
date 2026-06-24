@@ -34,12 +34,19 @@ function TronWarning() {
 
 export function WalletView() {
   const {
-    balanceCents, transactions, withdrawals, profile, error, notice,
+    balanceCents, transactions, withdrawals, profile, error, notice, loading,
     refresh, withdraw, setProfile, selfExclude, clearMessages,
   } = useWalletStore();
   const setView = useUiStore((s) => s.setView);
   const t = useT();
   const { confirm, dialog } = useConfirm();
+
+  // Show skeleton placeholders only on the FIRST load (blank → data). Once a load has
+  // ever completed we keep showing the last data during background refreshes, so the
+  // page never flashes back to skeletons. Purely presentational.
+  const everLoaded = useRef(false);
+  if (!loading) everLoaded.current = true;
+  const firstLoad = loading && !everLoaded.current;
 
   const [withdrawAmt, setWithdrawAmt] = useState('5');
   const [destination, setDestination] = useState('');
@@ -216,7 +223,11 @@ export function WalletView() {
               boxShadow: '0 4px 10px -3px rgba(0,0,0,.6), inset 0 1px 2px rgba(255,255,255,.6)',
             }}
           />
-          <CountUp valueCents={balanceCents} className="gold-text font-display font-bold text-5xl tracking-wide tabular-nums" />
+          {firstLoad ? (
+            <span aria-hidden className="animate-pulse bg-white/10 rounded h-12 w-44" />
+          ) : (
+            <CountUp valueCents={balanceCents} className="gold-text font-display font-bold text-5xl tracking-wide tabular-nums" />
+          )}
         </div>
         {gain > 0 && (
           <span className="float-up absolute left-1/2 -translate-x-1/2 top-9 text-emerald-300 font-display font-bold text-xl pointer-events-none">
@@ -262,6 +273,20 @@ export function WalletView() {
           <p className="text-sm text-emerald-300 bg-emerald-700/10 border border-emerald-500/30 rounded-lg px-3 py-2">
             ✓ {t('wallet.autoCreditNote')}
           </p>
+          {/* Calm, honest "waiting" hint — no fake confirmation counter — plus a
+              Tronscan link for the actual receiving address so the player can watch
+              the chain themselves. */}
+          <div className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2 space-y-1.5">
+            <p className="text-[12px] text-muted leading-snug">⏳ {t('wallet.depositWaitHint')}</p>
+            <a
+              href={`https://tronscan.org/#/address/${depAddr}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-gold-hi underline underline-offset-2 hover:opacity-80"
+            >
+              {t('wallet.viewOnTronscan')} ↗
+            </a>
+          </div>
           {/* TxID is now a FALLBACK for when the poller is slow / the page was closed. */}
           <details className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2">
             <summary className="text-xs text-muted cursor-pointer select-none">{t('wallet.txidFallback')}</summary>
@@ -307,6 +332,8 @@ export function WalletView() {
             {t('wallet.youReceive', { amount: dollars(Math.max(0, (parseDollarsToCents(withdrawAmt) ?? 0) - WITHDRAW_FEE_CENTS)) })}
           </p>
         )}
+        {/* Honest payout timing so the player knows what to expect. */}
+        <p className="text-[12px] text-muted">⏱ {t('wallet.withdrawTimeEstimate')}</p>
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
 
@@ -360,7 +387,20 @@ export function WalletView() {
       {/* History */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.txHistory')}</h2>
-        {transactions.length === 0 ? (
+        {firstLoad && transactions.length === 0 ? (
+          <ul className="space-y-2.5" aria-hidden>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <li key={i} className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-white/[.02]">
+                <span className="animate-pulse bg-white/10 rounded h-5 w-16 shrink-0" />
+                <span className="flex-1 min-w-0 space-y-1.5">
+                  <span className="block animate-pulse bg-white/10 rounded h-3 w-3/4" />
+                  <span className="block animate-pulse bg-white/5 rounded h-2.5 w-1/3" />
+                </span>
+                <span className="ml-auto animate-pulse bg-white/10 rounded h-5 w-14" />
+              </li>
+            ))}
+          </ul>
+        ) : transactions.length === 0 ? (
           <div className="text-center py-8">
             <div className="text-4xl mb-2 opacity-60">🧾</div>
             <p className="text-sm text-muted">{t('wallet.noTx')}</p>
@@ -386,7 +426,22 @@ export function WalletView() {
         )}
       </section>
 
-      {withdrawals.length > 0 && (
+      {firstLoad && withdrawals.length === 0 ? (
+        <section className="panel p-5 animate-rise" style={{ animationDelay: '.24s' }}>
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.withdrawalsTitle')}</h2>
+          <ul className="space-y-2.5" aria-hidden>
+            {Array.from({ length: 2 }).map((_, i) => (
+              <li key={i} className="rounded-xl px-4 py-3 border border-white/10 bg-white/[.02]">
+                <div className="flex items-center gap-3">
+                  <span className="animate-pulse bg-white/10 rounded h-5 w-16" />
+                  <span className="flex-1 animate-pulse bg-white/5 rounded h-3.5 w-1/2" />
+                  <span className="ml-auto animate-pulse bg-white/10 rounded h-5 w-20" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : withdrawals.length > 0 && (
         <section className="panel p-5 animate-rise" style={{ animationDelay: '.24s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.withdrawalsTitle')}</h2>
           <ul className="space-y-2.5">

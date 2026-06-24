@@ -278,6 +278,10 @@ const STRINGS: Record<string, Entry> = {
   'wallet.wstatusRejected': { sq: 'refuzuar', en: 'rejected' },
   'wallet.errAmountGt0': { sq: 'Shuma duhet të jetë mbi 0.', en: 'Amount must be greater than 0.' },
   'wallet.errDestMin': { sq: 'Shkruaj një adresë destinacioni (të paktën 4 karaktere).', en: 'Enter a destination address (min 4 characters).' },
+  // Trust/polish: deposit waiting hint, withdraw time estimate
+  'wallet.depositWaitHint': { sq: 'Lekët hyjnë vetë pas konfirmimit në blockchain — zakonisht 1–3 min. S’ke pse bën gjë tjetër.', en: 'Funds arrive on their own after the blockchain confirms — usually 1–3 min. Nothing else to do.' },
+  'wallet.viewOnTronscan': { sq: 'Shiko në Tronscan', en: 'View on Tronscan' },
+  'wallet.withdrawTimeEstimate': { sq: 'Koha: auto ~5 min · me shqyrtim manual 1–24 orë.', en: 'Time: auto ~5 min · with manual review 1–24 h.' },
 
   // Leaderboard
   'lb.section': { sq: 'RENDITJA', en: 'RANKINGS' },
