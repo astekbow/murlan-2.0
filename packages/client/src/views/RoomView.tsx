@@ -257,6 +257,38 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
         })}
       </div>
     );
+    // Compact, CLEAR invite list for landscape: a 2-column grid of friend chips (avatar + online
+    // dot + name + a gold "Invite" button) — uses the width and reads as obviously tappable.
+    const lsInvite = (
+      <section className="panel p-3">
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm mb-2 flex items-center gap-1.5">
+          <span aria-hidden="true">👥</span> {t('room.inviteFriends')}
+        </h2>
+        {friendsLoading ? (
+          <p className="text-xs text-muted text-center py-3">{t('room.loadingFriends')}</p>
+        ) : friends.length === 0 ? (
+          <p className="text-xs text-muted text-center py-3">{t('room.noFriends')}</p>
+        ) : (
+          <ul className="grid grid-cols-2 gap-1.5">
+            {friends.map((f) => (
+              <li key={f.id} className="flex items-center gap-2 rounded-lg pl-2 pr-1.5 py-1.5 border border-white/10 bg-white/[.03] min-w-0">
+                <span className="relative shrink-0">
+                  <AvatarFace id={f.user.avatar} size={28} className="text-lg leading-none" />
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-[#0b0a0e] ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`}
+                    aria-label={f.online ? t('room.online') : t('room.offline')}
+                  />
+                </span>
+                <span className="font-display font-semibold text-xs text-txt truncate flex-1 min-w-0">{f.user.username}</span>
+                <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} className="btn btn-gold btn-sm shrink-0">
+                  {t('room.invite')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    );
     return createPortal(
       <div className="pg-ls">
         <div className="pg-ls-top">
@@ -290,7 +322,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           {/* Join code + invite list — the only scrolling region. */}
           <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
             {privateCode}
-            {inviteList}
+            {lsInvite}
           </div>
         </div>
       </div>,
