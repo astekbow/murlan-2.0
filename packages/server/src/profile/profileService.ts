@@ -19,9 +19,42 @@ export type AvatarId = (typeof AVATARS)[number];
 // An uploaded avatar is stored inline as a small data URL. The client resizes to a
 // tiny thumbnail first; this cap (~9KB) keeps profiles/leaderboards from bloating.
 const MAX_AVATAR_DATA_URL = 12_000;
+const AVATAR_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+=*)$/;
+
+/** True if the decoded bytes start with the file signature (MAGIC BYTES) of a real
+ *  PNG/JPEG/WEBP/GIF image (authz-2). The MIME prefix is attacker-controlled, so we must
+ *  confirm the actual content — a `data:image/png` URL carrying a script/SVG payload
+ *  (latent stored-XSS) fails here because its bytes don't match a real image signature. */
+function hasImageMagic(bytes: Buffer): boolean {
+  if (bytes.length < 12) return false;
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+      bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return true;
+  // JPEG: FF D8 FF
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true;
+  // GIF: "GIF87a" / "GIF89a"
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38 &&
+      (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) return true;
+  // WEBP: "RIFF"...."WEBP" (bytes 0–3 = RIFF, 8–11 = WEBP)
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return true;
+  return false;
+}
+
 function isValidAvatar(avatar: string): boolean {
   if ((AVATARS as readonly string[]).includes(avatar)) return true;
-  return avatar.length <= MAX_AVATAR_DATA_URL && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(avatar);
+  if (avatar.length > MAX_AVATAR_DATA_URL) return false;
+  const m = AVATAR_DATA_URL_RE.exec(avatar);
+  if (!m) return false;
+  // Decode the base64 payload and confirm its real magic bytes match an image format —
+  // the declared MIME (m[1]) alone is not trusted (authz-2).
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(m[2]!, 'base64');
+  } catch {
+    return false;
+  }
+  return hasImageMagic(bytes);
 }
 
 export interface PublicProfile {

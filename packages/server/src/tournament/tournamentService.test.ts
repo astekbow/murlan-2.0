@@ -281,3 +281,50 @@ test('sweepStale voids + refunds abandoned tournaments past the TTL, leaves fres
   assert.equal((await s.get(t.id))!.status, 'cancelled');
   assert.deepEqual(wallet.credits, [{ userId: 'a', cents: 1200 }, { userId: 'b', cents: 1200 }]);
 });
+
+// ----- admin-4: manual /report reconciled against the recorded engine outcome ------
+test('result reconciliation: a manual report CONTRADICTING the recorded engine winner is rejected', async () => {
+  const { s } = svc(1000, false);
+  const t = await s.create('Cup', 1000, 4);
+  for (const u of ['a', 'b', 'c', 'd']) await s.register(t.id, u); // running, bracket seeded
+  // The gateway records the engine-decided winner of pairing r0#0 as 'a'.
+  s.recordRoomOutcome(t.id, 0, 0, 'a');
+  // A manual admin report claiming the LOSER 'b' won that pairing is rejected.
+  await assert.rejects(
+    s.reportResult(t.id, 0, 0, 'b'),
+    (e: unknown) => e instanceof TournamentError && e.code === 'result_conflict',
+  );
+  // The match is still undecided (nothing was written).
+  const cur = (await s.get(t.id))!;
+  assert.equal(cur.bracket.find((m) => m.round === 0 && m.index === 0)!.winnerId, null);
+});
+
+test('result reconciliation: a manual report AGREEING with the recorded engine winner proceeds', async () => {
+  const { s } = svc(1000, false);
+  const t = await s.create('Cup', 1000, 4);
+  for (const u of ['a', 'b', 'c', 'd']) await s.register(t.id, u);
+  s.recordRoomOutcome(t.id, 0, 0, 'a');
+  const cur = await s.reportResult(t.id, 0, 0, 'a'); // matches the recorded outcome → ok
+  assert.equal(cur.bracket.find((m) => m.round === 0 && m.index === 0)!.winnerId, 'a');
+});
+
+test('result reconciliation: with NO recorded outcome a manual report still works (stuck-pairing override)', async () => {
+  const { s } = svc(1000, false);
+  const t = await s.create('Cup', 1000, 4);
+  for (const u of ['a', 'b', 'c', 'd']) await s.register(t.id, u);
+  // No recordRoomOutcome → admin override of a genuinely stuck pairing is allowed.
+  const cur = await s.reportResult(t.id, 0, 0, 'b');
+  assert.equal(cur.bracket.find((m) => m.round === 0 && m.index === 0)!.winnerId, 'b');
+});
+
+test('result reconciliation: the trusted autoFinalize (engine) path is NOT blocked by a recorded outcome', async () => {
+  const { s } = svc(1000, false);
+  const t = await s.create('Cup', 1000, 2);
+  for (const u of ['a', 'b']) await s.register(t.id, u); // capacity 2 → single final
+  s.recordRoomOutcome(t.id, 0, 0, 'a');
+  // The self-running path reports the same winner via autoFinalize; it is exempt from
+  // reconciliation (it IS the source of truth) and finishes the tournament.
+  const done = await s.reportResult(t.id, 0, 0, 'a', undefined, { autoFinalize: true });
+  assert.equal(done.status, 'finished');
+  assert.equal(done.winnerId, 'a');
+});

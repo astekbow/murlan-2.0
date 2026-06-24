@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { z } from 'zod';
+import { randomBytes } from 'node:crypto';
 
 const DEV_ACCESS_SECRET = 'dev-access-secret-change-me';
 const DEV_REFRESH_SECRET = 'dev-refresh-secret-change-me';
@@ -188,6 +189,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`ACCESS_TTL="${parsed.ACCESS_TTL}" exceeds the maximum of 15m — access tokens are short-lived bearer authority; use a refresh token for longer sessions.`);
   }
 
+  // telegram-2/3: a GROUP/supergroup chat id is NEGATIVE; a private (1:1 owner) chat id is
+  // POSITIVE. The admin bot's money commands authorize on the sender's id matching this
+  // value — if it were a group id, every group member would be a money admin. Refuse a
+  // negative TELEGRAM_CHAT_ID at boot in EVERY environment (it must be the owner's private
+  // chat/user id). An empty value is allowed (the bot just isn't configured).
+  const tgChat = (parsed.TELEGRAM_CHAT_ID ?? '').trim();
+  if (tgChat !== '' && /^-\d+$/.test(tgChat)) {
+    throw new Error('TELEGRAM_CHAT_ID is a group/supergroup chat id (negative) — the admin bot must target the owner\'s PRIVATE chat (a positive user id), or every group member becomes a money admin.');
+  }
+
   if (isProd) {
     // Fail CLOSED: a production deploy that forgot to set strong secrets must not
     // boot with a present-but-weak/placeholder value (e.g. the docker-compose
@@ -252,6 +263,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       // eslint-disable-next-line no-console
       console.warn(`⚠️  CLIENT_ORIGIN is not https:// in production (${parsed.CLIENT_ORIGIN}) — secure cookies + CORS expect your real HTTPS site origin. Set CLIENT_ORIGIN=https://yourdomain.`);
     }
+
+    // infra-6: /metrics must be token-gated in production. If METRICS_TOKEN is unset we
+    // AUTO-GENERATE a random one in the return below — so the endpoint is effectively CLOSED
+    // (nobody knows the token) WITHOUT crashing a deploy that didn't set it. Set METRICS_TOKEN
+    // explicitly to point a monitoring scraper at it. The loopback bind stays as defense-in-depth.
+    if (!parsed.METRICS_TOKEN || parsed.METRICS_TOKEN.trim() === '') {
+      console.warn('[config] METRICS_TOKEN not set in production — /metrics is closed behind an auto-generated token; set METRICS_TOKEN to enable a monitoring scraper.');
+    }
+
+    // infra-8: TRUST_PROXY=true trusts ANY upstream, letting a client forge X-Forwarded-For
+    // and move req.ip (re-collapsing rate-limit buckets, poisoning the webhook IP allowlist).
+    // Refuse `true` in production. A BLANK value is ALLOWED — it keeps the loopback+RFC1918
+    // default, which the single nginx hop in the deployed topology resolves correctly, so a
+    // deploy that didn't set it still boots; set the concrete proxy CIDR/hop count to be strict.
+    const tpRaw = (parsed.TRUST_PROXY ?? '').trim();
+    if (tpRaw === 'true') {
+      throw new Error('TRUST_PROXY=true is refused in production — it trusts ANY upstream, letting a client forge X-Forwarded-For to spoof its IP. Set the concrete proxy IP/CIDR or a small hop count (e.g. "1").');
+    }
   }
 
   return {
@@ -283,7 +312,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .map((ip) => ip.trim())
       .filter((ip) => ip.length > 0),
     trustProxy: parseTrustProxy(parsed.TRUST_PROXY),
-    metricsToken: parsed.METRICS_TOKEN || null,
+    // Explicit token if set; in prod a random one (closes /metrics, boot-safe); dev = null (loopback-only).
+    metricsToken: (parsed.METRICS_TOKEN ?? '').trim() || (isProd ? randomBytes(24).toString('hex') : null),
     resendApiKey: parsed.RESEND_API_KEY || null,
     emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,

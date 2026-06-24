@@ -10,6 +10,7 @@
 import type { UserRepository } from '../auth/userRepository.ts';
 import type { LedgerRepository, Transaction, TransactionType, LedgerPageOpts } from './ledger.ts';
 import type { UnitOfWork, WalletTxContext } from './unitOfWork.ts';
+import type { AdminAuditRepository, NewAdminAction } from '../auth/adminAudit.ts';
 import { depositsToday } from '../compliance/responsibleGaming.ts';
 
 /** Synthetic account that accumulates the house rake (ledger-only, no balance). */
@@ -23,6 +24,25 @@ export const HOUSE_ACCOUNT_ID = '__house__';
  * to exceed this, migrate the money columns to BigInt first, then raise this.)
  */
 export const MAX_AMOUNT_CENTS = 2_000_000_000; // $20,000,000 (< int4 max)
+
+/**
+ * Hard ceiling on a STORED balance (money-22). The money columns are Postgres `int4`
+ * (max 2,147,483,647). A single movement is capped at MAX_AMOUNT_CENTS, but cumulative
+ * credits could still push a balance toward the int4 ceiling and abort the `adjustBalance`
+ * UPDATE on overflow (a stuck account). We refuse any credit that would push the stored
+ * balance over this ceiling, which sits comfortably below int4 max with full headroom for
+ * one more max-sized movement (2e9 + 2e9 = 4e9 would overflow, so the ceiling — not the
+ * sum — is what's enforced). Far above any real player balance.
+ */
+export const BALANCE_CEILING_CENTS = 2_000_000_000; // $20,000,000 (< int4 max, with headroom)
+
+/** A credit that would push the stored balance over the safe int4 ceiling (money-22). */
+export class BalanceCeilingError extends Error {
+  constructor(public readonly userId: string, public readonly currentCents: number, public readonly amountCents: number) {
+    super(`balance ceiling exceeded for ${userId}: ${currentCents}+${amountCents} > ${BALANCE_CEILING_CENTS}`);
+    this.name = 'BalanceCeilingError';
+  }
+}
 
 export class InsufficientFundsError extends Error {
   constructor(public readonly userId: string, public readonly neededCents: number, public readonly availableCents: number) {
@@ -111,9 +131,18 @@ export class WalletService {
    * transaction (Prisma → both writes commit/roll back together); else directly
    * against the already-atomic in-memory repos.
    */
-  private run<T>(fn: (users: UserRepository, ledger: LedgerRepository) => Promise<T>): Promise<T> {
+  private run<T>(fn: (users: UserRepository, ledger: LedgerRepository) => Promise<T>, lockKey?: string): Promise<T> {
     if (this.txBound) return fn(this.users, this.ledger);
-    return this.uow ? this.uow.transaction(({ users, ledger }) => fn(users, ledger)) : fn(this.users, this.ledger);
+    if (this.uow) {
+      return this.uow.transaction(async (ctx) => {
+        // deposit-cap fix: take the per-user advisory lock FIRST (when requested + supported)
+        // so concurrent capped deposits for one user serialize across instances, before the
+        // "deposits today" read inside `fn`. Auto-released at commit/rollback.
+        if (lockKey && ctx.advisoryXactLock) await ctx.advisoryXactLock(lockKey);
+        return fn(ctx.users, ctx.ledger);
+      });
+    }
+    return fn(this.users, this.ledger);
   }
 
   /** Run a multi-step money op with a wallet bound to one transaction, so e.g. a transfer's
@@ -131,10 +160,24 @@ export class WalletService {
    */
   async credit(userId: string, amountCents: number, opts: CreditOptions): Promise<MoveResult> {
     this.assertAmount(amountCents);
+    // Capped deposits also take a per-user DB advisory lock inside the tx (deposit-cap fix)
+    // so the cap holds across instances; uncapped credits skip it (no key).
+    const lockKey = opts.depositCapCents != null ? `deposit:${userId}` : undefined;
     const doCredit = () => this.run(async (users, ledger) => {
       const balanceOf = async () => (await users.findById(userId))?.balanceCents ?? 0;
       const user = await users.findById(userId);
       if (!user) throw new Error(`user ${userId} not found`);
+
+      // Balance-ceiling guard (money-22): refuse a credit that would push the stored
+      // balance over the safe int4 ceiling — protects the `Int` money columns from an
+      // overflow that would abort the UPDATE and strand the account. Only enforced on a
+      // genuinely-NEW credit (an idempotent REPLAY short-circuits below before any write,
+      // so a retry of an at-ceiling credit isn't falsely rejected).
+      const assertCeiling = (): void => {
+        if (user.balanceCents + amountCents > BALANCE_CEILING_CENTS) {
+          throw new BalanceCeilingError(userId, user.balanceCents, amountCents);
+        }
+      };
 
       // --- Idempotent path: a providerRef makes this credit at-most-once. The
       // insert never raises on a duplicate (ON CONFLICT DO NOTHING), so it can't
@@ -156,12 +199,14 @@ export class WalletService {
           providerRef: opts.providerRef, matchId: opts.matchId ?? null, reason: opts.reason ?? null,
         });
         if (!created) return { transaction, balanceCents: await balanceOf(), idempotent: true };
+        assertCeiling(); // new credit only — a replay returned above
         const balanceCents = await users.adjustBalance(userId, amountCents);
         if (balanceCents === null) throw new Error(`failed to apply credit for ${userId}`); // UoW rolls back the insert
         return { transaction, balanceCents, idempotent: false };
       }
 
       // --- No providerRef: a plain (non-deduplicated) credit, e.g. a refund line.
+      assertCeiling();
       const transaction = await ledger.append({
         userId, type: opts.type, amountCents, currency: opts.currency,
         matchId: opts.matchId ?? null, reason: opts.reason ?? null,
@@ -180,7 +225,7 @@ export class WalletService {
         throw new Error(`failed to apply credit for ${userId}`);
       }
       return { transaction, balanceCents, idempotent: false };
-    });
+    }, lockKey);
     // Capped deposits run one-at-a-time per user (close the concurrent-webhook race
     // single-instance); everything else (refunds, payouts, rake) credits directly.
     return opts.depositCapCents != null ? this.serializeDeposit(userId, doCredit) : doCredit();
@@ -263,12 +308,55 @@ export class WalletService {
     });
   }
 
-  /** Admin manual top-up / deduction. Routes through the same credit/debit path. */
-  async adminAdjust(userId: string, deltaCents: number, reason: string): Promise<MoveResult> {
+  /** Admin manual top-up / deduction. Routes through the same credit/debit path.
+   *  `providerRef` (optional, CREDIT only) makes the credit idempotent — used when an
+   *  operator manually credits an unclaimed on-chain deposit by its TxID (money-2): the
+   *  ref is `tron:<txid>`, identical to the player-claim path, so a later player TxID
+   *  claim collides on the UNIQUE providerRef and is a no-op replay (no double-credit).
+   *  The MoveResult's `idempotent` flag tells the caller the deposit was already booked. */
+  async adminAdjust(userId: string, deltaCents: number, reason: string, opts?: { providerRef?: string }): Promise<MoveResult> {
     if (!Number.isInteger(deltaCents) || deltaCents === 0) throw new Error('adjustment must be a non-zero integer');
+    if (opts?.providerRef && deltaCents < 0) throw new Error('a providerRef-bound adjustment must be a credit (deposit), not a debit');
     return deltaCents > 0
-      ? this.credit(userId, deltaCents, { type: 'admin_adjust', reason })
+      ? this.credit(userId, deltaCents, { type: 'admin_adjust', reason, providerRef: opts?.providerRef })
       : this.debit(userId, -deltaCents, { type: 'admin_adjust', reason });
+  }
+
+  /**
+   * Admin balance adjust + its AdminAction audit row, ATOMIC (admin-5): both commit or
+   * both roll back in ONE transaction, so the balance can never move without an audit
+   * trail (and a failed audit insert rolls the money back). Falls back to a sequential
+   * apply-then-record when no UnitOfWork is configured (in-memory dev/test — already
+   * single-threaded; the audit write still throws to the caller on failure). `auditRepo`
+   * is used only on that fallback path; in the tx path the bound `ctx.audit` is used.
+   */
+  async adminAdjustAudited(
+    userId: string,
+    deltaCents: number,
+    reason: string,
+    audit: NewAdminAction,
+    auditRepo: AdminAuditRepository,
+    opts?: { providerRef?: string },
+  ): Promise<MoveResult> {
+    if (!Number.isInteger(deltaCents) || deltaCents === 0) throw new Error('adjustment must be a non-zero integer');
+    if (opts?.providerRef && deltaCents < 0) throw new Error('a providerRef-bound adjustment must be a credit (deposit), not a debit');
+    if (!this.uow) {
+      // No transaction available — apply then record (the in-memory path; both writes
+      // are already individually atomic). A throw on the audit still surfaces to the caller.
+      const res = await this.adminAdjust(userId, deltaCents, reason, opts);
+      if (!res.idempotent) await auditRepo.record(audit);
+      return res;
+    }
+    return this.uow.transaction(async (ctx) => {
+      const w = this.bind(ctx);
+      const res = deltaCents > 0
+        ? await w.credit(userId, deltaCents, { type: 'admin_adjust', reason, providerRef: opts?.providerRef })
+        : await w.debit(userId, -deltaCents, { type: 'admin_adjust', reason });
+      // Only audit a real move — an idempotent replay (deposit already booked) did NOT
+      // move money, so it needs no new audit row (and would falsely log a second credit).
+      if (!res.idempotent) await ctx.audit.record(audit);
+      return res;
+    });
   }
 
   listTransactions(userId: string): Promise<Transaction[]> {
@@ -293,6 +381,32 @@ export class WalletService {
     return rows
       .filter((t) => t.type === 'transfer_in' && t.createdAt >= sinceMs)
       .reduce((s, t) => s + Math.abs(t.amountCents), 0);
+  }
+
+  /**
+   * SIGNED sum of a user's ledger rows of the given types since `sinceMs` — a DB aggregate
+   * (db-6 / dos-2) for the responsible-gaming hot paths (deposit/loss caps + rg-status), so
+   * they don't load the whole ledger into JS. Returns null when the underlying ledger has
+   * no aggregate (caller then falls back to the row scan).
+   */
+  async sumByTypesSince(userId: string, types: TransactionType[], sinceMs: number): Promise<number | null> {
+    if (!this.ledger.sumByUserTypesSince) return null;
+    return this.ledger.sumByUserTypesSince(userId, types, sinceMs);
+  }
+
+  /**
+   * The accumulated HOUSE rake, computed from the ledger (money-23). The house account
+   * has no User row, so getBalance(HOUSE_ACCOUNT_ID) is always 0 — every treasury view
+   * must use THIS (the sum of the house account's 'rake' ledger rows) instead, or it
+   * masks a rake siphon by always showing $0. Prefers the ledger's DB aggregate where
+   * available (no whole-table JS scan); falls back to summing the rows.
+   */
+  async getHouseRakeCents(): Promise<number> {
+    if (this.ledger.sumByUserAndType) {
+      return this.ledger.sumByUserAndType(HOUSE_ACCOUNT_ID, 'rake');
+    }
+    const txs = await this.ledger.listByUser(HOUSE_ACCOUNT_ID);
+    return txs.filter((t) => t.type === 'rake').reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
   }
 
   /** Bounded, newest-first page of a user's transactions for DISPLAY lists (HTTP

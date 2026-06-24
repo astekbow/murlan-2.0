@@ -152,7 +152,9 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
   });
 
   // ----- Email verification & password reset --------------------------------
-  app.post('/api/auth/verify-email/request', async (req, reply) => {
+  // Per-IP throttle (rl) added so a logged-in account can't mail-bomb itself with
+  // verification emails; AuthService adds a per-ACCOUNT cap too (anti IP-rotation).
+  app.post('/api/auth/verify-email/request', rl, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     await auth.requestEmailVerification(caller.userId);

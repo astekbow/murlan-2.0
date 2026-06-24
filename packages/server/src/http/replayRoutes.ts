@@ -42,9 +42,15 @@ export async function replayRoutes(app: FastifyInstance, deps: ReplayRoutesDeps)
     // numPlayers is derived from the FULL move-log (the highest seat) so deal
     // reconstruction stays correct even when a page omits later actions.
     const numPlayers = actions.reduce((max, a) => Math.max(max, a.seat + 1), 0);
+    // IDOR/leak gate (authz-8): the move-log carries the winner's deliberately-hidden
+    // card-switch return card (the redacted tribute card) and the full move sequence.
+    // On a LIVE (not-yet-revealed) match this is a cheating edge — withhold the entire
+    // move-log until the match has revealed its seeds, mirroring the serverSeed gate
+    // above. (A finished match's log is public for provably-fair replay.)
+    const logActions = revealed ? actions : [];
     // Keyset page: actions strictly after the cursor seq, capped at ACTIONS_PAGE.
-    const pageRows = actions.filter((a) => a.seq > afterSeq).slice(0, ACTIONS_PAGE);
-    const lastSeq = actions.length ? actions[actions.length - 1]!.seq : -1;
+    const pageRows = logActions.filter((a) => a.seq > afterSeq).slice(0, ACTIONS_PAGE);
+    const lastSeq = logActions.length ? logActions[logActions.length - 1]!.seq : -1;
     const nextActionCursor = pageRows.length && pageRows[pageRows.length - 1]!.seq < lastSeq
       ? pageRows[pageRows.length - 1]!.seq
       : null;

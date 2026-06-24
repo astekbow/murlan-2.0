@@ -151,7 +151,9 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     });
 
     // Limits + today's usage — drives the wallet "approaching your daily limit" banner.
-    app.get('/api/account/rg-status', async (req, reply) => {
+    // Per-route cap (dos-1): this aggregates the user's ledger; a tight per-IP limit
+    // stops a poll-flood from hammering it. (Applies only when the global plugin is on.)
+    app.get('/api/account/rg-status', { config: { rateLimit: { max: 60, timeWindow: '1 minute', keyGenerator: (req: any) => req.ip } } }, async (req, reply) => {
       const caller = await guard(req, reply);
       if (!caller) return;
       return reply.send({ status: await rg.getStatus(caller.userId) });

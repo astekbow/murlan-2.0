@@ -273,3 +273,31 @@ test('login: a missing email still runs a password verify (no fast-path enumerat
   assert.equal(miss.json().error.code, 'bad_credentials');
   await app.close();
 });
+
+// ----- infra-8: a forged X-Forwarded-For can't move req.ip -------------------
+test('infra-8: with a bounded trustProxy (hop=1), a forged X-Forwarded-For cannot spoof req.ip', async () => {
+  const Fastify = (await import('fastify')).default;
+  // Mirror the prod-recommended config: trust exactly ONE proxy hop. Fastify then takes
+  // req.ip as the entry SECOND-from-the-right of X-Forwarded-For (the address the single
+  // trusted proxy saw) — NOT the attacker-controlled left-most value.
+  const app = Fastify({ trustProxy: 1 });
+  app.get('/ip', async (req) => ({ ip: req.ip }));
+  await app.ready();
+  // Attacker forges a left-most XFF to impersonate 1.2.3.4; the real proxy appends the
+  // true peer. With hop=1 the spoofed left-most entry is ignored.
+  const res = await app.inject({ method: 'GET', url: '/ip', headers: { 'x-forwarded-for': '1.2.3.4, 9.9.9.9' } });
+  assert.equal(res.statusCode, 200);
+  assert.notEqual(res.json().ip, '1.2.3.4', 'the spoofed left-most XFF must NOT become req.ip');
+  await app.close();
+});
+
+test('infra-8: trustProxy=false ignores X-Forwarded-For entirely (no spoofing)', async () => {
+  const Fastify = (await import('fastify')).default;
+  const app = Fastify({ trustProxy: false });
+  app.get('/ip', async (req) => ({ ip: req.ip }));
+  await app.ready();
+  const res = await app.inject({ method: 'GET', url: '/ip', headers: { 'x-forwarded-for': '1.2.3.4' } });
+  assert.equal(res.statusCode, 200);
+  assert.notEqual(res.json().ip, '1.2.3.4'); // XFF untrusted → req.ip is the socket peer
+  await app.close();
+});

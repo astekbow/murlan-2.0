@@ -17,7 +17,9 @@ mkdir -p backups/predeploy
 if $COMPOSE ps postgres 2>/dev/null | grep -qiE 'up|running|healthy'; then
   ts="$(date +%Y%m%d-%H%M%S)"
   dump="backups/predeploy/predeploy-$ts.sql.gz"
-  if $COMPOSE exec -T postgres pg_dump -U murlan murlan | gzip > "$dump"; then
+  # Env-driven creds (infra-5): default to murlan/murlan so an existing deploy keeps
+  # working; override POSTGRES_USER/POSTGRES_DB in the environment for a custom setup.
+  if $COMPOSE exec -T postgres pg_dump -U "${POSTGRES_USER:-murlan}" "${POSTGRES_DB:-murlan}" | gzip > "$dump"; then
     # VERIFY the dump before trusting it: gzip integrity (not truncated/corrupt) AND a
     # sane minimum size (a populated DB dumps to many KB; <1KB means it captured ~nothing).
     sz="$(wc -c < "$dump" 2>/dev/null || echo 0)"

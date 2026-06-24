@@ -68,9 +68,11 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_DB: murlan
-      POSTGRES_USER: murlan
-      POSTGRES_PASSWORD: murlan
+      # Env-driven (infra-5): must match the postgres service creds. Dev default stays
+      # murlan/murlan so the running backup keeps working; override in .env for prod.
+      POSTGRES_DB: ${POSTGRES_DB:-murlan}
+      POSTGRES_USER: ${POSTGRES_USER:-murlan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-murlan}
       SCHEDULE: '@daily'
       BACKUP_KEEP_DAYS: '7'
       BACKUP_KEEP_WEEKS: '4'

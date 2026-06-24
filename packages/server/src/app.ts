@@ -788,10 +788,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       },
       // ---- Phase 3: balance adjust / void / tournaments (confirm-gated) ----
       adjustDualControl: config.adjustDualControl, // admin-6 (OFF by default — solo owner)
-      adminAdjust: async (userId, deltaCents, reason) => {
+      adminAdjust: async (userId, deltaCents, reason, opts) => {
         try {
-          const res = await wallet.adminAdjust(userId, deltaCents, reason);
-          return { ok: true, balanceCents: res.balanceCents };
+          // A TxID makes the credit idempotent against a player claim of the same on-chain
+          // deposit (money-2) — same `tron:<txid>` providerRef as the player path.
+          const providerRef = opts?.txId ? `tron:${opts.txId.toLowerCase()}` : undefined;
+          const res = await wallet.adminAdjust(userId, deltaCents, reason, { providerRef });
+          if (res.idempotent) return { ok: false, reason: 'already_credited' };
+          return { ok: true, balanceCents: res.balanceCents, idempotent: res.idempotent };
         } catch (e) {
           return { ok: false, reason: e instanceof InsufficientFundsError ? 'insufficient_funds' : 'error' };
         }

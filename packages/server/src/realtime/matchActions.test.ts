@@ -68,14 +68,18 @@ test('GET /api/replay/:matchId returns the deal seeds + move-log; 404 for an unk
     assert.equal(dto.numPlayers, 2); // max seat (1) + 1
     assert.equal(dto.serverSeedHash, 'hash');
     assert.equal(dto.games[0].serverSeed, null); // withheld until revealed
-    assert.deepEqual(dto.actions.map((a: any) => a.seq), [0, 1]);
-    assert.deepEqual(dto.actions[0].cards, [c('3', 'S')]);
-    assert.equal(dto.actions[1].cards, null);
+    // authz-8: a LIVE (unrevealed) match leaks NO move-log (the switch/tribute card is the
+    // cheating edge) — actions are withheld until reveal, mirroring the serverSeed gate.
+    assert.deepEqual(dto.actions, []);
 
     await games.revealMatch('m1');
     const after = (await app.inject({ method: 'GET', url: '/api/replay/m1' })).json();
     assert.equal(after.revealed, true);
     assert.equal(after.games[0].serverSeed, 'ss0'); // published once revealed
+    // Once revealed, the full move-log is public for provably-fair replay.
+    assert.deepEqual(after.actions.map((a: any) => a.seq), [0, 1]);
+    assert.deepEqual(after.actions[0].cards, [c('3', 'S')]);
+    assert.equal(after.actions[1].cards, null);
   } finally {
     await app.close();
   }

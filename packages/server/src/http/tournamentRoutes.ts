@@ -14,7 +14,8 @@ import type { ComplianceService } from '../compliance/complianceService.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
 import { checkRealMoneyAccess } from '../compliance/realMoneyGate.ts';
-import { requireAuth, requireAdmin } from './authRoutes.ts';
+import { requireAuth } from './authRoutes.ts';
+import { requirePermission } from './permissions.ts';
 import { TournamentService, TournamentError } from '../tournament/tournamentService.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
 
@@ -38,7 +39,11 @@ const createSchema = z.object({
 export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRoutesDeps): Promise<void> {
   const { auth, tournaments } = deps;
   const guard = requireAuth(auth);
-  const admin = requireAdmin(auth);
+  // Tournament money actions (report/confirm/cancel pay out or refund a real-money pool)
+  // are gated behind the `void_matches` scope (the closest existing money-void scope),
+  // not a bare admin check — a scoped support admin must not move tournament money
+  // (authz-7). A full admin (empty scopes) passes unchanged.
+  const admin = requirePermission(auth, 'void_matches');
 
   const fail = (reply: FastifyReply, e: unknown) => {
     if (e instanceof InsufficientFundsError) return reply.code(402).send({ error: { code: 'insufficient_funds', message: 'Fonde të pamjaftueshme.' } });
