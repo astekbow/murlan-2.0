@@ -594,7 +594,9 @@ export class GameGateway {
   /** A seated player opts into a REMATCH of the just-finished room. When every present
    *  player has opted in within the window, the room resets + a new match deals (same
    *  seats/teams/stake) via the normal beginMatch path (fresh matchId + re-escrow).
-   *  Tournament + ranked rooms are rejected (they have their own flow); bots auto-accept. */
+   *  Works for cash, practice (bots auto-accept) AND ranked (the room keeps ranked=true,
+   *  so the replay is a full ranked match and MMR updates at settle). Only TOURNAMENT
+   *  rooms are rejected — those advance their own bracket. */
   private async onRematch(socket: IOSocket, ack: (res: Ack) => void): Promise<void> {
     const reply = safeAck(ack);
     const roomId = socket.data.roomId;
@@ -603,7 +605,6 @@ export class GameGateway {
     const room = this.rooms.getRoom(roomId);
     if (!room || room.status !== 'finished') return reply(ackError('no_room', 'Ndeshja nuk ka mbaruar ende.'));
     if (room.tournament) return reply(ackError('rematch_unavailable', 'Turnet nuk kanë rivanç.'));
-    if (room.ranked) return reply(ackError('rematch_unavailable', 'Për ranked, kërko ndeshje të re.'));
     if (!room.seats.some((s) => s.userId === userId)) return reply(ackError('no_seat', 'Nuk ke vend në dhomë.'));
     // The full roster must still be present — a seat freed by someone leaving means we
     // can't reseat the same people (they can open a fresh room instead).

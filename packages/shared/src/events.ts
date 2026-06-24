@@ -62,8 +62,8 @@ export interface ClientToServerEvents {
   'room:ready': (ready: boolean, ack: (res: Ack) => void) => void;
   // Rematch: at match-end, a seated player opts in to replay the SAME room (same
   // opponents, seats/teams, stake). When every present player has opted in within the
-  // offer window the room resets + a new match deals. Cash rooms + practice only —
-  // ranked re-queues, tournaments advance their bracket (both rejected server-side).
+  // offer window the room resets + a new match deals. Works for cash, practice and ranked
+  // (a ranked replay still updates MMR); only tournament rooms are rejected (bracket).
   'room:rematch': (ack: (res: Ack) => void) => void;
   'game:play': (payload: GamePlayPayload, ack: (res: Ack) => void) => void;
   'game:pass': (ack: (res: Ack) => void) => void;
