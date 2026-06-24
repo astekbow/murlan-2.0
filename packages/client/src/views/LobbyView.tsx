@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { MatchType } from '@murlan/shared';
 import { useGameStore } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
+import { useNotifications } from '../store/notificationsStore.ts';
 import { dollars } from '../lib/money.ts';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
+import { avatarEmoji, isImageAvatar } from '../lib/avatars.ts';
+import { profileApi, type Profile, type PublicUser } from '../lib/api.ts';
 import { Modal } from '../components/ui/Modal.tsx';
 import { PageHeader } from '../components/ui/PageHeader.tsx';
 import { EmptyState } from '../components/ui/EmptyState.tsx';
+import { SettingsModal } from '../components/ui/SettingsModal.tsx';
+import { ProfileModal } from '../components/ui/ProfileModal.tsx';
+import { NotificationsPanel } from '../components/ui/NotificationsPanel.tsx';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
 
 // Maps match type → catalog key, resolved with t() at each use site.
@@ -59,11 +67,79 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
   );
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/[\s_]+/).filter(Boolean);
+  const a = parts[0]?.[0] ?? name[0] ?? '?';
+  const b = parts[1]?.[0] ?? parts[0]?.[1] ?? '';
+  return (a + b).toUpperCase();
+}
+
+/** The landscape-HUB top strip. The full-screen portal covers the global <TopBar>,
+ *  so this replicates its essentials — profile (avatar+level → ProfileModal), username,
+ *  balance, 🔔 notifications (→ NotificationsPanel, unread badge) and ⚙ settings
+ *  (→ SettingsModal) — reusing the SAME stores/panels TopBar uses. All panels portal
+ *  to <body>, so they overlay this frame correctly. */
+function LobbyTopStrip({ user, balanceCents }: { user: PublicUser; balanceCents: number }) {
+  const t = useT();
+  const setView = useUiStore((s) => s.setView);
+  const unread = useNotifications((s) => s.unread);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  // Fetch real progression (level/XP) once, exactly as TopBar does; fall back to
+  // cosmetic defaults on a null token or failed fetch.
+  const refetchProfile = useCallback(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    profileApi.me(token).then(({ profile: p }) => setProfile(p)).catch(() => { /* keep fallback */ });
+  }, []);
+  useEffect(() => { refetchProfile(); }, [refetchProfile]);
+
+  return (
+    <div className="pg-ls-top">
+      <button type="button" onClick={() => { sound.play('button'); setProfileOpen(true); }} className="flex items-center gap-2 text-left min-w-0" title={t('topbar.profile')}>
+        <div className="pfp" style={{ width: 36, height: 36, fontSize: 13 }}>
+          {isImageAvatar(profile?.avatar) ? (
+            <img src={profile!.avatar!} alt="" className="pfp-img" />
+          ) : profile?.avatar ? (
+            avatarEmoji(profile.avatar)
+          ) : (
+            initials(user.username)
+          )}
+          <span className="lvl">{profile ? profile.level : 1}</span>
+        </div>
+        <span className="font-display font-semibold tracking-wide text-sm truncate max-w-[28vw]">{user.username}</span>
+      </button>
+      <div className="flex items-center gap-2 shrink-0">
+        <button type="button" className="chip" onClick={() => { sound.play('button'); setView('wallet'); }} title={t('topbar.openWallet')}>
+          <span className="coin shrink-0" />
+          <span>{dollars(balanceCents)}</span>
+          <span className="plus shrink-0">+</span>
+        </button>
+        <div className="relative shrink-0">
+          <button type="button" className="iconbtn" onClick={() => setNotifOpen((o) => !o)} title={t('topbar.notifications')} aria-label={t('topbar.notifications')} aria-haspopup="true" aria-expanded={notifOpen}>🔔</button>
+          {unread > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-suit text-white text-[11px] font-bold grid place-items-center pointer-events-none">{unread > 9 ? '9+' : unread}</span>
+          )}
+          {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
+        </div>
+        <button type="button" className="iconbtn shrink-0" onClick={() => { sound.play('button'); setSettingsOpen(true); }} title={t('topbar.settings')} aria-label={t('topbar.settings')}>⚙</button>
+      </div>
+      {profileOpen && <ProfileModal userId={user.id} onClose={() => setProfileOpen(false)} onProfileChange={refetchProfile} />}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+    </div>
+  );
+}
+
 export function LobbyView() {
   const { lobby, live, createRoom, joinRoom, joinByCode, refreshLobby, findRanked, spectate } = useGameStore();
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
+  const user = useAuthStore((s) => s.user);
   const setView = useUiStore((s) => s.setView);
   const t = useT();
+  const landscape = useLandscapePage();
 
   const [quickOpen, setQuickOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -83,6 +159,153 @@ export function LobbyView() {
   useEffect(() => {
     void useAuthStore.getState().refreshMe();
   }, []);
+
+  // ---- Landscape "console" (phone held flat): a fixed-height frame that fits with
+  // NO page scroll. Because the full-screen portal COVERS the global <TopBar>, the
+  // lobby's top strip must replicate its essentials (profile · balance · 🔔 · ⚙) —
+  // see LobbyTopStrip, which reuses the very stores/panels TopBar uses.
+  // Portaled to <body> so it escapes the ViewTransition transform (which would
+  // otherwise trap position:fixed inside <main>, under the TopBar).
+  if (landscape && user) {
+    return createPortal(
+      showRooms ? (
+        /* ---- Landscape OPEN-ROOMS ---- */
+        <div className="pg-ls">
+          <div className="pg-ls-top">
+            <button onClick={() => { sound.play('button'); haptics.tap(); setShowRooms(false); }} className="btn btn-ghost btn-sm">{t('common.backToLobby')}</button>
+            <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('lobby.openRooms')}</h1>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-sm font-display font-semibold text-gold-hi">{dollars(balanceCents)}</span>
+              <button onClick={() => setCreateOpen(true)} className="btn btn-gold btn-sm" aria-label={t('lobby.createRoom')}>＋</button>
+            </div>
+          </div>
+          <div className="pg-ls-body">
+            <div className="pg-ls-right pg-ls-scroll space-y-2 pr-1">
+              {/* Join a PRIVATE room by its numeric share code. */}
+              <div className="flex items-center gap-2">
+                <input
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void onJoinByCode(); }}
+                  placeholder={t('lobby.joinCodePlaceholder')}
+                  aria-label={t('lobby.joinByCode')}
+                  maxLength={6}
+                  inputMode="numeric"
+                  className="field flex-1 tracking-[0.3em] font-mono text-center"
+                />
+                <button onClick={() => void onJoinByCode()} disabled={codeInput.trim().length < 4} className="btn btn-ghost btn-sm shrink-0">{t('lobby.joinByCode')}</button>
+                <button onClick={refreshLobby} className="btn btn-ghost btn-icon btn-sm shrink-0" title={t('lobby.refresh')} aria-label={t('lobby.refresh')}>↻</button>
+              </div>
+              {lobby.length === 0 ? (
+                <EmptyState
+                  message={t('lobby.noRooms')}
+                  hint={t('lobby.noRoomsHint')}
+                  action={<button onClick={() => { sound.play('button'); haptics.tap(); setCreateOpen(true); }} className="btn btn-gold btn-sm">{t('lobby.createRoom')}</button>}
+                />
+              ) : (
+                <ul className="space-y-1.5">
+                  {lobby.map((r) => {
+                    const open = r.status === 'waiting';
+                    const full = r.seatsFilled >= r.seatsTotal;
+                    const canAfford = balanceCents >= r.stakeCents;
+                    const joinable = open && !full && canAfford;
+                    return (
+                      <li key={r.id} className="flex items-center gap-2 rounded-lg px-3 py-2 border border-white/10 bg-white/[.03]">
+                        <span className="font-display font-semibold tracking-wide text-sm min-w-[84px]">{t(TYPE_LABEL[r.type])}</span>
+                        <span className="text-xs text-muted">{dollars(r.stakeCents)}</span>
+                        <span className="text-xs text-muted">{r.seatsFilled}/{r.seatsTotal} 👥</span>
+                        {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
+                        <button
+                          onClick={() => void joinRoom(r.id)}
+                          disabled={!joinable}
+                          title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
+                          className={`btn btn-sm ml-auto shrink-0 ${joinable ? 'btn-gold' : 'btn-ghost'}`}
+                        >
+                          {!open ? t('lobby.playing') : full ? t('lobby.full') : canAfford ? t('lobby.enter') : t('lobby.noFunds')}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+          {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} onCreate={createRoom} />}
+        </div>
+      ) : (
+        /* ---- Landscape HUB ---- */
+        <div className="pg-ls">
+          <LobbyTopStrip user={user} balanceCents={balanceCents} />
+          <div className="pg-ls-modes">
+            <button className="mode casual mode-hero text-inherit" onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
+              <span className="mode-badge" aria-hidden>⚡ {t('lobby.instant')}</span>
+              <div className="art" />
+              <span className="micon" aria-hidden>🎴</span>
+              <div className="mname gold-text">{t('lobby.quickName')}</div>
+              <div className="mdesc">{t('lobby.quickDesc')}</div>
+              <div className="mcta">{t('lobby.quickCta')}</div>
+            </button>
+            <button className="mode tourn text-inherit" onClick={() => { sound.play('button'); haptics.tap(); setView('tournaments'); }}>
+              <div className="art" />
+              <span className="micon" aria-hidden>🏆</span>
+              <div className="mname gold-text">{t('lobby.tournName')}</div>
+              <div className="mdesc">{t('lobby.tournDesc')}</div>
+              <div className="mcta">{t('lobby.tournCta')}</div>
+            </button>
+            <button className="mode ranked text-inherit" onClick={() => { sound.play('button'); haptics.tap(); setRankedOpen(true); }}>
+              <div className="art" />
+              <span className="micon" aria-hidden>⚔️</span>
+              <div className="mname gold-text">{t('lobby.rankedTitle')}</div>
+              <div className="mdesc">{t('lobby.rankedDesc')}</div>
+              <div className="mcta">{t('lobby.findMatch')}</div>
+            </button>
+            <button className="mode rooms text-inherit" onClick={() => { sound.play('button'); haptics.tap(); setShowRooms(true); }}>
+              <div className="art" />
+              <span className="micon" aria-hidden>🃏</span>
+              <div className="mname gold-text">{t('lobby.openRooms')}</div>
+              <div className="mdesc">{t('lobby.roomsCardDesc')}</div>
+              <div className="mcta">{t('lobby.roomsCardCta')}</div>
+            </button>
+          </div>
+          {/* The 6 secondary-nav icons — nothing from the desktop rails is lost. */}
+          <nav className="pg-ls-nav" aria-label={t('nav.railSecondary')}>
+            {[...RAIL_LEFT, ...RAIL_RIGHT].map((r) => (
+              <button key={r.labelKey} className="pg-ls-navbtn" onClick={() => { sound.play('button'); haptics.tap(); if (r.to) setView(r.to); }}>
+                <span aria-hidden>{r.icon}</span>
+                <span className="lbl">{t(r.labelKey)}</span>
+              </button>
+            ))}
+          </nav>
+          {/* Live matches: a compact watch strip only when there ARE any (never forces scroll). */}
+          {live.length > 0 && (
+            <div className="pg-ls-scroll" style={{ flex: '0 0 auto', maxHeight: '22vh' }}>
+              <ul className="space-y-1.5">
+                {live.map((m) => (
+                  <li key={m.roomId} className="flex items-center gap-2 rounded-lg px-3 py-1.5 border border-white/10 bg-white/[.03]">
+                    <span className="font-display font-semibold tracking-wide text-sm min-w-[84px]">{t(TYPE_LABEL[m.type])}</span>
+                    <span className="flex-1 min-w-0 text-xs text-muted truncate">{m.players.map((p) => p.username).filter(Boolean).join(' · ') || t('lobby.players')}</span>
+                    <span className="tag tag-live shrink-0"><span className="pls" />{t('common.live')}</span>
+                    <button onClick={() => { sound.play('button'); void spectate(m.roomId); }} className="btn btn-ghost btn-sm shrink-0">👁 {t('lobby.watch')}</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* Same modals as the desktop hub — they portal to <body>, so they overlay this frame. */}
+          {quickOpen && (
+            <QuickMatchModal
+              onClose={() => setQuickOpen(false)}
+              onJoin={joinRoom}
+              onCreate={createRoom}
+              onRefresh={async () => { refreshLobby(); await new Promise((r) => setTimeout(r, 250)); return useGameStore.getState().lobby; }}
+            />
+          )}
+          {rankedOpen && <RankedModal onClose={() => setRankedOpen(false)} onFind={findRanked} />}
+        </div>
+      ),
+      document.body,
+    );
+  }
 
   return (
     <div className="space-y-4">
