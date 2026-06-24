@@ -937,6 +937,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     money,
     rakeBps: config.rakeBps,
     abandonMs: config.abandonMs,
+    rankedBotMs: config.rankedBotMs, // ranked solo-queue → vs-BOT fallback delay
     compliance,
     rg: responsibleGaming,
     profiles,

@@ -76,6 +76,7 @@ export interface GatewayOptions {
   tournaments?: TournamentService; // runs tournament-bracket pairings as live matches (self-running)
   botDelayMs?: number; // practice-bot "thinking" delay (ms); injectable for deterministic tests
   ghostFillMs?: number; // free-lobby auto-fill delay (ms); injectable for deterministic tests
+  rankedBotMs?: number; // ranked solo-queue → vs-BOT fallback delay (ms); default 20s; injectable for tests
   isDraining?: () => boolean; // graceful shutdown: reject NEW matches/queue joins while true
   ownership?: RoomOwnership; // multi-instance room-ownership registry (single-instance no-op)
   rateLimiter?: RateLimiter; // per-user intent bucket (default 40 burst / 20-per-sec); injectable for tests
@@ -143,6 +144,7 @@ export class GameGateway {
   // How long to wait for both paired players to join before a walkover (ms).
   private readonly tournamentJoinMs = 45_000;
   private readonly botDelayMs: number | null;
+  private readonly rankedBotMs: number;
   private readonly isDraining: () => boolean;
   private readonly ownership: RoomOwnership | null;
   private readonly matchmaking: MatchmakingService | null;
@@ -157,6 +159,10 @@ export class GameGateway {
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
   private botTiers = new Map<string, BotTier>(); // practice roomId -> bot difficulty
   private botTimers = new Map<string, ReturnType<typeof setTimeout>>(); // practice roomId -> pending bot-move timer
+  // Ranked solo-queue → vs-BOT fallback: per-USER timer that fires if no human opponent
+  // is found within rankedBotMs, starting a RATED match against bot(s). Keyed by userId;
+  // cleared when the player leaves the queue, gets matched, or disconnects.
+  private rankedBotTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Inter-hand pause gate: between hands the next deal is held briefly so players can
   // see the final play + the standings; it releases EARLY once every connected human
   // has tapped Continue, else on the timer. roomId -> { timer, who's-ready, release }.
@@ -223,6 +229,7 @@ export class GameGateway {
     this.tournaments = opts.tournaments ?? null;
     this.botDelayMs = opts.botDelayMs ?? null;
     this.ghostFillMs = opts.ghostFillMs ?? GHOST_FILL_MS;
+    this.rankedBotMs = opts.rankedBotMs ?? 20_000;
     this.isDraining = opts.isDraining ?? (() => false);
     this.ownership = opts.ownership ?? null;
     // Matchmaking needs MMR ratings to bracket players, so it's only active when
@@ -400,15 +407,17 @@ export class GameGateway {
     this.limiter.release(userId); // no sockets left — free the rate bucket
     this.clientSeeds.delete(userId); // don't carry a stale seed into a future match
     this.matchmaking?.remove(userId); // stop trying to matchmake a user who's gone
+    this.clearRankedBotTimer(userId); // last socket gone — cancel any pending vs-bot fallback
     this.presence?.remove(userId); // last socket gone — mark offline
 
     const room = this.rooms.roomOf(userId);
     if (!room) return;
-    if (room.practice) {
-      // Practice is ephemeral + zero-stake: end it immediately and remove the bots
-      // (no reconnection grace — a solo practice table isn't worth holding open).
+    // A BOT room (practice OR the ranked solo-queue → vs-BOT fallback) only ever holds the
+    // ONE human plus bots — there is no other human to wait for, so a disconnect ends it
+    // immediately and removes the bots (a reconnection grace would just strand a bot table).
+    if (this.isBotRoom(room.id)) {
       this.leaveAndNotify(userId, room.id);
-      this.teardownPractice(room.id);
+      this.teardownBotRoom(room.id);
     } else if (room.status === 'inMatch') {
       // Keep the seat for reconnection; mark offline and start the forfeit grace.
       this.rooms.setConnected(userId, false);
@@ -566,7 +575,10 @@ export class GameGateway {
     const room = this.rooms.getRoom(roomId);
     const seat = this.rooms.seatOf(roomId, socket.data.userId);
     const userId = socket.data.userId;
-    const wasPractice = room?.practice ?? false;
+    // A BOT room = practice OR the ranked solo-queue → vs-BOT fallback. Capture it BEFORE the
+    // leave/forfeit below mutates seats, so we still tear the bots down even if the human's
+    // own seat is nulled in the process.
+    const wasBotRoom = this.isBotRoom(roomId);
     this.clearGhostFill(roomId); // a pending free-lobby auto-fill is moot once someone leaves
 
     // Detach this socket from the room immediately.
@@ -586,9 +598,9 @@ export class GameGateway {
       } else {
         this.leaveAndNotify(userId, roomId);
       }
-      // Practice rooms are ephemeral: once the human is gone, remove the bots so the
-      // room empties + is deleted (otherwise it lingers with only bots seated).
-      if (wasPractice) this.teardownPractice(roomId);
+      // Bot rooms (practice + ranked-vs-bot) are ephemeral: once the human is gone, remove
+      // the bots so the room empties + is deleted (otherwise it lingers with only bots seated).
+      if (wasBotRoom) this.teardownBotRoom(roomId);
       reply({ ok: true });
     } catch (e) {
       console.error('[gateway] onLeave teardown failed:', e);
@@ -882,14 +894,74 @@ export class GameGateway {
     this.matchmaking.enqueue({ userId, username: socket.data.username, rating: standing?.rating ?? 1000, matchType: payload.matchType, since: Date.now() });
     reply({ ok: true });
     this.tryFormRanked(payload.matchType);     // may seat the joiner + others right away
+    // No human opponent yet? If still queued after the immediate match attempt, arm the
+    // vs-BOT fallback: a RATED match against bot(s) starts after rankedBotMs so a solo
+    // player never waits forever. seatRankedGroup clears this for anyone it seats.
+    if (this.matchmaking.has(userId)) this.armRankedBotTimer(userId, payload.matchType);
     this.broadcastQueueCount(payload.matchType); // anyone still waiting gets the new count
   }
 
   private onRankedQueueLeave(socket: IOSocket, ack: (res: Ack) => void): void {
     const reply = safeAck(ack); // leaving the queue is always allowed (no rate gate)
     this.matchmaking?.remove(socket.data.userId);
+    this.clearRankedBotTimer(socket.data.userId); // no longer waiting → cancel the vs-bot fallback
     this.emitQueueTo(socket.data.userId, null);
     reply({ ok: true });
+  }
+
+  /** Arm (idempotently) the ranked solo-queue → vs-BOT fallback for one waiting user. */
+  private armRankedBotTimer(userId: string, type: MatchType): void {
+    this.clearRankedBotTimer(userId); // idempotent — never stack two timers for a user
+    this.rankedBotTimers.set(userId, setTimeout(() => {
+      this.rankedBotTimers.delete(userId);
+      this.formRankedVsBots(userId, type);
+    }, this.rankedBotMs));
+  }
+
+  private clearRankedBotTimer(userId: string): void {
+    const t = this.rankedBotTimers.get(userId);
+    if (t) { clearTimeout(t); this.rankedBotTimers.delete(userId); }
+  }
+
+  /**
+   * Ranked solo-queue → vs-BOT fallback. Fires when no human opponent was found within
+   * rankedBotMs: start a RATED ranked match against bot(s). Mirrors seatRankedGroup's
+   * room lifecycle (create ranked zero-stake room → join sockets → ready → fill empty
+   * seats with bots → countdown), but does NOT markPractice — the human IS rated + earns
+   * stats (bots are filtered out of every post-match write). Guard: the user must still be
+   * in the queue (we remove them); if they already left or joined a room, abort.
+   */
+  private formRankedVsBots(userId: string, type: MatchType): void {
+    if (!this.matchmaking || !this.ranked) return;
+    if (!this.matchmaking.has(userId)) return;      // already matched / left the queue
+    this.matchmaking.remove(userId);                // claim them out of the pool
+    if (this.rooms.roomOf(userId)) { this.emitQueueTo(userId, null); return; } // somehow already seated
+
+    const sockets = this.socketsOf(userId);
+    const username = sockets[0]?.data.username;
+    if (!username) { this.emitQueueTo(userId, null); return; } // gone (no live socket) → nothing to seat
+
+    const created = this.rooms.createRoom({ userId, username }, { type, stakeCents: 0, ranked: true });
+    if (!created.ok || !created.roomId) { this.emitQueueTo(userId, null); return; }
+    const roomId = created.roomId;
+    this.ownership?.claim(roomId);
+    this.botTiers.set(roomId, 'hard'); // strongest brain — a rated opponent should play well
+    for (const s of sockets) {
+      s.data.roomId = roomId;
+      s.data.seat = this.rooms.seatOf(roomId, userId);
+      void s.join(roomId);
+    }
+    this.rooms.setReady(userId, true);
+    // Fill the remaining seats with bots. NOTE: NOT markPractice — this room rates + awards
+    // the human normally (bots are excluded from the post-match seat writes).
+    if (!this.fillEmptySeatsWithBots(roomId, username)) {
+      this.teardownBotRoom(roomId);
+      this.emitQueueTo(userId, null);
+      return;
+    }
+    this.emitQueueTo(userId, null); // out of the queue — into a (rated) match
+    this.broadcastRoomState(roomId);
+    this.maybeStartCountdown(roomId); // all ready ⇒ commit + countdown + deal
   }
 
   /** Seat every startable group for a match type into fresh ranked rooms. */
@@ -927,6 +999,7 @@ export class GameGateway {
         void s.join(roomId);
       }
       this.rooms.setReady(e.userId, true);
+      this.clearRankedBotTimer(e.userId); // matched into a HUMAN room → cancel any vs-bot fallback
       this.emitQueueTo(e.userId, null); // out of the queue — into a match
     }
     this.broadcastRoomState(roomId);
@@ -975,7 +1048,7 @@ export class GameGateway {
     this.rooms.setReady(userId, true);
 
     if (!this.fillEmptySeatsWithBots(roomId, socket.data.username)) {
-      this.teardownPractice(roomId);
+      this.teardownBotRoom(roomId);
       return reply(ackError('seat_failed', 'Vendet nuk u mbushën.'));
     }
     reply({ ok: true, roomId });
@@ -1111,7 +1184,7 @@ export class GameGateway {
       const host = human[0];
       this.rooms.markPractice(roomId); // no XP/ranked/stats/money vs fill-players (also stake is 0)
       this.botTiers.set(roomId, 'hard'); // free-table ghosts play with the strong (search) brain
-      if (!this.fillEmptySeatsWithBots(roomId, host?.username ?? null)) { this.teardownPractice(roomId); return; }
+      if (!this.fillEmptySeatsWithBots(roomId, host?.username ?? null)) { this.teardownBotRoom(roomId); return; }
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
     }, this.ghostFillMs));
@@ -1122,8 +1195,28 @@ export class GameGateway {
     if (t) { clearTimeout(t); this.ghostFillTimers.delete(roomId); }
   }
 
-  /** Remove a practice room's bots + timers (called when the human leaves/disconnects). */
-  private teardownPractice(roomId: string): void {
+  /**
+   * Is this a room that the human shares ONLY with bots? True for practice rooms and for the
+   * ranked solo-queue → vs-BOT fallback (a ranked room we filled with bots, tracked in botTiers).
+   * Gates the ephemeral teardown: such a room must be deleted when the human leaves (bots have
+   * no socket), while a normal all-human room (practice=false, no bot seats) is left untouched.
+   */
+  private isBotRoom(roomId: string): boolean {
+    const room = this.rooms.getRoom(roomId);
+    if (!room) return false;
+    if (room.practice) return true;
+    if (this.botTiers.has(roomId)) return true; // ranked-vs-bot (and free-lobby ghost fill) rooms
+    return room.seats.some((s) => isBot(s.userId));
+  }
+
+  /**
+   * Remove a BOT room's bots + per-room timers (called when the last human leaves/disconnects).
+   * Covers BOTH practice rooms and the ranked solo-queue → vs-BOT fallback rooms: a room with
+   * only bots left would otherwise linger forever (bots have no socket to disconnect). An
+   * all-human room never reaches here (see hasBots gating at the leave/disconnect call sites).
+   * Also clears the room's botTiers + bot-move timer so the next reuse of the id is clean.
+   */
+  private teardownBotRoom(roomId: string): void {
     this.clearGhostFill(roomId);
     this.clearBotTimer(roomId);
     this.botTiers.delete(roomId);
@@ -1652,7 +1745,9 @@ export class GameGateway {
     const potCents = room.stakeCents * room.seats.filter((s) => s.userId).length;
     const seats = room.seats
       .map((s, i) => ({ userId: s.userId, i }))
-      .filter((x): x is { userId: string; i: number } => x.userId !== null)
+      // Exclude bots: their userid is synthetic (no users row) — a stats write would
+      // violate the users FK on Postgres and take the human's write down with it.
+      .filter((x): x is { userId: string; i: number } => x.userId !== null && !isBot(x.userId))
       .map((x) => ({ userId: x.userId, won: winSet.has(x.i), potCents }));
     // Push live-refresh signals AFTER the stats write commits (so a reload reads the
     // fresh totals, not a stale snapshot). Best-effort + isolated — a notify failure
@@ -1695,14 +1790,23 @@ export class GameGateway {
     const room = this.rooms.getRoom(roomId);
     if (!room || room.practice) return []; // practice vs bots is never rated
     const winSet = new Set(winnerSeats);
+    // A ranked-bot room has bot seats with synthetic userids (no users row). Exclude them:
+    // a rating/season write for a bot would violate the users FK, and bots are never rated.
+    const hadBots = room.seats.some((s) => isBot(s.userId));
     const seats = room.seats
       .map((s, i) => ({ userId: s.userId, i }))
-      .filter((x): x is { userId: string; i: number } => x.userId !== null)
+      .filter((x): x is { userId: string; i: number } => x.userId !== null && !isBot(x.userId))
       .map((x) => ({ userId: x.userId, won: winSet.has(x.i) }));
-    if (seats.length < 2) return [];
     // Isolated + fail-safe: a rating-write failure resolves to [] so match:end
     // still fires unchanged (settlement already committed before this runs).
     try {
+      // Ranked solo-queue → vs-BOT fallback: exactly ONE human left after filtering and the
+      // room had bot seats → rate the human against a synthetic even-rated bot opponent (the
+      // normal ≥2 path can't, since a bot carries no ranked record).
+      if (seats.length === 1 && hadBots) {
+        return await this.ranked.recordSoloVsBot(seats[0]!.userId, seats[0]!.won);
+      }
+      if (seats.length < 2) return []; // all-human room with <2 rated players → not rated
       return await this.ranked.recordMatchResult(seats);
     } catch {
       return [];
@@ -1724,7 +1828,10 @@ export class GameGateway {
     const winSet = new Set(winnerSeats);
     const seats = room.seats
       .map((s, i) => ({ seat: i, userId: s.userId, won: winSet.has(i), team: s.team }))
-      .filter((x): x is { seat: number; userId: string; won: boolean; team: 0 | 1 | null } => x.userId !== null);
+      // Exclude bots — their synthetic userid has no users row (FK), and a bot is never a
+      // collusion/anti-cheat subject. A ranked-bot room is left with a single human → the
+      // <2 guard below short-circuits (nothing to analyze cross-player).
+      .filter((x): x is { seat: number; userId: string; won: boolean; team: 0 | 1 | null } => x.userId !== null && !isBot(x.userId));
     if (seats.length < 2) return;
     // Pass the staked flag so collusion analysis (cross-match) runs for money tables only.
     void this.antiCheat.analyzeMatch(matchId, seats, { staked: room.stakeCents > 0 }).catch(() => undefined);

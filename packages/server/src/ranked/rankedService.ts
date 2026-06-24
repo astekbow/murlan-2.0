@@ -14,7 +14,7 @@ import type {
 import type { UserRepository } from '../auth/userRepository.ts';
 import type { Season, SeasonRepository, UserSeason } from './seasonRepository.ts';
 import {
-  DEFAULT_RATING, TIERS, tierFromRating, applyMatchRatings, expectedScore, softReset, type Tier,
+  DEFAULT_RATING, TIERS, tierFromRating, applyMatchRatings, calculateNewRating, expectedScore, softReset, type Tier,
 } from './ranking.ts';
 
 export interface RankedSeat {
@@ -157,6 +157,41 @@ export class RankedService {
       }),
     );
     return deltas;
+  }
+
+  /**
+   * Rate a LONE human who was matched against BOT(s) (the ranked solo-queue → vs-bot
+   * fallback). A bot is not a real player and never carries a ranked record, so the
+   * normal ≥2-player path doesn't apply. We rate the human against a SYNTHETIC opponent
+   * of EQUAL rating: expected score is exactly 0.5, so the swing is the standard K-factor
+   * (±K/2) — a win nudges them up the ladder, a loss down, identical to facing an
+   * evenly-matched human. Only the human's rating + season standing is written (the bot
+   * gets nothing). No active season ⇒ a clean no-op (ranked is off), like recordMatchResult.
+   */
+  async recordSoloVsBot(userId: string, won: boolean): Promise<RatingDelta[]> {
+    const season = await this.seasons.getActiveSeason();
+    if (!season) return [];
+    const row = await this.ensureUserSeason(userId, season.id);
+    // Equal-rated synthetic opponent ⇒ expectedScore = 0.5 ⇒ full ±K/2 swing.
+    const newRating = calculateNewRating(row.rating, row.rating, won);
+    const now = this.now();
+    await this.seasons.upsertUserSeason({
+      userId,
+      seasonId: season.id,
+      rating: newRating,
+      peakRating: Math.max(row.peakRating, newRating),
+      games: row.games + 1,
+      wins: row.wins + (won ? 1 : 0),
+      updatedAt: now,
+    });
+    return [{
+      userId,
+      oldRating: row.rating,
+      newRating,
+      tierKey: tierFromRating(newRating).key,
+      won,
+      expectedWinRate: 0.5, // by construction — even-rated synthetic opponent
+    }];
   }
 
   /** A viewer's own ranked standing in the active season. */

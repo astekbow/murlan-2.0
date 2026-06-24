@@ -33,6 +33,7 @@ const schema = z.object({
   COUNTDOWN_MS: z.coerce.number().int().nonnegative().default(3_000),
   HAND_PAUSE_MS: z.coerce.number().int().min(0).max(60_000).default(7_000), // inter-hand standings pause; 0 = deal next hand immediately
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
+  RANKED_BOT_MS: z.coerce.number().int().positive().default(20_000), // ranked solo-queue → vs-BOT fallback: no human opponent within this window starts a RATED bot match
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)
   TRUST_PROXY: z.string().optional(), // 'true'|'false'|hop-count|CSV of trusted proxy IPs/CIDRs (default: loopback + RFC1918)
@@ -147,6 +148,7 @@ export interface AppConfig {
   countdownMs: number;
   handPauseMs: number; // inter-hand standings pause (ms); 0 = immediate next deal
   abandonMs: number;
+  rankedBotMs: number; // ranked solo-queue → vs-BOT fallback delay (ms); 0 disabled by schema (positive)
   paymentWebhookSecret: string;
   paymentWebhookIps: string[];
   trustProxy: boolean | number | string[]; // Fastify trustProxy: which proxy hops/IPs to trust for X-Forwarded-For
@@ -311,6 +313,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     countdownMs: parsed.COUNTDOWN_MS,
     handPauseMs: parsed.HAND_PAUSE_MS,
     abandonMs: parsed.ABANDON_MS,
+    rankedBotMs: parsed.RANKED_BOT_MS,
     paymentWebhookSecret: parsed.PAYMENT_WEBHOOK_SECRET ?? 'dev-webhook-secret-change-me',
     paymentWebhookIps: (parsed.PAYMENT_WEBHOOK_IPS ?? '')
       .split(',')
