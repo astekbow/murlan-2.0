@@ -643,6 +643,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const rooms = new RoomManager({ startTarget: 21 });
   const presence = new Presence();
   const ranked = new RankedService(seasonsRepo, repo);
+  // Ranked needs an ACTIVE season to attach ratings/ladder to. Seed one on first boot if
+  // none exists (idempotent) — without it the ranked ladder is empty and a vs-bot match
+  // can't record MMR. Best-effort: never block boot on it.
+  if (!(await ranked.getActiveSeason().catch(() => null))) {
+    await ranked.createSeason('Sezoni 1').catch(() => undefined);
+  }
   const matchmaking = new MatchmakingService();
   const friends = new FriendsService(repo, friendsRepo, presence);
 

@@ -1335,26 +1335,32 @@ export class GameGateway {
     // (this is why practice failed to start on the live DB but worked in-memory).
     let escrowed = false;
     if (this.money && !room.practice) {
+      // EXCLUDE bot seats: a room can hold bots (the ranked-vs-bot fallback). Bots aren't real
+      // users, so escrowing them would violate the users FK on Postgres — which is exactly why
+      // ranked-vs-bot failed to START on the live DB (escrow threw → start_failed). Only real
+      // players are escrowed; if a room is all bots there's nothing to escrow.
       const players = room.seats
         .map((s, seat) => ({ seat, userId: s.userId }))
-        .filter((p): p is { seat: number; userId: string } => p.userId !== null);
-      const escrow = await this.money.escrow({
-        matchId,
-        type: room.type,
-        stakeCents: room.stakeCents,
-        rakeBps: this.rakeBps,
-        players,
-      });
-      if (!escrow.ok) {
-        // Someone can't cover the stake: cancel their ready flag and inform them.
-        for (const userId of escrow.insufficientUserIds ?? []) {
-          this.rooms.setReady(userId, false);
-          this.io.to(personalRoom(userId)).emit('error', { code: 'insufficient_funds', message: 'Bilanc i pamjaftueshëm për bastin.' });
+        .filter((p): p is { seat: number; userId: string } => p.userId !== null && !isBot(p.userId));
+      if (players.length > 0) {
+        const escrow = await this.money.escrow({
+          matchId,
+          type: room.type,
+          stakeCents: room.stakeCents,
+          rakeBps: this.rakeBps,
+          players,
+        });
+        if (!escrow.ok) {
+          // Someone can't cover the stake: cancel their ready flag and inform them.
+          for (const userId of escrow.insufficientUserIds ?? []) {
+            this.rooms.setReady(userId, false);
+            this.io.to(personalRoom(userId)).emit('error', { code: 'insufficient_funds', message: 'Bilanc i pamjaftueshëm për bastin.' });
+          }
+          this.broadcastRoomState(roomId);
+          return;
         }
-        this.broadcastRoomState(roomId);
-        return;
+        escrowed = true;
       }
-      escrowed = true;
     }
 
     // Provably-fair DEAL: use the serverSeed committed at countdown start, mixed
