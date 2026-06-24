@@ -17,8 +17,9 @@ export const AVATARS = [
 export type AvatarId = (typeof AVATARS)[number];
 
 // An uploaded avatar is stored inline as a small data URL. The client resizes to a
-// tiny thumbnail first; this cap (~9KB) keeps profiles/leaderboards from bloating.
-const MAX_AVATAR_DATA_URL = 12_000;
+// tiny thumbnail first; this cap (~18KB) keeps profiles/leaderboards from bloating while
+// giving a 64×64 photo enough headroom (some detailed shots exceeded the old 12KB cap).
+const MAX_AVATAR_DATA_URL = 24_000;
 const AVATAR_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+=*)$/;
 
 /** True if the decoded bytes start with the file signature (MAGIC BYTES) of a real

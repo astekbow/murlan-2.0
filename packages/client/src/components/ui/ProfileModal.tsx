@@ -74,7 +74,7 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
     if (savingAvatar) return;
     try {
       const dataUrl = await imageToAvatarDataUrl(file, 64);
-      if (dataUrl.length > 12_000) { setError(t('profile.avatarTooBig')); return; }
+      if (dataUrl.length > 24_000) { setError(t('profile.avatarTooBig')); return; }
       await pickAvatar(dataUrl);
     } catch {
       setError(t('profile.avatarSaveFailed'));
@@ -175,7 +175,7 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
                   📷 {t('profile.uploadAvatar')}
                   <input
                     type="file"
-                    accept="image/png,image/jpeg,image/webp"
+                    accept="image/*"
                     className="hidden"
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAvatar(f); e.target.value = ''; }}
                   />
