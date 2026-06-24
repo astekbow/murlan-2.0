@@ -869,10 +869,12 @@ select:focus-visible,
 .tv-ls .tvc-seat .lastp { font-size: 1.4cqw; padding: 0.2cqw 1cqw; }
 .tv-ls .tvc-seat .mini { width: 2.4cqw; height: 3.4cqw; margin-left: -1.4cqw; }
 .tv-ls .tvc-seat .mini:first-child { margin-left: 0; }
-/* Side seats (left/right): the fan stacks DOWN as upright cards, not across — so it doesn't
-   read as the cards lying flat toward the table. Overlap is vertical (margin-top). */
-.tv-ls .tvc-seat .seat-fan-v .mini { margin-left: 0; margin-top: -2.2cqw; }
-.tv-ls .tvc-seat .seat-fan-v .mini:first-child { margin-top: 0; }
+/* Side seats (left/right): the fan sits BEHIND the avatar — centred and equidistant, peeking
+   out symmetrically (NOT stacked above the head). z-index below the avatar; the avatar's own
+   `isolate` keeps it scoped behind just the avatar, not the whole table. */
+.seat-fan-behind { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; z-index: -1; opacity: 0.95; pointer-events: none; }
+.tv-ls .tvc-seat .seat-fan-behind .mini { width: 2.6cqw; height: 3.6cqw; margin-left: -1.7cqw; box-shadow: 0 0.4cqw 0.8cqw -0.3cqw #000, inset 0 0 0 0.18cqw #f1deae, inset 0 0 0 0.3cqw rgba(0, 0, 0, 0.25); }
+.tv-ls .tvc-seat .seat-fan-behind .mini:first-child { margin-left: 0; }
 
 /* ---- Hand zone: WIDE (60%, between the two corner buttons) so 14 big cards overlap
    less and each rank corner stays readable. */

@@ -56,20 +56,27 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   const dimmed = gone || !connected;
   const status = gone ? t('seat.left') : finished ? t('seat.finished') : passed ? t('seat.passed') : !connected ? t('seat.offline') : isTurn ? t('seat.turn') : '';
 
-  // Side seats (left/right) get a VERTICAL stack of upright cards — a horizontal fan there
-  // reads as the cards "lying toward the table". Top/bottom keep the horizontal fan.
+  // Side seats (left/right): the face-down mini-fan sits BEHIND the avatar — centred, peeking
+  // out symmetrically (not stacked above their head). Top/bottom seats keep the fan in the
+  // row above the avatar.
   const side = placement != null && placement !== 'top' && placement !== 'bottom';
   const fan = (
-    <div className={side ? 'seat-fan-v flex flex-col items-center' : 'flex h-5 items-end'} aria-hidden="true">
+    <div className="flex h-5 items-end" aria-hidden="true">
       {Array.from({ length: fanCount }).map((_, i) => (
-        <div key={i} className="mini" style={side
-          ? { height: 22, width: 16, marginTop: i === 0 ? 0 : -9 }
-          : { height: 22, width: 16, marginLeft: i === 0 ? 0 : -9 }} />
+        <div key={i} className="mini" style={{ height: 22, width: 16, marginLeft: i === 0 ? 0 : -9 }} />
       ))}
     </div>
   );
+  // SIDE seats: a fan centred BEHIND the avatar (peeking out symmetrically). Size + overlap come
+  // from CSS (.seat-fan-behind .mini) so it scales with the table — no inline sizing here.
+  const behindFan = (
+    <div className="seat-fan-behind" aria-hidden="true">
+      {Array.from({ length: fanCount }).map((_, i) => <div key={i} className="mini" />)}
+    </div>
+  );
   const avatarEl = (
-    <div className="relative inline-grid place-items-center">
+    <div className="relative inline-grid place-items-center isolate">
+      {side && fanCount > 0 && behindFan}
       {isTurn && turnDeadline != null && <TurnRing deadline={turnDeadline} />}
       <div className={`av ${ring} ${dimmed ? 'off' : ''}`} title={name}>
         {avatar ? <AvatarFace id={avatar} fill className="text-2xl leading-none" /> : initials(name)}
@@ -91,7 +98,8 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   return (
     <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${dimmed ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-1.5">
-        {fan}
+        {/* SIDE seats keep only the count up here — their fan is centred BEHIND the avatar. */}
+        {!side && fan}
         <span className="seat-cnt">({count})</span>
       </div>
       {avatarEl}
