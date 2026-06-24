@@ -559,19 +559,26 @@ export class GameGateway {
     socket.data.roomId = null;
     socket.data.seat = null;
 
-    if (room && room.status === 'inMatch' && seat >= 0) {
-      // Mid-match leave: the match CONTINUES without them (or ends if too few remain).
-      // forfeitMatch marks the seat gone in the engine and releases room membership
-      // synchronously (before any await), so an instant re-create/join won't hit
-      // 'already_in_room', and it broadcasts the lobby itself.
-      await this.forfeitMatch(roomId, seat);
-    } else {
-      this.leaveAndNotify(userId, roomId);
+    // Wrap the awaited teardown so a throw still ACKs the client (the socket was already
+    // detached above) instead of hanging its callback until timeout.
+    try {
+      if (room && room.status === 'inMatch' && seat >= 0) {
+        // Mid-match leave: the match CONTINUES without them (or ends if too few remain).
+        // forfeitMatch marks the seat gone in the engine and releases room membership
+        // synchronously (before any await), so an instant re-create/join won't hit
+        // 'already_in_room', and it broadcasts the lobby itself.
+        await this.forfeitMatch(roomId, seat);
+      } else {
+        this.leaveAndNotify(userId, roomId);
+      }
+      // Practice rooms are ephemeral: once the human is gone, remove the bots so the
+      // room empties + is deleted (otherwise it lingers with only bots seated).
+      if (wasPractice) this.teardownPractice(roomId);
+      reply({ ok: true });
+    } catch (e) {
+      console.error('[gateway] onLeave teardown failed:', e);
+      reply({ ok: true }); // the socket is already out of the room — report success
     }
-    // Practice rooms are ephemeral: once the human is gone, remove the bots so the
-    // room empties + is deleted (otherwise it lingers with only bots seated).
-    if (wasPractice) this.teardownPractice(roomId);
-    reply({ ok: true });
   }
 
   private onReady(socket: IOSocket, ready: boolean, ack: (res: Ack) => void): void {

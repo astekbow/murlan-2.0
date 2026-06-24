@@ -42,6 +42,14 @@ const createSchema = z.object({
   clubId: z.string().trim().min(1).optional(),
 });
 
+// Admin manual-override report: validated with zod (not a hand-rolled typeof check) so
+// NaN/Infinity/negative/float never reach the bracket lookup.
+const reportSchema = z.object({
+  round: z.number().int().min(0),
+  index: z.number().int().min(0),
+  winnerId: z.string().min(1),
+});
+
 export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRoutesDeps): Promise<void> {
   const { auth, tournaments } = deps;
   const guard = requireAuth(auth);
@@ -140,10 +148,11 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     const adminCaller = await admin(req, reply);
     if (!adminCaller) return;
     const id = (req.params as { id: string }).id;
-    const b = (req.body ?? {}) as { round?: unknown; index?: unknown; winnerId?: unknown };
-    if (typeof b.round !== 'number' || typeof b.index !== 'number' || typeof b.winnerId !== 'string') {
+    const parsed = reportSchema.safeParse(req.body);
+    if (!parsed.success) {
       return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna të pavlefshme.' } });
     }
+    const b = parsed.data;
     try {
       const t = await tournaments.reportResult(id, b.round, b.index, b.winnerId, adminCaller.userId);
       const paidPrize = t.status === 'finished' ? t.prizePoolCents - Math.floor((t.prizePoolCents * t.rakeBps) / 10000) : null;
