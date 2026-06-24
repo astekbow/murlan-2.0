@@ -277,17 +277,21 @@ export class PrismaUserRepository implements UserRepository {
     return { ok: false, code: 'insufficient_xp' };
   }
 
+  // NOTE: these are security-state writes (password reset, role/permission change,
+  // email verification). They MUST throw on failure — swallowing the error reported a
+  // failed password-reset or admin demotion as SUCCESS while the old state persisted.
+  // Callers (authService.resetPassword/setRole/...) propagate the throw → the route 500s.
   async setEmailVerified(id: string, verified: boolean): Promise<void> {
-    await this.db.user.update({ where: { id }, data: { emailVerified: verified } }).catch(() => undefined);
+    await this.db.user.update({ where: { id }, data: { emailVerified: verified } });
   }
   async setPassword(id: string, passwordHash: string): Promise<void> {
-    await this.db.user.update({ where: { id }, data: { passwordHash } }).catch(() => undefined);
+    await this.db.user.update({ where: { id }, data: { passwordHash } });
   }
   async setRole(id: string, role: UserRole): Promise<void> {
-    await this.db.user.update({ where: { id }, data: { role } }).catch(() => undefined);
+    await this.db.user.update({ where: { id }, data: { role } });
   }
   async setPermissions(id: string, permissions: string[]): Promise<void> {
-    await this.db.user.update({ where: { id }, data: { permissions } }).catch(() => undefined);
+    await this.db.user.update({ where: { id }, data: { permissions } });
   }
 }
 

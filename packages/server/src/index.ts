@@ -2,6 +2,18 @@
 import { createGameServer } from './app.ts';
 import { loadConfig } from './config.ts';
 
+// Backstop against a stray async error taking the whole host down (and with it every
+// live real-money match). A transient/library error (e.g. a Redis blip, an un-awaited
+// handler rejection) is logged LOUDLY but not fatal — the proper fix is to handle it at
+// the source; this only stops one unhandled case from killing all in-flight games.
+// (Note: this does not mask startup failures — main().catch below still hard-exits those.)
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL-GUARD] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL-GUARD] uncaughtException:', err);
+});
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const server = await createGameServer({ config });
