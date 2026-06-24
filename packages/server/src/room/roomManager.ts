@@ -537,6 +537,7 @@ export class RoomManager {
       countdownMs: null, // filled by the gateway during the ready countdown
       private: room.private,
       joinCode: room.joinCode, // members see it so they can share/invite
+      tournament: room.tournament !== null, // bracket pairing → client hides the rematch button
     };
   }
 

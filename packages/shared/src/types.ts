@@ -76,6 +76,7 @@ export interface RoomStateDTO {
   countdownMs: number | null; // ready-check countdown remaining, if any
   private?: boolean;       // private rooms are hidden from the public lobby
   joinCode?: string | null; // share code for a private room (members only)
+  tournament?: boolean;    // a tournament-bracket pairing — no rematch (the bracket advances itself)
 }
 
 // ---------- Game (public, broadcast-safe) ------------------------------------

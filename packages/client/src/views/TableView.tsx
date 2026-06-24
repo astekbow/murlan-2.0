@@ -757,7 +757,8 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                   ))}
             </div>
 
-            {(() => {
+            {/* No rematch on a tournament pairing — the bracket advances itself. */}
+            {!room.tournament && (() => {
               const total = room.seats.filter((s) => s.userId).length;
               const iAccepted = !!rematchOffer && myUserId != null && rematchOffer.accepted.includes(myUserId);
               if (iAccepted) {
@@ -773,7 +774,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                 </button>
               );
             })()}
-            <button onClick={() => { dismissResult(); void leaveRoom(); }} className="btn btn-ghost btn-block mt-2">
+            <button onClick={() => { dismissResult(); void leaveRoom(); }} className={`btn btn-ghost btn-block ${room.tournament ? '' : 'mt-2'}`}>
               {t('table.returnLobby')}
             </button>
 
