@@ -8,6 +8,15 @@
 
 import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo, XP_PLAY, XP_WIN, type LevelInfo } from './level.ts';
+import { vipTierFor, stakedVolume } from '../vip/vipService.ts';
+import type { VipTierInfo } from '@murlan/shared';
+import type { Transaction } from '../money/ledger.ts';
+
+/** Read-only ledger access — used ONLY to derive the cosmetic VIP tier badge.
+ *  Optional so callers/tests without a wallet still work (no badge then). */
+interface LedgerReader {
+  listTransactions: (userId: string) => Promise<Transaction[]>;
+}
 
 /** Cosmetic avatar ids (a fixed preset set; the client maps these to art). */
 export const AVATARS = [
@@ -70,6 +79,8 @@ export interface PublicProfile {
   winRate: number; // 0..1
   biggestPotCents: number;
   currentStreak: number;
+  /** Cosmetic VIP tier (bronze+) for the avatar ring; null for standard/no-ledger. */
+  vipTier: VipTierInfo | null;
 }
 
 export interface LeaderboardRow {
@@ -84,7 +95,7 @@ export interface LeaderboardRow {
   winRate: number;
 }
 
-function toPublic(u: User): PublicProfile {
+function toPublic(u: User, vipTier: VipTierInfo | null = null): PublicProfile {
   const li = levelInfo(u.xp);
   return {
     id: u.id,
@@ -98,15 +109,26 @@ function toPublic(u: User): PublicProfile {
     winRate: u.gamesPlayed > 0 ? u.wins / u.gamesPlayed : 0,
     biggestPotCents: u.biggestPotCents,
     currentStreak: u.currentStreak,
+    vipTier,
   };
 }
 
 export class ProfileService {
-  constructor(private readonly users: UserRepository) {}
+  constructor(private readonly users: UserRepository, private readonly ledger?: LedgerReader) {}
 
   async getProfile(userId: string): Promise<PublicProfile | null> {
     const u = await this.users.findById(userId);
-    return u ? toPublic(u) : null;
+    if (!u) return null;
+    // Derive the cosmetic VIP tier from lifetime staked volume (same source as VipService).
+    // Read-only + best-effort: a ledger hiccup must never block viewing a profile.
+    let vipTier: VipTierInfo | null = null;
+    if (this.ledger) {
+      try {
+        const tier = vipTierFor(stakedVolume(await this.ledger.listTransactions(userId)));
+        if (tier.key !== 'standard') vipTier = tier;
+      } catch { /* cosmetic only */ }
+    }
+    return toPublic(u, vipTier);
   }
 
   /** Cosmetic avatar change. Accepts a preset id OR a small uploaded image stored

@@ -97,13 +97,28 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
         <div className="space-y-5">
           {/* Identity: big avatar + level + XP */}
           <div className="flex items-center gap-4">
-            <div className="pfp" style={{ width: 72, height: 72, fontSize: 34 }}>
+            <div
+              className="pfp"
+              style={{
+                width: 72, height: 72, fontSize: 34,
+                // VIP ring (bronze+): a coloured outline + soft glow around the photo.
+                ...(profile.vipTier ? { boxShadow: `0 0 0 3px ${profile.vipTier.color}, 0 0 14px ${profile.vipTier.color}77` } : {}),
+              }}
+            >
               {isImageAvatar(profile.avatar) ? <img src={profile.avatar} alt="" className="pfp-img" /> : avatarEmoji(profile.avatar)}
               <span className="lvl">{profile.level}</span>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="font-display font-semibold tracking-wide text-xl leading-none truncate">
-                {profile.username}
+              <div className="font-display font-semibold tracking-wide text-xl leading-none truncate flex items-center gap-2">
+                <span className="truncate">{profile.username}</span>
+                {profile.vipTier && (
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap"
+                    style={{ color: profile.vipTier.color, border: `1px solid ${profile.vipTier.color}`, background: `${profile.vipTier.color}1a` }}
+                  >
+                    ★ {profile.vipTier.name}
+                  </span>
+                )}
               </div>
               <div className="text-xs text-muted mt-1">
                 {t('profile.levelXp', { level: profile.level, xp: profile.xp })}

@@ -56,10 +56,15 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   const dimmed = gone || !connected;
   const status = gone ? t('seat.left') : finished ? t('seat.finished') : passed ? t('seat.passed') : !connected ? t('seat.offline') : isTurn ? t('seat.turn') : '';
 
+  // Side seats (left/right) get a VERTICAL stack of upright cards — a horizontal fan there
+  // reads as the cards "lying toward the table". Top/bottom keep the horizontal fan.
+  const side = placement != null && placement !== 'top' && placement !== 'bottom';
   const fan = (
-    <div className="flex h-5 items-end" aria-hidden="true">
+    <div className={side ? 'seat-fan-v flex flex-col items-center' : 'flex h-5 items-end'} aria-hidden="true">
       {Array.from({ length: fanCount }).map((_, i) => (
-        <div key={i} className="mini" style={{ height: 22, width: 16, marginLeft: i === 0 ? 0 : -9 }} />
+        <div key={i} className="mini" style={side
+          ? { height: 22, width: 16, marginTop: i === 0 ? 0 : -9 }
+          : { height: 22, width: 16, marginLeft: i === 0 ? 0 : -9 }} />
       ))}
     </div>
   );

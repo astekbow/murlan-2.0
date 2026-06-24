@@ -158,6 +158,8 @@ export interface Profile {
   winRate: number;
   biggestPotCents: number;
   currentStreak: number;
+  /** Cosmetic VIP tier (bronze+) for the avatar ring; null for standard. */
+  vipTier: VipTierInfo | null;
 }
 export interface LeaderboardRow {
   rank: number;

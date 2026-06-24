@@ -841,6 +841,10 @@ select:focus-visible,
 .tv-ls .tvc-seat .lastp { font-size: 1.4cqw; padding: 0.2cqw 1cqw; }
 .tv-ls .tvc-seat .mini { width: 2.4cqw; height: 3.4cqw; margin-left: -1.4cqw; }
 .tv-ls .tvc-seat .mini:first-child { margin-left: 0; }
+/* Side seats (left/right): the fan stacks DOWN as upright cards, not across — so it doesn't
+   read as the cards lying flat toward the table. Overlap is vertical (margin-top). */
+.tv-ls .tvc-seat .seat-fan-v .mini { margin-left: 0; margin-top: -2.2cqw; }
+.tv-ls .tvc-seat .seat-fan-v .mini:first-child { margin-top: 0; }
 
 /* ---- Hand zone: WIDE (60%, between the two corner buttons) so 14 big cards overlap
    less and each rank corner stays readable. */

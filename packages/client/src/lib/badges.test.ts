@@ -6,7 +6,7 @@ import type { Profile } from './api.ts';
 const base: Profile = {
   id: 'u', username: 'x', avatar: null, xp: 0, level: 1,
   levelInfo: { level: 1, intoLevel: 0, levelSpan: 100, pct: 0 },
-  gamesPlayed: 0, wins: 0, winRate: 0, biggestPotCents: 0, currentStreak: 0,
+  gamesPlayed: 0, wins: 0, winRate: 0, biggestPotCents: 0, currentStreak: 0, vipTier: null,
 };
 
 test('a fresh profile has no badges', () => {

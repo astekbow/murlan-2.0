@@ -637,12 +637,13 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
 
   const rooms = new RoomManager({ startTarget: 21 });
   const presence = new Presence();
-  const profiles = new ProfileService(repo);
   const ranked = new RankedService(seasonsRepo, repo);
   const matchmaking = new MatchmakingService();
   const friends = new FriendsService(repo, friendsRepo, presence);
 
   const wallet = new WalletService(repo, ledger, uow);
+  // ProfileService takes the wallet (read-only) so a profile can show its VIP-tier ring.
+  const profiles = new ProfileService(repo, wallet);
   const rewards = new RewardsService(repo, config.rewardsEnabled, wallet);
   const money = new MoneyService(wallet, matchesRepo, uow);
   // Pass the UoW (Prisma only) so a withdrawal's debit + record-insert are one atomic
