@@ -4,7 +4,7 @@
 // and then refresh both the local profile and the auth store.
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal.tsx';
-import { profileApi, rankedApi, ApiError, type Profile, type RankedProfileDTO } from '../../lib/api.ts';
+import { profileApi, rankedApi, friendsApi, ApiError, type Profile, type RankedProfileDTO } from '../../lib/api.ts';
 import { avatarEmoji, isImageAvatar, imageToAvatarDataUrl, AVATARS } from '../../lib/avatars.ts';
 import { dollars } from '../../lib/money.ts';
 import { useAuthStore } from '../../store/authStore.ts';
@@ -28,6 +28,23 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
   const [savingAvatar, setSavingAvatar] = useState<string | null>(null);
 
   const isMe = userId === useAuthStore.getState().user?.id;
+  const [friendMsg, setFriendMsg] = useState<string | null>(null);
+  const [sendingFriend, setSendingFriend] = useState(false);
+
+  // Send a friend request straight from a profile (e.g. tapped from an in-game seat).
+  async function sendFriendReq() {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || !profile || sendingFriend) return;
+    setSendingFriend(true);
+    try {
+      await friendsApi.request(token, profile.username);
+      setFriendMsg(t('friends.requestSent'));
+    } catch (e) {
+      setFriendMsg(e instanceof ApiError ? e.message : t('profile.loadFailed'));
+    } finally {
+      setSendingFriend(false);
+    }
+  }
 
   async function load() {
     try {
@@ -128,6 +145,17 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
               </div>
             </div>
           </div>
+
+          {/* Add-friend — shown for everyone but yourself (e.g. tapped from an in-game seat). */}
+          {!isMe && (
+            <button
+              className="btn btn-outline btn-sm w-full"
+              onClick={sendFriendReq}
+              disabled={sendingFriend || friendMsg === t('friends.requestSent')}
+            >
+              {friendMsg ?? `➕ ${t('friends.addFriend')}`}
+            </button>
+          )}
 
           {/* Earned badges (derived from stats) */}
           {earnedBadges(profile).length > 0 && (
