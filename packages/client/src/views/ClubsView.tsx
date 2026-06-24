@@ -1,7 +1,7 @@
 // Clubs: if you're in one, see it (members + roles) and leave; otherwise browse
 // clubs to join, or create your own. One club per player.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { clubsApi, ApiError, type ClubSummaryDTO, type ClubDetailDTO, type ChatMessageDTO } from '../lib/api.ts';
+import { clubsApi, tournamentsApi, ApiError, type ClubSummaryDTO, type ClubDetailDTO, type ChatMessageDTO, type TournamentDTO } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -99,6 +99,8 @@ export function ClubsView() {
         </section>
       ) : null}
 
+      {mine && <ClubTournaments club={mine} />}
+
       {mine && <ClubChat club={mine} />}
 
       {!mine && status !== 'loading' && (
@@ -159,6 +161,99 @@ export function ClubsView() {
         </>
       )}
     </div>
+  );
+}
+
+// ---- Club tournaments panel ------------------------------------------------
+// Members-only list of the club's tournaments (register into a registering one).
+// The FOUNDER additionally gets a small create form (name / buy-in $ / capacity).
+// Money path is identical to global tournaments — escrow + payout happen server-side.
+function ClubTournaments({ club }: { club: ClubDetailDTO }) {
+  const t = useT();
+  const myId = useAuthStore((s) => s.user?.id ?? null);
+  const token = () => useAuthStore.getState().accessToken;
+  const isFounder = club.members.find((m) => m.userId === myId)?.role === 'founder';
+
+  const [items, setItems] = useState<TournamentDTO[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [buyIn, setBuyIn] = useState('1');
+  const [capacity, setCapacity] = useState<2 | 4 | 8>(4);
+
+  async function load() {
+    const tk = token();
+    if (!tk) return;
+    try {
+      const r = await tournamentsApi.listByClub(tk, club.id);
+      setItems(r.tournaments);
+    } catch {
+      setError(t('clubs.tournamentsLoadFailed'));
+    }
+  }
+  useEffect(() => { void load(); }, [club.id]);
+
+  const act = async (fn: () => Promise<unknown>) => {
+    const tk = token();
+    if (!tk || busy) return;
+    setBusy(true); setError(null);
+    try { await fn(); await load(); }
+    catch (e) { setError(e instanceof ApiError ? e.message : t('clubs.actionFailed')); }
+    finally { setBusy(false); }
+  };
+
+  const createTournament = () => {
+    const buyInCents = Math.max(0, Math.round(parseFloat(buyIn || '0') * 100));
+    if (!Number.isFinite(buyInCents)) return;
+    void act(async () => {
+      await tournamentsApi.create(token()!, name.trim() || 'Turne', buyInCents, capacity, club.id);
+      setName('');
+    });
+  };
+
+  return (
+    <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.08s' }}>
+      <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('clubs.tournaments')}</h2>
+
+      {isFounder && (
+        <div className="flex flex-wrap gap-3 items-end rounded-xl px-4 py-3 border border-gold/30 bg-gold/[.05]">
+          <label className="block flex-1 min-w-[160px]"><span className="field-label">{t('clubs.tournamentName')}</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder="Murlan Cup" className="field" /></label>
+          <label className="block"><span className="field-label">{t('clubs.buyIn')}</span>
+            <input value={buyIn} onChange={(e) => setBuyIn(e.target.value)} inputMode="decimal" className="field w-24" /></label>
+          <label className="block"><span className="field-label">{t('clubs.capacity')}</span>
+            <select value={capacity} onChange={(e) => setCapacity(Number(e.target.value) as 2 | 4 | 8)} className="field w-20">
+              <option value={2}>2</option>
+              <option value={4}>4</option>
+              <option value={8}>8</option>
+            </select></label>
+          <button disabled={busy} onClick={createTournament} className="btn btn-gold">{t('clubs.createTournament')}</button>
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <p className="text-sm text-muted text-center py-6">{t('clubs.noTournaments')}</p>
+      ) : (
+        <ul className="space-y-2.5">
+          {items.map((tn) => {
+            const joined = myId ? tn.playerIds.includes(myId) : false;
+            return (
+              <li key={tn.id} className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
+                <span className="font-display font-semibold tracking-wide text-txt flex-1 truncate">{tn.name}</span>
+                <span className="text-xs text-muted shrink-0">${(tn.buyInCents / 100).toFixed(2)}</span>
+                <span className="text-xs text-muted shrink-0">{tn.playerIds.length}/{tn.capacity} 👥</span>
+                {tn.status === 'registering' && !joined ? (
+                  <button disabled={busy} onClick={() => void act(() => tournamentsApi.register(token()!, tn.id))} className="btn btn-outline shrink-0">{t('clubs.register')}</button>
+                ) : (
+                  <span className="tag tag-open shrink-0">{tn.status === 'registering' && joined ? '✓' : tn.status}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {error && <p className="text-xs text-red-300">{error}</p>}
+    </section>
   );
 }
 

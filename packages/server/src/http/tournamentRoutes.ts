@@ -17,11 +17,15 @@ import { checkRealMoneyAccess } from '../compliance/realMoneyGate.ts';
 import { requireAuth } from './authRoutes.ts';
 import { requirePermission } from './permissions.ts';
 import { TournamentService, TournamentError } from '../tournament/tournamentService.ts';
+import type { ClubService } from '../social/clubService.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
 
 export interface TournamentRoutesDeps {
   auth: AuthService;
   tournaments: TournamentService;
+  // Club membership reader → gates club-scoped tournaments (founder-only create,
+  // members-only register/list). Absent ⇒ club tournaments are simply unavailable.
+  clubs?: ClubService;
   compliance?: ComplianceService;
   rg?: ResponsibleGamingService;
   audit?: AdminAuditRepository; // append-only trail for admin create/report/cancel
@@ -34,6 +38,8 @@ const createSchema = z.object({
   name: z.string().trim().min(1).max(40),
   buyInCents: z.number().int().min(0).max(1_000_000_00),
   capacity: z.union([z.literal(2), z.literal(4), z.literal(8)]),
+  // Present ⇒ create a CLUB tournament (founder-only); absent ⇒ a global one.
+  clubId: z.string().trim().min(1).optional(),
 });
 
 export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRoutesDeps): Promise<void> {
@@ -69,6 +75,11 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     const id = (req.params as { id: string }).id;
     const t = await tournaments.get(id);
     if (!t) return reply.code(404).send({ error: { code: 'not_found', message: 'Turneu nuk u gjet.' } });
+    // Club-scoped tournament → only members of THAT club may register.
+    if (t.clubId) {
+      const m = await deps.clubs?.memberOf(caller.userId);
+      if (!m || m.clubId !== t.clubId) return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm anëtarët e klubit mund të marrin pjesë.' } });
+    }
     // A paid buy-in is a real-money wager → enforce the same gates as a staked match
     // (account-state + compliance + daily loss cap). Free tournaments skip the gate.
     if (t.buyInCents > 0) {
@@ -94,13 +105,31 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     if (!caller) return;
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna turneu të pavlefshme.' } });
+    // Club tournament → only the FOUNDER of that exact club may open one.
+    const clubId = parsed.data.clubId ?? null;
+    if (clubId) {
+      const m = await deps.clubs?.memberOf(caller.userId);
+      if (!m || m.clubId !== clubId || m.role !== 'founder') {
+        return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm themeluesi i klubit mund të krijojë turne të klubit.' } });
+      }
+    }
     try {
-      const t = await tournaments.create(parsed.data.name, parsed.data.buyInCents, parsed.data.capacity);
-      await deps.audit?.record({ adminId: caller.userId, action: 'tournament_create', detail: `${t.id} "${t.name}" buyIn=${t.buyInCents} cap=${t.capacity} (creator)` }).catch(() => undefined);
+      const t = await tournaments.create(parsed.data.name, parsed.data.buyInCents, parsed.data.capacity, clubId);
+      await deps.audit?.record({ adminId: caller.userId, action: 'tournament_create', detail: `${t.id} "${t.name}" buyIn=${t.buyInCents} cap=${t.capacity}${clubId ? ` club=${clubId}` : ''} (creator)` }).catch(() => undefined);
       return reply.code(201).send({ tournament: t });
     } catch (e) {
       return fail(reply, e);
     }
+  });
+
+  // ----- Club tournaments: list a club's tournaments (members only) ----------
+  app.get('/api/tournaments/club/:clubId', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    const clubId = (req.params as { clubId: string }).clubId;
+    const m = await deps.clubs?.memberOf(caller.userId);
+    if (!m || m.clubId !== clubId) return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm anëtarët e klubit mund t\'i shohin turnetë.' } });
+    return reply.send({ tournaments: await tournaments.listByClub(clubId) });
   });
 
   // ----- Admin: report a pairing winner / cancel(+refund) --------------------

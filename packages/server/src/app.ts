@@ -275,7 +275,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
   }
   if (deps.tournaments) {
-    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit, onTournamentRunning: deps.tournamentRunner });
+    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, clubs: deps.clubs, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit, onTournamentRunning: deps.tournamentRunner });
   }
   if (deps.antiCheat) {
     // Admin-only review list of anti-collusion/anti-bot heuristic flags (never auto-action).

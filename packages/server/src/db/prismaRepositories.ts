@@ -1064,19 +1064,30 @@ export class PrismaTournaments implements TournamentRepository {
       status: row.status, playerIds: (row.playerIds as string[]) ?? [], bracket: (row.bracket as BracketMatch[]) ?? [],
       prizePoolCents: row.prizePoolCents, rakeBps: row.rakeBps, winnerId: row.winnerId ?? null,
       pendingWinnerId: row.pendingWinnerId ?? null, reportedByAdminId: row.reportedByAdminId ?? null,
+      clubId: row.clubId ?? null,
       createdAt: ms(row.createdAt),
     };
   }
   async create(t: Tournament): Promise<void> {
     await this.db.tournament.create({
-      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId },
+      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId, clubId: t.clubId },
     });
   }
   async get(id: string): Promise<Tournament | null> {
     const row = await this.db.tournament.findUnique({ where: { id } });
     return row ? this.map(row) : null;
   }
+  // GLOBAL only (clubId null) — club tournaments are listed via listByClub, never leaked here.
   async list(): Promise<Tournament[]> {
+    const rows = await this.db.tournament.findMany({ where: { clubId: null }, orderBy: { createdAt: 'desc' }, take: 50 });
+    return rows.map((r: any) => this.map(r));
+  }
+  async listByClub(clubId: string): Promise<Tournament[]> {
+    const rows = await this.db.tournament.findMany({ where: { clubId }, orderBy: { createdAt: 'desc' }, take: 50 });
+    return rows.map((r: any) => this.map(r));
+  }
+  // EVERY tournament (global + club) — for sweepStale's stranded-money safety net.
+  async listAll(): Promise<Tournament[]> {
     const rows = await this.db.tournament.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
     return rows.map((r: any) => this.map(r));
   }

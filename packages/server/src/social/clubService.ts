@@ -76,6 +76,13 @@ export class ClubService {
     return c ? this.detail(c, true) : null; // the caller is, by definition, a member
   }
 
+  /** The caller's club membership ({ clubId, role }) or null. Used by the tournament
+   *  routes to gate club-scoped create (founder-only) and register (members-only). */
+  async memberOf(userId: string): Promise<{ clubId: string; role: ClubRoleDTO } | null> {
+    const m = await this.clubs.memberOf(userId);
+    return m ? { clubId: m.clubId, role: m.role as ClubRoleDTO } : null;
+  }
+
   async create(userId: string, name: string, tag: string, priv = false): Promise<ClubDetailDTO> {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const trimmed = name.trim();

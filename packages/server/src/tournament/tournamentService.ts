@@ -42,6 +42,10 @@ export interface Tournament {
   // null otherwise. (Off by default — see TournamentService `dualControl`.)
   pendingWinnerId: string | null;
   reportedByAdminId: string | null;
+  // Club-scoped tournament: null = global (shown in the public list); non-null = belongs
+  // to a club (joinable only by members, creatable only by the founder). The money path
+  // (escrow/payout/bracket) is identical either way.
+  clubId: string | null;
   createdAt: number;
 }
 
@@ -62,7 +66,13 @@ export interface TournamentWallet {
 export interface TournamentRepository {
   create(t: Tournament): Promise<void>;
   get(id: string): Promise<Tournament | null>;
+  /** GLOBAL tournaments only (clubId === null) — club ones are listed via listByClub. */
   list(): Promise<Tournament[]>;
+  /** A club's tournaments (clubId === the given id), newest first. */
+  listByClub(clubId: string): Promise<Tournament[]>;
+  /** EVERY tournament (global + club). Used by sweepStale so club-scoped pools holding
+   *  escrowed buy-ins are still swept for stranded money — never excluded by list()'s filter. */
+  listAll(): Promise<Tournament[]>;
   save(t: Tournament): Promise<void>;
 }
 
@@ -93,7 +103,12 @@ export class TournamentService {
     private readonly dualControl: boolean = false,
   ) {}
 
-  async list(): Promise<Tournament[]> { return this.repo.list(); }
+  // GLOBAL tournaments only — club-scoped ones must never leak into the public list. The
+  // repo already filters (clubId === null); the extra guard here keeps it true even if a
+  // legacy repo returned everything.
+  async list(): Promise<Tournament[]> { return (await this.repo.list()).filter((t) => t.clubId === null); }
+  /** A club's tournaments (membership-gated at the route). */
+  async listByClub(clubId: string): Promise<Tournament[]> { return this.repo.listByClub(clubId); }
   async get(id: string): Promise<Tournament | null> { return this.repo.get(id); }
 
   // ----- Recorded engine outcomes (result reconciliation, admin-4) ------------
@@ -134,7 +149,7 @@ export class TournamentService {
     return next;
   }
 
-  async create(name: string, buyInCents: number, capacity: number): Promise<Tournament> {
+  async create(name: string, buyInCents: number, capacity: number, clubId: string | null = null): Promise<Tournament> {
     if (!VALID_CAPACITIES.has(capacity)) throw new TournamentError('bad_capacity', 'Kapaciteti duhet të jetë 2, 4 ose 8.');
     if (!Number.isInteger(buyInCents) || buyInCents < 0) throw new TournamentError('bad_buyin', 'Pjesëmarrja e pavlefshme.');
     const t: Tournament = {
@@ -150,6 +165,7 @@ export class TournamentService {
       winnerId: null,
       pendingWinnerId: null,
       reportedByAdminId: null,
+      clubId,
       createdAt: this.now(),
     };
     await this.repo.create(t);
@@ -356,7 +372,8 @@ export class TournamentService {
   private static readonly SWEEPABLE: ReadonlySet<TournamentStatus> = new Set(['registering', 'running', 'awaiting_confirmation']);
   async sweepStale(maxAgeMs: number): Promise<string[]> {
     const cutoff = this.now() - maxAgeMs;
-    const all = await this.repo.list();
+    // listAll() (not list()) so club-scoped pools are swept too — list() hides them.
+    const all = await this.repo.listAll();
     const voided: string[] = [];
     for (const snap of all) {
       if (!TournamentService.SWEEPABLE.has(snap.status)) continue;
@@ -379,8 +396,15 @@ export class TournamentService {
  *  on read/write so callers never mutate stored state by reference. */
 export class InMemoryTournamentRepository implements TournamentRepository {
   private map = new Map<string, Tournament>();
-  async create(t: Tournament): Promise<void> { this.map.set(t.id, structuredClone(t)); }
+  // Default clubId to null so older callers / fixtures that omit it stay GLOBAL.
+  private norm(t: Tournament): Tournament { return { ...t, clubId: t.clubId ?? null }; }
+  async create(t: Tournament): Promise<void> { this.map.set(t.id, structuredClone(this.norm(t))); }
   async get(id: string): Promise<Tournament | null> { const t = this.map.get(id); return t ? structuredClone(t) : null; }
-  async list(): Promise<Tournament[]> { return [...this.map.values()].map((t) => structuredClone(t)); }
-  async save(t: Tournament): Promise<void> { this.map.set(t.id, structuredClone(t)); }
+  // GLOBAL only (clubId === null) — club tournaments must not leak into the public list.
+  async list(): Promise<Tournament[]> { return [...this.map.values()].filter((t) => t.clubId === null).map((t) => structuredClone(t)); }
+  async listByClub(clubId: string): Promise<Tournament[]> {
+    return [...this.map.values()].filter((t) => t.clubId === clubId).sort((a, b) => b.createdAt - a.createdAt).map((t) => structuredClone(t));
+  }
+  async listAll(): Promise<Tournament[]> { return [...this.map.values()].map((t) => structuredClone(t)); }
+  async save(t: Tournament): Promise<void> { this.map.set(t.id, structuredClone(this.norm(t))); }
 }

@@ -717,6 +717,16 @@ const STRINGS: Record<string, Entry> = {
   'clubs.messagePlaceholder': { sq: 'Shkruaj një mesazh…', en: 'Write a message…' },
   'clubs.send': { sq: 'Dërgo', en: 'Send' },
 
+  // Club tournaments
+  'clubs.tournaments': { sq: 'TURNETË E KLUBIT', en: 'CLUB TOURNAMENTS' },
+  'clubs.createTournament': { sq: 'Krijo turne', en: 'Create tournament' },
+  'clubs.noTournaments': { sq: 'Ende pa turne — krijo të parin!', en: 'No tournaments yet — create the first one!' },
+  'clubs.register': { sq: 'Regjistrohu', en: 'Register' },
+  'clubs.buyIn': { sq: 'Pjesëmarrja ($)', en: 'Buy-in ($)' },
+  'clubs.capacity': { sq: 'Kapaciteti', en: 'Capacity' },
+  'clubs.tournamentName': { sq: 'Emri i turneut', en: 'Tournament name' },
+  'clubs.tournamentsLoadFailed': { sq: 'Turnetë nuk u ngarkuan dot.', en: 'Couldn’t load tournaments.' },
+
   // Auto-merged from the i18n migration workflow
   'topbar.profile': { sq: 'Profili', en: 'Profile' },
   'topbar.connecting': { sq: 'po lidhem…', en: 'connecting…' },

@@ -568,8 +568,13 @@ model Tournament {
   // not pending. Config-gated (off by default → single-admin/solo operation unaffected).
   pendingWinnerId   String?
   reportedByAdminId String?
+  // Club-scoped tournament: null = global (public list); non-null = belongs to a club
+  // (joinable only by members, creatable only by the founder). Plain nullable column —
+  // no FK relation (keeps it additive + matches the loose-coupling of the rest of this model).
+  clubId         String?
   createdAt      DateTime @default(now())
 
   @@index([status, createdAt])
+  @@index([clubId])
   @@map("tournaments")
 }
