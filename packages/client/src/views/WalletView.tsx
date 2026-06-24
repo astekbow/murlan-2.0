@@ -49,6 +49,7 @@ export function WalletView() {
   // In-flight guards: disable money buttons while a request is pending so a
   // double-click can't double-submit.
   const [withdrawing, setWithdrawing] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false); // DOB/country save in flight — guard double-submit
   const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
   const [exporting, setExporting] = useState(false); // GDPR data export in flight
   const [deleting, setDeleting] = useState(false); // GDPR account deletion in flight
@@ -132,6 +133,12 @@ export function WalletView() {
     }))) return;
     setWithdrawing(true);
     try { await withdraw(cents, destination.trim()); } finally { setWithdrawing(false); }
+  };
+
+  const onSaveProfile = async () => {
+    if (savingProfile) return;
+    setSavingProfile(true);
+    try { await setProfile(dob, country); } finally { setSavingProfile(false); }
   };
 
   const onSelfExclude = async () => {
@@ -221,17 +228,19 @@ export function WalletView() {
       {dialog}
 
       {(error || notice) && (
-        <div
-          className={`rounded-lg px-3 py-2 text-sm border cursor-pointer ${
+        <button
+          type="button"
+          className={`w-full text-left rounded-lg px-3 py-2 text-sm border cursor-pointer ${
             error
               ? 'text-red-300 bg-suit/15 border-suit/40'
               : 'text-emerald-200 bg-emerald-700/15 border-emerald-500/40'
           }`}
           role={error ? 'alert' : 'status'}
+          aria-label={t('common.close')}
           onClick={clearMessages}
         >
           {error || notice}
-        </div>
+        </button>
       )}
 
       <RgStatusBanner />
@@ -315,7 +324,7 @@ export function WalletView() {
             <input maxLength={2} value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} placeholder="AL"
               className="field uppercase" />
           </label>
-          <button onClick={() => void setProfile(dob, country)} className="btn btn-gold">{t('common.save')}</button>
+          <button onClick={() => void onSaveProfile()} disabled={savingProfile} className="btn btn-gold">{savingProfile ? t('wallet.sending') : t('common.save')}</button>
         </div>
         <div className="flex flex-wrap gap-3 items-end pt-1">
           <label className="block">

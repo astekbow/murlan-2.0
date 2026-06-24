@@ -26,6 +26,7 @@ import { Confetti } from '../components/ui/Confetti.tsx';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
 import { ProfileModal } from '../components/ui/ProfileModal.tsx';
+import { useFocusTrap } from '../components/ui/useFocusTrap.ts';
 import { useCosmeticsStore } from '../store/cosmeticsStore.ts';
 import { useT } from '../lib/i18n.ts';
 
@@ -77,9 +78,15 @@ function SpeechBubble({ b }: { b: Bubble }) {
 function LogPanel({ onClose }: { onClose: () => void }) {
   const log = useGameStore((s) => s.log);
   const t = useT();
+  const trapRef = useFocusTrap<HTMLDivElement>();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <div className="modal-backdrop !z-[58]" onClick={onClose} role="dialog" aria-modal="true" aria-label={t('table.gameHistory')}>
-      <div className="panel-solid w-full max-w-sm p-5 animate-pop" onClick={(e) => e.stopPropagation()}>
+      <div ref={trapRef} tabIndex={-1} className="panel-solid w-full max-w-sm p-5 animate-pop outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">{t('table.history')}</h3>
           <button className="iconbtn" onClick={onClose} aria-label={t('common.close')}>✕</button>
@@ -218,6 +225,22 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const confirmSwitch = () => { if (switchPick) { sound.play('card'); void giveSwitch(switchPick); setSwitchPick(null); } };
 
   const opponents = room.seats.filter((s) => s.seat !== mySeat);
+
+  // Focus traps for the hand-rolled game dialogs (a11y: keep Tab inside the dialog and
+  // restore focus on close). Each is gated on its own visibility so it only engages
+  // while that overlay is mounted. The standings + match-over auto-advance, so they get
+  // no Escape handler (matches existing behaviour); the forfeit confirm IS dismissable,
+  // so Escape closes it (= "stay").
+  const standingsVisible = showStandings && !!handStandings && !matchResult && !switching;
+  const standingsTrapRef = useFocusTrap<HTMLDivElement>(standingsVisible);
+  const matchOverTrapRef = useFocusTrap<HTMLDivElement>(!!matchResult);
+  const forfeitTrapRef = useFocusTrap<HTMLDivElement>(confirmLeave);
+  useEffect(() => {
+    if (!confirmLeave) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setConfirmLeave(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmLeave]);
 
   // ----- Game-feel SFX (presentational side-effects on state transitions) ----
   const refreshMe = useAuthStore((s) => s.refreshMe);
@@ -606,7 +629,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             {/* Flex column so the title + Continue button are always visible and the panel
                 stays CENTERED + scroll-free on a short landscape phone (≤4 player rows fit;
                 the list is the only thing that could ever shrink/scroll, never the button). */}
-            <div className="panel-solid w-full max-w-sm max-h-[92dvh] flex flex-col overflow-hidden p-4 text-center animate-pop">
+            <div ref={standingsTrapRef} tabIndex={-1} className="panel-solid w-full max-w-sm max-h-[92dvh] flex flex-col overflow-hidden p-4 text-center animate-pop outline-none">
               <div className="shrink-0">
                 <div className="text-2xl mb-0.5">🏁</div>
                 <h2 className="gold-text font-display font-bold tracking-wide text-lg leading-tight">{t('table.standingsTitle')}</h2>
@@ -679,7 +702,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {matchResult && iWon && <Confetti />}
       {matchResult && (
         <div className="modal-backdrop !z-[60]" role="dialog" aria-modal="true" aria-label={t('table.matchOver')}>
-          <div className="panel-solid w-full max-w-sm p-7 text-center animate-pop">
+          <div ref={matchOverTrapRef} tabIndex={-1} className="panel-solid w-full max-w-sm p-7 text-center animate-pop outline-none">
             <div className="text-5xl mb-2">{iWon ? '🏆' : '🃏'}</div>
             <h2 className="gold-text font-display font-bold tracking-wide text-3xl mb-1">{t('table.matchOverBang')}</h2>
             <p className="text-sm text-muted mb-4">
@@ -765,7 +788,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {/* Confirm before forfeiting a live match (real money is at stake) */}
       {confirmLeave && (
         <div className="modal-backdrop !z-[62]" role="dialog" aria-modal="true" aria-label={t('table.leaveMatch')}>
-          <div className="panel-solid w-full max-w-sm p-6 text-center animate-pop">
+          <div ref={forfeitTrapRef} tabIndex={-1} className="panel-solid w-full max-w-sm p-6 text-center animate-pop outline-none">
             <div className="text-4xl mb-2">⚠️</div>
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-xl mb-1">{t('table.leaveConfirm')}</h2>
             <p className="text-sm text-muted mb-5">

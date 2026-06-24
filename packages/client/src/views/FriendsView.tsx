@@ -248,7 +248,7 @@ export function FriendsView() {
                 {outgoing.map((f) => (
                   <FriendRow key={f.id} entry={f}>
                     <span className="tag tag-open">{t('friends.sent')}</span>
-                    <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost btn-sm" title={t('common.cancel')}>{t('common.cancel')}</button>
+                    <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost btn-sm" title={t('friends.cancelRequest')}>{t('friends.cancelRequest')}</button>
                   </FriendRow>
                 ))}
               </ul>

@@ -66,9 +66,11 @@ export function AuthView() {
           <h1 className="gold-text font-display font-bold text-4xl tracking-wide leading-none">CRYPTO-MURLAN</h1>
         </div>
 
-        <div className="seg grid grid-cols-2 w-full">
+        <div className="seg grid grid-cols-2 w-full" role="radiogroup" aria-label={t('auth.login')}>
           <button
             type="button"
+            role="radio"
+            aria-checked={mode === 'login'}
             onClick={() => { setMode('login'); clearError(); }}
             className={`seg-tab text-center ${mode === 'login' ? 'active' : ''}`}
           >
@@ -76,6 +78,8 @@ export function AuthView() {
           </button>
           <button
             type="button"
+            role="radio"
+            aria-checked={mode === 'register'}
             onClick={() => { setMode('register'); clearError(); }}
             className={`seg-tab text-center ${mode === 'register' ? 'active' : ''}`}
           >

@@ -224,13 +224,15 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
                   />
                 </label>
               </div>
-              <div className="grid grid-cols-6 gap-2.5">
+              <div className="grid grid-cols-6 gap-2.5" role="radiogroup" aria-label={t('profile.chooseAvatar')}>
                 {AVATARS.map((a) => {
                   const active = profile.avatar === a;
                   return (
                     <button
                       key={a}
                       type="button"
+                      role="radio"
+                      aria-checked={active}
                       onClick={() => void pickAvatar(a)}
                       disabled={savingAvatar !== null}
                       title={a}

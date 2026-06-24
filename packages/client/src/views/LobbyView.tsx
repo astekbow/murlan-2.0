@@ -86,7 +86,9 @@ export function LobbyView() {
 
   return (
     <div className="space-y-4">
-      <h1 className="sr-only">{t('lobby.srTitle')}</h1>
+      {/* One <h1> per page: the open-rooms page gets its <h1> from <PageHeader> below,
+          so the sr-only heading is only rendered on the home page (which has none). */}
+      {!showRooms && <h1 className="sr-only">{t('lobby.srTitle')}</h1>}
       {showRooms ? (
         /* ---- Open rooms — its own page ---- */
         <div className="space-y-4 animate-rise">
@@ -408,8 +410,11 @@ function CreateRoomModal({ onClose, onCreate }: CreateProps) {
   async function create() {
     if (busy) return;
     setBusy(true);
-    await onCreate(type, toCents(stake), type === '2v2' ? team : undefined, priv);
-    onClose();
+    // Close only on success; on failure the store's toast explains why and the
+    // modal stays open with the inputs intact so the user can retry.
+    const roomId = await onCreate(type, toCents(stake), type === '2v2' ? team : undefined, priv);
+    if (roomId) onClose();
+    else setBusy(false);
   }
 
   return (

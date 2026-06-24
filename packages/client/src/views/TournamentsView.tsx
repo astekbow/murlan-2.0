@@ -24,12 +24,25 @@ export function TournamentsView() {
   const [name, setName] = useState('Turne');
   const [buyIn, setBuyIn] = useState('5');
   const [cap, setCap] = useState<2 | 4 | 8>(4);
+  // Distinguish loading / loaded-and-empty / failed so a failed fetch shows an inline
+  // error + retry instead of the "no tournaments" empty state.
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     const token = tk();
-    if (!token) return;
-    try { setList((await tournamentsApi.list(token)).tournaments); }
-    catch (e) { useGameStore.setState({ toast: e instanceof ApiError ? e.message : tr('tourn.loadFailed'), toastKind: 'error' }); }
+    if (!token) { setStatus('ready'); return; }
+    if (!opts?.silent) { setStatus('loading'); setError(null); }
+    try {
+      setList((await tournamentsApi.list(token)).tournaments);
+      setStatus('ready');
+    } catch (e) {
+      // A post-action silent refresh that blips keeps the current list (the action's
+      // own toast covers it); the initial/explicit load surfaces the error state.
+      if (opts?.silent) return;
+      setError(e instanceof ApiError ? e.message : tr('tourn.loadFailed'));
+      setStatus('error');
+    }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -37,7 +50,7 @@ export function TournamentsView() {
     const token = tk();
     if (!token || busy) return;
     setBusy(true);
-    try { await fn(); await load(); await useAuthStore.getState().refreshMe(); }
+    try { await fn(); await load({ silent: true }); await useAuthStore.getState().refreshMe(); }
     catch (e) { useGameStore.setState({ toast: e instanceof ApiError ? e.message : tr('tourn.actionFailed'), toastKind: 'error' }); }
     finally { setBusy(false); }
   };
@@ -73,8 +86,16 @@ export function TournamentsView() {
         </form>
       </section>
 
-      {list.length === 0 ? (
-        <section className="panel p-8 text-center"><div className="text-4xl mb-2 opacity-60">🏆</div><p className="text-sm text-muted">{t('tourn.none')}</p></section>
+      {status === 'loading' ? (
+        <section className="panel p-8 text-center"><div className="text-4xl mb-2 opacity-60 animate-pulse">🏆</div><p className="text-sm text-muted">{t('tourn.loading')}</p></section>
+      ) : status === 'error' ? (
+        <section className="panel p-8 text-center">
+          <div className="text-4xl mb-2 opacity-60">⚠️</div>
+          <p className="text-sm text-red-300 mb-4">{error}</p>
+          <button onClick={() => void load()} className="btn btn-gold btn-sm">{t('app.retry')}</button>
+        </section>
+      ) : list.length === 0 ? (
+        <section className="panel p-8 text-center"><div className="text-4xl mb-2 opacity-60" aria-hidden="true">🏆</div><p className="text-sm text-muted">{t('tourn.none')}</p></section>
       ) : (
         list.map((tn) => {
           const joined = me ? tn.playerIds.includes(me.id) : false;

@@ -95,6 +95,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           <button
             onClick={() => { void navigator.clipboard?.writeText(room.joinCode!).catch(() => {}); useGameStore.setState({ toast: tr('room.codeCopied'), toastKind: 'success' }); }}
             className="font-mono text-3xl tracking-[0.35em] gold-text font-bold"
+            aria-label={tr('common.copyCode')}
           >
             {room.joinCode}
           </button>

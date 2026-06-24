@@ -1,11 +1,15 @@
 // In-app support / disputes: open a ticket (optionally attach a match id for a
 // dispute) and see your tickets + any admin resolution. Disputes are resolved
 // against the immutable ledger + provably-fair replay.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supportApi, ApiError, type SupportTicket, type SupportCategory } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
-import { useT } from '../lib/i18n.ts';
+import { EmptyState } from '../components/ui/EmptyState.tsx';
+import { useT, translate, useLangStore } from '../lib/i18n.ts';
+
+// For errors set OUTSIDE render — translate with the live language.
+const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
 // Keys (not resolved labels) so they re-translate when the language changes —
 // resolved in-render with the reactive `t`. (A module-level tr() would freeze the
@@ -29,13 +33,25 @@ export function SupportView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Distinguish loading / loaded-and-empty / failed for the tickets list so a failed
+  // fetch shows an inline error + retry instead of masquerading as "no tickets".
+  const [listStatus, setListStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [listError, setListError] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    try { setTickets((await supportApi.mine(token)).tickets); } catch { /* ignore */ }
-  };
-  useEffect(() => { void load(); }, []);
+    if (!token) { setListStatus('ready'); return; }
+    setListStatus('loading');
+    setListError(null);
+    try {
+      setTickets((await supportApi.mine(token)).tickets);
+      setListStatus('ready');
+    } catch (e) {
+      setListError(e instanceof ApiError ? e.message : tr('support.loadFailed'));
+      setListStatus('error');
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
 
   const submit = async () => {
     const token = useAuthStore.getState().accessToken;
@@ -62,7 +78,7 @@ export function SupportView() {
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('support.eyebrow')}</div>
           <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('support.title')}</h1>
         </div>
-        <span className="text-4xl opacity-80">🛟</span>
+        <span className="text-4xl opacity-80" aria-hidden="true">🛟</span>
       </section>
 
       {/* New ticket */}
@@ -98,7 +114,18 @@ export function SupportView() {
       {/* My tickets */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('support.myTickets')}</h2>
-        {tickets.length === 0 ? (
+        {listStatus === 'loading' ? (
+          <div className="text-center py-6">
+            <div className="text-3xl mb-2 opacity-60 animate-pulse">🛟</div>
+            <p className="text-sm text-muted">{t('support.loadingTickets')}</p>
+          </div>
+        ) : listStatus === 'error' ? (
+          <EmptyState
+            tone="error"
+            message={listError ?? t('support.loadFailed')}
+            action={<button onClick={() => void load()} className="btn btn-gold btn-sm">{t('app.retry')}</button>}
+          />
+        ) : tickets.length === 0 ? (
           <p className="text-sm text-muted text-center py-6">{t('support.noTickets')}</p>
         ) : (
           <ul className="space-y-2.5">

@@ -19,11 +19,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         {/* Language */}
         <div>
           <div className="field-label">{t('settings.language')}</div>
-          <div className="seg w-full grid grid-cols-2 mt-1">
+          <div className="seg w-full grid grid-cols-2 mt-1" role="radiogroup" aria-label={t('settings.language')}>
             {LANGS.map((l) => (
               <button
                 key={l.id}
                 type="button"
+                role="radio"
+                aria-checked={lang === l.id}
                 className={`seg-tab text-center ${lang === l.id ? 'active' : ''}`}
                 onClick={() => { setLang(l.id); sound.play('button'); }}
               >
@@ -67,11 +69,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         {/* Responsible gaming: a periodic reality-check reminder. */}
         <div className="pt-1 border-t border-white/10">
           <div className="field-label mt-3">{t('settings.realityCheck')}</div>
-          <div className="seg w-full grid grid-cols-4 mt-1">
+          <div className="seg w-full grid grid-cols-4 mt-1" role="radiogroup" aria-label={t('settings.realityCheck')}>
             {RC_OPTIONS.map((m) => (
               <button
                 key={m}
                 type="button"
+                role="radio"
+                aria-checked={realityCheckMinutes === m}
                 className={`seg-tab text-center ${realityCheckMinutes === m ? 'active' : ''}`}
                 onClick={() => { setRealityCheckMinutes(m); sound.play('button'); }}
               >

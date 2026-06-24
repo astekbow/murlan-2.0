@@ -763,7 +763,10 @@ select:focus-visible,
 }
 /* Sized as % of canvas WIDTH (cqw) like the spec (Ø ~4.5%w = 42pt) — cqh made them tiny. */
 .tv-ls .tvc-topbar .iconbtn {
-  width: 5cqw; height: 5cqw; min-width: 0; min-height: 0; font-size: 2.7cqw;
+  /* 44px touch-target floor (a11y): cqw alone shrinks these below the minimum on
+     small canvases — clamp each axis up to 30px (with the wider tap padding the
+     effective target reaches ~44px). */
+  width: max(5cqw, 30px); height: max(5cqw, 30px); font-size: 2.7cqw;
   background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
   border: 1px solid var(--hairline-gold) !important;
   backdrop-filter: blur(7px);
@@ -924,6 +927,7 @@ select:focus-visible,
 .tv-ls .ctrl-pass, .tv-ls .ctrl-play {
   position: absolute; top: 81%; z-index: 25;
   width: 13.5cqw; height: 13.5cqw;
+  min-width: 44px; min-height: 44px; /* a11y touch-target floor on small canvases */
   transform: translate(-50%, -50%);
   flex: none !important; padding: 0 !important; border-radius: 9999px !important;
   display: flex; align-items: center; justify-content: center; line-height: 1;
@@ -932,7 +936,10 @@ select:focus-visible,
 /* Pas: a SOLID dark-glass disc with a gold hairline (the old transparent ghost was hard to
    see on the felt). Luaj keeps its gold fill + a gold glow so the primary action pops. */
 .tv-ls .ctrl-pass {
-  left: 12%;
+  /* Nudge inward by the LEFT safe-area inset so a notch / rounded corner on a
+     landscape phone never overlaps the button (env() is 0 on inset-free devices,
+     so the % position is unchanged there). */
+  left: calc(12% + env(safe-area-inset-left, 0px));
   /* Clearly visible on the felt: a LIGHTER slate disc (not near-black, which blended in),
      a bright 2px gold ring + soft gold glow, and gold text. Distinct from the gold-FILLED
      Luaj, but obviously a real button. */
@@ -942,7 +949,9 @@ select:focus-visible,
   box-shadow: 0 0 16px rgba(232, 200, 121, 0.32), 0 8px 20px -6px rgba(0, 0, 0, 0.8) !important;
 }
 .tv-ls .ctrl-play {
-  left: 88%;
+  /* Mirror of .ctrl-pass: pull inward by the RIGHT safe-area inset on notched
+     landscape phones (no change on inset-free devices). */
+  left: calc(88% - env(safe-area-inset-right, 0px));
   box-shadow: 0 0 22px rgba(232, 200, 121, 0.5), 0 8px 20px -6px rgba(0, 0, 0, 0.8) !important;
 }
 /* Pas/Luaj appear (fade in) only on MY turn; faded + non-interactive otherwise. */

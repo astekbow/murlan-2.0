@@ -15,7 +15,9 @@ export type MurlanSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export function connectSocket(getToken: () => string | null): MurlanSocket {
   return io({
     auth: (cb) => cb({ token: getToken() ?? '' }),
-    transports: ['websocket'],
+    // Prefer WebSocket, but fall back to HTTP long-polling so a restrictive
+    // proxy/firewall that blocks WS upgrades can still connect.
+    transports: ['websocket', 'polling'],
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: Infinity,

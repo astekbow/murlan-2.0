@@ -100,7 +100,7 @@ export function LeaderboardView() {
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('lb.section')}</div>
           <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('lb.title')}</h1>
         </div>
-        <span className="text-4xl opacity-80">🏆</span>
+        <span className="text-4xl opacity-80" aria-hidden="true">🏆</span>
       </section>
 
       {/* Tabs: global XP vs ranked season ladder */}
@@ -148,7 +148,7 @@ export function LeaderboardView() {
               <span className="text-[11px] uppercase tracking-wider text-gold-hi/80 shrink-0">{t('lb.yourRank')}</span>
               {rank !== null ? (
                 <>
-                  <span className={`font-display font-bold text-lg ${rankClass(rank)}`}>{rankLabel(rank)}</span>
+                  <span className={`font-display font-bold text-lg ${rankClass(rank)}`} aria-label={t('lb.rankN', { n: rank })}>{rankLabel(rank)}</span>
                   <span className="text-sm text-txt truncate flex-1">{meG?.username ?? meR?.username}</span>
                   <span className="font-display font-semibold text-gold-hi tabular-nums shrink-0">{meG ? `${meG.xp} XP` : meR?.rating}</span>
                 </>
@@ -257,7 +257,7 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
               }`}
               style={{ animationDelay: `${Math.min(i, 12) * 0.05}s` }}
             >
-              <div className={`w-9 text-center font-display font-bold text-lg ${rankClass(r.rank)}`}>
+              <div className={`w-9 text-center font-display font-bold text-lg ${rankClass(r.rank)}`} aria-label={t('lb.rankN', { n: r.rank })}>
                 {rankLabel(r.rank)}
               </div>
               <div className="pfp shrink-0" style={{ width: 54, height: 54 }}>
@@ -321,7 +321,7 @@ function RankedBoard({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: strin
               }`}
               style={{ animationDelay: `${Math.min(i, 12) * 0.05}s` }}
             >
-              <div className={`w-9 text-center font-display font-bold text-lg ${rankClass(r.rank)}`}>
+              <div className={`w-9 text-center font-display font-bold text-lg ${rankClass(r.rank)}`} aria-label={t('lb.rankN', { n: r.rank })}>
                 {rankLabel(r.rank)}
               </div>
               <div className="pfp shrink-0" style={{ width: 54, height: 54 }}>

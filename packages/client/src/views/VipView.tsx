@@ -83,7 +83,7 @@ export function VipView() {
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('vip.loyalty')}</div>
           <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">VIP</h1>
         </div>
-        <span className="text-4xl opacity-80">♛</span>
+        <span className="text-4xl opacity-80" aria-hidden="true">♛</span>
       </section>
 
       {status === 'loading' ? (

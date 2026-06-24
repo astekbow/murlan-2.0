@@ -35,6 +35,9 @@ export function ShopView() {
 
   const [status, setStatus] = useState<RewardsStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // Track a FAILED load distinctly from "logged out": a logged-in user whose status
+  // fetch failed must see an inline error + retry, NOT the "log in to open" state.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ tableFelt?: string; cardBack?: string }>({});
   const [priceSort, setPriceSort] = useState<'default' | 'asc' | 'desc'>('default');
@@ -46,14 +49,16 @@ export function ShopView() {
     const token = useAuthStore.getState().accessToken;
     if (!token) {
       setStatus(null);
+      setLoadError(null);
       setLoading(false);
       return;
     }
+    setLoadError(null);
     try {
       const { status } = await rewardsApi.status(token);
       setStatus(status);
     } catch (e) {
-      useGameStore.setState({ toast: e instanceof ApiError ? e.message : tr('shop.loadFailed'), toastKind: 'error' });
+      setLoadError(e instanceof ApiError ? e.message : tr('shop.errLoad'));
     } finally {
       setLoading(false);
     }
@@ -123,6 +128,16 @@ export function ShopView() {
           <div className="text-center py-10">
             <div className="text-4xl mb-2 opacity-60 animate-pulse">🛍️</div>
             <p className="text-sm text-muted">{t('shop.loading')}</p>
+          </div>
+        </section>
+      ) : loadError ? (
+        /* A failed load must NOT fall through to "log in to open" for a logged-in
+           user — show the error + a retry instead. */
+        <section className="panel p-5 animate-rise" style={{ animationDelay: '.08s' }}>
+          <div className="text-center py-10">
+            <div className="text-4xl mb-2 opacity-60">⚠️</div>
+            <p className="text-sm text-red-300 mb-4">{loadError}</p>
+            <button onClick={() => { setLoading(true); void load(); }} className="btn btn-gold btn-sm">{t('app.retry')}</button>
           </div>
         </section>
       ) : !status ? (

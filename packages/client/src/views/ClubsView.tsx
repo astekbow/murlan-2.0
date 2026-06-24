@@ -81,6 +81,7 @@ export function ClubsView() {
                 onClick={() => { void navigator.clipboard?.writeText(mine.joinCode!).then(() => useGameStore.setState({ toast: t('clubs.codeCopied'), toastKind: 'success' })).catch(() => {}); }}
                 className="font-mono text-2xl tracking-[0.35em] gold-text font-bold"
                 title={t('clubs.shareCodeHint')}
+                aria-label={t('common.copyCode')}
               >
                 {mine.joinCode}
               </button>
