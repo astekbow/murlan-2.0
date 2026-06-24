@@ -67,8 +67,14 @@ jobs:
       - name: Test (engine + server + client; incl. Postgres integration)
         run: npm test
 
-      - name: Dependency audit (fail on high+)
-        run: npm audit --audit-level=high
+      # Gate on PRODUCTION dependencies only (--omit=dev): a high+ in a shipped package is real
+      # exposure and must block; a CVE in build/test tooling (vite/vitest etc.) is not shipped and
+      # must not red-wall every PR (incl. hotfixes) when no upstream fix exists yet.
+      - name: Dependency audit — production deps (fail on high+)
+        run: npm audit --omit=dev --audit-level=high
+      # Dev-tooling advisories are surfaced but NON-blocking (review, don't gate).
+      - name: Dependency audit — dev tooling (advisory only)
+        run: npm audit --audit-level=high || true
 
       - name: Generate SBOM (CycloneDX)
         run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cdx.json
@@ -93,3 +99,20 @@ jobs:
         run: docker build -f Dockerfile.server -t murlan-server:ci .
       - name: Build client image
         run: docker build -f Dockerfile.client -t murlan-client:ci .
+      # Scan the built images for OS/library CVEs. ignore-unfixed: only FIXABLE high/critical
+      # block (an un-patched base-OS CVE shouldn't wedge deploys); a finding here means "rebuild
+      # on a newer base / bump the dep", which is actionable.
+      - name: Scan server image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: murlan-server:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Scan client image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: murlan-client:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
