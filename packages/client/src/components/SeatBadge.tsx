@@ -93,19 +93,27 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   const teamEl = team !== null && !partner ? <span className="text-[11px] text-cream/80">{t('seat.team', { n: team + 1 })}</span> : null;
   const top = placement === 'top';
 
-  // Unified layout: the card-fan + count "(N)" sit TOGETHER at the top (count next to the
-  // cards for EVERY avatar), the name tucks directly under the avatar, then the team tag.
-  // The "led last" badge sits inline for the side seats but goes to the SIDE (absolute)
-  // for the TOP seat, so it never hangs down over the felt / pile.
+  // Layout: the count "(N)" sits with the cards. The TOP seat faces DOWN toward the table, so its
+  // avatar goes UP and the card-fan drops BELOW it (avatar → name → cards). Side seats keep only the
+  // count up top (their fan is BEHIND the avatar). The "led last" badge is inline for non-top seats
+  // but absolute to the SIDE for the TOP seat so it never hangs over the felt / pile.
   return (
     <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${dimmed ? 'opacity-60' : ''}`}>
-      <div className="flex items-center gap-1.5">
-        {/* SIDE seats keep only the count up here — their fan is centred BEHIND the avatar. */}
-        {!side && fan}
-        <span className="seat-cnt">({count})</span>
-      </div>
+      {!top && (
+        <div className="flex items-center gap-1.5">
+          {/* SIDE seats keep only the count up here — their fan is centred BEHIND the avatar. */}
+          {!side && fan}
+          <span className="seat-cnt">({count})</span>
+        </div>
+      )}
       {avatarEl}
       {nameEl}
+      {top && (
+        <div className="flex items-center gap-1.5">
+          {fan}
+          <span className="seat-cnt">({count})</span>
+        </div>
+      )}
       {(teamEl || (lastPlayer && !top)) && (
         <div className="flex items-center gap-1.5">
           {lastPlayer && !top && <span className="lastp">{t('seat.ledLast')}</span>}
