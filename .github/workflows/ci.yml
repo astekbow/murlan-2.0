@@ -1,8 +1,8 @@
 name: CI
 
 # Quality gate for a real-money codebase: nothing merges without typecheck,
-# tests, a dependency-vuln scan, and a clean client build. (Activates once the
-# repo is pushed to GitHub — there is no git remote yet.)
+# tests, a dependency-vuln scan, and a clean client build. Active on
+# github.com/astekbow/murlan-2.0 (runs on every push to main + every PR).
 on:
   push:
     branches: [main, master]
