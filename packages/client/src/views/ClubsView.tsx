@@ -1,6 +1,7 @@
 // Clubs: if you're in one, see it (members + roles) and leave; otherwise browse
 // clubs to join, or create your own. One club per player.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { clubsApi, tournamentsApi, ApiError, type ClubSummaryDTO, type ClubDetailDTO, type ChatMessageDTO, type TournamentDTO } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
@@ -58,8 +59,10 @@ export function ClubsView() {
   };
 
   // ---- Landscape "console": fixed-height, two-pane, no PAGE scroll (phone held flat).
+  // Portaled to <body> so it escapes the ViewTransition's transform (which would otherwise
+  // trap position:fixed inside <main>, leaving it under the TopBar) → true full-screen.
   if (landscape) {
-    return (
+    return createPortal(
       <div className="pg-ls">
         {dialog}
         <div className="pg-ls-top">
@@ -145,7 +148,8 @@ export function ClubsView() {
             </div>
           </div>
         )}
-      </div>
+      </div>,
+      document.body,
     );
   }
 

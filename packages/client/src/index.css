@@ -1069,7 +1069,7 @@ select:focus-visible,
 .pg-ls {
   position: fixed;
   inset: 0;
-  z-index: 40;                      /* over the app chrome — the page owns the screen */
+  z-index: 50;                      /* over the app chrome (TopBar) — the page owns the screen */
   display: flex;
   flex-direction: column;
   background: radial-gradient(120% 90% at 50% 0%, #14121a, #0b0a0e 70%);
