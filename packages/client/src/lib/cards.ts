@@ -38,7 +38,10 @@ export function isRed(card: Card): boolean {
 
 export function suitSymbol(card: Card): string {
   // Joker centre = the joker FIGURE (🃏) so it never reads as a "J"; standard cards use the suit glyph.
-  return card.kind === 'joker' ? '🃏' : SUIT_SYMBOL[card.suit] ?? '?';
+  // The U+FE0E text-presentation selector forces the MONOCHROME glyph (not the colour emoji) so the
+  // figure inherits the card colour — red joker reads RED, black reads dark — instead of both showing
+  // the same dark emoji. (CSS `font-variant-emoji: text` on `.gcard.joker` reinforces this.)
+  return card.kind === 'joker' ? '🃏︎' : SUIT_SYMBOL[card.suit] ?? '?';
 }
 
 export function rankText(card: Card): string {

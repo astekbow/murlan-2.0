@@ -497,6 +497,10 @@ select:focus-visible,
     container-type: size;
   }
   .gcard.red { color: var(--red); }
+  /* Joker FIGURE: force the monochrome (text) glyph so it inherits the card colour — the red
+     joker reads RED, the black joker dark — instead of both showing the same dark colour-emoji.
+     Pairs with the U+FE0E selector in suitSymbol(). */
+  .gcard.joker .gc-s, .gcard.joker .gc-big { font-variant-emoji: text; }
   .gcard.lg { width: 74px; height: 104px; }
   .gcard.sm { width: 30px; height: 44px; }
   /* All sizes/offsets are % of the card width (cqw) → proportional at every card size. */

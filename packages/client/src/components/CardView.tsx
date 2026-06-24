@@ -28,7 +28,7 @@ function CardViewImpl({ card, selected, small, big, onClick, dealDelayMs, style 
       aria-pressed={selected}
       aria-label={`${rankText(card)} ${suitSymbol(card)}`}
       style={mergedStyle}
-      className={['gcard', size, red ? 'red' : '', selected ? 'sel' : '', onClick ? 'active:scale-95' : ''].join(' ')}
+      className={['gcard', size, red ? 'red' : '', card.kind === 'joker' ? 'joker' : '', selected ? 'sel' : '', onClick ? 'active:scale-95' : ''].join(' ')}
     >
       <span className="gc-r">{rankText(card)}</span>
       <span className="gc-s">{suitSymbol(card)}</span>
