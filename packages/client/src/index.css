@@ -878,8 +878,8 @@ select:focus-visible,
    crossing through the middle of the face. z-index below the avatar; the avatar's own `isolate`
    keeps it scoped behind just the avatar, not the whole table. */
 .seat-fan-behind { position: absolute; top: 50%; display: flex; flex-direction: column; align-items: center; z-index: -1; opacity: 0.95; pointer-events: none; }
-.seat-fan-behind.tbl-left  { left: calc(50% + 2.2cqw); transform: translate(-8%, -50%); }   /* lean right, toward table centre */
-.seat-fan-behind.tbl-right { left: calc(50% - 2.2cqw); transform: translate(-92%, -50%); }  /* lean left, toward table centre */
+.seat-fan-behind.tbl-left  { left: calc(50% + 4cqw); transform: translate(-8%, -50%); }   /* lean right, toward table centre — gap from the avatar */
+.seat-fan-behind.tbl-right { left: calc(50% - 4cqw); transform: translate(-92%, -50%); }  /* lean left, toward table centre — gap from the avatar */
 .tv-ls .tvc-seat .seat-fan-behind .mini { width: 2.7cqw; height: 3.8cqw; margin-left: 0; margin-top: -2.4cqw; box-shadow: 0 0.4cqw 0.8cqw -0.3cqw #000, inset 0 0 0 0.18cqw #f1deae, inset 0 0 0 0.3cqw rgba(0, 0, 0, 0.25); }
 .tv-ls .tvc-seat .seat-fan-behind .mini:first-child { margin-top: 0; }
 

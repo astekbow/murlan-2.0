@@ -59,8 +59,8 @@ const LS_SEAT_SLOT: Record<SeatPosition, 'top' | 'left' | 'right' | null> = {
 /** center (cx,cy) of each opponent seat group, as % of the canvas. */
 const LS_SEAT_CXY: Record<'top' | 'left' | 'right', { cx: number; cy: number }> = {
   top: { cx: 49, cy: 12 },
-  left: { cx: 15, cy: 40 },
-  right: { cx: 86, cy: 40 },
+  left: { cx: 10, cy: 40 },   // pushed further LEFT (toward the edge) — more space from the cards
+  right: { cx: 91, cy: 40 },  // pushed further RIGHT (toward the edge) — more space from the cards
 };
 
 /** A transient emote/quick-chat speech bubble above a seat. */
