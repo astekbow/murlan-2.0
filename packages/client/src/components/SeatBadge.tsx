@@ -106,14 +106,19 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
           <span className="seat-cnt">({count})</span>
         </div>
       )}
-      {avatarEl}
-      {nameEl}
-      {top && (
-        <div className="flex items-center gap-1.5">
-          {fan}
-          <span className="seat-cnt">({count})</span>
+      {top ? (
+        // TOP seat: avatar on the left with its cards (+ count) to the RIGHT of it.
+        <div className="flex items-center gap-2">
+          {avatarEl}
+          <div className="flex items-center gap-1.5">
+            {fan}
+            <span className="seat-cnt">({count})</span>
+          </div>
         </div>
+      ) : (
+        avatarEl
       )}
+      {nameEl}
       {(teamEl || (lastPlayer && !top)) && (
         <div className="flex items-center gap-1.5">
           {lastPlayer && !top && <span className="lastp">{t('seat.ledLast')}</span>}
