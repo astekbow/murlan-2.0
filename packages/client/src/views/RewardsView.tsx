@@ -93,6 +93,43 @@ export function RewardsView() {
     }
   };
 
+  const claimQuest = async (kind: 'daily' | 'weekly', id: string) => {
+    if (busy) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setBusy(`${kind}:${id}`);
+    try {
+      const { rewardXp } = kind === 'daily'
+        ? await rewardsApi.claimDailyQuest(token, id)
+        : await rewardsApi.claimWeeklyQuest(token, id);
+      await load();
+      await useAuthStore.getState().refreshMe();
+      useNotifications.getState().push(t('rewards.questClaimed', { xp: rewardXp }), 'info');
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('rewards.errClaim'), toastKind: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const claimLevelReward = async () => {
+    if (busy) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setBusy('level');
+    try {
+      const r = await rewardsApi.claimLevelReward(token);
+      await load();
+      await useAuthStore.getState().refreshMe();
+      const cos = r.cosmeticId ? t('rewards.plusCosmetic') : '';
+      useNotifications.getState().push(t('rewards.levelRewardClaimed', { n: r.level, xp: r.bonusXp, cos }), 'info');
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('rewards.errClaim'), toastKind: 'error' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const claimAll = async () => {
     if (busy) return;
     const token = useAuthStore.getState().accessToken;
@@ -159,26 +196,64 @@ export function RewardsView() {
               </div>
             </div>
 
-            {/* RIGHT — challenges */}
+            {/* RIGHT — level reward + rotating quests + challenges */}
             <div className="pg-ls-right">
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <h2 className="text-sm font-display font-semibold text-gold-hi">{t('rewards.challenges')}</h2>
+                <h2 className="text-sm font-display font-semibold text-gold-hi">{t('rewards.title')}</h2>
                 {claimableCount > 1 && (
                   <button onClick={() => void claimAll()} disabled={!!busy} className="btn btn-gold btn-sm">
                     {busy === 'all' ? t('rewards.claiming') : t('rewards.claimAll', { n: claimableCount })}
                   </button>
                 )}
               </div>
-              <div className="pg-ls-scroll panel p-3">
-                {status.challenges.length === 0 ? (
-                  <div className="text-center py-8"><div className="text-3xl mb-2 opacity-60">🎯</div><p className="text-sm text-muted">{t('rewards.noChallenges')}</p></div>
-                ) : (
-                  <ul className="space-y-2">
-                    {status.challenges.map((c, i) => (
-                      <ChallengeRow key={c.id} challenge={c} busy={busy === c.id} index={i} onClaim={() => void claimChallenge(c.id)} />
-                    ))}
-                  </ul>
+              <div className="pg-ls-scroll panel p-3 space-y-3">
+                {status.levelReward && (
+                  <div className="rounded-xl px-3 py-2.5 border border-gold/30 bg-white/[.03] flex items-center gap-3">
+                    <span className="text-2xl leading-none" aria-hidden>🏆</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-display font-semibold text-sm text-gold-hi">{t('rewards.levelReached', { n: status.levelReward.level })}</div>
+                      <div className="text-xs text-muted">+{status.levelReward.bonusXp} XP{status.levelReward.cosmeticId ? t('rewards.plusCosmetic') : ''}</div>
+                    </div>
+                    <button onClick={() => void claimLevelReward()} disabled={busy === 'level'} className="btn btn-gold btn-sm shrink-0">
+                      {busy === 'level' ? t('rewards.claiming') : t('rewards.claim')}
+                    </button>
+                  </div>
                 )}
+
+                {status.dailyQuests.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-display font-semibold text-gold-hi mb-1.5">{t('rewards.dailyQuests')}</h3>
+                    <ul className="space-y-2">
+                      {status.dailyQuests.map((q, i) => (
+                        <ChallengeRow key={q.id} challenge={q} busy={busy === `daily:${q.id}`} index={i} onClaim={() => void claimQuest('daily', q.id)} />
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {status.weeklyQuests.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-display font-semibold text-gold-hi mb-1.5">{t('rewards.weeklyQuests')}</h3>
+                    <ul className="space-y-2">
+                      {status.weeklyQuests.map((q, i) => (
+                        <ChallengeRow key={q.id} challenge={q} busy={busy === `weekly:${q.id}`} index={i} onClaim={() => void claimQuest('weekly', q.id)} />
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div>
+                  <h3 className="text-xs font-display font-semibold text-gold-hi mb-1.5">{t('rewards.challenges')}</h3>
+                  {status.challenges.length === 0 ? (
+                    <div className="text-center py-6"><div className="text-3xl mb-2 opacity-60">🎯</div><p className="text-sm text-muted">{t('rewards.noChallenges')}</p></div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {status.challenges.map((c, i) => (
+                        <ChallengeRow key={c.id} challenge={c} busy={busy === c.id} index={i} onClaim={() => void claimChallenge(c.id)} />
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -255,6 +330,59 @@ export function RewardsView() {
               <button disabled className="btn btn-ghost btn-lg btn-block">
                 {t('rewards.claimedToday')}
               </button>
+            )}
+          </section>
+
+          {/* Level-up reward — shown only when one is pending (reached but uncollected) */}
+          {status.levelReward && (
+            <section className="panel-solid p-5 animate-rise border border-gold/30" style={{ animationDelay: '.1s' }}>
+              <div className="flex items-center gap-4">
+                <span className="text-4xl leading-none" aria-hidden>🏆</span>
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.levelRewardTitle')}</h2>
+                  <div className="text-sm text-txt mt-0.5">{t('rewards.levelReached', { n: status.levelReward.level })}</div>
+                  <div className="text-xs text-muted mt-0.5">
+                    +{status.levelReward.bonusXp} XP{status.levelReward.cosmeticId ? t('rewards.plusCosmetic') : ''} — {t('rewards.levelRewardBody')}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => void claimLevelReward()} disabled={busy === 'level'} className="btn btn-gold btn-block mt-4">
+                {busy === 'level' ? t('rewards.claiming') : t('rewards.claimLevelReward')}
+              </button>
+            </section>
+          )}
+
+          {/* Daily quests (rotate every UTC day) */}
+          <section className="panel p-5 animate-rise" style={{ animationDelay: '.11s' }}>
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.dailyQuests')}</h2>
+              <span className="text-xs text-muted">{t('rewards.dailyQuestsHint')}</span>
+            </div>
+            {status.dailyQuests.length === 0 ? (
+              <div className="text-center py-6"><div className="text-3xl mb-2 opacity-60">📆</div><p className="text-sm text-muted">{t('rewards.noDailyQuests')}</p></div>
+            ) : (
+              <ul className="space-y-2.5">
+                {status.dailyQuests.map((q, i) => (
+                  <ChallengeRow key={q.id} challenge={q} busy={busy === `daily:${q.id}`} index={i} onClaim={() => void claimQuest('daily', q.id)} />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Weekly quests (rotate every ISO week) */}
+          <section className="panel p-5 animate-rise" style={{ animationDelay: '.115s' }}>
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+              <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.weeklyQuests')}</h2>
+              <span className="text-xs text-muted">{t('rewards.weeklyQuestsHint')}</span>
+            </div>
+            {status.weeklyQuests.length === 0 ? (
+              <div className="text-center py-6"><div className="text-3xl mb-2 opacity-60">🗓️</div><p className="text-sm text-muted">{t('rewards.noWeeklyQuests')}</p></div>
+            ) : (
+              <ul className="space-y-2.5">
+                {status.weeklyQuests.map((q, i) => (
+                  <ChallengeRow key={q.id} challenge={q} busy={busy === `weekly:${q.id}`} index={i} onClaim={() => void claimQuest('weekly', q.id)} />
+                ))}
+              </ul>
             )}
           </section>
 

@@ -51,6 +51,37 @@ export async function rewardsRoutes(app: FastifyInstance, deps: RewardsRoutesDep
     return res;
   });
 
+  app.post('/api/rewards/daily-quest/:id', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!rewards.enabled) return disabled(reply);
+    const { id } = req.params as { id: string };
+    const res = await rewards.claimDailyQuest(caller.userId, id, Date.now());
+    if (!res) return reply.code(409).send({ error: { code: 'not_claimable', message: 'Nuk mund të merret.' } });
+    return res;
+  });
+
+  app.post('/api/rewards/weekly-quest/:id', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!rewards.enabled) return disabled(reply);
+    const { id } = req.params as { id: string };
+    const res = await rewards.claimWeeklyQuest(caller.userId, id, Date.now());
+    if (!res) return reply.code(409).send({ error: { code: 'not_claimable', message: 'Nuk mund të merret.' } });
+    return res;
+  });
+
+  // Collect the next reached level-up milestone (free cosmetic + bonus XP). Idempotent —
+  // a 409 means there's nothing pending (already collected or not yet reached).
+  app.post('/api/rewards/level', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!rewards.enabled) return disabled(reply);
+    const res = await rewards.claimLevelReward(caller.userId);
+    if (!res) return reply.code(409).send({ error: { code: 'nothing_to_claim', message: 'Asgjë për t’u marrë.' } });
+    return res;
+  });
+
   app.post('/api/shop/buy', async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;

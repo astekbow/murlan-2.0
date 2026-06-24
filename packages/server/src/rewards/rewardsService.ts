@@ -10,6 +10,11 @@
 import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo } from '../profile/level.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
+import {
+  dailyQuestsFor, weeklyQuestsFor, dailyClaimKey, weeklyClaimKey,
+  questMetricValue, milestoneFor, MILESTONE_STEP,
+  type QuestDef,
+} from './quests.ts';
 
 /** The wallet capability the shop needs: debit to charge, credit to REFUND a charge
  *  whose cosmetic grant then failed (so a player is never charged for nothing). */
@@ -130,6 +135,15 @@ export interface RewardsStatus {
   spendableXp: number;
   daily: { canClaim: boolean; streak: number; rewardXp: number };
   challenges: Array<{ id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number }>;
+  // Rotating DAILY quests (today's pool; rotate at UTC midnight). Same progress/claim
+  // mechanism as challenges, but claimed-once-PER-DAY (reset next day with a new pool).
+  dailyQuests: Array<{ id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number }>;
+  // Rotating WEEKLY quests (this ISO-week's pool; rotate at the week boundary). Bigger XP,
+  // claimed-once-PER-WEEK.
+  weeklyQuests: Array<{ id: string; title: string; goal: number; progress: number; done: boolean; claimed: boolean; rewardXp: number }>;
+  // The single NEXT uncollected level-up milestone the player has already REACHED (claimable
+  // now), or null if none is pending. Surfaces a "claim your level reward" affordance.
+  levelReward: { level: number; cosmeticId: string | null; bonusXp: number } | null;
   // `costXp` is set on XP-priced items (cost is then 0); money items carry cost > 0.
   shop: Array<{ id: string; name: string; type: CosmeticType; cost: number; costXp?: number; owned: boolean; featured: boolean }>;
   equipped: { cardBack: string | null; tableFelt: string | null };
@@ -152,6 +166,37 @@ export class RewardsService {
     return isFreeDefault || u.cosmetics.includes(c.id);
   }
 
+  /** Map this period's quest pool to display rows (progress + per-period claimed flag).
+   *  `claimedKeys` is the user's claimed list for the period; `claimKeyFor` builds the
+   *  composite 'period:questId' key so a claim is scoped to today / this week. */
+  private questRows(u: User, quests: QuestDef[], claimedKeys: string[], claimKeyFor: (id: string) => string) {
+    return quests.map((q) => {
+      const progress = Math.min(questMetricValue(u, q.metric), q.goal);
+      return {
+        id: q.id,
+        title: q.title,
+        goal: q.goal,
+        progress,
+        done: progress >= q.goal,
+        claimed: claimedKeys.includes(claimKeyFor(q.id)),
+        rewardXp: q.rewardXp,
+      };
+    });
+  }
+
+  /** The next REACHED-but-uncollected level milestone, or null. Walks milestone levels
+   *  up to the player's current level and returns the lowest one not yet collected — so a
+   *  player who jumped several milestones at once collects them one at a time, in order. */
+  private pendingMilestone(u: User): { level: number; cosmeticId: string | null; bonusXp: number } | null {
+    const curLevel = levelInfo(u.xp).level;
+    for (let lvl = MILESTONE_STEP; lvl <= curLevel; lvl += MILESTONE_STEP) {
+      if (u.collectedMilestones.includes(lvl)) continue;
+      const m = milestoneFor(lvl);
+      if (m) return { level: m.level, cosmeticId: m.cosmeticId ?? null, bonusXp: m.bonusXp };
+    }
+    return null;
+  }
+
   async status(userId: string, now: number): Promise<RewardsStatus | null> {
     const u = await this.users.findById(userId);
     if (!u) return null;
@@ -169,6 +214,9 @@ export class RewardsService {
         const progress = Math.min(metricValue(u, c.metric), c.goal);
         return { id: c.id, title: c.title, goal: c.goal, progress, done: progress >= c.goal, claimed: u.claimedChallenges.includes(c.id), rewardXp: c.rewardXp };
       }),
+      dailyQuests: this.questRows(u, dailyQuestsFor(now), u.claimedDailies, (id) => dailyClaimKey(now, id)),
+      weeklyQuests: this.questRows(u, weeklyQuestsFor(now), u.claimedWeeklies, (id) => weeklyClaimKey(now, id)),
+      levelReward: this.pendingMilestone(u),
       shop: COSMETICS.map((c) => ({ id: c.id, name: c.name, type: c.type, cost: c.cost, ...(isXpPriced(c) ? { costXp: c.costXp } : {}), owned: this.owns(u, c), featured: !!c.featured })),
       equipped: { cardBack: u.cardBack, tableFelt: u.tableFelt },
       dailyDeal: (() => {
@@ -203,6 +251,61 @@ export class RewardsService {
     await this.users.addXp(userId, def.rewardXp);
     await this.users.setRewards(userId, { claimedChallenges: [...u.claimedChallenges, def.id] });
     return { rewardXp: def.rewardXp };
+  }
+
+  /** Claim a completed DAILY quest's XP. The quest must be in TODAY's deterministic pool
+   *  and met; idempotent per UTC day via the 'YYYY-MM-DD:id' claim key (next day it's
+   *  fresh again with a new pool). */
+  async claimDailyQuest(userId: string, questId: string, now: number): Promise<{ rewardXp: number } | null> {
+    const def = dailyQuestsFor(now).find((q) => q.id === questId);
+    if (!def) return null; // not one of today's quests
+    const u = await this.users.findById(userId);
+    if (!u) return null;
+    const key = dailyClaimKey(now, def.id);
+    if (u.claimedDailies.includes(key)) return null; // already claimed today
+    if (questMetricValue(u, def.metric) < def.goal) return null; // not completed
+    await this.users.addXp(userId, def.rewardXp);
+    await this.users.setRewards(userId, { claimedDailies: [...u.claimedDailies, key] });
+    return { rewardXp: def.rewardXp };
+  }
+
+  /** Claim a completed WEEKLY quest's XP. Must be in THIS ISO-week's pool and met;
+   *  idempotent per week via the 'YYYY-Www:id' claim key. */
+  async claimWeeklyQuest(userId: string, questId: string, now: number): Promise<{ rewardXp: number } | null> {
+    const def = weeklyQuestsFor(now).find((q) => q.id === questId);
+    if (!def) return null; // not one of this week's quests
+    const u = await this.users.findById(userId);
+    if (!u) return null;
+    const key = weeklyClaimKey(now, def.id);
+    if (u.claimedWeeklies.includes(key)) return null; // already claimed this week
+    if (questMetricValue(u, def.metric) < def.goal) return null; // not completed
+    await this.users.addXp(userId, def.rewardXp);
+    await this.users.setRewards(userId, { claimedWeeklies: [...u.claimedWeeklies, key] });
+    return { rewardXp: def.rewardXp };
+  }
+
+  /** Collect the next REACHED level-up milestone (idempotent via collectedMilestones).
+   *  Grants the milestone's bonus XP + a free cosmetic (added to owned), then records the
+   *  milestone so it can never be collected twice. Returns the granted reward, or null if
+   *  nothing is pending. Collects ONE milestone per call (the lowest uncollected one). */
+  async claimLevelReward(userId: string): Promise<{ level: number; cosmeticId: string | null; bonusXp: number } | null> {
+    const u = await this.users.findById(userId);
+    if (!u) return null;
+    const pending = this.pendingMilestone(u);
+    if (!pending) return null;
+    // Mark collected FIRST (idempotency guard): re-reading + re-checking avoids a
+    // double-grant if two requests race — the second sees it already collected.
+    const fresh = await this.users.findById(userId);
+    if (!fresh || fresh.collectedMilestones.includes(pending.level)) return null;
+    await this.users.setRewards(userId, { collectedMilestones: [...fresh.collectedMilestones, pending.level] });
+    if (pending.bonusXp > 0) await this.users.addXp(userId, pending.bonusXp);
+    // Grant the free cosmetic (cost 0 → no XP/money spent) if it isn't already owned and
+    // the id is a real catalog item. A failed/duplicate grant is non-fatal — the XP + the
+    // collected mark still stand (the player got the bonus XP either way).
+    if (pending.cosmeticId && COSMETICS.some((c) => c.id === pending.cosmeticId) && !fresh.cosmetics.includes(pending.cosmeticId)) {
+      await this.users.purchaseCosmetic(userId, pending.cosmeticId, 0).catch(() => undefined);
+    }
+    return pending;
   }
 
   /** Buy a cosmetic with the wallet balance (real money). Debits the ledger, then

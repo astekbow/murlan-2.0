@@ -136,6 +136,13 @@ model User {
   cardBack          String? // equipped card-back id
   tableFelt         String? // equipped felt-theme id
   claimedChallenges String[]  @default([]) // claimed challenge ids
+  // Rotating quests & level-up rewards (§2.6) — XP/cosmetic only, never cashable.
+  // Daily quests claimed, keyed 'YYYY-MM-DD:questId' (resets next UTC day). Weekly
+  // quests claimed, keyed 'YYYY-Www:questId'. Level milestones already collected
+  // (idempotent one-time rewards). All default empty so existing rows are unaffected.
+  claimedDailies      String[] @default([])
+  claimedWeeklies     String[] @default([])
+  collectedMilestones Int[]    @default([])
 
   transactions         Transaction[]
   withdrawals          Withdrawal[]  @relation("WithdrawalUser")

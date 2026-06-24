@@ -65,6 +65,13 @@ export interface User {
   cardBack: string | null;        // equipped
   tableFelt: string | null;       // equipped
   claimedChallenges: string[];
+  // Rotating quests & level-up rewards (§2.6) — XP/cosmetic only, never cashable.
+  // Claimed DAILY quests, keyed 'YYYY-MM-DD:questId' (resets next UTC day → quest is
+  // fresh again with a new pool). Claimed WEEKLY quests, keyed 'YYYY-Www:questId'.
+  // Level milestones already collected (idempotent one-time level-up rewards).
+  claimedDailies: string[];
+  claimedWeeklies: string[];
+  collectedMilestones: number[];
 }
 
 /** Patch for reward/cosmetic fields. */
@@ -75,6 +82,9 @@ export interface RewardsPatch {
   cardBack?: string | null;
   tableFelt?: string | null;
   claimedChallenges?: string[];
+  claimedDailies?: string[];
+  claimedWeeklies?: string[];
+  collectedMilestones?: number[];
 }
 
 /** A finished-match result applied to a player's cosmetic stats/XP. */
@@ -245,6 +255,9 @@ export class InMemoryUserRepository implements UserRepository {
       cardBack: null,
       tableFelt: null,
       claimedChallenges: [],
+      claimedDailies: [],
+      claimedWeeklies: [],
+      collectedMilestones: [],
     };
     this.byId.set(user.id, user);
     this.byEmail.set(email, user.id);
@@ -400,6 +413,9 @@ export class InMemoryUserRepository implements UserRepository {
     if (patch.cardBack !== undefined) user.cardBack = patch.cardBack;
     if (patch.tableFelt !== undefined) user.tableFelt = patch.tableFelt;
     if (patch.claimedChallenges !== undefined) user.claimedChallenges = [...patch.claimedChallenges];
+    if (patch.claimedDailies !== undefined) user.claimedDailies = [...patch.claimedDailies];
+    if (patch.claimedWeeklies !== undefined) user.claimedWeeklies = [...patch.claimedWeeklies];
+    if (patch.collectedMilestones !== undefined) user.collectedMilestones = [...patch.collectedMilestones];
     return { ...user };
   }
 

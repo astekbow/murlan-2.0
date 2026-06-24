@@ -78,6 +78,9 @@ function toUser(row: any): User {
     cardBack: row.cardBack ?? null,
     tableFelt: row.tableFelt ?? null,
     claimedChallenges: row.claimedChallenges ?? [],
+    claimedDailies: row.claimedDailies ?? [],
+    claimedWeeklies: row.claimedWeeklies ?? [],
+    collectedMilestones: row.collectedMilestones ?? [],
   };
 }
 
@@ -258,6 +261,9 @@ export class PrismaUserRepository implements UserRepository {
     if (patch.cardBack !== undefined) data.cardBack = patch.cardBack;
     if (patch.tableFelt !== undefined) data.tableFelt = patch.tableFelt;
     if (patch.claimedChallenges !== undefined) data.claimedChallenges = patch.claimedChallenges;
+    if (patch.claimedDailies !== undefined) data.claimedDailies = patch.claimedDailies;
+    if (patch.claimedWeeklies !== undefined) data.claimedWeeklies = patch.claimedWeeklies;
+    if (patch.collectedMilestones !== undefined) data.collectedMilestones = patch.collectedMilestones;
     const row = await this.db.user.update({ where: { id }, data }).catch(() => null);
     return row ? toUser(row) : null;
   }

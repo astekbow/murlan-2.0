@@ -230,6 +230,14 @@ export interface ShopItem {
   costXp?: number;
   owned: boolean; featured: boolean;
 }
+/** A rotating quest row (daily/weekly) — same shape as a challenge row. */
+export type RewardQuest = RewardChallenge;
+/** The next reached-but-uncollected level-up milestone (free cosmetic + bonus XP). */
+export interface LevelReward {
+  level: number;
+  cosmeticId: string | null;
+  bonusXp: number;
+}
 export interface RewardsStatus {
   enabled: boolean;
   xp: number;
@@ -238,6 +246,12 @@ export interface RewardsStatus {
   spendableXp: number;
   daily: { canClaim: boolean; streak: number; rewardXp: number };
   challenges: RewardChallenge[];
+  /** Today's rotating daily quests (rotate at UTC midnight). */
+  dailyQuests: RewardQuest[];
+  /** This ISO-week's rotating weekly quests (rotate at the week boundary). */
+  weeklyQuests: RewardQuest[];
+  /** The next claimable level-up reward, or null when none is pending. */
+  levelReward: LevelReward | null;
   shop: ShopItem[];
   equipped: { cardBack: string | null; tableFelt: string | null };
   dailyDeal: { id: string; pct: number; priceCents: number } | null;
@@ -247,6 +261,9 @@ export const rewardsApi = {
   status: (token: string) => request<{ status: RewardsStatus }>('/rewards', { token }),
   claimDaily: (token: string) => request<{ rewardXp: number; streak: number }>('/rewards/daily', { method: 'POST', token }),
   claimChallenge: (token: string, id: string) => request<{ rewardXp: number }>(`/rewards/challenge/${id}`, { method: 'POST', token }),
+  claimDailyQuest: (token: string, id: string) => request<{ rewardXp: number }>(`/rewards/daily-quest/${id}`, { method: 'POST', token }),
+  claimWeeklyQuest: (token: string, id: string) => request<{ rewardXp: number }>(`/rewards/weekly-quest/${id}`, { method: 'POST', token }),
+  claimLevelReward: (token: string) => request<LevelReward>('/rewards/level', { method: 'POST', token }),
   buy: (token: string, id: string) => request<{ ok: boolean }>('/shop/buy', { method: 'POST', token, body: { id } }),
   // XP-priced items: spends earned XP (xp - xpSpent), never the wallet.
   buyXp: (token: string, id: string) => request<{ ok: boolean }>('/shop/buy-xp', { method: 'POST', token, body: { id } }),
