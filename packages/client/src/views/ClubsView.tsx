@@ -8,6 +8,8 @@ import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
+import { dollars } from '../lib/money.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
@@ -25,6 +27,9 @@ export function ClubsView() {
   const [priv, setPriv] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const landscape = useLandscapePage();
+  const [tab, setTab] = useState<'turne' | 'chat'>('turne');
+  const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
 
   const token = () => useAuthStore.getState().accessToken;
 
@@ -51,6 +56,98 @@ export function ClubsView() {
     catch (e) { setError(e instanceof ApiError ? e.message : t('clubs.actionFailed')); }
     finally { setBusy(false); }
   };
+
+  // ---- Landscape "console": fixed-height, two-pane, no PAGE scroll (phone held flat).
+  if (landscape) {
+    return (
+      <div className="pg-ls">
+        {dialog}
+        <div className="pg-ls-top">
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">
+            {mine ? `[${mine.tag}] ${mine.name}` : t('clubs.clubs')}
+          </h1>
+          <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
+        </div>
+
+        {status === 'loading' ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4"><SkeletonList count={5} /></div></div>
+        ) : mine ? (
+          <div className="pg-ls-body">
+            {/* LEFT — members + share code */}
+            <div className="pg-ls-left panel p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-xs text-muted">{t('clubs.memberCount', { n: mine.memberCount })}</span>
+                <button disabled={busy} onClick={async () => { if (await confirm({ title: t('clubs.leaveClub'), message: t('clubs.confirmLeaveM'), danger: true, confirmLabel: t('clubs.leaveClub') })) void act(() => clubsApi.leave(token()!)); }} className="btn btn-danger btn-sm">{t('clubs.leaveClub')}</button>
+              </div>
+              {mine.private && mine.joinCode && (
+                <button onClick={() => { void navigator.clipboard?.writeText(mine.joinCode!).then(() => useGameStore.setState({ toast: t('clubs.codeCopied'), toastKind: 'success' })).catch(() => {}); }} aria-label={t('common.copyCode')} className="w-full mb-2 rounded-lg px-3 py-1.5 border border-gold/40 bg-gold/[.06] font-mono tracking-[0.3em] gold-text font-bold text-sm">{mine.joinCode}</button>
+              )}
+              <ul className="pg-ls-scroll space-y-1.5 pr-1">
+                {mine.members.map((m) => (
+                  <li key={m.userId} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 border border-white/10 bg-white/[.03]">
+                    <span className="pfp shrink-0" style={{ width: 28, height: 28 }}><AvatarFace id={m.avatar} fill className="text-sm leading-none" /></span>
+                    <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{m.username}</span>
+                    {m.role === 'founder' && <span className="text-[11px]" title={t('clubs.founder')}>👑</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* RIGHT — tabs: tournaments | chat */}
+            <div className="pg-ls-right">
+              <div className="pg-ls-tabs">
+                <button className={`pg-ls-tab ${tab === 'turne' ? 'on' : ''}`} onClick={() => setTab('turne')}>{t('clubs.tournaments')}</button>
+                <button className={`pg-ls-tab ${tab === 'chat' ? 'on' : ''}`} onClick={() => setTab('chat')}>{t('clubs.chatTitle')}</button>
+              </div>
+              <div className="pg-ls-scroll">
+                {tab === 'turne' ? <ClubTournaments club={mine} /> : <ClubChat club={mine} />}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="pg-ls-body">
+            {/* LEFT — browse public clubs */}
+            <div className="pg-ls-left panel p-3">
+              <h2 className="text-sm font-display font-semibold text-gold-hi mb-2">{t('clubs.clubs')}</h2>
+              <ul className="pg-ls-scroll space-y-1.5 pr-1">
+                {list.length === 0 ? <p className="text-sm text-muted text-center py-6">{t('clubs.empty')}</p> : list.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2 rounded-lg px-2.5 py-2 border border-white/10 bg-white/[.03]">
+                    <span className="font-display font-semibold text-gold-hi text-sm shrink-0">[{c.tag}]</span>
+                    <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{c.name}</span>
+                    <span className="text-[11px] text-muted">{c.memberCount}👥</span>
+                    <button disabled={busy} onClick={() => void act(() => clubsApi.join(token()!, c.id))} className="btn btn-ghost btn-sm">{t('clubs.join')}</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* RIGHT — create + join by code */}
+            <div className="pg-ls-right pg-ls-scroll space-y-3">
+              <section className="panel p-3 space-y-2">
+                <h2 className="text-sm font-display font-semibold text-gold-hi">{t('clubs.createClub')}</h2>
+                <form className="flex flex-wrap gap-2 items-end" onSubmit={(e) => { e.preventDefault(); if (busy || name.trim().length < 3 || tag.trim().length < 2) return; void act(() => clubsApi.create(token()!, name.trim(), tag.trim(), priv)); }}>
+                  <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} placeholder={t('clubs.nameLabel')} className="field flex-1 min-w-[140px]" />
+                  <input value={tag} onChange={(e) => setTag(e.target.value.toUpperCase().slice(0, 5))} maxLength={5} placeholder="MUR" className="field w-20 uppercase font-mono" />
+                  <button type="submit" disabled={busy || name.trim().length < 3 || tag.trim().length < 2} className="btn btn-gold btn-sm">{t('clubs.create')}</button>
+                </form>
+                <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                  <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="w-4 h-4 accent-gold" />
+                  <span className="text-txt">{t('clubs.privateClub')}</span>
+                </label>
+              </section>
+              <section className="panel p-3 space-y-2">
+                <h2 className="text-sm font-display font-semibold text-gold-hi">{t('clubs.joinByCodeTitle')}</h2>
+                <div className="flex items-center gap-2">
+                  <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} maxLength={6} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={t('clubs.codePlaceholder')} className="field flex-1 tracking-[0.3em] font-mono uppercase" />
+                  <button disabled={busy || codeInput.trim().length < 4} onClick={() => void act(() => clubsApi.joinByCode(token()!, codeInput.trim()))} className="btn btn-ghost btn-sm shrink-0">{t('clubs.join')}</button>
+                </div>
+              </section>
+              {error && <p className="text-xs text-red-300">{error}</p>}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

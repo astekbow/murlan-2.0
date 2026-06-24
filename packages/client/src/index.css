@@ -1058,3 +1058,38 @@ select:focus-visible,
 /* Podium rise for the leaderboard top-3. */
 @keyframes podiumRise { from { opacity: 0; transform: translateY(18px) scale(0.96); } to { opacity: 1; transform: none; } }
 .podium-rise { animation: podiumRise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+
+/* ============================================================================
+   Landscape "console" for secondary pages (clubs/friends/vip/…): when the phone
+   is held HORIZONTALLY the page becomes a FIXED-height two-pane frame that fills
+   the screen so the PAGE never scrolls — only an inner list region scrolls. Gated
+   by useLandscapePage (orientation:landscape + short height); portrait/desktop keep
+   the normal stacked layout, so this class is simply not applied there.
+   ========================================================================== */
+.pg-ls {
+  position: fixed;
+  inset: 0;
+  z-index: 40;                      /* over the app chrome — the page owns the screen */
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(120% 90% at 50% 0%, #14121a, #0b0a0e 70%);
+  padding:
+    max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+    max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  gap: 8px;
+}
+/* Fixed top strip: back · title · balance/action. Never scrolls. */
+.pg-ls-top { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pg-ls-title { font-size: clamp(15px, 3.4vh, 22px); line-height: 1; }
+/* The two-pane body fills the rest. min-height:0 is REQUIRED so the children can
+   own the overflow (otherwise flex children refuse to shrink + the page scrolls). */
+.pg-ls-body { flex: 1 1 auto; display: flex; gap: 8px; min-height: 0; }
+.pg-ls-left  { flex: 0 0 36%; display: flex; flex-direction: column; min-height: 0; }
+.pg-ls-right { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* The ONLY scrolling region(s) — bounded inside a pane, never the whole page. */
+.pg-ls-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; }
+/* Right-pane tab bar (time-slices Turne/Chat so each fits the short height). */
+.pg-ls-tabs { flex: 0 0 auto; display: flex; gap: 6px; margin-bottom: 6px; }
+.pg-ls-tab { flex: 1 1 0; padding: 7px 10px; border-radius: 10px; font-weight: 600; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--panel-line); color: var(--muted); }
+.pg-ls-tab.on { color: var(--gold-hi); border-color: var(--gold-line); background: rgba(232, 200, 121, 0.10); }
