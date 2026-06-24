@@ -1,10 +1,16 @@
 // Password hashing — Argon2id via @node-rs/argon2 (prebuilt binaries, no native
-// build step). Defaults are the library's OWASP-aligned Argon2id parameters.
+// build step). Params are pinned to OWASP's Argon2id minimum (m=19 MiB, t=2, p=1) —
+// the library's DEFAULT memoryCost is only 4 MiB, far below OWASP, so we set it
+// explicitly. verify() reads params from the stored hash, so older 4 MiB hashes still
+// verify; only NEW hashes use the stronger cost.
 
 import { hash, verify } from '@node-rs/argon2';
 
 export function hashPassword(plain: string): Promise<string> {
-  return hash(plain);
+  // @node-rs/argon2's default variant is Argon2id; we only raise the cost to OWASP's
+  // minimum (the library default memoryCost is 4 MiB). Variant left implicit because the
+  // `Algorithm` const enum can't be imported under verbatimModuleSyntax.
+  return hash(plain, { memoryCost: 19456, timeCost: 2, parallelism: 1 });
 }
 
 export async function verifyPassword(passwordHash: string, plain: string): Promise<boolean> {

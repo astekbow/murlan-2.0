@@ -20,8 +20,8 @@ export default {
         cream: '#fbfaf5',
         ink: '#14110c',
         suit: '#c21f1f', // suit red on cards
-        txt: { DEFAULT: '#d9d2c6', hi: '#f6f1e8', lo: '#9c96a6' },
-        muted: '#9c96a6', // secondary text — lightened for AA contrast on the dark base
+        txt: { DEFAULT: '#d9d2c6', hi: '#f6f1e8', lo: '#b8b0c8' },
+        muted: '#b8b0c8', // = --muted in index.css; ≈5.6:1 on the dark base (WCAG AA). Was #9c96a6 (≈4.0:1, failed).
         // Semantic (chrome).
         success: '#34d39a',
         danger: '#ff5d5d',

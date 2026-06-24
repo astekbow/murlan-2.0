@@ -1,13 +1,15 @@
 import { memo } from 'react';
 import type { LogEntry } from '../store/gameStore.ts';
+import { useT } from '../lib/i18n.ts';
 
 /** A small scrolling log of recent table events. */
 function PlayLogImpl({ entries }: { entries: LogEntry[] }) {
+  const t = useT();
   const recent = entries.slice(-6);
   return (
     <div className="rounded-lg bg-slate-900/70 backdrop-blur px-3 py-2 text-[11px] text-slate-300 h-24 overflow-y-auto no-scrollbar">
       {recent.length === 0 ? (
-        <div className="italic opacity-60">Ende pa ngjarje.</div>
+        <div className="italic opacity-60">{t('playLog.empty')}</div>
       ) : (
         <ul className="space-y-0.5">
           {recent.map((e) => (

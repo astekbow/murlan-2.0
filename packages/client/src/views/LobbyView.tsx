@@ -38,12 +38,14 @@ const RAIL_RIGHT: RailItem[] = [
 function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' }) {
   const t = useT();
   const setView = useUiStore((s) => s.setView);
+  const view = useUiStore((s) => s.view);
   return (
     <nav aria-label={t(side === 'left' ? 'nav.railPrimary' : 'nav.railSecondary')} className={`flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise ${side === 'left' ? 'order-2 md:order-1' : 'order-3'}`}>
       {items.map((r) => (
         <button
           key={r.labelKey}
           className="rail-item"
+          aria-current={r.to && r.to === view ? 'page' : undefined}
           onClick={() => { sound.play('button'); haptics.tap(); if (r.to) setView(r.to); }}
         >
           <span className="rail-ic">
