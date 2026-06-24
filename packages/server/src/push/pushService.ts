@@ -20,8 +20,8 @@ export class PushService {
     return this.repo.add(userId, sub);
   }
 
-  unsubscribe(endpoint: string): Promise<void> {
-    return this.repo.removeByEndpoint(endpoint);
+  unsubscribe(endpoint: string, userId?: string): Promise<void> {
+    return this.repo.removeByEndpoint(endpoint, userId);
   }
 
   /** Send a payload to every device a user has registered; prune dead endpoints. */

@@ -8,6 +8,7 @@ import type { AuthService } from '../auth/authService.ts';
 import { requireAuth } from './authRoutes.ts';
 import { ClubService, ClubError } from '../social/clubService.ts';
 import type { ChatService } from '../chat/chatService.ts';
+import { userIdFromBearer } from './walletRoutes.ts';
 
 export interface ClubRoutesDeps {
   auth: AuthService;
@@ -80,7 +81,7 @@ export async function clubRoutes(app: FastifyInstance, deps: ClubRoutesDeps): Pr
 
   // Join a PRIVATE club by its share code. Tighter per-IP rate-limit than the global
   // 300/min so the share codes can't be brute-force enumerated.
-  app.post('/api/clubs/joinByCode', { config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/clubs/joinByCode', { config: { rateLimit: { max: 12, timeWindow: '1 minute', keyGenerator: (req: any) => userIdFromBearer(req) ?? req.ip } } }, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     const code = (req.body as { code?: unknown } | undefined)?.code;

@@ -44,22 +44,21 @@ export function ResetPasswordView({ token, onDone }: { token: string; onDone: ()
             <button className="btn btn-gold btn-block" onClick={onDone}>{t('reset.goToLogin')}</button>
           </>
         ) : (
-          <>
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
             <label className="block">
               <span className="field-label">{t('reset.newPassword')}</span>
               <input type="password" className="field" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
             <label className="block">
               <span className="field-label">{t('reset.confirmPassword')}</span>
-              <input type="password" className="field" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }} />
+              <input type="password" className="field" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </label>
             {error && <div className="text-sm text-red-300">{error}</div>}
-            <button className="btn btn-gold btn-block" disabled={busy} onClick={() => void submit()}>
+            <button type="submit" className="btn btn-gold btn-block" disabled={busy}>
               {busy ? t('reset.saving') : t('reset.submit')}
             </button>
-            <button className="btn btn-ghost btn-block" onClick={onDone}>{t('common.cancel')}</button>
-          </>
+            <button type="button" className="btn btn-ghost btn-block" onClick={onDone}>{t('common.cancel')}</button>
+          </form>
         )}
       </div>
     </div>

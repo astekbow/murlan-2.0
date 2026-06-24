@@ -60,7 +60,7 @@ export function TournamentsView() {
           live game) and the house takes its rake at the final. */}
       <section className="panel p-5 animate-rise space-y-3">
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('tourn.create')}</h2>
-        <div className="flex flex-wrap gap-3 items-end">
+        <form className="flex flex-wrap gap-3 items-end" onSubmit={(e) => { e.preventDefault(); if (busy) return; void act(() => tournamentsApi.create(tk()!, name.trim() || 'Turne', Math.round((parseFloat(buyIn) || 0) * 100), cap)); }}>
           <label className="flex-1 min-w-[140px]"><span className="field-label">{t('tourn.name')}</span>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className="field" /></label>
           <label><span className="field-label">{t('tourn.buyIn')} ($)</span>
@@ -69,8 +69,8 @@ export function TournamentsView() {
             <select value={cap} onChange={(e) => setCap(Number(e.target.value) as 2 | 4 | 8)} className="field w-20">
               <option value={2}>2</option><option value={4}>4</option><option value={8}>8</option>
             </select></label>
-          <button disabled={busy} onClick={() => void act(() => tournamentsApi.create(tk()!, name.trim() || 'Turne', Math.round((parseFloat(buyIn) || 0) * 100), cap))} className="btn btn-gold">{t('tourn.create')}</button>
-        </div>
+          <button type="submit" disabled={busy} className="btn btn-gold">{t('tourn.create')}</button>
+        </form>
       </section>
 
       {list.length === 0 ? (

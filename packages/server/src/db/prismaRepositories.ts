@@ -885,8 +885,10 @@ export class PrismaPushSubscriptions implements PushSubscriptionRepository {
       update: { userId, p256dh: sub.p256dh, auth: sub.auth },
     });
   }
-  async removeByEndpoint(endpoint: string): Promise<void> {
-    await this.db.pushSubscription.deleteMany({ where: { endpoint } });
+  async removeByEndpoint(endpoint: string, userId?: string): Promise<void> {
+    // Scope to the owner when caller-initiated (authz — can't drop another user's device
+    // by guessing the endpoint); endpoint-only for system gone-cleanup.
+    await this.db.pushSubscription.deleteMany({ where: { endpoint, ...(userId ? { userId } : {}) } });
   }
   async listByUser(userId: string): Promise<PushSubscriptionRecord[]> {
     const rows = await this.db.pushSubscription.findMany({ where: { userId } });

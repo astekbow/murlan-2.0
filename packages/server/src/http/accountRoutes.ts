@@ -136,7 +136,7 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
       if (!caller) return;
       const parsed = pushUnsubSchema.safeParse(req.body);
       if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Endpoint i pavlefshëm.' } });
-      await push.unsubscribe(parsed.data.endpoint);
+      await push.unsubscribe(parsed.data.endpoint, caller.userId);
       return reply.send({ ok: true });
     });
   }

@@ -81,7 +81,7 @@ const transferSchema = z.object({
 // matter how many IPs it rotates through), falling back to req.ip pre-auth. These
 // are tighter than the loose global 300/min/IP. Mirrors the auth/club per-route
 // limiters. The keyGenerator reads the Bearer subject WITHOUT a DB lookup.
-function userIdFromBearer(req: FastifyRequest): string | null {
+export function userIdFromBearer(req: FastifyRequest): string | null {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return null;
   try {

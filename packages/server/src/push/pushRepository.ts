@@ -13,8 +13,10 @@ export interface PushSubscriptionRecord extends WebPushSubscription {
 export interface PushSubscriptionRepository {
   /** Upsert by endpoint (a device re-subscribing replaces its row). */
   add(userId: string, sub: WebPushSubscription): Promise<void>;
-  /** Remove one subscription by endpoint (logout / unsubscribe). */
-  removeByEndpoint(endpoint: string): Promise<void>;
+  /** Remove one subscription by endpoint. When `userId` is given (a user-initiated
+   *  unsubscribe) the delete is scoped to that owner so it can't drop another user's
+   *  device by guessing the endpoint (authz). Omit `userId` for system gone-cleanup. */
+  removeByEndpoint(endpoint: string, userId?: string): Promise<void>;
   /** All subscriptions for a user (a user may have several devices). */
   listByUser(userId: string): Promise<PushSubscriptionRecord[]>;
 }
@@ -35,7 +37,11 @@ export class InMemoryPushSubscriptions implements PushSubscriptionRepository {
     });
   }
 
-  async removeByEndpoint(endpoint: string): Promise<void> {
+  async removeByEndpoint(endpoint: string, userId?: string): Promise<void> {
+    if (userId) {
+      const s = this.byEndpoint.get(endpoint);
+      if (s && s.userId !== userId) return; // not the owner — no-op
+    }
     this.byEndpoint.delete(endpoint);
   }
 

@@ -107,13 +107,13 @@ export function ClubsView() {
         <>
           <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.05s' }}>
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('clubs.createClub')}</h2>
-            <div className="flex flex-wrap gap-3 items-end">
+            <form className="flex flex-wrap gap-3 items-end" onSubmit={(e) => { e.preventDefault(); if (busy || name.trim().length < 3 || tag.trim().length < 2) return; void act(() => clubsApi.create(token()!, name.trim(), tag.trim(), priv)); }}>
               <label className="block flex-1 min-w-[160px]"><span className="field-label">{t('clubs.nameLabel')}</span>
                 <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} placeholder="Murlan Masters" className="field" /></label>
               <label className="block"><span className="field-label">{t('clubs.tagLabel')}</span>
                 <input value={tag} onChange={(e) => setTag(e.target.value.toUpperCase().slice(0, 5))} maxLength={5} placeholder="MUR" className="field w-24 uppercase font-mono" /></label>
-              <button disabled={busy || name.trim().length < 3 || tag.trim().length < 2} onClick={() => void act(() => clubsApi.create(token()!, name.trim(), tag.trim(), priv))} className="btn btn-gold">{t('clubs.create')}</button>
-            </div>
+              <button type="submit" disabled={busy || name.trim().length < 3 || tag.trim().length < 2} className="btn btn-gold">{t('clubs.create')}</button>
+            </form>
             <label className="flex items-center gap-2.5 cursor-pointer select-none">
               <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="w-4 h-4 accent-gold" />
               <span className="text-sm text-txt">{t('clubs.privateClub')}</span>
