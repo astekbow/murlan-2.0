@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
@@ -8,12 +9,15 @@ import { useWalletStore } from '../store/walletStore.ts';
 import { dollars } from '../lib/money.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
 
 export function FriendsView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
   const setView = useUiStore((s) => s.setView);
+  const landscape = useLandscapePage();
+  const [selectedId, setSelectedId] = useState<string | null>(null); // landscape master-detail
 
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,6 +164,123 @@ export function FriendsView() {
   const blocked = friends.filter((f) => f.direction === 'blocked');
 
   const inRoom = useGameStore.getState().room !== null;
+
+  // Online friends first, then by name — used by both layouts' friends list.
+  const acceptedSorted = [...accepted].sort((a, b) => (Number(b.online) - Number(a.online)) || a.user.username.localeCompare(b.user.username));
+
+  // Shared send-money modal (also rendered inside the landscape portal so it overlays the console).
+  const sendMoneyModal = sendTo && (
+    <div className="modal-backdrop" onClick={() => { if (!sending) setSendTo(null); }} role="dialog" aria-modal="true" aria-label={t('friends.sendMoney')}>
+      <div className="panel-solid w-full max-w-sm p-5 animate-pop space-y-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('friends.sendTitle', { name: sendTo.user.username })}</h3>
+        <p className="text-xs text-muted">{t('friends.yourBalance', { amount: dollars(balanceCents) })}</p>
+        <label className="block">
+          <span className="field-label">{t('friends.amount')}</span>
+          <input className="field" type="number" inputMode="decimal" min="1" step="0.01" placeholder="0.00" value={amount}
+            onChange={(e) => setAmount(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sendMoney(); }} autoFocus />
+        </label>
+        <div className="flex gap-3 justify-end">
+          <button className="btn btn-ghost" onClick={() => setSendTo(null)} disabled={sending}>{t('common.cancel')}</button>
+          <button className="btn btn-gold" onClick={() => void sendMoney()} disabled={sending || !amount.trim()}>{sending ? t('friends.sending') : t('friends.send')}</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ---- Landscape "console": LEFT = add-friend + requests + friends list (tap to select);
+  // RIGHT = the selected friend's actions. Portaled to <body> to escape the ViewTransition transform.
+  if (landscape) {
+    const selected = accepted.find((f) => f.user.id === selectedId) ?? null;
+    return createPortal(
+      <div className="pg-ls">
+        {dialog}
+        {sendMoneyModal}
+        <div className="pg-ls-top">
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('friends.title')}</h1>
+          <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
+        </div>
+
+        <div className="pg-ls-body">
+          {/* LEFT — add friend + incoming requests + friends list */}
+          <div className="pg-ls-left panel p-3">
+            <div className="flex gap-2 items-center mb-2">
+              <input className="field flex-1 min-w-0" placeholder={t('friends.username')} value={username}
+                onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addFriend(); }} aria-label={t('friends.addFriend')} />
+              <button onClick={() => void addFriend()} disabled={busy || !username.trim()} className="btn btn-gold btn-sm shrink-0">{busy ? t('friends.sending') : t('friends.add')}</button>
+            </div>
+            {incoming.length > 0 && (
+              <details className="mb-2 rounded-lg border border-gold/30 bg-gold/[.05] px-2.5 py-1.5">
+                <summary className="cursor-pointer text-xs font-display font-semibold text-gold-hi">{t('friends.requests')} ({incoming.length})</summary>
+                <ul className="mt-2 space-y-1.5">
+                  {incoming.map((f) => (
+                    <li key={f.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 border border-white/10 bg-white/[.03]">
+                      <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{f.user.username}</span>
+                      <button onClick={() => void respond(f.id, true)} disabled={acting} className="btn btn-green btn-sm">{t('friends.accept')}</button>
+                      <button onClick={() => void respond(f.id, false)} disabled={acting} className="btn btn-ghost btn-sm">{t('friends.decline')}</button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {loading ? (
+              <div className="pg-ls-scroll pr-1"><SkeletonList count={5} /></div>
+            ) : acceptedSorted.length === 0 ? (
+              <div className="pg-ls-scroll text-center py-6">
+                <div className="text-3xl mb-1 opacity-60">🫂</div>
+                <p className="text-xs text-muted">{t('friends.empty')}</p>
+              </div>
+            ) : (
+              <ul className="pg-ls-scroll space-y-1.5 pr-1">
+                {acceptedSorted.map((f) => (
+                  <li key={f.id}>
+                    <button
+                      onClick={() => setSelectedId(f.user.id)}
+                      aria-current={selectedId === f.user.id ? 'true' : undefined}
+                      className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 border text-left ${selectedId === f.user.id ? 'border-gold bg-gold/[.10]' : 'border-white/10 bg-white/[.03]'}`}
+                    >
+                      <span className="pfp shrink-0" style={{ width: 28, height: 28 }}><AvatarFace id={f.user.avatar} fill className="text-sm leading-none" /></span>
+                      <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{f.user.username}</span>
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`} title={f.online ? t('common.online') : t('common.offline')} aria-label={f.online ? t('common.online') : t('common.offline')} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* RIGHT — selected friend's actions */}
+          <div className="pg-ls-right pg-ls-scroll panel p-3">
+            {!selected ? (
+              <div className="h-full flex flex-col items-center justify-center text-center text-muted">
+                <div className="text-3xl mb-2 opacity-60">👈</div>
+                <p className="text-sm">{t('friends.selectPrompt')}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="pfp shrink-0" style={{ width: 44, height: 44 }}><AvatarFace id={selected.user.avatar} fill className="text-xl leading-none" /></span>
+                  <div className="min-w-0">
+                    <div className="font-display font-semibold tracking-wide text-txt truncate">{selected.user.username}</div>
+                    <div className="text-xs text-muted">{t('friends.level', { n: selected.user.level })} · {selected.online ? t('common.online') : t('common.offline')}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {inRoom && (
+                    <button onClick={() => void useGameStore.getState().inviteFriend(selected.user.id)} disabled={acting} className="btn btn-gold">{t('friends.invite')}</button>
+                  )}
+                  <button onClick={() => { setSendTo(selected); setAmount(''); }} disabled={acting} className="btn btn-ghost">💸 {t('friends.sendMoney')}</button>
+                  <button onClick={() => { void remove(selected.id); setSelectedId(null); }} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
+                  <button onClick={() => { void block(selected.user.id); setSelectedId(null); }} disabled={acting} className="btn btn-ghost">{t('friends.block')}</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   return (
     <div className="space-y-5">

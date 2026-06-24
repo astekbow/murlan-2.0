@@ -434,6 +434,7 @@ const STRINGS: Record<string, Entry> = {
   'friends.blocked': { sq: 'BLLOKUAR', en: 'BLOCKED' },
   'friends.unblock': { sq: 'Zhblloko', en: 'Unblock' },
   'friends.level': { sq: 'Niveli {n}', en: 'Level {n}' },
+  'friends.selectPrompt': { sq: 'Zgjidh një shok', en: 'Select a friend' },
   'shop.groupCardBack': { sq: 'Pasi i letrave', en: 'Card back' },
   'shop.groupTableFelt': { sq: 'Çoha e tavolinës', en: 'Table felt' },
   'shop.free': { sq: 'Falas', en: 'Free' },

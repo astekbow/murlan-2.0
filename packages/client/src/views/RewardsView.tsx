@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { rewardsApi, ApiError } from '../lib/api.ts';
 import type { RewardsStatus, RewardChallenge } from '../lib/api.ts';
 import { useAuthStore } from '../store/authStore.ts';
@@ -6,6 +7,8 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useNotifications } from '../store/notificationsStore.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
+import { dollars } from '../lib/money.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 // For use OUTSIDE render (callbacks/effects) — reads the live lang without making
@@ -15,6 +18,8 @@ const tr = (key: string) => translate(key, useLangStore.getState().lang);
 export function RewardsView() {
   const t = useT();
   const setView = useUiStore((s) => s.setView);
+  const landscape = useLandscapePage();
+  const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
 
   const [status, setStatus] = useState<RewardsStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,6 +113,80 @@ export function RewardsView() {
   };
 
   const claimableCount = status?.challenges.filter((c) => c.done && !c.claimed).length ?? 0;
+
+  // ---- Landscape "console": LEFT = daily-claim / streak summary; RIGHT = challenges list.
+  // Portaled to <body> so it escapes the ViewTransition transform that would trap fixed.
+  if (landscape) {
+    return createPortal(
+      <div className="pg-ls">
+        <div className="pg-ls-top">
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('rewards.title')}</h1>
+          <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
+        </div>
+
+        {loading ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4"><SkeletonList count={4} /></div></div>
+        ) : error ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4 text-center"><div className="text-3xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300">{error}</p></div></div>
+        ) : !status ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4" /></div>
+        ) : status.enabled === false ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4 text-center py-10"><div className="text-3xl mb-2 opacity-60">🚫</div><p className="text-sm text-muted">{t('rewards.disabled')}</p></div></div>
+        ) : (
+          <div className="pg-ls-body">
+            {/* LEFT — daily reward + streak */}
+            <div className="pg-ls-left panel-solid p-3">
+              <div className="pg-ls-scroll pr-1 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-sm font-display font-semibold text-gold-hi">{t('rewards.dailyTitle')}</h2>
+                  <span className="tag tag-open text-[11px]">🔥 {t('rewards.streakDays', { n: status.daily.streak })}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-4xl leading-none" aria-hidden>📅</span>
+                  <div className="min-w-0">
+                    <div className="font-display font-bold text-xl text-gold-hi leading-none">+{status.daily.rewardXp} XP</div>
+                    <div className="text-xs text-muted mt-1">{t('rewards.currentStreak', { n: status.daily.streak })} {status.daily.streak === 1 ? t('rewards.day') : t('rewards.days')}</div>
+                  </div>
+                </div>
+                {status.daily.canClaim ? (
+                  <button onClick={() => void claimDaily()} disabled={busy === 'daily'} className="btn btn-green btn-block">
+                    {busy === 'daily' ? t('rewards.claiming') : t('rewards.claimDaily', { xp: status.daily.rewardXp })}
+                  </button>
+                ) : (
+                  <button disabled className="btn btn-ghost btn-block">{t('rewards.claimedToday')}</button>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT — challenges */}
+            <div className="pg-ls-right">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <h2 className="text-sm font-display font-semibold text-gold-hi">{t('rewards.challenges')}</h2>
+                {claimableCount > 1 && (
+                  <button onClick={() => void claimAll()} disabled={!!busy} className="btn btn-gold btn-sm">
+                    {busy === 'all' ? t('rewards.claiming') : t('rewards.claimAll', { n: claimableCount })}
+                  </button>
+                )}
+              </div>
+              <div className="pg-ls-scroll panel p-3">
+                {status.challenges.length === 0 ? (
+                  <div className="text-center py-8"><div className="text-3xl mb-2 opacity-60">🎯</div><p className="text-sm text-muted">{t('rewards.noChallenges')}</p></div>
+                ) : (
+                  <ul className="space-y-2">
+                    {status.challenges.map((c, i) => (
+                      <ChallengeRow key={c.id} challenge={c} busy={busy === c.id} index={i} onClaim={() => void claimChallenge(c.id)} />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>,
+      document.body,
+    );
+  }
 
   return (
     <div className="space-y-5">

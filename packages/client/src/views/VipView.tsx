@@ -2,6 +2,7 @@
 // tier, and the full ladder with each tier's rake-back rate. Rake-back CASHOUT is
 // real money → shown as "coming soon" until a payment provider is wired.
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { vipApi, ApiError, type VipStatusDTO, type VipTierInfo } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
@@ -11,6 +12,7 @@ import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
@@ -28,6 +30,8 @@ function Badge({ tier, size = 'md' }: { tier: VipTierInfo; size?: 'sm' | 'md' })
 export function VipView() {
   const t = useT();
   const setView = useUiStore((s) => s.setView);
+  const landscape = useLandscapePage();
+  const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
   const [vip, setVip] = useState<VipStatusDTO | null>(null);
   const [tiers, setTiers] = useState<VipTierInfo[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -72,6 +76,77 @@ export function VipView() {
     }
     try { localStorage.setItem('murlan:vipRank', String(rank)); } catch { /* ignore */ }
   }, [status, vip, tiers]);
+
+  // ---- Landscape "console": LEFT = current tier + progress + staked volume;
+  // RIGHT = full tier ladder. Portaled to <body> to escape the ViewTransition transform.
+  if (landscape) {
+    return createPortal(
+      <div className="pg-ls">
+        {celebrate && <Confetti />}
+        <div className="pg-ls-top">
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">VIP</h1>
+          <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
+        </div>
+
+        {status === 'loading' ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4"><SkeletonList count={4} /></div></div>
+        ) : status === 'error' ? (
+          <div className="pg-ls-body"><div className="pg-ls-scroll panel p-4 text-center py-10"><div className="text-3xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300 mb-3">{error}</p><button onClick={load} className="btn btn-gold btn-sm">{t('app.retry')}</button></div></div>
+        ) : (
+          <div className="pg-ls-body">
+            {/* LEFT — current tier + progress + staked volume */}
+            <div className="pg-ls-left panel p-3">
+              <div className="pg-ls-scroll pr-1 space-y-3">
+                {vip ? (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge tier={vip.tier} />
+                    </div>
+                    <div className="text-xs text-muted">{t('vip.volume')} <b className="text-txt">{dollars(vip.stakedCents)}</b></div>
+                    {vip.next ? (
+                      <>
+                        <div className="h-2.5 w-full rounded-full bg-black/40 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ boxShadow: 'inset 0 0 0 1px rgba(232,200,121,0.25)' }}>
+                          <i className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--gold), var(--gold-hi))' }} />
+                        </div>
+                        <p className="text-xs text-muted">{t('vip.more')} <b className="text-gold-hi">{dollars(vip.toNextCents)}</b> {t('vip.stakeFor')} <b style={{ color: vip.next.color }}>{vip.next.name}</b>.</p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-emerald-300">{t('vip.maxTier')}</p>
+                    )}
+                    <p className="text-[11px] text-amber-300/90">{t('vip.rakebackSoon')}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted text-center py-6">{t('vip.statusNote')}</p>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT — full tier ladder */}
+            <div className="pg-ls-right">
+              <h2 className="text-sm font-display font-semibold text-gold-hi mb-1.5">{t('vip.tiersTitle')}</h2>
+              <div className="pg-ls-scroll panel p-3">
+                <ul className="space-y-1.5">
+                  {tiers.map((t2) => {
+                    const isMine = vip?.tier.key === t2.key;
+                    return (
+                      <li key={t2.key} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border ${isMine ? 'border-gold bg-gold/[.10]' : 'border-white/10 bg-white/[.03]'}`}>
+                        <Badge tier={t2} size="sm" />
+                        {isMine && <span className="tag tag-open text-[11px]">{t('vip.you')}</span>}
+                        <span className="text-xs text-muted ml-auto">{t('vip.from')} {dollars(t2.minStakedCents)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="text-[11px] text-muted/70 mt-2">{t('vip.rakebackNote')}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>,
+      document.body,
+    );
+  }
 
   return (
     <div className="space-y-5">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { profileApi, rankedApi, ApiError } from '../lib/api.ts';
 import type { LeaderboardRow, RankedLeaderboardRow, SeasonDTO } from '../lib/api.ts';
 import { useUiStore } from '../store/uiStore.ts';
@@ -6,6 +7,8 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { TierBadge } from '../components/ui/TierBadge.tsx';
+import { useLandscapePage } from '../lib/useLandscapePage.ts';
+import { dollars } from '../lib/money.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
@@ -29,6 +32,8 @@ type Tab = 'global' | 'ranked';
 export function LeaderboardView() {
   const setView = useUiStore((s) => s.setView);
   const myId = useAuthStore((s) => s.user?.id) ?? null;
+  const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
+  const landscape = useLandscapePage();
   const t = useT();
 
   const [tab, setTab] = useState<Tab>('global');
@@ -88,6 +93,95 @@ export function LeaderboardView() {
     const id = setTimeout(() => void load({ silent: true }), 1500);
     return () => clearTimeout(id);
   }, [lbRev, load]);
+
+  // Shared "your standing" derivation, reused by the portrait card + the landscape left pane.
+  const myStanding = (() => {
+    if (status !== 'ready' || !myId) return null;
+    const meG = tab === 'global' ? rows.find((r) => r.id === myId) : undefined;
+    const meR = tab === 'ranked' ? ranked.find((r) => r.userId === myId) : undefined;
+    const rank = meG?.rank ?? meR?.rank ?? null;
+    return { rank, name: meG?.username ?? meR?.username, sub: meG ? `${meG.xp} XP` : meR?.rating ?? null };
+  })();
+
+  const podiumTop = tab === 'global'
+    ? rows.slice(0, 3).map((r) => ({ id: r.id, name: r.username, avatar: r.avatar, sub: `${r.xp} XP`, isMe: myId !== null && r.id === myId }))
+    : ranked.slice(0, 3).map((r) => ({ id: r.userId, name: r.username, avatar: r.avatar, sub: `${r.rating}`, isMe: myId !== null && r.userId === myId }));
+
+  // ---- Landscape "console": top strip + podium/own-rank (LEFT) + full ladder (RIGHT).
+  // Portaled to <body> so it escapes the ViewTransition transform that would trap fixed.
+  if (landscape) {
+    const ladderEmpty = tab === 'global' ? rows.length === 0 : ranked.length === 0;
+    return createPortal(
+      <div className="pg-ls">
+        <div className="pg-ls-top">
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('lb.title')}</h1>
+          <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
+        </div>
+
+        <div className="pg-ls-body">
+          {/* LEFT — podium (top 3) + your standing pinned */}
+          <div className="pg-ls-left panel p-3">
+            <div className="pg-ls-scroll pr-1 space-y-3">
+              {status === 'loading' ? (
+                <div className="text-center py-10"><div className="text-3xl opacity-60 animate-pulse">{tab === 'ranked' ? '👑' : '🏆'}</div></div>
+              ) : status === 'error' ? (
+                <div className="text-center py-8">
+                  <div className="text-3xl mb-2 opacity-60">⚠️</div>
+                  <p className="text-xs text-red-300 mb-3">{error}</p>
+                  <button onClick={refresh} className="btn btn-gold btn-sm">{t('app.retry')}</button>
+                </div>
+              ) : tab === 'ranked' && !season ? (
+                <div className="text-center py-8"><div className="text-3xl mb-2 opacity-60">👑</div><p className="text-xs text-muted">{t('lb.noSeason')}</p></div>
+              ) : (
+                <>
+                  {podiumTop.length >= 3 && <Podium top={podiumTop} />}
+                  {myStanding && (
+                    <div className="rounded-xl px-3 py-2 border border-gold bg-gradient-to-b from-gold/[.16] to-gold/[.05] flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-gold-hi/80 shrink-0">{t('lb.yourRank')}</span>
+                      {myStanding.rank !== null ? (
+                        <>
+                          <span className={`font-display font-bold text-base ${rankClass(myStanding.rank)}`} aria-label={t('lb.rankN', { n: myStanding.rank })}>{rankLabel(myStanding.rank)}</span>
+                          <span className="text-xs text-txt truncate flex-1">{myStanding.name}</span>
+                          <span className="font-display font-semibold text-gold-hi tabular-nums text-xs shrink-0">{myStanding.sub}</span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted">{t('lb.notInList')}</span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT — Global/Ranked tabs + full ladder list */}
+          <div className="pg-ls-right">
+            <div className="pg-ls-tabs">
+              <button className={`pg-ls-tab ${tab === 'global' ? 'on' : ''}`} aria-current={tab === 'global' ? 'page' : undefined} onClick={() => setTab('global')}>🏆 {t('lb.globalTab')}</button>
+              <button className={`pg-ls-tab ${tab === 'ranked' ? 'on' : ''}`} aria-current={tab === 'ranked' ? 'page' : undefined} onClick={() => setTab('ranked')}>👑 {t('lb.rankedTab')}</button>
+            </div>
+            <div className="pg-ls-scroll panel p-3">
+              {status === 'loading' ? (
+                <div className="text-center py-10"><p className="text-sm text-muted">{t('lb.loading')}</p></div>
+              ) : status === 'error' ? (
+                <div className="text-center py-10"><p className="text-sm text-red-300">{error}</p></div>
+              ) : tab === 'ranked' && !season ? (
+                <p className="text-sm text-muted text-center py-10">{t('lb.noSeason')}</p>
+              ) : ladderEmpty ? (
+                <p className="text-sm text-muted text-center py-10">{tab === 'global' ? t('lb.emptyGlobal') : t('lb.emptyRanked')}</p>
+              ) : tab === 'global' ? (
+                <GlobalLadderList rows={rows} myId={myId} />
+              ) : (
+                <RankedLadderList rows={ranked} myId={myId} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -281,6 +375,48 @@ function GlobalBoard({ rows, myId }: { rows: LeaderboardRow[]; myId: string | nu
         })}
       </ul>
     </>
+  );
+}
+
+/** Compact, full ranking list for the landscape right pane (global). Shows every row
+ *  (the podium summary lives in the left pane) inside the one scroll region. */
+function GlobalLadderList({ rows, myId }: { rows: LeaderboardRow[]; myId: string | null }) {
+  const t = useT();
+  return (
+    <ul className="space-y-1.5">
+      {rows.map((r) => {
+        const isMe = myId !== null && r.id === myId;
+        return (
+          <li key={r.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border ${isMe ? 'border-gold bg-gold/[.10]' : 'border-white/10 bg-white/[.03]'}`}>
+            <span className={`w-7 text-center font-display font-bold text-sm ${rankClass(r.rank)}`} aria-label={t('lb.rankN', { n: r.rank })}>{rankLabel(r.rank)}</span>
+            <span className="pfp shrink-0" style={{ width: 26, height: 26 }}><AvatarFace id={r.avatar} fill className="text-sm leading-none" /></span>
+            <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{r.username}{isMe && <span className="ml-1.5 text-[10px] text-muted">{t('lb.you')}</span>}</span>
+            <span className="font-display font-semibold text-gold-hi text-xs tabular-nums shrink-0">{r.xp} XP</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Compact, full ranking list for the landscape right pane (ranked season). */
+function RankedLadderList({ rows, myId }: { rows: RankedLeaderboardRow[]; myId: string | null }) {
+  const t = useT();
+  return (
+    <ul className="space-y-1.5">
+      {rows.map((r) => {
+        const isMe = myId !== null && r.userId === myId;
+        return (
+          <li key={r.userId} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border ${isMe ? 'border-gold bg-gold/[.10]' : 'border-white/10 bg-white/[.03]'}`}>
+            <span className={`w-7 text-center font-display font-bold text-sm ${rankClass(r.rank)}`} aria-label={t('lb.rankN', { n: r.rank })}>{rankLabel(r.rank)}</span>
+            <span className="pfp shrink-0" style={{ width: 26, height: 26 }}><AvatarFace id={r.avatar} fill className="text-sm leading-none" /></span>
+            <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{r.username}{isMe && <span className="ml-1.5 text-[10px] text-muted">{t('lb.you')}</span>}</span>
+            <TierBadge tier={r.tier} size="sm" />
+            <span className="font-display font-bold text-gold-hi text-xs tabular-nums shrink-0">{r.rating}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
