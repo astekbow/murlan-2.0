@@ -718,7 +718,10 @@ select:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;   /* let the app's patterned dark background show through the letterbox */
+  /* Solid obsidian behind the whole table — so the letterbox bars + the area under the
+     clipped hand are ONE clean dark, not a stark black with a grey/maroon strip from the
+     app's gradient body showing through. */
+  background: radial-gradient(120% 90% at 50% 50%, #14121a, #0b0a0e 70%);
   z-index: 0;
 }
 /* THE canvas. aspect-ratio + width:min(...) = contain. container-type:size enables
@@ -726,8 +729,14 @@ select:focus-visible,
 .tv-ls .tv-canvas {
   position: relative;
   aspect-ratio: 1280 / 590;
-  width: min(100vw, calc(100dvh * 1280 / 590));
-  height: min(100dvh, calc(100vw * 590 / 1280));
+  /* svh (the STABLE small-viewport height) — NOT dvh. dvh shrinks/grows as the mobile
+     toolbar shows/hides, which continuously re-sized the canvas (and everything in it, sized
+     in cqw of the canvas) → the "shaking" on open. svh is fixed, so the table sits still.
+     The plain-vh lines are the fallback for browsers without svh. */
+  width: min(100vw, calc(100vh * 1280 / 590));
+  height: min(100vh, calc(100vw * 590 / 1280));
+  width: min(100vw, calc(100svh * 1280 / 590));
+  height: min(100svh, calc(100vw * 590 / 1280));
   container-type: size;
   overflow: visible;           /* raised cards / seat fans may peek past the edge */
 }
@@ -787,10 +796,13 @@ select:focus-visible,
 
 /* ---- Felt / table: lowered a touch (top 12%) vs the spec's 9% — it read as "too high". */
 .tv-ls .tvc-felt {
-  left: 22%;
-  top: 12%;
-  width: 56%;
-  height: 48%;
+  /* ~20% bigger than 56%×48% (→ 67%×57%), re-centred on the same point (h 50% / v ~37%)
+     so it grows outward without shifting. Top clears the 9% top bar; bottom (~66%) stays
+     just above the hand zone (top 65%). */
+  left: 16.5%;
+  top: 8.5%;
+  width: 67%;
+  height: 57%;
   z-index: 1;
 }
 .tv-ls .tvc-felt .rail-outer { height: 100%; padding: 1.4cqh; border-radius: 18% / 30%; }
