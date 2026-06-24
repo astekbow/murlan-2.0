@@ -229,9 +229,34 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
     </section>
   );
 
-  // Landscape (flat phone): a fixed-height two-pane console that fits WITHOUT page scroll —
-  // seats + the ready CTA on the left (the core), private code + invite list on the right.
+  // Landscape (flat phone): a fixed-height console that fits WITHOUT page scroll. Seats sit in a
+  // single centred ROW up top (using the width), the status + ready CTA in the middle, and the
+  // join code + invite list scroll underneath. Compact, table-like — not the cramped two-pane.
   if (landscape) {
+    const lsSeats = (
+      <div className="flex justify-center flex-wrap gap-2 shrink-0">
+        {room.seats.map((s) => {
+          const mine = s.seat === mySeat;
+          const ring = s.team === 0 ? 'var(--blue)' : s.team === 1 ? 'var(--red)' : s.ready ? 'var(--green)' : 'var(--gold-line)';
+          return (
+            <div
+              key={s.seat}
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 border ${mine ? 'bg-gold/[.06] border-gold/40' : 'border-white/10 bg-white/[.02]'}`}
+            >
+              <span className="pfp" style={{ width: 42, height: 42, borderColor: s.username ? ring : 'rgba(255,255,255,.12)', opacity: s.username ? 1 : 0.4 }}>
+                {s.username ? (s.avatar ? <AvatarFace id={s.avatar} fill className="text-xl leading-none" /> : s.username.charAt(0).toUpperCase()) : '…'}
+              </span>
+              <div className="text-xs font-display font-semibold tracking-wide truncate max-w-[88px] text-center">
+                {s.username ?? <span className="italic text-muted/70">{t('room.waiting')}</span>}
+              </div>
+              {s.username
+                ? (s.ready ? <span className="tag tag-open text-[10px] py-0">{t('room.ready')}</span> : <span className="tag tag-live text-[10px] py-0"><span className="pls" />{t('room.notReady')}</span>)
+                : <span className="text-[10px] text-muted/50">·</span>}
+            </div>
+          );
+        })}
+      </div>
+    );
     return createPortal(
       <div className="pg-ls">
         <div className="pg-ls-top">
@@ -244,12 +269,26 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
             </span>
           </span>
         </div>
-        <div className="pg-ls-body">
-          <div className="pg-ls-left pg-ls-scroll space-y-3 pr-1">
-            {seatsGrid}
-            {readyCta}
+        <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+          {lsSeats}
+          {/* Status + the ready CTA — the core action, always visible without scroll. */}
+          <div className="shrink-0 text-center space-y-1.5">
+            {counting ? (
+              <div className="gold-text font-display font-bold text-4xl leading-none animate-pop" key={secs}>{secs}</div>
+            ) : (
+              <div className="text-xs text-muted">{allReady ? t('room.allReady') : allFilled ? t('room.waitingReady') : t('room.waitingPlayers')}</div>
+            )}
+            {!canAfford && !meReady && <div className="text-xs text-suit">{t('room.insufficient', { amount: dollars(room.stakeCents) })}</div>}
+            <button
+              onClick={() => { sound.play('button'); void setReady(!meReady); }}
+              disabled={!canAfford && !meReady}
+              className={`btn btn-block ${meReady ? 'btn-ghost' : 'btn-green'}`}
+            >
+              {meReady ? t('room.cancelReady') : !canAfford ? t('room.noFunds') : t('room.imReady')}
+            </button>
           </div>
-          <div className="pg-ls-right pg-ls-scroll space-y-3">
+          {/* Join code + invite list — the only scrolling region. */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
             {privateCode}
             {inviteList}
           </div>

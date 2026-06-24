@@ -56,10 +56,12 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   const dimmed = gone || !connected;
   const status = gone ? t('seat.left') : finished ? t('seat.finished') : passed ? t('seat.passed') : !connected ? t('seat.offline') : isTurn ? t('seat.turn') : '';
 
-  // Side seats (left/right): the face-down mini-fan sits BEHIND the avatar — centred, peeking
-  // out symmetrically (not stacked above their head). Top/bottom seats keep the fan in the
-  // row above the avatar.
-  const side = placement != null && placement !== 'top' && placement !== 'bottom';
+  // Side seats: a VERTICAL fan of cards held facing the TABLE — so it peeks out the table-side
+  // edge of the avatar (left-side seats lean right toward centre, right-side seats lean left),
+  // BEHIND the avatar. Top/bottom seats keep the horizontal fan in the row above the avatar.
+  const leftSide = placement === 'left' || placement === 'top-left';
+  const rightSide = placement === 'right' || placement === 'top-right';
+  const side = leftSide || rightSide;
   const fan = (
     <div className="flex h-5 items-end" aria-hidden="true">
       {Array.from({ length: fanCount }).map((_, i) => (
@@ -67,10 +69,10 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
       ))}
     </div>
   );
-  // SIDE seats: a fan centred BEHIND the avatar (peeking out symmetrically). Size + overlap come
-  // from CSS (.seat-fan-behind .mini) so it scales with the table — no inline sizing here.
+  // Vertical, table-facing fan tucked behind the avatar. Size/overlap come from CSS
+  // (.seat-fan-behind .mini) so it scales with the table; the side class sets the lean.
   const behindFan = (
-    <div className="seat-fan-behind" aria-hidden="true">
+    <div className={`seat-fan-behind ${leftSide ? 'tbl-left' : 'tbl-right'}`} aria-hidden="true">
       {Array.from({ length: fanCount }).map((_, i) => <div key={i} className="mini" />)}
     </div>
   );
