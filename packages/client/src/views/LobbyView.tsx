@@ -81,6 +81,10 @@ export function LobbyView() {
     if (ok) setCodeInput('');
   };
 
+  // A 0-stake room is a FREE game — show "Falas" instead of "$0.00" wherever a stake
+  // is displayed. (Such a room is always affordable; the join gate never blocks it.)
+  const stakeLabel = (cents: number) => (cents === 0 ? t('lobby.free') : dollars(cents));
+
   // Refresh the authoritative balance on entry so the join affordability gate
   // ("Pa fonde") reflects any deposit made since login.
   useEffect(() => {
@@ -140,7 +144,7 @@ export function LobbyView() {
                     return (
                       <li key={r.id} className="flex items-center gap-2 rounded-lg px-3 py-2 border border-white/10 bg-white/[.03]">
                         <span className="font-display font-semibold tracking-wide text-sm min-w-[84px]">{t(TYPE_LABEL[r.type])}</span>
-                        <span className="text-xs text-muted">{dollars(r.stakeCents)}</span>
+                        <span className="text-xs text-muted">{stakeLabel(r.stakeCents)}</span>
                         <span className="text-xs text-muted">{r.seatsFilled}/{r.seatsTotal} 👥</span>
                         {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
                         <button
@@ -219,7 +223,7 @@ export function LobbyView() {
                     >
                       <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{t(TYPE_LABEL[r.type])}</div>
                       <div className="flex flex-wrap gap-4 text-sm text-muted flex-1">
-                        <span>{t('lobby.stake')} <b className="text-txt">{dollars(r.stakeCents)}</b></span>
+                        <span>{t('lobby.stake')} <b className="text-txt">{stakeLabel(r.stakeCents)}</b></span>
                         <span><b className="text-txt">{r.seatsFilled}/{r.seatsTotal}</b> {t('lobby.playersSuffix')}</span>
                       </div>
                       {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
@@ -346,7 +350,9 @@ function RankedModal({ onClose, onFind }: RankedProps) {
 
   return (
     <Modal title={t('lobby.rankedModalTitle')} onClose={onClose}>
-      <div className="space-y-4">
+      {/* Already short (type picker + blurb + button); space-y-3 keeps it well clear of
+          a short landscape screen's height — no internal scroll. */}
+      <div className="space-y-3">
         <div>
           <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
@@ -405,6 +411,7 @@ interface QuickProps {
 }
 function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
   const t = useT();
+  const [tab, setTab] = useState<'play' | 'practice'>('play');
   const [type, setType] = useState<MatchType>('1v1');
   const [stake, setStake] = useState('5');
   const [tier, setTier] = useState<'easy' | 'medium' | 'hard'>('medium');
@@ -441,35 +448,55 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
   return (
     <Modal title={t('lobby.quickName')} onClose={onClose}>
       <div className="space-y-4">
-        <div>
-          <span className="field-label">{t('lobby.gameType')}</span>
-          <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
+        {/* Two tabs keep each panel short enough to fit a flat phone with NO scroll:
+            "Luaj" (real/free vs people) and "Praktikë" (vs bots). */}
+        <div className="seg w-full grid grid-cols-2">
+          <button type="button" className={`seg-tab text-center ${tab === 'play' ? 'active' : ''}`} aria-pressed={tab === 'play'} onClick={() => setTab('play')}>{t('lobby.tabPlay')}</button>
+          <button type="button" className={`seg-tab text-center ${tab === 'practice' ? 'active' : ''}`} aria-pressed={tab === 'practice'} onClick={() => setTab('practice')}>{t('lobby.tabPractice')}</button>
         </div>
-        <StakeField value={stake} onChange={setStake} onEnter={() => void play()} />
-        <p className="text-xs text-muted">{t('lobby.quickBlurb')}</p>
-        <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
-          {busy ? t('lobby.searching') : t('lobby.quickCta')}
-        </button>
-        {/* Bot difficulty applies to the practice game below. */}
-        <div>
-          <span className="field-label">{t('lobby.botDifficulty')}</span>
-          <div className="mt-1 grid grid-cols-3 gap-1.5">
-            {(['easy', 'medium', 'hard'] as const).map((lv) => (
-              <button
-                key={lv}
-                type="button"
-                aria-pressed={tier === lv}
-                onClick={() => setTier(lv)}
-                className={`btn btn-sm ${tier === lv ? 'btn-gold' : 'btn-ghost'}`}
-              >
-                {t(lv === 'easy' ? 'lobby.botEasy' : lv === 'medium' ? 'lobby.botMedium' : 'lobby.botHard')}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void practice()}>
-          {t('lobby.practice')}
-        </button>
+
+        {tab === 'play' ? (
+          <>
+            <div>
+              <span className="field-label">{t('lobby.gameType')}</span>
+              <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
+            </div>
+            <div>
+              <StakeField value={stake} onChange={setStake} onEnter={() => void play()} />
+              <p className="text-xs text-muted mt-1">{t('lobby.freeHint')}</p>
+            </div>
+            <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
+              {busy ? t('lobby.searching') : t('lobby.quickCta')}
+            </button>
+          </>
+        ) : (
+          <>
+            <div>
+              <span className="field-label">{t('lobby.gameType')}</span>
+              <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
+            </div>
+            {/* Bot difficulty applies to the practice game below. */}
+            <div>
+              <span className="field-label">{t('lobby.botDifficulty')}</span>
+              <div className="mt-1 grid grid-cols-3 gap-1.5">
+                {(['easy', 'medium', 'hard'] as const).map((lv) => (
+                  <button
+                    key={lv}
+                    type="button"
+                    aria-pressed={tier === lv}
+                    onClick={() => setTier(lv)}
+                    className={`btn btn-sm ${tier === lv ? 'btn-gold' : 'btn-ghost'}`}
+                  >
+                    {t(lv === 'easy' ? 'lobby.botEasy' : lv === 'medium' ? 'lobby.botMedium' : 'lobby.botHard')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void practice()}>
+              {t('lobby.practice')}
+            </button>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -504,7 +531,10 @@ function CreateRoomModal({ onClose, onCreate }: CreateProps) {
           <span className="field-label">{t('lobby.gameType')}</span>
           <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
-        <StakeField value={stake} onChange={setStake} onEnter={() => void create()} />
+        <div>
+          <StakeField value={stake} onChange={setStake} onEnter={() => void create()} />
+          <p className="text-xs text-muted mt-1">{t('lobby.freeHintStake')}</p>
+        </div>
         <label className="flex items-center gap-2.5 cursor-pointer select-none">
           <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="w-4 h-4 accent-gold" />
           <span className="text-sm text-txt">{t('lobby.privateRoom')}</span>

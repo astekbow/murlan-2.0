@@ -59,10 +59,13 @@ export function TournamentsView() {
     finally { setBusy(false); }
   };
 
-  const label = (uid: string | null) => (uid == null ? '—' : uid === me?.id ? t('tourn.you') : uid.slice(0, 6));
+  // Resolve a bracket/champion id to a display name: the caller → "Ti", else the real
+  // username from the tournament's server-sent map, else a short id slice (bot/unknown).
+  const label = (uid: string | null, usernames?: Record<string, string>) =>
+    uid == null ? '—' : uid === me?.id ? t('tourn.you') : (usernames?.[uid] ?? uid.slice(0, 6));
 
-  // The admin create form — gated to admins in landscape, shown to all in portrait
-  // (portrait behaviour is preserved EXACTLY by passing it the full original markup).
+  // The admin create form — rendered ONLY for admins in BOTH layouts (opening a real-money
+  // pool is an admin action). A non-admin never sees it.
   const createForm = (
     <section className="panel p-5 animate-rise space-y-3">
       <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('tourn.create')}</h2>
@@ -104,12 +107,12 @@ export function TournamentsView() {
         {/* Dual-control: a parked champion awaits a SECOND admin's confirmation before payout. */}
         {isAdmin && tn.status === 'awaiting_confirmation' && (
           <div className="space-y-1.5 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2.5">
-            <p className="text-xs text-amber-300 text-center">{t('tourn.awaitingConfirm')}{tn.pendingWinnerId ? `: ${label(tn.pendingWinnerId)}` : ''}</p>
+            <p className="text-xs text-amber-300 text-center">{t('tourn.awaitingConfirm')}{tn.pendingWinnerId ? `: ${label(tn.pendingWinnerId, tn.usernames)}` : ''}</p>
             <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.confirmPayout'), message: t('tourn.confirmPayoutM'), confirmLabel: t('tourn.confirmPayout') })) void act(() => tournamentsApi.confirm(tk()!, tn.id)); }} className="btn btn-gold btn-block">{t('tourn.confirmPayout')}</button>
             <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.cancelRefund'), message: t('tourn.confirmCancelM'), danger: true, confirmLabel: t('tourn.cancelRefund') })) void act(() => tournamentsApi.cancel(tk()!, tn.id)); }} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>
           </div>
         )}
-        {tn.winnerId && tn.status === 'finished' && <p className="text-sm text-center text-gold-hi">🏆 {t('tourn.champion')}: {label(tn.winnerId)}</p>}
+        {tn.winnerId && tn.status === 'finished' && <p className="text-sm text-center text-gold-hi">🏆 {t('tourn.champion')}: {label(tn.winnerId, tn.usernames)}</p>}
 
         {rounds.length > 0 && (
           <div className="space-y-2.5">
@@ -119,16 +122,16 @@ export function TournamentsView() {
                 <ul className="space-y-1.5">
                   {tn.bracket.filter((m) => m.round === round).sort((a, b) => a.index - b.index).map((m) => (
                     <li key={m.index} className="flex items-center gap-2 rounded-lg px-3 py-2 border border-white/10 bg-white/[.03] text-sm">
-                      <span className={m.winnerId === m.aUserId ? 'text-emerald-300 font-semibold' : 'text-txt'}>{label(m.aUserId)}</span>
+                      <span className={m.winnerId === m.aUserId ? 'text-emerald-300 font-semibold' : 'text-txt'}>{label(m.aUserId, tn.usernames)}</span>
                       <span className="text-muted text-xs">vs</span>
-                      <span className={m.winnerId === m.bUserId ? 'text-emerald-300 font-semibold' : 'text-txt'}>{label(m.bUserId)}</span>
+                      <span className={m.winnerId === m.bUserId ? 'text-emerald-300 font-semibold' : 'text-txt'}>{label(m.bUserId, tn.usernames)}</span>
                       {isAdmin && tn.status === 'running' && !m.winnerId && m.aUserId && m.bUserId && (
                         <span className="ml-auto flex gap-1.5">
-                          <button disabled={busy} onClick={() => void act(() => tournamentsApi.report(tk()!, tn.id, m.round, m.index, m.aUserId!))} className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 12 }}>{label(m.aUserId)} ✓</button>
-                          <button disabled={busy} onClick={() => void act(() => tournamentsApi.report(tk()!, tn.id, m.round, m.index, m.bUserId!))} className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 12 }}>{label(m.bUserId)} ✓</button>
+                          <button disabled={busy} onClick={() => void act(() => tournamentsApi.report(tk()!, tn.id, m.round, m.index, m.aUserId!))} className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 12 }}>{label(m.aUserId, tn.usernames)} ✓</button>
+                          <button disabled={busy} onClick={() => void act(() => tournamentsApi.report(tk()!, tn.id, m.round, m.index, m.bUserId!))} className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 12 }}>{label(m.bUserId, tn.usernames)} ✓</button>
                         </span>
                       )}
-                      {m.winnerId && <span className="ml-auto text-xs text-gold-hi">🏆 {label(m.winnerId)}</span>}
+                      {m.winnerId && <span className="ml-auto text-xs text-gold-hi">🏆 {label(m.winnerId, tn.usernames)}</span>}
                     </li>
                   ))}
                 </ul>
@@ -164,9 +167,15 @@ export function TournamentsView() {
           <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
         </div>
         <div className="pg-ls-body">
-          {/* LEFT — the create form (shown to everyone today — same gating preserved) + refresh */}
+          {/* LEFT — admins get the create form; non-admins get a short note (never an empty
+              void) so the pane reads intentionally. Both get the refresh button. */}
           <div className="pg-ls-left pg-ls-scroll space-y-2 pr-1">
-            {createForm}
+            {isAdmin ? createForm : (
+              <section className="panel p-5 animate-rise text-center">
+                <div className="text-3xl mb-2 opacity-60" aria-hidden="true">🏆</div>
+                <p className="text-sm text-muted">{t('tourn.adminOnly')}</p>
+              </section>
+            )}
             <button onClick={() => void load()} className="btn btn-ghost btn-sm btn-block">{t('common.refresh')}</button>
           </div>
           {/* RIGHT — list / bracket (the only scrolling region) */}
@@ -191,9 +200,9 @@ export function TournamentsView() {
         <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('tourn.title')}</h1>
       </section>
 
-      {/* ANY player can open a tournament — it runs itself (the bracket plays in the
-          live game) and the house takes its rake at the final. */}
-      {createForm}
+      {/* Only an admin opens a tournament (it then runs itself — the bracket plays in the
+          live game — and the house takes its rake at the final). Non-admins see the list only. */}
+      {isAdmin && createForm}
 
       {status === 'loading' ? (
         loadingBlock

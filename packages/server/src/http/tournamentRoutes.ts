@@ -16,13 +16,17 @@ import type { AdminAuditRepository } from '../auth/adminAudit.ts';
 import { checkRealMoneyAccess } from '../compliance/realMoneyGate.ts';
 import { requireAuth } from './authRoutes.ts';
 import { requirePermission } from './permissions.ts';
-import { TournamentService, TournamentError } from '../tournament/tournamentService.ts';
+import { TournamentService, TournamentError, type Tournament } from '../tournament/tournamentService.ts';
 import type { ClubService } from '../social/clubService.ts';
+import type { UserRepository } from '../auth/userRepository.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
 
 export interface TournamentRoutesDeps {
   auth: AuthService;
   tournaments: TournamentService;
+  // Batch username lookup → the DTO carries a usernames map so the client shows real
+  // names (not 6-char id slices) in the bracket/champion. Absent ⇒ usernames omitted.
+  users?: UserRepository;
   // Club membership reader → gates club-scoped tournaments (founder-only create,
   // members-only register/list). Absent ⇒ club tournaments are simply unavailable.
   clubs?: ClubService;
@@ -65,16 +69,47 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     throw e;
   };
 
+  // Collect every distinct user id referenced by a tournament (players + every bracket
+  // slot + the champion/pending champion) so we can resolve them to usernames in ONE
+  // batched query — never N+1. nulls (empty bracket slots) are skipped.
+  const idsOf = (t: Tournament): string[] => {
+    const ids = new Set<string>(t.playerIds);
+    for (const m of t.bracket) { if (m.aUserId) ids.add(m.aUserId); if (m.bUserId) ids.add(m.bUserId); if (m.winnerId) ids.add(m.winnerId); }
+    if (t.winnerId) ids.add(t.winnerId);
+    if (t.pendingWinnerId) ids.add(t.pendingWinnerId);
+    return [...ids];
+  };
+
+  // Attach a usernames map { userId → username } to the tournament DTO so the client
+  // renders real names. ONE batched lookup across the whole list (collect all ids first).
+  // If the user repo is unwired or the lookup fails, the DTO ships without usernames and
+  // the client falls back to its id-slice (graceful — bots/unknown ids never block).
+  const decorate = async (ts: Tournament[]): Promise<Array<Tournament & { usernames: Record<string, string> }>> => {
+    const all = new Set<string>();
+    for (const t of ts) for (const id of idsOf(t)) all.add(id);
+    let byId = new Map<string, string>();
+    if (deps.users && all.size > 0) {
+      const users = await deps.users.findManyByIds([...all]).catch(() => []);
+      byId = new Map(users.map((u) => [u.id, u.username]));
+    }
+    return ts.map((t) => {
+      const usernames: Record<string, string> = {};
+      for (const id of idsOf(t)) { const name = byId.get(id); if (name) usernames[id] = name; }
+      return { ...t, usernames };
+    });
+  };
+  const decorateOne = async (t: Tournament) => (await decorate([t]))[0]!;
+
   app.get('/api/tournaments', async (req, reply) => {
     if (!(await guard(req, reply))) return;
-    return reply.send({ tournaments: await tournaments.list() });
+    return reply.send({ tournaments: await decorate(await tournaments.list()) });
   });
 
   app.get('/api/tournaments/:id', async (req, reply) => {
     if (!(await guard(req, reply))) return;
     const t = await tournaments.get((req.params as { id: string }).id);
     if (!t) return reply.code(404).send({ error: { code: 'not_found', message: 'Turneu nuk u gjet.' } });
-    return reply.send({ tournament: t });
+    return reply.send({ tournament: await decorateOne(t) });
   });
 
   app.post('/api/tournaments/:id/register', async (req, reply) => {
@@ -98,7 +133,7 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
       const t2 = await tournaments.register(id, caller.userId);
       // Just filled → the bracket is seeded + 'running'. Kick off the live matches.
       if (t2.status === 'running') deps.onTournamentRunning?.(t2.id);
-      return reply.send({ tournament: t2 });
+      return reply.send({ tournament: await decorateOne(t2) });
     } catch (e) {
       return fail(reply, e);
     }
@@ -124,7 +159,7 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     try {
       const t = await tournaments.create(parsed.data.name, parsed.data.buyInCents, parsed.data.capacity, clubId);
       await deps.audit?.record({ adminId: caller.userId, action: 'tournament_create', detail: `${t.id} "${t.name}" buyIn=${t.buyInCents} cap=${t.capacity}${clubId ? ` club=${clubId}` : ''} (creator)` }).catch(() => undefined);
-      return reply.code(201).send({ tournament: t });
+      return reply.code(201).send({ tournament: await decorateOne(t) });
     } catch (e) {
       return fail(reply, e);
     }
@@ -137,7 +172,7 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     const clubId = (req.params as { clubId: string }).clubId;
     const m = await deps.clubs?.memberOf(caller.userId);
     if (!m || m.clubId !== clubId) return reply.code(403).send({ error: { code: 'forbidden', message: 'Vetëm anëtarët e klubit mund t\'i shohin turnetë.' } });
-    return reply.send({ tournaments: await tournaments.listByClub(clubId) });
+    return reply.send({ tournaments: await decorate(await tournaments.listByClub(clubId)) });
   });
 
   // ----- Admin: report a pairing winner / cancel(+refund) --------------------
@@ -161,7 +196,7 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
         adminId: adminCaller.userId, action: 'tournament_report', targetUserId: b.winnerId,
         amountCents: paidPrize, detail: `${id} r${b.round}#${b.index} winner=${b.winnerId}${tail}`,
       }).catch(() => undefined);
-      return reply.send({ tournament: t });
+      return reply.send({ tournament: await decorateOne(t) });
     } catch (e) {
       return fail(reply, e);
     }
@@ -181,7 +216,7 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
         adminId: adminCaller.userId, action: 'tournament_confirm', targetUserId: t.winnerId,
         amountCents: paidPrize, detail: `${id} confirmed champion=${t.winnerId} CHAMPION`,
       }).catch(() => undefined);
-      return reply.send({ tournament: t });
+      return reply.send({ tournament: await decorateOne(t) });
     } catch (e) {
       return fail(reply, e);
     }
@@ -194,7 +229,7 @@ export async function tournamentRoutes(app: FastifyInstance, deps: TournamentRou
     try {
       const t = await tournaments.cancel(id);
       await deps.audit?.record({ adminId: adminCaller.userId, action: 'tournament_cancel', detail: `${id} refunded ${t.playerIds.length} player(s)` }).catch(() => undefined);
-      return reply.send({ tournament: t });
+      return reply.send({ tournament: await decorateOne(t) });
     } catch (e) {
       return fail(reply, e);
     }

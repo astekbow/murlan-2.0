@@ -94,6 +94,7 @@ import { TournamentService, TournamentError, InMemoryTournamentRepository, type 
 export interface HttpDeps {
   auth: AuthService;
   config: AppConfig;
+  users?: UserRepository; // batch username lookup (e.g. tournament bracket display)
   wallet?: WalletService;
   withdrawals?: WithdrawalService;
   provider?: PaymentProvider;
@@ -279,7 +280,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
   }
   if (deps.tournaments) {
-    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, clubs: deps.clubs, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit, onTournamentRunning: deps.tournamentRunner });
+    await tournamentRoutes(app, { auth: deps.auth, tournaments: deps.tournaments, users: deps.users, clubs: deps.clubs, compliance: deps.compliance, rg: deps.rg, audit: deps.adminAudit, onTournamentRunning: deps.tournamentRunner });
   }
   if (deps.antiCheat) {
     // Admin-only review list of anti-collusion/anti-bot heuristic flags (never auto-action).
@@ -898,7 +899,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     });
   }
 
-  const app = await buildHttpApp({ auth, config, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
+  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(

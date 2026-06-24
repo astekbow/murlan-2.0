@@ -26,7 +26,8 @@ async function build() {
   const clubs = new ClubService(new InMemoryClubRepository(), repo);
   const tournaments = new TournamentService(new InMemoryTournamentRepository(), noopWallet, 1000);
   const config = loadConfig({ NODE_ENV: 'test' } as NodeJS.ProcessEnv);
-  const app = await buildHttpApp({ auth, config, clubs, tournaments });
+  // users: repo → the routes resolve bracket/player ids to usernames in one batched query.
+  const app = await buildHttpApp({ auth, config, users: repo, clubs, tournaments });
   // founder creates a club; member joins; outsider stays clubless.
   const founder = await auth.register({ username: 'founder', email: 'f@x.com', password: 'password123' });
   const member = await auth.register({ username: 'member', email: 'm@x.com', password: 'password123' });
@@ -35,7 +36,7 @@ async function build() {
   const created = await app.inject({ method: 'POST', url: '/api/clubs', headers: h(tF), payload: { name: 'Test Club', tag: 'TST' } });
   const clubId = created.json().club.id as string;
   await app.inject({ method: 'POST', url: `/api/clubs/${clubId}/join`, headers: h(tM) });
-  return { app, tF, tM, tO, clubId };
+  return { app, tF, tM, tO, clubId, founderId: founder.user.id, memberId: member.user.id };
 }
 const h = (t: string) => ({ authorization: `Bearer ${t}` });
 
@@ -89,6 +90,34 @@ test('global tournament list excludes club tournaments', async () => {
     assert.ok(names.includes('Global Cup'));
     assert.ok(!names.includes('Club Cup'));
     for (const t of list.json().tournaments as Array<{ clubId: string | null }>) assert.equal(t.clubId, null);
+  } finally {
+    await app.close();
+  }
+});
+
+test('tournament DTO carries a usernames map for players + the seeded bracket', async () => {
+  const { app, tF, tM, founderId, memberId } = await build();
+  try {
+    // A free 2-player GLOBAL tournament: founder + member fill it → bracket seeds → running.
+    const created = await app.inject({ method: 'POST', url: '/api/tournaments', headers: h(tF), payload: { name: 'Names Cup', buyInCents: 0, capacity: 2 } });
+    const id = created.json().tournament.id as string;
+    // The create response already carries a (here empty-bracket) usernames map for the players.
+    assert.ok(created.json().tournament.usernames, 'create DTO should include a usernames map');
+
+    await app.inject({ method: 'POST', url: `/api/tournaments/${id}/register`, headers: h(tF) });
+    const filled = await app.inject({ method: 'POST', url: `/api/tournaments/${id}/register`, headers: h(tM) });
+    assert.equal(filled.statusCode, 200);
+    const dto = filled.json().tournament as { usernames: Record<string, string>; status: string; bracket: Array<{ aUserId: string; bUserId: string }> };
+    assert.equal(dto.status, 'running');
+    // Both players resolve to their real usernames (not id slices).
+    assert.equal(dto.usernames[founderId], 'founder');
+    assert.equal(dto.usernames[memberId], 'member');
+
+    // The list endpoint resolves names too, in one batched lookup.
+    const list = await app.inject({ method: 'GET', url: '/api/tournaments', headers: h(tM) });
+    const fromList = (list.json().tournaments as Array<{ id: string; usernames: Record<string, string> }>).find((t) => t.id === id)!;
+    assert.equal(fromList.usernames[founderId], 'founder');
+    assert.equal(fromList.usernames[memberId], 'member');
   } finally {
     await app.close();
   }

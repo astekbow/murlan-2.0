@@ -499,6 +499,10 @@ export interface TournamentDTO {
   status: 'registering' | 'running' | 'awaiting_confirmation' | 'finished' | 'cancelled';
   playerIds: string[]; bracket: BracketMatchDTO[]; prizePoolCents: number; winnerId: string | null;
   pendingWinnerId?: string | null; clubId?: string | null; createdAt: number;
+  // userId → username for every id in playerIds + the bracket + the champion, resolved
+  // server-side in one batched query. Absent (or an id missing from the map) ⇒ the client
+  // falls back to a short id slice.
+  usernames?: Record<string, string>;
 }
 export const tournamentsApi = {
   list: (token: string) => request<{ tournaments: TournamentDTO[] }>('/tournaments', { token }),
