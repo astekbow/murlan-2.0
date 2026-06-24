@@ -5,6 +5,7 @@ import { useGameStore } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
+import { lobbyApi, type LobbyLiveDTO } from '../lib/api.ts';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
 import { Modal } from '../components/ui/Modal.tsx';
@@ -61,6 +62,35 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
   );
 }
 
+/** Compact lobby-liveliness strip: a live "X online" chip + a subtle ticker of recent
+ *  real-money winners ("Ardit fitoi $20"). Display-only; data is polled read-only. */
+function LobbyLiveStrip({ data }: { data: LobbyLiveDTO | null }) {
+  const t = useT();
+  const online = data?.online ?? 0;
+  const winners = data?.recentWinners ?? [];
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm animate-rise" aria-live="polite">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-200 font-display font-semibold tracking-wide">
+        <span className="pls" aria-hidden />
+        {t('lobby.onlineCount', { n: online })}
+      </span>
+      {winners.length > 0 && (
+        <span className="min-w-0 flex-1 flex items-baseline gap-2 overflow-hidden">
+          <span className="shrink-0 font-serif text-[10px] tracking-[0.25em] text-muted uppercase">{t('lobby.recentWinners')}</span>
+          <span className="min-w-0 truncate text-muted">
+            {winners.map((w, i) => (
+              <span key={`${w.at}-${i}`} className={i === 0 ? 'text-gold-hi' : undefined}>
+                {i > 0 && <span className="text-muted/50"> · </span>}
+                {t('lobby.winnerLine', { name: w.username, amount: dollars(w.amountCents) })}
+              </span>
+            ))}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function LobbyView() {
   const { lobby, live, createRoom, joinRoom, joinByCode, refreshLobby, findRanked, spectate } = useGameStore();
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
@@ -89,6 +119,18 @@ export function LobbyView() {
   // ("Pa fonde") reflects any deposit made since login.
   useEffect(() => {
     void useAuthStore.getState().refreshMe();
+  }, []);
+
+  // Lobby liveliness: poll the read-only online-count + recent-winners snapshot every
+  // 15s (cheap, in-memory on the server). Best-effort — a failure just keeps the last
+  // value (or none); it never blocks play.
+  const [live2, setLive2] = useState<LobbyLiveDTO | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const pull = () => { void lobbyApi.live().then((d) => { if (alive) setLive2(d); }).catch(() => {}); };
+    pull();
+    const id = window.setInterval(pull, 15_000);
+    return () => { alive = false; window.clearInterval(id); };
   }, []);
 
   // ---- Landscape "console" (phone held flat): a fixed-height frame that fits with
@@ -269,7 +311,10 @@ export function LobbyView() {
         </div>
       ) : (
         /* ---- Home — four equal cards ---- */
-        <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
+        <div className="space-y-3">
+          {/* Liveliness: online count + recent-winners ticker (display-only). */}
+          <LobbyLiveStrip data={live2} />
+          <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4 order-1 md:order-2">
@@ -308,6 +353,7 @@ export function LobbyView() {
           </div>
 
           <RailNav items={RAIL_RIGHT} side="right" />
+          </div>
         </div>
       )}
 

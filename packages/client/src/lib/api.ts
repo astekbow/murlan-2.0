@@ -187,6 +187,22 @@ export const profileApi = {
   leaderboard: () => request<{ rows: LeaderboardRow[] }>('/leaderboard'),
 };
 
+// ---------- Lobby liveliness (public, read-only) ----------------------------
+// Display-only counters for the lobby: how many players are online + a short ticker
+// of recent real-money winners. No token required; carries no money/game authority.
+export interface RecentWinnerDTO {
+  username: string;
+  amountCents: number;
+  at: number; // epoch ms
+}
+export interface LobbyLiveDTO {
+  online: number;
+  recentWinners: RecentWinnerDTO[];
+}
+export const lobbyApi = {
+  live: () => request<LobbyLiveDTO>('/lobby/live'),
+};
+
 export interface UserSearchResult { id: string; username: string; avatar: string | null; level: number }
 
 export const friendsApi = {

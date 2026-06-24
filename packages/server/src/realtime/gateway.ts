@@ -104,6 +104,26 @@ const SPECTATOR_CAP = 100;
 // if they join first the timer is cancelled. NEVER applies to staked rooms.
 const GHOST_FILL_MS = 12_000;
 
+// Lobby liveliness: how many recent real-money winners we keep for the lobby ticker.
+// Purely cosmetic display state (a tiny in-memory ring); never read by any money/game path.
+const RECENT_WINNERS_MAX = 8;
+
+/** One entry in the cosmetic "recent winners" lobby ticker — the ALREADY-decided
+ *  winner + their ALREADY-paid amount of a finished real-money match. Display-only:
+ *  recorded as a read-only side effect after settlement, never an input to it. */
+export interface RecentWinner {
+  username: string;
+  amountCents: number;
+  at: number; // epoch ms — for ordering / staleness on the client
+}
+
+/** Read-only lobby-liveliness snapshot served to the client (online count + the
+ *  recent-winners ticker). Display-only; carries no money/game authority. */
+export interface LobbyLiveSnapshot {
+  online: number;
+  recentWinners: RecentWinner[];
+}
+
 /** Result of an admin match-void (see GameGateway.adminVoidMatch). */
 export type AdminVoidResult =
   | { ok: true; matchId: string | null; refunded: boolean }
@@ -171,6 +191,10 @@ export class GameGateway {
   private readonly ghostFillMs: number;
   private seenCards = new Map<string, Card[]>(); // practice roomId -> cards played this game (bot card-counting)
   private finalizedMatches = new Set<string>(); // matchIds whose match:end has been emitted (exactly-once finalize)
+  // Cosmetic lobby ticker: a tiny ring of the last few real-money winners (newest first).
+  // Written ONLY as a read-only side effect AFTER settlement records the already-decided
+  // winner + already-paid amount; never read by, and never an input to, any money/game path.
+  private recentWinners: RecentWinner[] = [];
   private fairByRoom = new Map<string, FairShuffle>(); // provably-fair shuffle per active match
   private pendingServerSeeds = new Map<string, string>(); // roomId -> serverSeed committed at countdown start
   private clientSeeds = new Map<string, string>(); // userId -> clientSeed (submitted AFTER the commit)
@@ -1765,6 +1789,45 @@ export class GameGateway {
   }
 
   /**
+   * Record the just-finished match's winner for the cosmetic lobby ticker. This is a
+   * PURELY READ-ONLY side effect: it reads the ALREADY-decided `winnerSeats` and the
+   * ALREADY-paid `payoutCents` (computed by settle() above) and pushes a display row
+   * onto an in-memory ring. It NEVER mutates a seat, the match, escrow, the pot, turn
+   * order, or any money state, and nothing in the money/game path ever reads this ring.
+   * Wrapped in try/catch so it can never throw into the settlement path.
+   *
+   * Excludes practice (vs-bot), zero-stake/free, unpaid, and bot-winner matches so the
+   * ticker only ever shows real humans winning real money.
+   */
+  private recordRecentWinner(roomId: string, winnerSeats: number[], payoutCents: number | null): void {
+    try {
+      if (!payoutCents || payoutCents <= 0 || winnerSeats.length === 0) return; // no real payout to show
+      const room = this.rooms.getRoom(roomId);
+      if (!room || room.practice || room.stakeCents <= 0) return; // practice / free tables never tick
+      // Name the first human winner (a 2v2 side is represented by one row). A bot winner
+      // (ranked-vs-bot) is skipped — the ticker is for humans winning real money.
+      const winner = winnerSeats
+        .map((seat) => room.seats[seat])
+        .find((s) => s && s.userId && !isBot(s.userId));
+      if (!winner || !winner.username) return;
+      this.recentWinners.unshift({ username: winner.username, amountCents: payoutCents, at: Date.now() });
+      if (this.recentWinners.length > RECENT_WINNERS_MAX) this.recentWinners.length = RECENT_WINNERS_MAX;
+    } catch {
+      // cosmetic only — never let a display bookkeeping error escape into settlement
+    }
+  }
+
+  /** Read-only lobby-liveliness snapshot for the client: online count (from the shared
+   *  Presence service) + the cosmetic recent-winners ring (a defensive copy). Touches
+   *  no money/game state — safe to serve from a plain GET. */
+  lobbyLive(): LobbyLiveSnapshot {
+    return {
+      online: this.presence?.online().length ?? 0,
+      recentWinners: this.recentWinners.slice(),
+    };
+  }
+
+  /**
    * A finished match updated player stats. Push two live-refresh signals (no
    * payload — the client refetches): each seated HUMAN reloads their Challenges/
    * Rewards page (XP/wins/streak changed), and everyone watching the leaderboard
@@ -1942,6 +2005,7 @@ export class GameGateway {
       : null;
 
     this.recordMatchStats(roomId, winnerSeats); // cosmetic XP/stats (isolated)
+    this.recordRecentWinner(roomId, winnerSeats, payoutCents); // cosmetic lobby ticker (read-only side effect)
     // Tournament matches never touch the ranked MMR ladder (they're their own bracket).
     const ratingDeltas = tourn ? [] : await this.recordRankedResult(roomId, winnerSeats);
     this.recordAntiCheat(roomId, winnerSeats); // heuristic flags for review (isolated)

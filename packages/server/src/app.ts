@@ -37,7 +37,7 @@ import { accountRoutes } from './http/accountRoutes.ts';
 import { ComplianceService } from './compliance/complianceService.ts';
 import { ResponsibleGamingService } from './compliance/responsibleGaming.ts';
 import { RoomManager } from './room/roomManager.ts';
-import { GameGateway, type AdminVoidResult } from './realtime/gateway.ts';
+import { GameGateway, type AdminVoidResult, type LobbyLiveSnapshot } from './realtime/gateway.ts';
 import { attachRedisAdapter } from './realtime/redisAdapter.ts';
 import { InMemoryRoomOwnership } from './realtime/roomOwnership.ts';
 import { InMemoryLedger, type LedgerRepository } from './money/ledger.ts';
@@ -117,6 +117,7 @@ export interface HttpDeps {
   tournamentRunner?: (tournamentId: string) => void; // start a filled tournament's live matches
   matches?: MatchesRepository; // for admin revenue-by-match-type reporting
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) => Promise<AdminVoidResult | { ok: false; reason: 'unavailable' }>;
+  lobbyLive?: () => LobbyLiveSnapshot; // read-only lobby-liveliness snapshot (online count + recent-winners ticker)
   profiles?: ProfileService;
   ranked?: RankedService;
   friends?: FriendsService;
@@ -238,6 +239,12 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
 
   // Liveness: cheap, no dependencies — used by the Docker HEALTHCHECK.
   app.get('/health', async () => ({ ok: true, service: 'murlan-server' }));
+
+  // Lobby liveliness (public, read-only): the current online count + a tiny ring of
+  // recent real-money winners for the lobby ticker. Display-only — served straight from
+  // the gateway's in-memory snapshot (no DB, no money/game state). Empty until the
+  // gateway binds the holder (startup) so an early call is harmless.
+  app.get('/api/lobby/live', async () => deps.lobbyLive?.() ?? { online: 0, recentWinners: [] });
 
   // Readiness: 503 if the DB is down OR the instance is DRAINING (graceful
   // shutdown) — either way the load balancer stops routing new traffic here.
@@ -720,6 +727,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const tournamentRunHolder: { fn?: (id: string) => void } = {};
   const tournamentRunner = (id: string) => tournamentRunHolder.fn?.(id);
 
+  // Late-bind the read-only lobby-liveliness snapshot (online count + recent-winners
+  // ticker) to the gateway (created below). Until then the GET route reports an empty,
+  // zero-online snapshot. Display-only — never touches money/game state.
+  const lobbyLiveHolder: { fn?: () => LobbyLiveSnapshot } = {};
+  const lobbyLive = (): LobbyLiveSnapshot => lobbyLiveHolder.fn?.() ?? { online: 0, recentWinners: [] };
+
   // On-chain USDT sitting in the per-player deposit addresses (the funds to sweep into
   // Binance). Best-effort + BOUNDED (cap 250, small concurrency) so a big roster or a
   // TronGrid rate-limit can't hang it; mirrors the admin treasury endpoint. Read-only —
@@ -905,7 +918,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     });
   }
 
-  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
+  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -968,6 +981,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   voidHolder.fn = (roomId, meta) => gateway.adminVoidMatch(roomId, meta);
   kickHolder.fn = (userId) => gateway.disconnectUser(userId);
   tournamentRunHolder.fn = (id) => void gateway.runTournamentMatches(id);
+  lobbyLiveHolder.fn = () => gateway.lobbyLive(); // read-only lobby-liveliness snapshot
   // Force-logout (logout-all / password-reset / ban via revokeAllSessions) must also drop
   // the user's LIVE sockets, not just block the next (re)connect (socket-1 / auth-9).
   auth.setSessionRevokedHook((userId) => gateway.disconnectUser(userId));

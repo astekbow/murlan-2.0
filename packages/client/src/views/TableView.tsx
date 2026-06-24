@@ -28,6 +28,7 @@ import { EmoteChat } from '../components/EmoteChat.tsx';
 import { ProfileModal } from '../components/ui/ProfileModal.tsx';
 import { useFocusTrap } from '../components/ui/useFocusTrap.ts';
 import { useCosmeticsStore } from '../store/cosmeticsStore.ts';
+import { friendsApi, ApiError } from '../lib/api.ts';
 import { useT } from '../lib/i18n.ts';
 
 /** Where each opponent seat sits around the oval rail (local player is bottom). */
@@ -128,6 +129,88 @@ function GameAnnouncer({ isMyTurn, result }: { isMyTurn: boolean; result: string
       <div className="sr-only" role="status" aria-live="assertive">{turnMsg}</div>
       <div className="sr-only" role="log" aria-live="polite" aria-atomic="true">{actionMsg}</div>
     </>
+  );
+}
+
+/** Fill-players (bots) are seated only on free/practice tables; the client receives their
+ *  synthetic userId with this prefix, so we never offer to "friend" one. */
+const BOT_USERID_PREFIX = 'bot:';
+
+/**
+ * Match-over: offer "Shto mik" (add friend) for each HUMAN opponent who isn't already a
+ * friend. Best-effort — fires the existing friend-request API and toasts on success; a
+ * row that's already a friend (or already requested) is hidden/disabled. Never blocks the
+ * result screen and touches no game/money state.
+ */
+function AddFriendButtons({ room, mySeat }: { room: RoomStateDTO; mySeat: number | null }) {
+  const t = useT();
+  const myUserId = mySeat !== null ? room.seats[mySeat]?.userId ?? null : null;
+  // Human opponents only: a real userId, not me, not a bot.
+  const opponents = room.seats.filter(
+    (s) => s.userId && s.userId !== myUserId && s.username && !s.userId.startsWith(BOT_USERID_PREFIX),
+  );
+  // Per-userId button state: 'idle' | 'sending' | 'sent' | 'already' (already a friend / pending).
+  const [state, setState] = useState<Record<string, 'idle' | 'sending' | 'sent' | 'already'>>({});
+
+  // Pre-mark anyone already connected as a friend / with a pending request so we don't
+  // offer a duplicate. Best-effort: on any failure we simply show the buttons.
+  useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || opponents.length === 0) return;
+    let alive = true;
+    friendsApi.list(token)
+      .then(({ friends }) => {
+        if (!alive) return;
+        const known = new Set(friends.map((f) => f.user.id)); // friends + pending + blocked → never re-offer
+        setState((prev) => {
+          const next = { ...prev };
+          for (const o of opponents) if (o.userId && known.has(o.userId)) next[o.userId] = 'already';
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.id]);
+
+  if (opponents.length === 0) return null;
+  const sendable = opponents.filter((o) => o.userId && (state[o.userId] ?? 'idle') !== 'already');
+  if (sendable.length === 0) return null;
+
+  async function add(userId: string, username: string) {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || state[userId] === 'sending' || state[userId] === 'sent') return;
+    setState((s) => ({ ...s, [userId]: 'sending' }));
+    try {
+      await friendsApi.request(token, username);
+      setState((s) => ({ ...s, [userId]: 'sent' }));
+      useGameStore.setState({ toast: t('table.friendRequestSent', { name: username }), toastKind: 'success' });
+    } catch (e) {
+      // Already friends / already requested → mark resolved (no duplicate). Other errors toast.
+      setState((s) => ({ ...s, [userId]: 'already' }));
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('table.friendRequestFailed'), toastKind: 'error' });
+    }
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="font-serif text-[10px] tracking-[0.3em] text-muted uppercase mb-1.5">{t('table.addOpponents')}</div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {sendable.map((o) => {
+          const st = state[o.userId!] ?? 'idle';
+          return (
+            <button
+              key={o.userId}
+              onClick={() => { sound.play('button'); void add(o.userId!, o.username!); }}
+              disabled={st === 'sending' || st === 'sent'}
+              className={`btn btn-sm ${st === 'sent' ? 'btn-ghost opacity-70' : 'btn-ghost'}`}
+            >
+              {st === 'sent' ? `✓ ${o.username}` : `＋ ${t('table.addFriend')} ${o.username}`}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -756,6 +839,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                     </div>
                   ))}
             </div>
+
+            {/* Add recent opponents as friends (humans only, not already friends). */}
+            <AddFriendButtons room={room} mySeat={mySeat} />
 
             {/* No rematch on a tournament pairing — the bracket advances itself. */}
             {!room.tournament && (() => {
