@@ -68,7 +68,7 @@ const STRINGS: Record<string, Entry> = {
   'nav.home': { sq: 'KRYESORE', en: 'HOME' },
   'nav.wallet': { sq: 'PORTOFOLI', en: 'WALLET' },
   'nav.more': { sq: 'MË SHUMË', en: 'MORE' },
-  'nav.tournaments': { sq: 'TURNETE', en: 'TOURNAMENTS' },
+  'nav.tournaments': { sq: 'TURNETË', en: 'TOURNAMENTS' },
   'nav.leaderboard': { sq: 'KLASIFIKIMI', en: 'LEADERBOARD' },
   'nav.friends': { sq: 'MIQTË', en: 'FRIENDS' },
   'nav.clubs': { sq: 'KLUBET', en: 'CLUBS' },
@@ -77,8 +77,8 @@ const STRINGS: Record<string, Entry> = {
   'nav.vip': { sq: 'VIP', en: 'VIP' },
   'nav.support': { sq: 'NDIHMË', en: 'SUPPORT' },
   // Accessible names for the two icon rails flanking the lobby hero.
-  'nav.railPrimary': { sq: 'Menyja kryesore', en: 'Primary menu' },
-  'nav.railSecondary': { sq: 'Menyja dytësore', en: 'Secondary menu' },
+  'nav.railPrimary': { sq: 'Menuja kryesore', en: 'Primary menu' },
+  'nav.railSecondary': { sq: 'Menuja dytësore', en: 'Secondary menu' },
 
   // Lobby hero / sections
   'lobby.quickName': { sq: 'Lojë e Shpejtë', en: 'Quick Match' },
@@ -114,7 +114,7 @@ const STRINGS: Record<string, Entry> = {
   'tourn.confirmPayout': { sq: 'Konfirmo pagesën', en: 'Confirm payout' },
   'tourn.confirmPayoutM': { sq: 'Ta konfirmojmë pagesën e kampionit? Duhet të jesh admin tjetër nga ai që raportoi finalen.', en: 'Confirm the champion payout? You must be a different admin from the one who reported the final.' },
   'tourn.loadFailed': { sq: 'S’u hapën dot turnet.', en: 'Failed to load tournaments.' },
-  'tourn.actionFailed': { sq: 'Veprimi dështoi.', en: 'Action failed.' },
+  'tourn.actionFailed': { sq: 'S’u krye dot.', en: 'Action failed.' },
   'lobby.rankedTitle': { sq: 'LUAJ RANKED', en: 'PLAY RANKED' },
   'lobby.rankedDesc': { sq: 'Ndeshje sipas nivelit · ngjitu nga Bronzi te Murlan Master', en: 'MMR matchmaking · climb from Bronze to Murlan Master' },
   'lobby.findMatch': { sq: 'GJEJ NDESHJE', en: 'FIND MATCH' },
