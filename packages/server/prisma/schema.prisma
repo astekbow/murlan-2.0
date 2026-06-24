@@ -451,7 +451,8 @@ model Club {
   private   Boolean  @default(false) // hidden from the public list; join by code only
   joinCode  String?  @unique // share code for a private club (unique → no collisions; NULLs allowed)
 
-  members ClubMember[]
+  members     ClubMember[]
+  tournaments Tournament[] // club-scoped tournaments; ON DELETE SET NULL degrades them to global
   // FK so a club always points at a real founder. Restrict: a user who founded a
   // club can't be hard-deleted out from under it (account-state ban is used instead).
   founder User         @relation("ClubFounder", fields: [founderId], references: [id], onDelete: Restrict)
@@ -557,7 +558,7 @@ model Tournament {
   name           String
   buyInCents     Int
   capacity       Int
-  status         String   @default("registering") // registering|running|awaiting_confirmation|finished|cancelled
+  status         String   @default("registering") // registering|running|awaiting_confirmation|finished|cancelled — a DB CHECK constraint guards the set (see migration 20260624010000)
   playerIds      Json     @default("[]")
   bracket        Json     @default("[]")
   prizePoolCents Int      @default(0)
@@ -569,12 +570,14 @@ model Tournament {
   pendingWinnerId   String?
   reportedByAdminId String?
   // Club-scoped tournament: null = global (public list); non-null = belongs to a club
-  // (joinable only by members, creatable only by the founder). Plain nullable column —
-  // no FK relation (keeps it additive + matches the loose-coupling of the rest of this model).
+  // (joinable only by members, creatable only by the founder). FK with ON DELETE SET NULL:
+  // if a club is deleted, its tournaments DEGRADE to global (clubId → null) rather than
+  // dangling — escrow stays safe (sweepStale uses listAll) and the row stays reachable.
   clubId         String?
+  club           Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
   createdAt      DateTime @default(now())
 
   @@index([status, createdAt])
-  @@index([clubId])
+  @@index([clubId, createdAt]) // serves list (clubId IS NULL) + listByClub, both ORDER BY createdAt
   @@map("tournaments")
 }

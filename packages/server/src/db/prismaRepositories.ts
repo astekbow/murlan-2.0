@@ -189,7 +189,10 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async list(): Promise<User[]> {
-    return (await this.db.user.findMany({ orderBy: { createdAt: 'desc' } })).map(toUser);
+    // Bounded: never ship the entire users table in one response (the admin list is the
+    // only caller). 5000 newest is plenty at current scale; a keyset-paginated admin API
+    // is the proper long-term fix when the user count approaches this cap.
+    return (await this.db.user.findMany({ orderBy: { createdAt: 'desc' }, take: 5000 })).map(toUser);
   }
 
   async applyMatchResult(id: string, r: { won: boolean; potCents: number; xpGain: number }): Promise<User | null> {
