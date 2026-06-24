@@ -152,7 +152,36 @@ export function TournamentsView() {
     </section>
   );
   const emptyBlock = <section className="panel p-8 text-center"><div className="text-4xl mb-2 opacity-60" aria-hidden="true">🏆</div><p className="text-sm text-muted">{t('tourn.none')}</p></section>;
-  const listBody = status === 'loading' ? loadingBlock : status === 'error' ? errorBlock : list.length === 0 ? emptyBlock : list.map(renderTournament);
+
+  // Split live tournaments from FINISHED/CANCELLED ones: active get the full bracket panel,
+  // past ones collapse into a compact "Të kaluara" list (name · buy-in · champion/status) so
+  // they don't clutter the page with stale empty brackets.
+  const ACTIVE_STATUSES = new Set(['registering', 'running', 'awaiting_confirmation']);
+  const activeList = list.filter((tn) => ACTIVE_STATUSES.has(tn.status));
+  const pastList = list.filter((tn) => !ACTIVE_STATUSES.has(tn.status));
+  const renderPast = (tn: TournamentDTO) => (
+    <li key={tn.id} className="flex items-center gap-2 rounded-lg px-3 py-2 border border-white/10 bg-white/[.03]">
+      <span className="font-display font-semibold tracking-wide text-txt text-sm flex-1 truncate">{tn.name}</span>
+      <span className="text-xs text-muted shrink-0">{dollars(tn.buyInCents)}</span>
+      {tn.status === 'finished' && tn.winnerId
+        ? <span className="text-xs text-gold-hi shrink-0">🏆 {label(tn.winnerId, tn.usernames)}</span>
+        : <span className="text-xs text-muted/70 shrink-0">{t(`tourn.status.${tn.status}`)}</span>}
+    </li>
+  );
+  const pastSection = pastList.length > 0 ? (
+    <section className="panel p-4 space-y-2 animate-rise">
+      <h3 className="font-display font-semibold tracking-wide text-muted text-sm">{t('tourn.pastTitle')}</h3>
+      <ul className="space-y-1.5">{pastList.map(renderPast)}</ul>
+    </section>
+  ) : null;
+  const listBody = status === 'loading' ? loadingBlock : status === 'error' ? errorBlock : list.length === 0 ? emptyBlock : (
+    <>
+      {activeList.length > 0
+        ? activeList.map(renderTournament)
+        : <section className="panel p-8 text-center"><div className="text-4xl mb-2 opacity-60" aria-hidden="true">🏆</div><p className="text-sm text-muted">{t('tourn.noneActive')}</p></section>}
+      {pastSection}
+    </>
+  );
 
   // ---- Landscape "console": fixed-height, two-pane, no PAGE scroll (phone held flat).
   // Portaled to <body> so it escapes the ViewTransition's transform (which would otherwise
@@ -204,15 +233,7 @@ export function TournamentsView() {
           live game — and the house takes its rake at the final). Non-admins see the list only. */}
       {isAdmin && createForm}
 
-      {status === 'loading' ? (
-        loadingBlock
-      ) : status === 'error' ? (
-        errorBlock
-      ) : list.length === 0 ? (
-        emptyBlock
-      ) : (
-        list.map(renderTournament)
-      )}
+      {listBody}
     </div>
   );
 }

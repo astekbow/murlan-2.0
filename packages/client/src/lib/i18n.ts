@@ -91,6 +91,8 @@ const STRINGS: Record<string, Entry> = {
   'tourn.eyebrow': { sq: 'GARË', en: 'COMPETITION' },
   'tourn.title': { sq: 'Turne', en: 'Tournaments' },
   'tourn.none': { sq: 'S’ka turne tani për tani.', en: 'No tournaments right now.' },
+  'tourn.noneActive': { sq: 'S’ka turne aktive tani.', en: 'No active tournaments right now.' },
+  'tourn.pastTitle': { sq: 'Të kaluara', en: 'Past' },
   'tourn.loading': { sq: 'Po hapen turnet…', en: 'Loading tournaments…' },
   'tourn.buyIn': { sq: 'Pjesëmarrja', en: 'Buy-in' },
   'tourn.prize': { sq: 'Çmimi', en: 'Prize' },
