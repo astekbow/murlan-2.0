@@ -644,6 +644,8 @@ const STRINGS: Record<string, Entry> = {
   'admin.pendingWithdrawals': { sq: 'TËRHEQJET NË PRITJE', en: 'PENDING WITHDRAWALS' },
   'admin.noPendingWithdrawals': { sq: 'S’ka tërheqje në pritje.', en: 'No pending withdrawals.' },
   'admin.approve': { sq: 'Aprovo', en: 'Approve' },
+  'admin.approveSelected': { sq: 'Aprovo {n}', en: 'Approve {n}' },
+  'admin.bulkApproveM': { sq: 'Të aprovohen {n} tërheqje njëherësh? Kjo dërgon lekët.', en: 'Approve {n} withdrawals at once? This sends the funds.' },
   'admin.reject': { sq: 'Refuzo', en: 'Reject' },
   'admin.rejectReasonPlaceholder': { sq: 'Arsyeja (opsionale) — i shfaqet përdoruesit', en: 'Reason (optional) — shown to the user' },
   // Quick-pick reasons for a withdrawal rejection (fill the free-text field faster).

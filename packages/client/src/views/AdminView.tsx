@@ -352,7 +352,18 @@ export function AdminView() {
   // not state — so the value read after `await confirm(...)` is the latest, not a stale
   // closure (the input lives inside the dialog message which re-renders independently).
   const rejectReasonRef = useRef('');
+  const [selectedW, setSelectedW] = useState<Set<string>>(() => new Set()); // bulk-approve selection
   const [tab, setTab] = useState<AdminTab>('overview');
+
+  // Approve every selected pending withdrawal (one confirm, then sequential — each is the proven,
+  // idempotent single-approve path; refresh happens via the store).
+  const approveSelected = async () => {
+    if (selectedW.size === 0) return;
+    if (!(await confirm({ title: t('admin.approveSelected', { n: selectedW.size }), message: t('admin.bulkApproveM', { n: selectedW.size }) }))) return;
+    for (const id of [...selectedW]) await approve(id);
+    setSelectedW(new Set());
+  };
+  const toggleW = (id: string) => setSelectedW((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [queryInput, setQueryInput] = useState(''); // local input; debounced into the store search
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
@@ -542,7 +553,12 @@ export function AdminView() {
       {/* ── Withdrawals ── */}
       {tab === 'withdrawals' && (
         <section className="panel p-5 animate-rise">
-          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('admin.pendingWithdrawals')}</h2>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('admin.pendingWithdrawals')}</h2>
+            {selectedW.size > 0 && (
+              <button onClick={() => void approveSelected()} className="btn btn-green btn-sm shrink-0">✓ {t('admin.approveSelected', { n: selectedW.size })}</button>
+            )}
+          </div>
           {loading && withdrawals.length === 0 ? (
             <SkeletonRows rows={3} />
           ) : withdrawals.length === 0 ? (
@@ -551,7 +567,8 @@ export function AdminView() {
             <ul className="space-y-2.5">
               {withdrawals.map((w) => (
                 <li key={w.id} className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
-                  <span className="text-sm min-w-0">
+                  <input type="checkbox" checked={selectedW.has(w.id)} onChange={() => toggleW(w.id)} className="w-4 h-4 accent-gold shrink-0" aria-label={t('admin.approveSelected', { n: 1 })} />
+                  <span className="text-sm min-w-0 flex-1">
                     <b className="text-txt">{dollars(w.amountCents)}</b>
                     <span className="text-muted"> → <span className="break-all">{w.destination}</span></span>
                     <span className="block text-[11px] text-muted/80">{w.username ?? '?'} · {new Date(w.createdAt).toLocaleString()}</span>
