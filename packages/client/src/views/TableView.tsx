@@ -145,8 +145,10 @@ const BOT_USERID_PREFIX = 'bot:';
 function AddFriendButtons({ room, mySeat }: { room: RoomStateDTO; mySeat: number | null }) {
   const t = useT();
   const myUserId = mySeat !== null ? room.seats[mySeat]?.userId ?? null : null;
-  // Human opponents only: a real userId, not me, not a bot.
-  const opponents = room.seats.filter(
+  // Human opponents only: a real userId, not me, not a bot. A SPECTATOR (myUserId null) is not a
+  // participant → offer nobody (otherwise the "not me" filter excludes no one and they'd get a
+  // button for every seated player).
+  const opponents = myUserId === null ? [] : room.seats.filter(
     (s) => s.userId && s.userId !== myUserId && s.username && !s.userId.startsWith(BOT_USERID_PREFIX),
   );
   // Per-userId button state: 'idle' | 'sending' | 'sent' | 'already' (already a friend / pending).
@@ -186,8 +188,10 @@ function AddFriendButtons({ room, mySeat }: { room: RoomStateDTO; mySeat: number
       setState((s) => ({ ...s, [userId]: 'sent' }));
       useGameStore.setState({ toast: t('table.friendRequestSent', { name: username }), toastKind: 'success' });
     } catch (e) {
-      // Already friends / already requested → mark resolved (no duplicate). Other errors toast.
-      setState((s) => ({ ...s, [userId]: 'already' }));
+      // A genuine FAILURE (network / 429 / 500 / self). The server returns ok for the already-friends
+      // case (no throw), so an error here is retryable → revert to 'idle' (was 'already', which hid the
+      // button permanently on a transient blip) and surface the error.
+      setState((s) => ({ ...s, [userId]: 'idle' }));
       useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('table.friendRequestFailed'), toastKind: 'error' });
     }
   }

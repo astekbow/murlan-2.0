@@ -127,7 +127,7 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
     return reply.send({ message: dto });
   });
 
-  app.post('/api/friends/request', async (req, reply) => {
+  app.post('/api/friends/request', { config: { rateLimit: { max: 30, timeWindow: '1 minute', keyGenerator: (req: any) => req.ip } } }, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     const { username } = (req.body ?? {}) as { username?: string };
