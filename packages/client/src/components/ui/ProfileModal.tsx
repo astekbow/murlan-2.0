@@ -111,7 +111,7 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
           <p className="text-sm text-red-300">{error ?? t('profile.notFound')}</p>
         </div>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {/* Identity: big avatar + level + XP */}
           <div className="flex items-center gap-4">
             <div

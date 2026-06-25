@@ -23,7 +23,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title={t('settings.title')} onClose={onClose}>
-      <div className="space-y-5">
+      <div className="space-y-4">
         {/* How to play — opens the rules sheet (and closes Settings so they don't stack). */}
         <button className="btn btn-ghost btn-block" onClick={() => { useRulesStore.getState().setOpen(true); onClose(); }}>{t('rules.openBtn')}</button>
 
