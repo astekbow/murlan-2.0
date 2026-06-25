@@ -79,6 +79,18 @@ test('unblock restores the ability to send a request', async () => {
   await assert.doesNotReject(friends.requestByUsername(a.id, 'bob'));
 });
 
+test('a blocked user cannot lift the block via unfriend (remove refuses blocked edges)', async () => {
+  const { friends, a, b } = await setup();
+  await friends.block(a.id, b.id);
+  // The blocker sees the block edge id; simulate the blocked user somehow learning it.
+  const blockEdge = (await friends.list(a.id)).find((f) => f.user.id === b.id);
+  assert.ok(blockEdge);
+  // b (the blocked addressee) tries to remove the block row → REFUSED; the block stays in force.
+  assert.equal(await friends.remove(b.id, blockEdge!.id), false);
+  assert.equal((await friends.list(a.id)).find((f) => f.user.id === b.id)?.direction, 'blocked');
+  assert.equal(await friends.areFriends(a.id, b.id), false);
+});
+
 test('list reflects live presence (online dot)', async () => {
   const { friends, presence, a, b } = await setup();
   const edge = await friends.requestByUsername(a.id, 'bob');

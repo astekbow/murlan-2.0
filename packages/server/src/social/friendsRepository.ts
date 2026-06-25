@@ -58,6 +58,9 @@ export class InMemoryFriends implements FriendsRepository {
   async remove(id: string, userId: string): Promise<boolean> {
     const row = this.rows.get(id);
     if (!row || (row.requesterId !== userId && row.addresseeId !== userId)) return false;
+    // A 'blocked' edge is NEVER removable via unfriend — else the BLOCKED party (the addressee)
+    // could delete the block row and un-block themselves. Blocks are lifted only via unblock().
+    if (row.status === 'blocked') return false;
     this.rows.delete(id);
     return true;
   }

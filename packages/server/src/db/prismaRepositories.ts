@@ -393,7 +393,9 @@ export class PrismaFriends implements FriendsRepository {
     return toFriendship(await this.db.friendship.update({ where: { id }, data: { status: 'accepted' } }));
   }
   async remove(id: string, userId: string) {
-    const res = await this.db.friendship.deleteMany({ where: { id, OR: [{ requesterId: userId }, { addresseeId: userId }] } });
+    // Exclude 'blocked' edges: unfriend must NEVER delete a block (the blocked addressee could
+    // otherwise un-block themselves). Blocks are lifted only via unblock().
+    const res = await this.db.friendship.deleteMany({ where: { id, status: { not: 'blocked' }, OR: [{ requesterId: userId }, { addresseeId: userId }] } });
     return res.count > 0;
   }
   async listFor(userId: string) {

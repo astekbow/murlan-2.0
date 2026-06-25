@@ -68,7 +68,7 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
   // returns a MINIMAL public shape (id/username/avatar/level) — never email/stats. This
   // intentionally lets a player discover usernames (that is the point of a search); the
   // friend-request flow still validates the actual relationship server-side.
-  app.get('/api/users/search', async (req, reply) => {
+  app.get('/api/users/search', { config: { rateLimit: { max: 30, timeWindow: '1 minute', keyGenerator: (req: any) => req.ip } } }, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     const { q } = (req.query ?? {}) as { q?: string };

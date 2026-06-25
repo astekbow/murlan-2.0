@@ -48,7 +48,8 @@ export async function checkAdjustGovernance(
 ): Promise<AdjustGovernanceVerdict> {
   const now = opts.now ?? (() => Date.now());
   const abs = Math.abs(deltaCents);
-  // Self-credit: an admin must never top up their OWN balance.
+  // Self-credit: an admin must never top up their OWN balance (the textbook fraud). Self-DEBIT is
+  // intentionally allowed (it loses you money — no fraud gain) and is covered by explicit tests.
   if (deltaCents > 0 && targetUserId === adminId) {
     return { ok: false, code: 'self_credit', message: 'Një admin nuk mund t’i shtojë lek vetes.' };
   }

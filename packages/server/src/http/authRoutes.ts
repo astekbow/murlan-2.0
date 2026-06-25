@@ -117,7 +117,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
     }
   });
 
-  app.post('/api/auth/refresh', async (req, reply) => {
+  app.post('/api/auth/refresh', loginRl, async (req, reply) => {
     const token = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE];
     if (!token) {
       return reply.code(401).send({ error: { code: 'bad_refresh', message: 'Sesioni ka skaduar. Hyr përsëri.' } });
