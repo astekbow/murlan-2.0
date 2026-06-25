@@ -9,6 +9,7 @@
 
 import type { ClubDetailDTO, ClubSummaryDTO, ClubMemberDTO, ClubRoleDTO } from '@murlan/shared';
 import type { UserRepository } from '../auth/userRepository.ts';
+import { levelInfo } from '../profile/level.ts';
 import { type ClubRepository, type Club, DuplicateClubTagError, MAX_CLUB_MEMBERS } from './clubRepository.ts';
 
 export class ClubError extends Error {
@@ -38,8 +39,14 @@ export class ClubService {
     const byId = new Map(users.map((u) => [u.id, u]));
     const members: ClubMemberDTO[] = rows.map((m) => {
       const u = byId.get(m.userId);
-      return { userId: m.userId, username: u?.username ?? '—', avatar: u?.avatar ?? null, role: m.role as ClubRoleDTO };
+      return {
+        userId: m.userId, username: u?.username ?? '—', avatar: u?.avatar ?? null, role: m.role as ClubRoleDTO,
+        level: u ? levelInfo(u.xp).level : 1, wins: u?.wins ?? 0, xp: u?.xp ?? 0,
+      };
     });
+    // Rank the roster as an in-club LEADERBOARD: most XP first (wins as a tiebreak), so the
+    // member list doubles as a club leaderboard. The founder badge still shows wherever they land.
+    members.sort((a, b) => b.xp - a.xp || b.wins - a.wins || a.username.localeCompare(b.username));
     // Never expose the share code to a non-member (anyone with the club id could
     // otherwise read it and joinByCode a private club they were not invited to).
     return { ...this.summary(c, total), members, private: c.private, joinCode: isMember ? c.joinCode : null };

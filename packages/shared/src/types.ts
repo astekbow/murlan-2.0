@@ -311,6 +311,9 @@ export interface ClubMemberDTO {
   username: string;
   avatar: string | null;
   role: ClubRoleDTO;
+  level: number;  // for the in-club leaderboard
+  wins: number;
+  xp: number;
 }
 
 export interface ClubSummaryDTO {

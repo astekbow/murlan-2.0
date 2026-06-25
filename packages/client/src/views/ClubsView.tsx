@@ -97,11 +97,13 @@ export function ClubsView() {
               )}
               <InviteFriendsPanel compact />
               <ul className="pg-ls-scroll space-y-1.5 pr-1">
-                {mine.members.map((m) => (
+                {mine.members.map((m, i) => (
                   <li key={m.userId} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 border border-white/10 bg-white/[.03]">
+                    <span className="text-xs font-mono text-muted/70 w-5 text-right shrink-0">{i + 1}</span>
                     <span className="pfp shrink-0" style={{ width: 28, height: 28 }}><AvatarFace id={m.avatar} fill className="text-sm leading-none" /></span>
                     <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{m.username}</span>
                     {m.role === 'founder' && <span className="text-[11px]" title={t('clubs.founder')}>👑</span>}
+                    <span className="text-[11px] text-muted shrink-0">{t('clubs.lvlWins', { lvl: m.level, wins: m.wins })}</span>
                   </li>
                 ))}
               </ul>
@@ -206,11 +208,13 @@ export function ClubsView() {
             </div>
           )}
           <ul className="space-y-2">
-            {mine.members.map((m) => (
+            {mine.members.map((m, i) => (
               <li key={m.userId} className="flex items-center gap-3 rounded-xl px-4 py-2.5 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
+                <span className="text-sm font-mono text-muted/70 w-6 text-right shrink-0">{i + 1}</span>
                 <span className="pfp shrink-0" style={{ width: 40, height: 40 }}><AvatarFace id={m.avatar} fill className="text-lg leading-none" /></span>
-                <span className="font-display font-semibold tracking-wide text-txt flex-1 truncate">{m.username}</span>
-                {m.role === 'founder' && <span className="tag tag-open">{t('clubs.founder')}</span>}
+                <span className="font-display font-semibold tracking-wide text-txt flex-1 truncate min-w-0">{m.username}</span>
+                {m.role === 'founder' && <span className="tag tag-open shrink-0">{t('clubs.founder')}</span>}
+                <span className="text-xs text-muted shrink-0">{t('clubs.lvlWins', { lvl: m.level, wins: m.wins })}</span>
               </li>
             ))}
           </ul>

@@ -864,6 +864,21 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               {t('table.returnLobby')}
             </button>
 
+            {/* Brag: share the (provably-fair) replay of YOUR win to Telegram — a one-tap
+                viral loop. Opens Telegram's share composer with the replay link + a brag line. */}
+            {iWon && fairReveal?.matchId && (
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/?replay=${encodeURIComponent(fairReveal.matchId!)}`;
+                  const tg = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(t('table.shareWin'))}`;
+                  window.open(tg, '_blank', 'noopener,noreferrer');
+                }}
+                className="btn btn-ghost btn-block btn-sm mt-2"
+              >
+                📣 {t('table.shareTelegram')}
+              </button>
+            )}
+
             {/* Provably-fair: open the in-app replay + verifier — recomputes every
                 deal IN THE BROWSER from the revealed seeds, checks them against the
                 committed hash, and replays every move. */}
