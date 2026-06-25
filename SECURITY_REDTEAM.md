@@ -60,6 +60,15 @@ Severity legend: 🔴 crit · 🟠 high · 🟡 med. "votes" = how many of 2 ver
 16. 🟡 **Rate-limits** — `GET /users/search` (30/min/IP, enumeration + DB scan) + `POST /auth/refresh`
     (stricter login limiter, refresh-token brute-force).
 
+### Batch 6 — commit `b3af916` (1 high + med cluster)
+17. 🟠 **Reward/shop claim TOCTOU** — concurrent claims of the same reward double-granted (XP/cosmetic/charge).
+    New `withUserLock` serializes claimDaily/Challenge/DailyQuest/WeeklyQuest/LevelReward/VipGift + the
+    real-money `buy()`. +concurrency regression test. (`buyXp` already deducts+grants in one atomic op.)
+
+### Batch 7 — commit `7201750` (med)
+18. 🟡 **DM anti-spam** — `POST /api/dm/:id` per-IP rate-limited (40/min); `lobby:list` raw-ack crash guarded;
+    DM unread badge map filtered to CURRENT friends (an unfriended sender no longer lingers/leaks).
+
 ### Verified FALSE POSITIVES (re-checked against the real code — no change needed)
 - **"Shuffle seed leak"** — `serverSeed` is correctly withheld until match-end reveal in BOTH the HTTP
   endpoint and the socket; `clientSeed` alone (the player's own public contribution) can't reconstruct a deal.
@@ -70,13 +79,11 @@ Severity legend: 🔴 crit · 🟠 high · 🟡 med. "votes" = how many of 2 ver
 
 ---
 
-## ⏳ REMAINING (lower value / multi-admin only)
-- 🟡 **Rewards/shop claim TOCTOU** (`rewardsService` claimDaily/Challenge/Quest/Level/VipGift, shop `buy`) —
-  concurrent double-claim → double-XP / double-cosmetic (NOT real money). *Fix:* per-user serialize the claims.
-- 🟡 **A few remaining rate limits** — `/api/dm/:id`, `lobby:list`, `leaderboard:watch`, + paginate the admin
-  ledger reads (`/users/:id/transactions`, revenue). *Fix:* per-route limiters + LIMIT the ledger queries.
-- 🟡 **Minor friends/DM leaks** — username search / public profile reveal a blocker; DM unread endpoint
-  returns historical sender ids (senders were friends at send time). Low impact.
+## ⏳ REMAINING (marginal — single-host)
+- 🟡 **`leaderboard:watch/unwatch` flood + admin ledger pagination** — cheap in-memory / read ops; low
+  impact. *Fix:* light per-user gate on the watch loop + `LIMIT` the admin `/users/:id/transactions` + revenue reads.
+- 🟡 **Username search / public profile reveal a blocker** (you can infer someone blocked you by their
+  absence). Marginal — the DM-unread leak is already filtered (batch 7).
 
 ## 🧊 DEFERRED — infra / needs migration (NOT exploitable on current single-host deploy)
 - 🔴/🟠 **Multi-instance double-pay races** — tournament/clubwar `cancel`+`finish`/`register` use **in-process**
