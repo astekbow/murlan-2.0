@@ -103,9 +103,11 @@ export async function clubWarRoutes(app: FastifyInstance, deps: ClubWarRoutesDep
       const { id } = req.params as { id: string };
       const war = await clubWars.get(id);
       if (!war) return reply.code(404).send({ error: { code: 'not_found', message: 'Lufta nuk u gjet.' } });
+      // ONLY the challenger club (A) founder may start/cancel — the comment always intended this,
+      // but the check allowed club B too, letting the opponent founder void a war going against them.
       const me = await clubs.memberOf(caller.userId);
-      if (!me || me.role !== 'founder' || (me.clubId !== war.clubAId && me.clubId !== war.clubBId)) {
-        return reply.code(403).send({ error: { code: 'not_founder', message: 'Vetëm themeluesi e bën këtë.' } });
+      if (!me || me.role !== 'founder' || me.clubId !== war.clubAId) {
+        return reply.code(403).send({ error: { code: 'not_founder', message: 'Vetëm themeluesi i klubit sfidues e bën këtë.' } });
       }
       try {
         await (action === 'start' ? clubWars.start(id) : clubWars.cancel(id));

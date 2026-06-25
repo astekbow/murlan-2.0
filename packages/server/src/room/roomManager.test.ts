@@ -54,7 +54,13 @@ test('a private room is hidden from the lobby, gets a code, and is reachable by 
   assert.equal(m.roomIdForCode(r.joinCode!.toLowerCase()), r.roomId, 'resolves case-insensitively');
   assert.equal(m.roomIdForCode('ZZZZZZ'), null, 'unknown code → null');
 
-  const join = m.joinRoom(U(2), m.roomIdForCode(r.joinCode!)!);
+  const resolvedId = m.roomIdForCode(r.joinCode!)!;
+  // SECURITY: knowing the room id alone (ids are sequential/enumerable) must NOT let a walk-in
+  // join a private room — they need an invite or the code.
+  assert.equal(m.joinRoom(U(3), resolvedId).ok, false, 'guessing the room id alone cannot join a private room');
+  // Redeeming the code authorizes the join (mirrors the gateway onJoinByCode → markInvited path).
+  m.markInvited(resolvedId, U(2).userId);
+  const join = m.joinRoom(U(2), resolvedId);
   assert.ok(join.ok, 'a second player joins via the code-resolved id');
 });
 

@@ -277,7 +277,9 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
       // different users concurrent.
       const globalCapsOn = (deps.globalAutoWithdrawCapCents ?? 0) > 0 || (deps.destAutoWithdrawCapCents ?? 0) > 0;
       const critical = async () => {
-        const rec = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination);
+        // Store the TRIMMED address (validation above trims, but the raw value was being
+        // persisted — a padded address would then fail the payout-time TRON re-validation).
+        const rec = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination.trim());
         const [u, comp, recent] = await Promise.all([
           auth.getUser(caller.userId).catch(() => null),
           auth.getComplianceProfile(caller.userId).catch(() => null),

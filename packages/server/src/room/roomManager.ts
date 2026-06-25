@@ -70,6 +70,10 @@ interface Room {
   practice: boolean; // vs-bot practice room; zero-stake, hidden from lobby + spectators
   private: boolean; // invite/code-only; hidden from the public lobby
   joinCode: string | null; // share code for a private room (null otherwise)
+  // Allow-list for a PLAIN private room (not tournament/clubWar, which gate by their own
+  // player list): a user may join only if explicitly invited OR after redeeming the joinCode.
+  // Without this, a guessed/observed sequential roomId let anyone walk into a private staked game.
+  invited: Set<string>;
   // When set, this room is one pairing of a running tournament bracket: zero-stake
   // (the buy-ins are escrowed in the tournament pool), join-restricted to the two
   // paired players, and its result advances the bracket (see the gateway runner).
@@ -191,6 +195,7 @@ export class RoomManager {
       practice: !!payload.practice,
       private: isPrivate,
       joinCode: isPrivate ? genJoinCode() : null,
+      invited: new Set(),
       clubWar: null,
       tournament: null,
     };
@@ -223,6 +228,7 @@ export class RoomManager {
       practice: false,
       private: true, // never in the public lobby
       joinCode: null,
+      invited: new Set(),
       tournament: { tournamentId: meta.tournamentId, round: meta.round, index: meta.index, players: [...players] as [string, string] },
       clubWar: null,
     };
@@ -253,6 +259,7 @@ export class RoomManager {
       practice: false,
       private: true, // never in the public lobby
       joinCode: null,
+      invited: new Set(),
       tournament: null,
       clubWar: { warId: meta.warId, aUserId: meta.aUserId, bUserId: meta.bUserId, players: [...players] as [string, string] },
     };
@@ -273,6 +280,12 @@ export class RoomManager {
     return null;
   }
 
+  /** Authorize a user to join a plain private room (explicit friend invite, or after they
+   *  redeemed the share code). No-op for a non-existent room. */
+  markInvited(roomId: string, userId: string): void {
+    this.rooms.get(roomId)?.invited.add(userId);
+  }
+
   joinRoom(user: ActingUser, roomId: string, team?: 0 | 1): ManagerResult {
     if (this.userRoom.has(user.userId)) return err('already_in_room', 'Je tashmë në një dhomë.');
     const room = this.rooms.get(roomId);
@@ -280,6 +293,11 @@ export class RoomManager {
     // A tournament pairing room only admits its two paired players (no walk-ins).
     if (room.tournament && !room.tournament.players.includes(user.userId)) return err('not_your_match', 'Kjo ndeshje turneu nuk është e jotja.');
     if (room.clubWar && !room.clubWar.players.includes(user.userId)) return err('not_your_match', 'Kjo ndeshje lufte nuk është e jotja.');
+    // A PLAIN private room (no tournament/clubWar gate) admits only invited users or code-redeemers.
+    // Blocks walking in with a guessed/observed roomId (room ids are sequential → enumerable).
+    if (room.private && !room.tournament && !room.clubWar && !room.invited.has(user.userId)) {
+      return err('not_invited', 'Kjo dhomë private kërkon ftesë ose kod.');
+    }
     if (room.status !== 'waiting') return err('room_unavailable', 'Dhoma nuk pranon lojtarë të rinj.');
     if (!this.seat(room, user, team)) return err('room_full', 'Dhoma është plot ose ekipi është plot.');
     return okResult;

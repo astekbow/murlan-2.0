@@ -99,7 +99,9 @@ export class TronDepositVerifier {
    *  Returns the raw rows, or { error } on a non-ok response (callers decide how to
    *  surface it). Shared by verify() and listIncoming(). */
   private async fetchTransfers(dest: string): Promise<{ rows: any[] } | { error: string }> {
-    const url = `${this.base}/v1/accounts/${dest}/transactions/trc20?only_to=true&contract_address=${this.contract}&limit=200`;
+    // only_confirmed=true: NEVER credit an unconfirmed/reverted transfer (an attacker could
+    // submit a TxID pre-finalization, get credited, then have the tx orphaned on a chain reorg).
+    const url = `${this.base}/v1/accounts/${dest}/transactions/trc20?only_to=true&only_confirmed=true&contract_address=${this.contract}&limit=200`;
     const res = await this.fetchWithRetry(url, this.opts.apiKey ? { headers: { 'TRON-PRO-API-KEY': this.opts.apiKey } } : {});
     if (!res.ok) return { error: `TronGrid ${res.status}` };
     const data = await res.json();

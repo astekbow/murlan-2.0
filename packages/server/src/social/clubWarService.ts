@@ -127,24 +127,38 @@ export class ClubWarService {
       if (winnerId !== aUserId && winnerId !== bUserId) throw new ClubWarError('bad_winner', 'Fituesi s’është në këtë çift.');
       p.winnerId = winnerId;
       if (winnerId === aUserId) w.scoreA += 1; else w.scoreB += 1;
-      if (w.pairings.every((x) => x.winnerId)) await this.settle(w);
-      await this.repo.save(w);
+      if (w.pairings.every((x) => x.winnerId)) {
+        // ORDER MATTERS (money safety): mark the war 'finished' + persist BEFORE moving any money.
+        // If the payout then fails, the row is already 'finished' (so cancel() — which only acts on
+        // 'registering' — can never refund an already-paid war = no double-pay). The payout uses
+        // idempotent providerRefs, so a sweep/retry can safely re-run it. A crash BEFORE save just
+        // leaves the last pairing decided in-memory only; the next report re-decides + re-saves.
+        this.decideOutcome(w);
+        await this.repo.save(w);
+        await this.payoutSettled(w);
+      } else {
+        await this.repo.save(w);
+      }
       return w;
     });
   }
 
-  /** Decide the winning club + move money. Tie → refund all; else split pool minus rake. */
-  private async settle(w: ClubWar): Promise<void> {
+  /** Decide the winning club (pure, no money): higher score wins; equal → tie (null). */
+  private decideOutcome(w: ClubWar): void {
     w.status = 'finished';
-    const winnerClubId = w.scoreA > w.scoreB ? w.clubAId : w.scoreB > w.scoreA ? w.clubBId : null;
-    w.winnerClubId = winnerClubId;
+    w.winnerClubId = w.scoreA > w.scoreB ? w.clubAId : w.scoreB > w.scoreA ? w.clubBId : null;
+  }
+
+  /** Move the money for an already-decided war. Tie → refund all; else split pool minus rake.
+   *  All credits use idempotent providerRefs, so this is safe to re-run (sweep/retry). */
+  private async payoutSettled(w: ClubWar): Promise<void> {
     if (w.stakeCents === 0 || w.prizePoolCents === 0) return; // free war — nothing to settle
-    if (!winnerClubId) {
+    if (!w.winnerClubId) {
       // Tie → refund every participant their buy-in (no rake on a void result).
       await this.refundAll(w);
       return;
     }
-    const winners = winnerClubId === w.clubAId ? w.rosterA : w.rosterB;
+    const winners = w.winnerClubId === w.clubAId ? w.rosterA : w.rosterB;
     let rake = Math.floor((w.prizePoolCents * w.rakeBps) / 10000);
     const prize = w.prizePoolCents - rake;
     const per = Math.floor(prize / winners.length);
@@ -152,12 +166,17 @@ export class ClubWarService {
     await this.wallet!.payoutSplit(winners.map((userId) => ({ userId, amountCents: per })), rake, `clubwar:${w.id}:payout`);
   }
 
-  /** Cancel a war (founder/admin) — refunds all escrowed buy-ins. Only before it finishes. */
+  /**
+   * Cancel a war (challenger founder) — refunds all escrowed buy-ins. ONLY before play starts.
+   * Once 'running', cancel is forbidden: it would (a) let a losing side void an adverse result and
+   * (b) race the settle() payout into a double-pay (refund + prize). A war stuck 'running' after a
+   * crash is recovered by sweepStaleWars(), NOT by user cancel.
+   */
   async cancel(warId: string): Promise<ClubWar> {
     return this.withLock(warId, async () => {
       const w = await this.repo.get(warId);
       if (!w) throw new ClubWarError('not_found', 'Lufta nuk u gjet.');
-      if (w.status === 'finished' || w.status === 'cancelled') throw new ClubWarError('done', 'Lufta ka mbaruar.');
+      if (w.status !== 'registering') throw new ClubWarError('not_cancellable', 'Lufta nuk anulohet pasi ka filluar.');
       await this.refundAll(w);
       w.status = 'cancelled';
       await this.repo.save(w);

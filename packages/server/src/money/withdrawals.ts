@@ -203,6 +203,10 @@ export class WithdrawalService {
     const rec = await this.repo.find(id);
     if (!rec) throw new WithdrawalError('not_found', 'Tërheqja nuk u gjet.');
     if (rec.status !== 'pending') throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+    // Dual-control / anti-self-dealing: an admin may never resolve their OWN withdrawal.
+    if (audit?.resolvedByAdminId && rec.userId === audit.resolvedByAdminId) {
+      throw new WithdrawalError('self_resolve', 'Nuk mund të vendosësh për tërheqjen tënde.');
+    }
     // CLAIM the transition FIRST (atomic compare-and-set). Only the winner refunds —
     // so a concurrent approve() (which already paid out) can't also trigger a refund
     // here (that would be a double-pay). The loser of the race throws not_pending.
@@ -233,6 +237,10 @@ export class WithdrawalService {
     const rec = await this.repo.find(id);
     if (!rec) throw new WithdrawalError('not_found', 'Tërheqja nuk u gjet.');
     if (rec.status !== 'pending') throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+    // Dual-control / anti-self-dealing: an admin may never approve+pay their OWN withdrawal.
+    if (opts.resolvedByAdminId && rec.userId === opts.resolvedByAdminId) {
+      throw new WithdrawalError('self_resolve', 'Nuk mund të vendosësh për tërheqjen tënde.');
+    }
     // MONEY-8: re-validate the destination at payout time (defense-in-depth — it was
     // checked at request, but never send real funds to a malformed/corrupted address).
     if (!isValidTronAddress(rec.destination)) throw new WithdrawalError('bad_destination', 'Adresa e tërheqjes është e pavlefshme.');

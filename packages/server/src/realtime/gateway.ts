@@ -554,6 +554,8 @@ export class GameGateway {
       return reply(ackError('wrong_instance', 'Po të rilidhim me serverin e ndeshjes — provo sërish.'));
     }
     try {
+      // Redeeming the correct code authorizes this user for the private-room join gate.
+      this.rooms.markInvited(roomId, socket.data.userId);
       const res = this.rooms.joinRoom(actor(socket), roomId);
       if (!res.ok) return reply({ ok: false, error: res.error });
       this.matchmaking?.remove(socket.data.userId);
@@ -1743,6 +1745,9 @@ export class GameGateway {
     if (this.friends && !(await this.friends.areFriends(userId, friendId))) {
       return ack(ackError('not_friends', 'Mund të ftosh vetëm miqtë.'));
     }
+    // Authorize the invited friend to join this (private) room — without this, the room:join
+    // gate would reject them (they have no code), and a guesser couldn't get in either.
+    this.rooms.markInvited(room.id, friendId);
     this.io.to(personalRoom(friendId)).emit('invited', {
       roomId: room.id, fromUsername: socket.data.username, type: room.type, stakeCents: room.stakeCents,
     });
