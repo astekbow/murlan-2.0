@@ -21,6 +21,7 @@ import { revenueBreakdown } from '../money/revenueReport.ts';
 import { InMemoryAdminAudit, type AdminAuditRepository } from '../auth/adminAudit.ts';
 import { checkAdjustGovernance, MAX_ADJUST_CENTS } from '../money/adminAdjustPolicy.ts';
 import type { ChatService } from '../chat/chatService.ts';
+import type { PushService } from '../push/pushService.ts';
 
 export interface AdminRoutesDeps {
   auth: AuthService;
@@ -37,6 +38,7 @@ export interface AdminRoutesDeps {
   matches?: MatchesRepository; // for revenue-by-match-type reporting
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
   chat?: ChatService; // chat-report triage + global mute
+  push?: PushService; // web-push the user when their withdrawal is approved/rejected (best-effort)
   // Voids an in-progress match (refund all stakes + end the room). Late-bound to
   // the realtime gateway (which owns rooms/sockets/money), absent in HTTP-only tests.
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) =>
@@ -461,6 +463,12 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
       // marks 'completed' if the send succeeded; a failed send refunds + stays unpaid.
       const w = await withdrawals.payoutNow(id, deps.payout ?? null, { resolvedByAdminId: caller.userId });
       await audit.record({ adminId: caller.userId, action: 'withdrawal_approve', targetUserId: w.userId, amountCents: w.amountCents, detail: w.providerRef ? `${id} (sent: ${w.providerRef})` : id });
+      // Tell the player their money is on its way (web-push; best-effort, never blocks the approve).
+      void deps.push?.notify(w.userId, {
+        title: 'Tërheqja u aprovua ✅',
+        body: `$${(w.amountCents / 100).toFixed(2)} po dërgohen te ${w.destination.slice(0, 10)}…`,
+        url: '/', tag: `murlan-wd-${id}`,
+      }).catch(() => undefined);
       return w;
     });
   });
@@ -476,6 +484,12 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     return resolveWithdrawal(reply, async () => {
       const w = await withdrawals.reject(id, { resolvedByAdminId: caller.userId, failureReason: reason || null });
       await audit.record({ adminId: caller.userId, action: 'withdrawal_reject', targetUserId: w.userId, amountCents: w.amountCents, detail: reason ? `${id}: ${reason}` : id });
+      // Tell the player their withdrawal was rejected + refunded (web-push; best-effort).
+      void deps.push?.notify(w.userId, {
+        title: 'Tërheqja u refuzua',
+        body: `$${(w.amountCents / 100).toFixed(2)} u kthyen në balancën tënde${reason ? ` (${reason})` : ''}.`,
+        url: '/', tag: `murlan-wd-${id}`,
+      }).catch(() => undefined);
       return w;
     });
   });
