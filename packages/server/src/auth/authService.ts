@@ -25,7 +25,8 @@ const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // mirror the refresh JWT TTL
 const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000; // 1h
 
-const passwordSchema = z.string().min(8, 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.');
+// Cap the length too: Argon2id over a megabyte-long password is a cheap CPU-exhaustion DoS.
+const passwordSchema = z.string().min(8, 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.').max(128, 'Fjalëkalimi është shumë i gjatë.');
 
 export interface AuthServiceDeps {
   email?: EmailProvider;
@@ -65,12 +66,12 @@ const emailSchema = z
 const registerSchema = z.object({
   username: usernameSchema,
   email: emailSchema,
-  password: z.string().min(8, 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.'),
+  password: z.string().min(8, 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.').max(128, 'Fjalëkalimi është shumë i gjatë.'),
 });
 
 const loginSchema = z.object({
   email: emailSchema,
-  password: z.string().min(1, 'Fjalëkalimi mungon.'),
+  password: z.string().min(1, 'Fjalëkalimi mungon.').max(128, 'Fjalëkalimi është shumë i gjatë.'),
 });
 
 export interface PublicUser {

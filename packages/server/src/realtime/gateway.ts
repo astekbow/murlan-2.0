@@ -705,10 +705,11 @@ export class GameGateway {
   }
 
   private onReady(socket: IOSocket, ready: boolean, ack: (res: Ack) => void): void {
-    if (!this.rateOk(socket, ack)) return;
+    const reply = safeAck(ack); // tolerate a missing ack callback (was a TypeError crash)
+    if (!this.rateOk(socket, reply)) return;
     const res = this.rooms.setReady(socket.data.userId, ready);
-    if (!res.ok) return ack({ ok: false, error: res.error });
-    ack({ ok: true });
+    if (!res.ok) return reply({ ok: false, error: res.error });
+    reply({ ok: true });
     const roomId = socket.data.roomId;
     if (roomId) {
       this.broadcastRoomState(roomId);
@@ -1806,22 +1807,28 @@ export class GameGateway {
    *  auto-join on 'clubwar:matchReady'). The 1v1 result is reported to the war in
    *  settleAndEmitMatchEnd via clubWarMetaOf — the gateway never self-decides the winner. */
   private async onClubWarPlay(socket: IOSocket, payload: { warId: string; opponentUserId: string }, ack: (res: Ack) => void): Promise<void> {
+    const reply = safeAck(ack); // tolerate a missing ack (was a TypeError crash)
+    if (!this.rateOk(socket, reply)) return; // rate-gate the DB read + room creation (was unthrottled)
     const userId = socket.data.userId;
-    if (!this.clubWars) return ack(ackError('unavailable', 'Luftat e klubeve s’janë aktive.'));
-    if (this.rooms.roomIdOf(userId)) return ack(ackError('busy', 'Je tashmë në një dhomë.'));
+    if (!this.clubWars) return reply(ackError('unavailable', 'Luftat e klubeve s’janë aktive.'));
+    // Payload null/type guard — accessing payload.warId on a missing/garbage payload threw.
+    if (!payload || !isNonEmptyString(payload.warId) || !isNonEmptyString(payload.opponentUserId)) {
+      return reply(ackError('bad_request', 'Kërkesë e pavlefshme.'));
+    }
+    if (this.rooms.roomIdOf(userId)) return reply(ackError('busy', 'Je tashmë në një dhomë.'));
     const war = await this.clubWars.get(payload.warId).catch(() => null);
-    if (!war || war.status !== 'running') return ack(ackError('not_running', 'Lufta s’është aktive.'));
+    if (!war || war.status !== 'running') return reply(ackError('not_running', 'Lufta s’është aktive.'));
     const pairing = war.pairings.find((p) => !p.winnerId && (
       (p.aUserId === userId && p.bUserId === payload.opponentUserId) ||
       (p.bUserId === userId && p.aUserId === payload.opponentUserId)));
-    if (!pairing) return ack(ackError('no_pairing', 'S’ka ndeshje të paluajtur me këtë kundërshtar.'));
+    if (!pairing) return reply(ackError('no_pairing', 'S’ka ndeshje të paluajtur me këtë kundërshtar.'));
     const { aUserId, bUserId } = pairing;
-    if (this.rooms.roomIdOf(aUserId) || this.rooms.roomIdOf(bUserId)) return ack(ackError('busy', 'Njëri lojtar është në një ndeshje tjetër.'));
-    if (this.socketCountFor(aUserId) === 0 || this.socketCountFor(bUserId) === 0) return ack(ackError('offline', 'Kundërshtari s’është online.'));
+    if (this.rooms.roomIdOf(aUserId) || this.rooms.roomIdOf(bUserId)) return reply(ackError('busy', 'Njëri lojtar është në një ndeshje tjetër.'));
+    if (this.socketCountFor(aUserId) === 0 || this.socketCountFor(bUserId) === 0) return reply(ackError('offline', 'Kundërshtari s’është online.'));
     const roomId = this.rooms.createClubWarRoom([aUserId, bUserId], { warId: war.id, aUserId, bUserId });
     this.ownership?.claim(roomId);
     for (const uid of [aUserId, bUserId]) this.io.to(personalRoom(uid)).emit('clubwar:matchReady', { roomId, warId: war.id });
-    ack({ ok: true });
+    reply({ ok: true });
   }
 
   /**

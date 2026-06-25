@@ -192,7 +192,14 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     // transfers open); >0 = ledger-enforced (sum of transfer_out in the last 24h + this one).
     const cap = deps.dailyTransferCapCents ?? 0;
     if (cap > 0) {
-      const sentToday = await wallet.transferredOutSince(caller.userId, Date.now() - 24 * 60 * 60 * 1000).catch(() => 0);
+      // FAIL-CLOSED: if we can't read the prior 24h total, REJECT (was `.catch(() => 0)`, which let a
+      // transfer through whenever the ledger query hiccuped — an AML-cap bypass).
+      let sentToday: number;
+      try {
+        sentToday = await wallet.transferredOutSince(caller.userId, Date.now() - 24 * 60 * 60 * 1000);
+      } catch {
+        return reply.code(503).send({ error: { code: 'cap_check_failed', message: 'S’u verifikua dot kufiri i transfertave — provo sërish.' } });
+      }
       if (sentToday + amountCents > cap) {
         return reply.code(422).send({ error: { code: 'transfer_cap', message: `Kufiri ditor i transfertave ($${(cap / 100).toLocaleString('en-US')}) u arrit.` } });
       }

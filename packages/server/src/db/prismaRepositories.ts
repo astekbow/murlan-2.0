@@ -264,10 +264,13 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async addXp(id: string, deltaXp: number): Promise<User | null> {
-    const cur = await this.db.user.findUnique({ where: { id } });
-    if (!cur) return null;
-    const xp = Math.max(0, cur.xp + Math.floor(deltaXp));
-    return toUser(await this.db.user.update({ where: { id }, data: { xp } }));
+    // ATOMIC increment (was read-modify-write → concurrent grants lost an increment).
+    // All callers grant (positive) XP — spending uses xpSpent, never a negative delta — so the
+    // delta is clamped non-negative and a DB-side increment can't underflow.
+    const inc = Math.max(0, Math.floor(deltaXp));
+    const res = await this.db.user.updateMany({ where: { id }, data: { xp: { increment: inc } } });
+    if (res.count === 0) return null; // no such user
+    return toUser((await this.db.user.findUnique({ where: { id } }))!);
   }
 
   async setRewards(id: string, patch: RewardsPatch): Promise<User | null> {
