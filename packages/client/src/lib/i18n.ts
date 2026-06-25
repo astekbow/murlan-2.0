@@ -751,6 +751,8 @@ const STRINGS: Record<string, Entry> = {
   'replay.left': { sq: 'u largua nga ndeshja', en: 'left the match' },
   'replay.back': { sq: '← Kthehu', en: '← Back' },
   'replay.title': { sq: 'RIPRODHIM & VERIFIKIM', en: 'REPLAY & VERIFICATION' },
+  'replay.tab.verify': { sq: 'Verifikim', en: 'Verification' },
+  'replay.tab.games': { sq: 'Lojrat', en: 'Games' },
   'replay.loading': { sq: 'Po ngarkohet…', en: 'Loading…' },
   'replay.verifiedOk': { sq: 'E ndershme — e verifikuar', en: 'Fair — verified' },
   'replay.verifiedOkBody': { sq: 'Fara e serverit përputhet me angazhimin e bërë para lojës, dhe çdo ndarje letrash u rikrijua nga farat këtu te shfletuesi yt. Serveri s\'kishte si t\'i ndryshonte.', en: 'The server seed matches the commitment made before the game, and every card deal was reconstructed from the seeds here in your browser. The server couldn\'t have altered them.' },

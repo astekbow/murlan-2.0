@@ -54,6 +54,10 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
   const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>('pending');
   const [hands, setHands] = useState<Record<number, Card[][]>>({});
+  // Tabs + a per-game picker so each part fits the screen with no long scroll (the verdict + seeds on
+  // one tab; the move-log on another, ONE game at a time instead of every game stacked).
+  const [replayTab, setReplayTab] = useState<'verify' | 'games'>('verify');
+  const [gameTab, setGameTab] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -129,7 +133,15 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
         <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">⚠️</div><p className="text-sm text-red-300">{error}</p></div>
       ) : dto ? (
         <>
+          {/* Tabs: the fairness verdict + seeds on one tab, the move-log on another — each fits
+              the screen instead of one long scrolling page. */}
+          <div className="seg grid grid-cols-2" role="tablist" aria-label={t('replay.title')}>
+            <button type="button" role="tab" aria-selected={replayTab === 'verify'} onClick={() => setReplayTab('verify')} className={`seg-tab text-center ${replayTab === 'verify' ? 'active' : ''}`}>{t('replay.tab.verify')}</button>
+            <button type="button" role="tab" aria-selected={replayTab === 'games'} onClick={() => setReplayTab('games')} className={`seg-tab text-center ${replayTab === 'games' ? 'active' : ''}`}>{t('replay.tab.games')}</button>
+          </div>
+
           {/* Verification verdict */}
+          {replayTab === 'verify' && (
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.05s' }}>
             {verify === 'ok' ? (
               <div className="flex items-start gap-3">
@@ -164,36 +176,47 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
               <SeedRow label="clientSeed" value={dto.clientSeed} />
             </div>
           </section>
+          )}
 
-          {gameIndices.length === 0 ? (
-            <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">🃏</div><p className="text-sm text-muted">{t('replay.noMoves')}</p></div>
-          ) : (
-            gameIndices.map((gi, n) => (
-              <section key={gi} className="panel p-5 animate-rise" style={{ animationDelay: `${0.08 + Math.min(n, 8) * 0.04}s` }}>
-                <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('replay.gameN', { n: gi + 1 })}</h2>
-
-                {hands[gi] && (
-                  <div className="space-y-2 mb-4">
-                    <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase">{t('replay.reconstructedDeal')}</div>
-                    {hands[gi]!.map((hand, seat) => (
-                      <div key={seat} className="flex items-start gap-2">
-                        <span className="shrink-0 text-xs text-muted font-display w-16 pt-0.5">{t('replay.seatN', { n: seat + 1 })}</span>
-                        <div className="flex-1 flex flex-wrap gap-1">
-                          {hand.map((c, i) => <CardChip key={i} card={c} />)}
-                        </div>
+          {/* Games — ONE at a time (with a picker when there's more than one) so a long match
+              never turns into a long scroll. */}
+          {replayTab === 'games' && (
+            gameIndices.length === 0 ? (
+              <div className="panel p-10 text-center"><div className="text-4xl mb-2 opacity-60">🃏</div><p className="text-sm text-muted">{t('replay.noMoves')}</p></div>
+            ) : (() => {
+              const gi = gameIndices.includes(gameTab) ? gameTab : gameIndices[0]!;
+              return (
+                <div className="space-y-3">
+                  {gameIndices.length > 1 && (
+                    <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t('replay.moves')}>
+                      {gameIndices.map((g) => (
+                        <button key={g} type="button" role="tab" aria-selected={gi === g} onClick={() => setGameTab(g)} className={`btn btn-sm ${gi === g ? 'btn-gold' : 'btn-ghost'}`}>{g + 1}</button>
+                      ))}
+                    </div>
+                  )}
+                  <section className="panel p-5 animate-rise">
+                    <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('replay.gameN', { n: gi + 1 })}</h2>
+                    {hands[gi] && (
+                      <div className="space-y-2 mb-4">
+                        <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase">{t('replay.reconstructedDeal')}</div>
+                        {hands[gi]!.map((hand, seat) => (
+                          <div key={seat} className="flex items-start gap-2">
+                            <span className="shrink-0 text-xs text-muted font-display w-16 pt-0.5">{t('replay.seatN', { n: seat + 1 })}</span>
+                            <div className="flex-1 flex flex-wrap gap-1">{hand.map((c, i) => <CardChip key={i} card={c} />)}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase mb-1">{t('replay.moves')}</div>
-                {(byGame.get(gi) ?? []).length === 0 ? (
-                  <p className="text-xs text-muted/70 italic">—</p>
-                ) : (
-                  <div>{(byGame.get(gi) ?? []).map((a) => <ActionRow key={a.seq} a={a} />)}</div>
-                )}
-              </section>
-            ))
+                    )}
+                    <div className="font-serif text-[10px] tracking-[0.2em] text-muted uppercase mb-1">{t('replay.moves')}</div>
+                    {(byGame.get(gi) ?? []).length === 0 ? (
+                      <p className="text-xs text-muted/70 italic">—</p>
+                    ) : (
+                      <div>{(byGame.get(gi) ?? []).map((a) => <ActionRow key={a.seq} a={a} />)}</div>
+                    )}
+                  </section>
+                </div>
+              );
+            })()
           )}
         </>
       ) : null}
