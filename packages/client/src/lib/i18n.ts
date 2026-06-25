@@ -63,6 +63,9 @@ const STRINGS: Record<string, Entry> = {
   'settings.realityCheckHint': { sq: 'Të kujton sa ke luajtur dhe si ke dalë në sesion. Luaj me mend 🔞', en: 'Reminds you how long you’ve played and your session result. Play responsibly 🔞' },
   'settings.language': { sq: 'Gjuha', en: 'Language' },
   'settings.savedOnDevice': { sq: 'Cilësimet rrinë në këtë pajisje.', en: 'Settings are saved on this device.' },
+  'settings.sessionRecap': { sq: 'Ky sesion', en: 'This session' },
+  'settings.sessionLine': { sq: '{dur} · {games} lojëra', en: '{dur} · {games} games' },
+  'settings.sessionHint': { sq: 'Luaj me mend — bëj pushim kur të duhet. 🔞', en: 'Play mindfully — take a break when you need to. 🔞' },
 
   // Lobby nav rail
   'nav.home': { sq: 'KRYESORE', en: 'HOME' },

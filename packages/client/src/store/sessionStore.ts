@@ -12,19 +12,35 @@ import { useEffect, useState } from 'react';
 interface SessionStore {
   /** Epoch ms when this session began, or null when signed out. */
   startedAt: number | null;
+  /** Wallet balance (cents) at the FIRST balance read this session — for the net-change recap. */
+  startBalanceCents: number | null;
+  /** Matches finished this session (for the recap). */
+  games: number;
   /** Stamp the start time once (no-op if already running). */
   start: () => void;
-  /** Reset the clock (on logout). */
+  /** Snapshot the starting balance once (first time a balance is known after start). */
+  noteBalance: (cents: number) => void;
+  /** Count a finished match. */
+  bumpGame: () => void;
+  /** Reset the clock + counters (on logout). */
   clear: () => void;
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
   startedAt: null,
+  startBalanceCents: null,
+  games: 0,
   start() {
     if (get().startedAt == null) set({ startedAt: Date.now() });
   },
+  noteBalance(cents) {
+    if (get().startedAt != null && get().startBalanceCents == null) set({ startBalanceCents: cents });
+  },
+  bumpGame() {
+    if (get().startedAt != null) set((s) => ({ games: s.games + 1 }));
+  },
   clear() {
-    set({ startedAt: null });
+    set({ startedAt: null, startBalanceCents: null, games: 0 });
   },
 }));
 

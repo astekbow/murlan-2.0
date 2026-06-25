@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useWalletStore } from '../store/walletStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
@@ -263,6 +264,12 @@ export function WalletView() {
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
           <TronWarning />
           <p className="text-sm text-muted">{t('wallet.depositTrc20Steps')}</p>
+          {/* Scan-to-pay QR — generated locally (never sent anywhere). */}
+          <div className="flex justify-center">
+            <div className="rounded-xl bg-white p-2.5">
+              <QRCodeSVG value={depAddr} size={132} bgColor="#ffffff" fgColor="#0b0a0e" level="M" />
+            </div>
+          </div>
           <div>
             <span className="field-label">{t('wallet.yourAddress')}</span>
             <div className="flex items-center gap-2">

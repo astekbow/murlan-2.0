@@ -4,6 +4,7 @@ import {
   type Transaction, type WithdrawalRecord, type DepositIntent, type ComplianceProfile,
 } from '../lib/api.ts';
 import { useAuthStore } from './authStore.ts';
+import { useSessionStore } from './sessionStore.ts';
 import { translate, useLangStore } from '../lib/i18n.ts';
 
 // Localized text for store actions (ApiError.message is already localized by api.ts).
@@ -59,6 +60,7 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
         profile: acct.profile,
         loading: false,
       });
+      useSessionStore.getState().noteBalance(bal.balanceCents); // session recap baseline (once)
     } catch (e) {
       set({ loading: false, error: e instanceof ApiError ? e.message : tr('err.walletLoadFailed') });
     }

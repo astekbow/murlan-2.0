@@ -1,5 +1,8 @@
 import { Modal } from './Modal.tsx';
 import { useSettingsStore } from '../../store/settingsStore.ts';
+import { useSessionStore, useSessionMinutes, formatSessionDuration } from '../../store/sessionStore.ts';
+import { useWalletStore } from '../../store/walletStore.ts';
+import { dollars } from '../../lib/money.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT, useLangStore, type Lang } from '../../lib/i18n.ts';
 
@@ -12,6 +15,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const setLang = useLangStore((s) => s.setLang);
+  const minutes = useSessionMinutes();
+  const games = useSessionStore((s) => s.games);
+  const startBal = useSessionStore((s) => s.startBalanceCents);
+  const curBal = useWalletStore((s) => s.balanceCents);
+  const delta = startBal != null ? curBal - startBal : null;
 
   return (
     <Modal title={t('settings.title')} onClose={onClose}>
@@ -84,6 +92,18 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <p className="text-[11px] text-muted/80 mt-1.5">{t('settings.realityCheckHint')}</p>
+        </div>
+
+        {/* Session recap (responsible-gaming nudge): time + games + net balance change. */}
+        <div>
+          <div className="field-label">{t('settings.sessionRecap')}</div>
+          <p className="text-sm text-txt mt-1">
+            {t('settings.sessionLine', { dur: formatSessionDuration(minutes), games })}
+            {delta != null && (
+              <> · <span className={delta >= 0 ? 'text-emerald-300' : 'text-red-300'}>{delta >= 0 ? '+' : '−'}{dollars(Math.abs(delta))}</span></>
+            )}
+          </p>
+          <p className="text-[11px] text-muted/80 mt-1">{t('settings.sessionHint')}</p>
         </div>
 
         <p className="text-xs text-muted/80">{t('settings.savedOnDevice')}</p>

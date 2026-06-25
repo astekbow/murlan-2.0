@@ -14,6 +14,7 @@ import { toggleCard, selectedCards } from '../lib/selection.ts';
 import { useNotifications } from './notificationsStore.ts';
 import { useAuthStore } from './authStore.ts';
 import { useUiStore } from './uiStore.ts';
+import { useSessionStore } from './sessionStore.ts';
 
 // Localized toast text for store actions (outside React render → read live lang).
 const tg = (key: string, vars?: TVars) => translate(key, useLangStore.getState().lang, vars);
@@ -420,6 +421,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     socket.on('match:end', (dto) => {
       const won = dto.winnerSeats.includes(get().mySeat ?? -1);
+      useSessionStore.getState().bumpGame(); // session recap: count this finished match
       useNotifications.getState().push(
         won ? tg('msg.matchWon') : tg('msg.matchEnded'),
         won ? 'win' : 'info',
