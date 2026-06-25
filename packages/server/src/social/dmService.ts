@@ -64,8 +64,14 @@ export class DmService {
     return rows.map(toDTO);
   }
 
-  /** Per-friend unread counts for the caller (for badges). */
+  /** Per-friend unread counts for the caller (for badges). Filtered to CURRENT friends so a
+   *  sender you've since unfriended/blocked doesn't linger as a badge (and isn't disclosed). */
   async unread(caller: string): Promise<Record<string, number>> {
-    return this.dms.unreadByFrom(caller);
+    const all = await this.dms.unreadByFrom(caller);
+    const checked = await Promise.all(
+      Object.entries(all).map(async ([from, n]) =>
+        ((await this.friends.areFriends(caller, from)) ? ([from, n] as const) : null)),
+    );
+    return Object.fromEntries(checked.filter((e): e is readonly [string, number] => e !== null));
   }
 }

@@ -381,7 +381,7 @@ export class GameGateway {
       this.broadcastRoomState(existing.id);
     }
 
-    socket.on('lobby:list', (ack) => ack(this.rooms.listLobby()));
+    socket.on('lobby:list', (ack) => { if (typeof ack === 'function') ack(this.rooms.listLobby()); });
     socket.on('room:create', (payload, ack) => this.onCreate(socket, payload, ack));
     socket.on('room:join', (payload, ack) => this.onJoin(socket, payload, ack));
     socket.on('room:joinByCode', (payload, ack) => this.onJoinByCode(socket, payload, ack));

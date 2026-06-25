@@ -115,8 +115,8 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
     return reply.send({ messages });
   });
 
-  // Send a DM to a friend.
-  app.post('/api/dm/:userId', async (req, reply) => {
+  // Send a DM to a friend. Per-IP rate-limit so a friend can't spam the DB + push a recipient.
+  app.post('/api/dm/:userId', { config: { rateLimit: { max: 40, timeWindow: '1 minute', keyGenerator: (req: any) => req.ip } } }, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     if (!deps.dms) return reply.code(409).send({ error: { code: 'disabled', message: 'Mesazhet s’janë aktive.' } });
