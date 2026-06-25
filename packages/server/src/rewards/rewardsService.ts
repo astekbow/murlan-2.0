@@ -192,11 +192,24 @@ export interface RewardsStatus {
 }
 
 export class RewardsService {
+  // Per-user serialization: the claim/buy methods are read-check-write (check "already claimed?",
+  // then grant + record). Without serializing per user, two concurrent claims of the same reward
+  // both pass the check before either writes → a double-grant (double XP / double cosmetic). Each
+  // claim path runs inside withUserLock so the second waits for the first's write to land.
+  private locks = new Map<string, Promise<unknown>>();
+
   constructor(
     private readonly users: UserRepository,
     public readonly enabled: boolean,
     private readonly wallet: PurchaseWallet,
   ) {}
+
+  private async withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(userId) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    this.locks.set(userId, run.catch(() => undefined));
+    return run;
+  }
 
   private owns(u: User, c: Cosmetic): boolean {
     // Free/default = cost 0 AND not XP-priced (an XP item ALSO has cost 0 but must be
@@ -302,28 +315,32 @@ export class RewardsService {
 
   /** Claim today's daily reward (XP). Idempotent per UTC day. */
   async claimDaily(userId: string, now: number): Promise<{ rewardXp: number; streak: number } | null> {
-    const u = await this.users.findById(userId);
-    if (!u) return null;
-    const today = dayIndex(now);
-    const lastDay = u.lastDailyClaim != null ? dayIndex(u.lastDailyClaim) : -Infinity;
-    if (today <= lastDay) return null; // already claimed today
-    const streak = lastDay === today - 1 ? u.dailyStreak + 1 : 1;
-    const rewardXp = dailyReward(streak);
-    await this.users.addXp(userId, rewardXp);
-    await this.users.setRewards(userId, { lastDailyClaim: now, dailyStreak: streak });
-    return { rewardXp, streak };
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u) return null;
+      const today = dayIndex(now);
+      const lastDay = u.lastDailyClaim != null ? dayIndex(u.lastDailyClaim) : -Infinity;
+      if (today <= lastDay) return null; // already claimed today
+      const streak = lastDay === today - 1 ? u.dailyStreak + 1 : 1;
+      const rewardXp = dailyReward(streak);
+      await this.users.addXp(userId, rewardXp);
+      await this.users.setRewards(userId, { lastDailyClaim: now, dailyStreak: streak });
+      return { rewardXp, streak };
+    });
   }
 
   /** Claim a completed challenge's XP. Idempotent (claimedChallenges). */
   async claimChallenge(userId: string, challengeId: string): Promise<{ rewardXp: number } | null> {
     const def = CHALLENGES.find((c) => c.id === challengeId);
     if (!def) return null;
-    const u = await this.users.findById(userId);
-    if (!u || u.claimedChallenges.includes(def.id)) return null;
-    if (metricValue(u, def.metric) < def.goal) return null; // not completed
-    await this.users.addXp(userId, def.rewardXp);
-    await this.users.setRewards(userId, { claimedChallenges: [...u.claimedChallenges, def.id] });
-    return { rewardXp: def.rewardXp };
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u || u.claimedChallenges.includes(def.id)) return null;
+      if (metricValue(u, def.metric) < def.goal) return null; // not completed
+      await this.users.addXp(userId, def.rewardXp);
+      await this.users.setRewards(userId, { claimedChallenges: [...u.claimedChallenges, def.id] });
+      return { rewardXp: def.rewardXp };
+    });
   }
 
   /** Claim a completed DAILY quest's XP. The quest must be in TODAY's deterministic pool
@@ -332,17 +349,19 @@ export class RewardsService {
   async claimDailyQuest(userId: string, questId: string, now: number): Promise<{ rewardXp: number } | null> {
     const def = dailyQuestsFor(now).find((q) => q.id === questId);
     if (!def) return null; // not one of today's quests
-    const u = await this.users.findById(userId);
-    if (!u) return null;
-    const key = dailyClaimKey(now, def.id);
-    if (u.claimedDailies.includes(key)) return null; // already claimed today
-    // Per-period progress (count metrics measure today's delta from the anchor). Resolving
-    // anchors here also rolls them over if the claim is the first interaction of the day.
-    const { daily } = await this.resolveAnchors(userId, u, now);
-    if (questPeriodProgress(u, def.metric, daily) < def.goal) return null; // not completed today
-    await this.users.addXp(userId, def.rewardXp);
-    await this.users.setRewards(userId, { claimedDailies: [...u.claimedDailies, key] });
-    return { rewardXp: def.rewardXp };
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u) return null;
+      const key = dailyClaimKey(now, def.id);
+      if (u.claimedDailies.includes(key)) return null; // already claimed today
+      // Per-period progress (count metrics measure today's delta from the anchor). Resolving
+      // anchors here also rolls them over if the claim is the first interaction of the day.
+      const { daily } = await this.resolveAnchors(userId, u, now);
+      if (questPeriodProgress(u, def.metric, daily) < def.goal) return null; // not completed today
+      await this.users.addXp(userId, def.rewardXp);
+      await this.users.setRewards(userId, { claimedDailies: [...u.claimedDailies, key] });
+      return { rewardXp: def.rewardXp };
+    });
   }
 
   /** Claim a completed WEEKLY quest's XP. Must be in THIS ISO-week's pool and met;
@@ -350,16 +369,18 @@ export class RewardsService {
   async claimWeeklyQuest(userId: string, questId: string, now: number): Promise<{ rewardXp: number } | null> {
     const def = weeklyQuestsFor(now).find((q) => q.id === questId);
     if (!def) return null; // not one of this week's quests
-    const u = await this.users.findById(userId);
-    if (!u) return null;
-    const key = weeklyClaimKey(now, def.id);
-    if (u.claimedWeeklies.includes(key)) return null; // already claimed this week
-    // Per-period progress (count metrics measure this week's delta from the anchor).
-    const { weekly } = await this.resolveAnchors(userId, u, now);
-    if (questPeriodProgress(u, def.metric, weekly) < def.goal) return null; // not completed this week
-    await this.users.addXp(userId, def.rewardXp);
-    await this.users.setRewards(userId, { claimedWeeklies: [...u.claimedWeeklies, key] });
-    return { rewardXp: def.rewardXp };
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u) return null;
+      const key = weeklyClaimKey(now, def.id);
+      if (u.claimedWeeklies.includes(key)) return null; // already claimed this week
+      // Per-period progress (count metrics measure this week's delta from the anchor).
+      const { weekly } = await this.resolveAnchors(userId, u, now);
+      if (questPeriodProgress(u, def.metric, weekly) < def.goal) return null; // not completed this week
+      await this.users.addXp(userId, def.rewardXp);
+      await this.users.setRewards(userId, { claimedWeeklies: [...u.claimedWeeklies, key] });
+      return { rewardXp: def.rewardXp };
+    });
   }
 
   /** Collect the next REACHED level-up milestone (idempotent via collectedMilestones).
@@ -367,23 +388,24 @@ export class RewardsService {
    *  milestone so it can never be collected twice. Returns the granted reward, or null if
    *  nothing is pending. Collects ONE milestone per call (the lowest uncollected one). */
   async claimLevelReward(userId: string): Promise<{ level: number; cosmeticId: string | null; bonusXp: number } | null> {
-    const u = await this.users.findById(userId);
-    if (!u) return null;
-    const pending = this.pendingMilestone(u);
-    if (!pending) return null;
-    // Mark collected FIRST (idempotency guard): re-reading + re-checking avoids a
-    // double-grant if two requests race — the second sees it already collected.
-    const fresh = await this.users.findById(userId);
-    if (!fresh || fresh.collectedMilestones.includes(pending.level)) return null;
-    await this.users.setRewards(userId, { collectedMilestones: [...fresh.collectedMilestones, pending.level] });
-    if (pending.bonusXp > 0) await this.users.addXp(userId, pending.bonusXp);
-    // Grant the free cosmetic (cost 0 → no XP/money spent) if it isn't already owned and
-    // the id is a real catalog item. A failed/duplicate grant is non-fatal — the XP + the
-    // collected mark still stand (the player got the bonus XP either way).
-    if (pending.cosmeticId && COSMETICS.some((c) => c.id === pending.cosmeticId) && !fresh.cosmetics.includes(pending.cosmeticId)) {
-      await this.users.purchaseCosmetic(userId, pending.cosmeticId, 0).catch(() => undefined);
-    }
-    return pending;
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u) return null;
+      const pending = this.pendingMilestone(u);
+      if (!pending) return null;
+      // Mark collected FIRST (idempotency guard). The per-user lock makes the read→write a true
+      // critical section, so a concurrent claim can't double-grant the milestone.
+      if (u.collectedMilestones.includes(pending.level)) return null;
+      await this.users.setRewards(userId, { collectedMilestones: [...u.collectedMilestones, pending.level] });
+      if (pending.bonusXp > 0) await this.users.addXp(userId, pending.bonusXp);
+      // Grant the free cosmetic (cost 0 → no XP/money spent) if it isn't already owned and
+      // the id is a real catalog item. A failed/duplicate grant is non-fatal — the XP + the
+      // collected mark still stand (the player got the bonus XP either way).
+      if (pending.cosmeticId && COSMETICS.some((c) => c.id === pending.cosmeticId) && !u.cosmetics.includes(pending.cosmeticId)) {
+        await this.users.purchaseCosmetic(userId, pending.cosmeticId, 0).catch(() => undefined);
+      }
+      return pending;
+    });
   }
 
   /** Is the VIP weekly gift claimable for this user right now (i.e. not already claimed this
@@ -399,25 +421,27 @@ export class RewardsService {
   async claimVipGift(userId: string, opts: { isVip: boolean; now: number }): Promise<{ ok: boolean; code?: string; cosmeticId?: string; bonusXp?: number }> {
     if (!this.enabled) return { ok: false, code: 'disabled' };
     if (!opts.isVip) return { ok: false, code: 'not_vip' };
-    const u = await this.users.findById(userId);
-    if (!u) return { ok: false, code: 'not_found' };
-    const week = isoWeekKey(opts.now);
-    if (u.lastVipGift === week) return { ok: false, code: 'already' }; // one gift per week
-    const start = weekIndex(week, VIP_GIFT_POOL.length);
-    let cosmeticId: string | null = null;
-    for (let i = 0; i < VIP_GIFT_POOL.length; i += 1) {
-      const id = VIP_GIFT_POOL[(start + i) % VIP_GIFT_POOL.length]!;
-      if (!u.cosmetics.includes(id)) { cosmeticId = id; break; }
-    }
-    if (cosmeticId) {
-      // Grant the cosmetic AND mark the week in one write (no double-claim window).
-      await this.users.setRewards(userId, { cosmetics: [...u.cosmetics, cosmeticId], lastVipGift: week });
-      return { ok: true, cosmeticId };
-    }
-    // Owns the whole pool → a small XP gift, still once per week.
-    await this.users.setRewards(userId, { lastVipGift: week });
-    await this.users.addXp(userId, VIP_GIFT_XP);
-    return { ok: true, bonusXp: VIP_GIFT_XP };
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u) return { ok: false, code: 'not_found' };
+      const week = isoWeekKey(opts.now);
+      if (u.lastVipGift === week) return { ok: false, code: 'already' }; // one gift per week
+      const start = weekIndex(week, VIP_GIFT_POOL.length);
+      let cosmeticId: string | null = null;
+      for (let i = 0; i < VIP_GIFT_POOL.length; i += 1) {
+        const id = VIP_GIFT_POOL[(start + i) % VIP_GIFT_POOL.length]!;
+        if (!u.cosmetics.includes(id)) { cosmeticId = id; break; }
+      }
+      if (cosmeticId) {
+        // Grant the cosmetic AND mark the week in one write (no double-claim window).
+        await this.users.setRewards(userId, { cosmetics: [...u.cosmetics, cosmeticId], lastVipGift: week });
+        return { ok: true, cosmeticId };
+      }
+      // Owns the whole pool → a small XP gift, still once per week.
+      await this.users.setRewards(userId, { lastVipGift: week });
+      await this.users.addXp(userId, VIP_GIFT_XP);
+      return { ok: true, bonusXp: VIP_GIFT_XP };
+    });
   }
 
   /** Buy a cosmetic with the wallet balance (real money). Debits the ledger, then
@@ -428,30 +452,34 @@ export class RewardsService {
     // An XP-priced item must go through buyXp() — never charge the wallet for it.
     if (isXpPriced(c)) return { ok: false, code: 'wrong_currency' };
     if (c.cost === 0) return { ok: false, code: 'owned' }; // free/default — always owned
-    const u = await this.users.findById(userId);
-    if (!u) return { ok: false, code: 'not_found' };
-    if (u.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
-    // The PRICE is computed server-side: today's daily-deal item gets the discount, never
-    // trusted from the client. Charge the wallet first (money is the critical step).
-    const charge = cosmeticId === dailyDealId(now) ? dealPriceCents(c.cost) : c.cost;
-    try {
-      await this.wallet.debit(userId, charge, { type: 'purchase', reason: `cosmetic:${cosmeticId}` });
-    } catch (e) {
-      if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
-      throw e;
-    }
-    // Grant the cosmetic (cost 0 → no XP spent, just the ownership flag). If the
-    // grant THROWS or is REJECTED (e.g. a concurrent buy already granted it), REFUND
-    // the charge — a player must never be debited for a cosmetic they didn't get.
-    let granted: { ok: boolean; code?: string };
-    try {
-      granted = await this.users.purchaseCosmetic(userId, cosmeticId, 0);
-    } catch (e) {
-      await this.refundPurchase(userId, charge, cosmeticId);
-      throw e;
-    }
-    if (!granted.ok) await this.refundPurchase(userId, charge, cosmeticId);
-    return granted;
+    // Serialize per user: stops two concurrent buys of the same item from each debiting before
+    // either records ownership (a double-charge the post-hoc refund only partly cleans up).
+    return this.withUserLock(userId, async () => {
+      const u = await this.users.findById(userId);
+      if (!u) return { ok: false, code: 'not_found' };
+      if (u.cosmetics.includes(cosmeticId)) return { ok: false, code: 'owned' };
+      // The PRICE is computed server-side: today's daily-deal item gets the discount, never
+      // trusted from the client. Charge the wallet first (money is the critical step).
+      const charge = cosmeticId === dailyDealId(now) ? dealPriceCents(c.cost) : c.cost;
+      try {
+        await this.wallet.debit(userId, charge, { type: 'purchase', reason: `cosmetic:${cosmeticId}` });
+      } catch (e) {
+        if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
+        throw e;
+      }
+      // Grant the cosmetic (cost 0 → no XP spent, just the ownership flag). If the
+      // grant THROWS or is REJECTED (e.g. a concurrent buy already granted it), REFUND
+      // the charge — a player must never be debited for a cosmetic they didn't get.
+      let granted: { ok: boolean; code?: string };
+      try {
+        granted = await this.users.purchaseCosmetic(userId, cosmeticId, 0);
+      } catch (e) {
+        await this.refundPurchase(userId, charge, cosmeticId);
+        throw e;
+      }
+      if (!granted.ok) await this.refundPurchase(userId, charge, cosmeticId);
+      return granted;
+    });
   }
 
   /** Best-effort compensating credit for a charge whose grant failed. */

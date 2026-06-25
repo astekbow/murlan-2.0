@@ -428,3 +428,18 @@ test('VIP weekly gift: a VIP claims once per week; standard is refused; resets n
   assert.equal(await rewards.isVipGiftAvailable(u.id, NEXT_WEEK), true);
   assert.equal((await rewards.claimVipGift(u.id, { isVip: true, now: NEXT_WEEK })).ok, true);
 });
+
+test('per-user lock: concurrent daily claims grant exactly once (no double-XP)', async () => {
+  const wallet = new FakeWallet();
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'race', email: 'race@x.com', passwordHash: 'h' });
+  const rewards = new RewardsService(users, true, wallet);
+  const now = DAY1;
+  // Fire two claims for the SAME day at once — without the lock both read "not claimed" and
+  // double-grant; with it, the second waits + sees it already claimed.
+  const [r1, r2] = await Promise.all([rewards.claimDaily(u.id, now), rewards.claimDaily(u.id, now)]);
+  const granted = [r1, r2].filter(Boolean);
+  assert.equal(granted.length, 1, 'exactly one daily claim grants');
+  const after = await users.findById(u.id);
+  assert.equal(after!.xp, granted[0]!.rewardXp, 'XP credited exactly once');
+});
