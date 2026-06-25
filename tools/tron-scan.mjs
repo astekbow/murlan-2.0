@@ -30,6 +30,7 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import bs58 from 'bs58';
+import { writeFileSync } from 'node:fs';
 
 const ACCOUNT_PATH = "m/44'/195'/0'/0";
 const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'; // mainnet USDT-TRC20
@@ -128,12 +129,21 @@ if (funded.length === 0) {
   console.log('  • raise COUNT (e.g. COUNT=100) — the player may be at a higher index, or');
   console.log('  • the seed does NOT match the server xpub (wrong wallet).\n');
 } else {
-  console.log('\n FUNDED ADDRESSES — import the PRIVATE KEY into TronLink (Import wallet →');
-  console.log(' Private Key) to access/send the USDT.  ⚠️ KEEP THESE SECRET.\n');
-  for (const f of funded) {
-    console.log(`  #${f.i}  ${f.address}`);
-    console.log(`        privateKey: ${f.privKey}\n`);
+  console.log(`\n FUNDED ADDRESSES (${funded.length}) — import the PRIVATE KEY into TronLink (Import`);
+  console.log(' wallet → Private Key) to access/send the USDT.\n');
+  for (const f of funded) console.log(`  #${f.i}  ${f.address}`);
+  // SECURITY: a private key echoed to stdout lands in shell history, terminal scrollback, tmux/CI
+  // logs, and screen captures. By default write them to a 0600 file and print only the PATH; set
+  // REVEAL_KEYS=1 to print them inline (ONLY on a trusted terminal you control + will clear).
+  if (process.env.REVEAL_KEYS === '1') {
+    console.log('\n ⚠️ PRIVATE KEYS (REVEAL_KEYS=1) — nothing must be logging this terminal:');
+    for (const f of funded) console.log(`  #${f.i}  ${f.privKey}`);
+  } else {
+    const outPath = `tron-keys-${Date.now()}.json`;
+    writeFileSync(outPath, JSON.stringify(funded, null, 2), { mode: 0o600 });
+    console.log(`\n 🔐 Private keys written to ./${outPath} (chmod 600). Import them, then DELETE the file.`);
+    console.log('    (Re-run with REVEAL_KEYS=1 to print them inline instead.)');
   }
-  console.log(' To fund payouts: send this USDT to your Binance USDT-TRC20 deposit address.');
+  console.log('\n To fund payouts: send this USDT to your Binance USDT-TRC20 deposit address.');
   console.log(' (Each address needs a little TRX for the transfer fee.)\n');
 }
