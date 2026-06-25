@@ -54,23 +54,29 @@ Severity legend: 🔴 crit · 🟠 high · 🟡 med. "votes" = how many of 2 ver
     `/users`→manage_accounts, `/users/:id/transactions`→manage_accounts (`__house__`→view_revenue),
     `/withdrawals`→approve_withdrawals, `/chat-reports`→moderate_chat. (Full admin passes all; only scoped sub-admins restricted.)
 
+### Batch 5 — commit `71482d7` (2 med)
+15. 🟡 **Block-unblock authz** — a BLOCKED user could delete the block edge via unfriend and un-block
+    themselves. `remove()` now refuses `status:'blocked'` rows (both repos); blocks lift only via `unblock()`. +test.
+16. 🟡 **Rate-limits** — `GET /users/search` (30/min/IP, enumeration + DB scan) + `POST /auth/refresh`
+    (stricter login limiter, refresh-token brute-force).
+
 ### Verified FALSE POSITIVES (re-checked against the real code — no change needed)
 - **"Shuffle seed leak"** — `serverSeed` is correctly withheld until match-end reveal in BOTH the HTTP
   endpoint and the socket; `clientSeed` alone (the player's own public contribution) can't reconstruct a deal.
 - **"No admin self-credit guard"** — `checkAdjustGovernance` already blocks crediting your own account.
 - **"Dual-control is a no-op"** — intentional stub kept OFF so the solo owner isn't locked out (documented in the policy).
+- **"Admin self-DEBIT not blocked"** — intentional + explicitly tested: self-debit LOSES money (no fraud gain).
+  Self-CREDIT (the actual fraud) IS blocked. Left as-is by design.
 
 ---
 
 ## ⏳ REMAINING (lower value / multi-admin only)
 - 🟡 **Rewards/shop claim TOCTOU** (`rewardsService` claimDaily/Challenge/Quest/Level/VipGift, shop `buy`) —
   concurrent double-claim → double-XP / double-cosmetic (NOT real money). *Fix:* per-user serialize the claims.
-- 🟡 **Remaining per-route rate limits** — `/auth/refresh`, `/users/search`, `/api/dm/:id`, `lobby:list`,
-  `leaderboard:watch`, + paginate admin ledger reads. *Fix:* add per-route limiters + LIMIT the ledger queries.
-- 🟡 **Friends/block leaks** — `remove()` deletes block rows; search/public-profile reveal blockers; FK
-  existence oracle on block. **DM unread endpoint leaks historical sender ids** without a friendship guard.
-- 🟡 **Admin self-DEBIT not blocked** (audit-trail obfuscation only — no money gain); owner balance
-  adjustable by a second admin. Low value for the solo-owner model.
+- 🟡 **A few remaining rate limits** — `/api/dm/:id`, `lobby:list`, `leaderboard:watch`, + paginate the admin
+  ledger reads (`/users/:id/transactions`, revenue). *Fix:* per-route limiters + LIMIT the ledger queries.
+- 🟡 **Minor friends/DM leaks** — username search / public profile reveal a blocker; DM unread endpoint
+  returns historical sender ids (senders were friends at send time). Low impact.
 
 ## 🧊 DEFERRED — infra / needs migration (NOT exploitable on current single-host deploy)
 - 🔴/🟠 **Multi-instance double-pay races** — tournament/clubwar `cancel`+`finish`/`register` use **in-process**
