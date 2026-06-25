@@ -58,6 +58,7 @@ export function WalletView() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false); // DOB/country save in flight — guard double-submit
   const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
+  const [txFilter, setTxFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'transfer'>('all');
   const [exporting, setExporting] = useState(false); // GDPR data export in flight
   const [deleting, setDeleting] = useState(false); // GDPR account deletion in flight
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
@@ -387,6 +388,18 @@ export function WalletView() {
       {/* History */}
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.txHistory')}</h2>
+        {/* Filter chips: narrow the ledger to one kind. */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {(['all', 'deposit', 'withdrawal', 'bet', 'payout', 'transfer'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setTxFilter(f)}
+              className={`text-xs rounded-full px-2.5 py-1 border ${txFilter === f ? 'border-gold bg-gold/[.12] text-gold-hi' : 'border-white/10 text-muted'}`}
+            >
+              {t(`wallet.txf.${f}`)}
+            </button>
+          ))}
+        </div>
         {firstLoad && transactions.length === 0 ? (
           <ul className="space-y-2.5" aria-hidden>
             {Array.from({ length: 4 }).map((_, i) => (
@@ -400,30 +413,43 @@ export function WalletView() {
               </li>
             ))}
           </ul>
-        ) : transactions.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-2 opacity-60">🧾</div>
-            <p className="text-sm text-muted">{t('wallet.noTx')}</p>
-          </div>
-        ) : (
+        ) : (() => {
+          const shown = transactions.filter((x) => txFilter === 'all'
+            || (txFilter === 'transfer' ? x.type === 'transfer_in' || x.type === 'transfer_out' : x.type === txFilter)).slice(0, 30);
+          if (shown.length === 0) {
+            return (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-2 opacity-60">🧾</div>
+                <p className="text-sm text-muted">{t('wallet.noTx')}</p>
+              </div>
+            );
+          }
+          return (
           <ul className="space-y-2.5">
-            {transactions.slice(0, 30).map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
+            {shown.map((tx) => {
+              // A bet/payout row links to its match replay (the provably-fair recap).
+              const linkable = !!tx.matchId && (tx.type === 'bet' || tx.type === 'payout');
+              const Row = linkable ? 'button' : 'div';
+              return (
+              <Row
+                key={tx.id}
+                {...(linkable ? { onClick: () => useUiStore.getState().openReplay(tx.matchId!) } : {})}
+                className={`w-full text-left flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] ${linkable ? 'hover:border-gold/40' : ''}`}
               >
-                <span className="tag tag-open">{txLabel(t.type)}</span>
+                <span className="tag tag-open">{txLabel(tx.type)}</span>
                 <span className="flex-1 min-w-0">
-                  {t.reason && <span className="block text-xs text-muted truncate">{t.reason}</span>}
-                  <span className="block text-[11px] text-muted/70">{new Date(t.createdAt).toLocaleString()}</span>
+                  {tx.reason && <span className="block text-xs text-muted truncate">{tx.reason}</span>}
+                  <span className="block text-[11px] text-muted/70">{new Date(tx.createdAt).toLocaleString()}{linkable ? ` · ${t('wallet.viewMatch')}` : ''}</span>
                 </span>
-                <span className={`ml-auto font-display font-semibold tracking-wide ${t.amountCents >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                  {t.amountCents >= 0 ? '+' : '−'}{dollars(Math.abs(t.amountCents))}
+                <span className={`ml-auto font-display font-semibold tracking-wide ${tx.amountCents >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {tx.amountCents >= 0 ? '+' : '−'}{dollars(Math.abs(tx.amountCents))}
                 </span>
-              </li>
-            ))}
+              </Row>
+              );
+            })}
           </ul>
-        )}
+          );
+        })()}
       </section>
 
       {firstLoad && withdrawals.length === 0 ? (

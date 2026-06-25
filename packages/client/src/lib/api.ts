@@ -325,7 +325,7 @@ export type { ReplayDTO, ReplayActionDTO, ReplayGameDTO };
 
 // ---------- Wallet & account ------------------------------------------------
 
-export type TransactionType = 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'rake' | 'purchase' | 'admin_adjust';
+export type TransactionType = 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'rake' | 'purchase' | 'transfer_out' | 'transfer_in' | 'admin_adjust';
 
 export interface Transaction {
   id: string;

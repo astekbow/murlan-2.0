@@ -19,6 +19,8 @@ const TX_KEY: Record<string, string> = {
   payout: 'tx.payout',
   rake: 'tx.rake',
   purchase: 'tx.purchase',
+  transfer_in: 'tx.transferIn',
+  transfer_out: 'tx.transferOut',
   admin_adjust: 'tx.adminAdjust',
 };
 

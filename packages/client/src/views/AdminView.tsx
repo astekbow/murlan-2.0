@@ -469,7 +469,21 @@ export function AdminView() {
                 </div>
                 <div>
                   <div className="field-label mb-1.5">{t('admin.revenueByDay')}</div>
-                  <ul className="space-y-1 max-h-40 overflow-y-auto -mr-1 pr-1">
+                  {/* Trend: a compact bar per day (height ∝ rake), newest on the right. */}
+                  {(() => {
+                    const days = [...revenue.byDay].slice(0, 30).reverse(); // oldest→newest L→R
+                    const max = Math.max(1, ...days.map((d) => d.rakeCents));
+                    return days.length > 0 ? (
+                      <div className="flex items-end gap-0.5 h-20 mb-2" role="img" aria-label={t('admin.revenueByDay')}>
+                        {days.map((d) => (
+                          <div key={d.date} className="flex-1 bg-gold/70 rounded-t hover:bg-gold transition-colors"
+                            style={{ height: `${Math.max(3, Math.round((d.rakeCents / max) * 100))}%` }}
+                            title={`${d.date}: ${dollars(d.rakeCents)} · ${d.matchCount}`} />
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+                  <ul className="space-y-1 max-h-32 overflow-y-auto -mr-1 pr-1">
                     {revenue.byDay.map((r) => (
                       <li key={r.date} className="flex items-center justify-between text-sm">
                         <span className="text-muted tabular-nums">{r.date} <span className="text-muted/60">· {r.matchCount}</span></span>
