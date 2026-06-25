@@ -18,7 +18,7 @@ export class FriendsError extends Error {
 }
 
 /** What an online friend is currently doing (for the detailed presence label). */
-export type FriendActivity = 'lobby' | 'room' | 'match';
+export type FriendActivity = 'lobby' | 'room' | 'match' | 'clubwar';
 
 export interface FriendEntry {
   id: string; // friendship id

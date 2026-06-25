@@ -12,17 +12,19 @@ import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
 
-/** Detailed presence label for a friend (offline / online / in a room / in a live match). */
+/** Detailed presence label for a friend (offline / online / room / live match / club war). */
 function presenceText(entry: FriendEntry, t: (k: string) => string): string {
   if (!entry.online) return t('common.offline');
+  if (entry.activity === 'clubwar') return t('friends.inClubWar');
   if (entry.activity === 'match') return t('friends.inMatch');
   if (entry.activity === 'room') return t('friends.inRoom');
   return t('common.online');
 }
 
-/** Status-dot colour: gray offline, gold in a match, blue in a room, green idle-online. */
+/** Status-dot colour: gray offline, purple in a club war, gold in a match, blue in a room, green idle. */
 function presenceDot(entry: FriendEntry): string {
   if (!entry.online) return 'bg-white/25';
+  if (entry.activity === 'clubwar') return 'bg-violet-400';
   if (entry.activity === 'match') return 'bg-amber-400';
   if (entry.activity === 'room') return 'bg-sky-400';
   return 'bg-emerald-400';

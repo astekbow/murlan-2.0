@@ -679,7 +679,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const friends = new FriendsService(repo, friendsRepo, presence, (uid) => {
     // Detailed presence: derive activity from the rooms service at query time (no eager tracking).
     const room = rooms.roomOf(uid);
-    return !room ? 'lobby' : room.status === 'inMatch' ? 'match' : 'room';
+    if (!room) return 'lobby';
+    if (room.clubWar) return 'clubwar'; // in a Club War pairing room — distinct from a casual table
+    return room.status === 'inMatch' ? 'match' : 'room';
   });
   const dms = new DmService(dmsRepo, friends, repo);
 

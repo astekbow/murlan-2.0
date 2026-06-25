@@ -442,6 +442,7 @@ const STRINGS: Record<string, Entry> = {
   'friends.duelHint': { sq: 'Hap një 1v1 privat falas dhe e fton mikun', en: 'Opens a free private 1v1 and invites your friend' },
   'friends.inMatch': { sq: 'Në lojë', en: 'In a game' },
   'friends.inRoom': { sq: 'Në dhomë', en: 'In a room' },
+  'friends.inClubWar': { sq: 'Në luftë klubesh', en: 'In a club war' },
   'friends.message': { sq: 'Mesazh', en: 'Message' },
   'friends.dmTitle': { sq: 'Bisedë me {name}', en: 'Chat with {name}' },
   'friends.dmPlaceholder': { sq: 'Shkruaj një mesazh…', en: 'Write a message…' },
