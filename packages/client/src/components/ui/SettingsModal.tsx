@@ -8,11 +8,10 @@ import { sound } from '../../lib/sound.ts';
 import { useT, useLangStore, type Lang } from '../../lib/i18n.ts';
 
 /** Audio settings: mute, master volume, and ambient music — persisted per device. */
-const RC_OPTIONS = [0, 15, 30, 60];
 const LANGS: Array<{ id: Lang; label: string }> = [{ id: 'sq', label: 'Shqip' }, { id: 'en', label: 'English' }];
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { muted, volume, musicOn, realityCheckMinutes, setMuted, setVolume, setMusicOn, setRealityCheckMinutes } = useSettingsStore();
+  const { muted, volume, musicOn, setMuted, setVolume, setMusicOn } = useSettingsStore();
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const setLang = useLangStore((s) => s.setLang);
@@ -77,26 +76,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <Row label={t('settings.music')}>
           <Toggle on={musicOn} onChange={(on) => { setMusicOn(on); sound.play('button'); }} labels={['Off', 'On']} />
         </Row>
-
-        {/* Responsible gaming: a periodic reality-check reminder. */}
-        <div className="pt-1 border-t border-white/10">
-          <div className="field-label mt-3">{t('settings.realityCheck')}</div>
-          <div className="seg w-full grid grid-cols-4 mt-1" role="radiogroup" aria-label={t('settings.realityCheck')}>
-            {RC_OPTIONS.map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={realityCheckMinutes === m}
-                className={`seg-tab text-center ${realityCheckMinutes === m ? 'active' : ''}`}
-                onClick={() => { setRealityCheckMinutes(m); sound.play('button'); }}
-              >
-                {m === 0 ? 'Off' : `${m}m`}
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted/80 mt-1.5">{t('settings.realityCheckHint')}</p>
-        </div>
 
         {/* Session recap (responsible-gaming nudge): time + games + net balance change. */}
         <div>

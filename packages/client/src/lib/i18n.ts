@@ -59,8 +59,6 @@ const STRINGS: Record<string, Entry> = {
   'settings.soundFx': { sq: 'Zëri (efektet)', en: 'Sound (effects)' },
   'settings.volume': { sq: 'Volumi', en: 'Volume' },
   'settings.music': { sq: 'Muzika e sfondit', en: 'Background music' },
-  'settings.realityCheck': { sq: 'Kontroll realiteti (kujtues)', en: 'Reality check (reminder)' },
-  'settings.realityCheckHint': { sq: 'Të kujton sa ke luajtur dhe si ke dalë në sesion. Luaj me mend 🔞', en: 'Reminds you how long you’ve played and your session result. Play responsibly 🔞' },
   'settings.language': { sq: 'Gjuha', en: 'Language' },
   'settings.savedOnDevice': { sq: 'Cilësimet rrinë në këtë pajisje.', en: 'Settings are saved on this device.' },
   'settings.sessionRecap': { sq: 'Ky sesion', en: 'This session' },
@@ -900,13 +898,6 @@ const STRINGS: Record<string, Entry> = {
   'profile.chooseAvatar': { sq: 'ZGJIDH AVATARIN', en: 'CHOOSE AVATAR' },
   'profile.uploadAvatar': { sq: 'Ngarko foto', en: 'Upload photo' },
   'profile.avatarTooBig': { sq: 'Fotoja është shumë e madhe.', en: 'The photo is too large.' },
-  'reality.title': { sq: 'Kontroll realiteti', en: 'Reality check' },
-  'reality.playedFor': { sq: 'Ke luajtur', en: 'You\'ve played' },
-  'reality.thisSession': { sq: 'këtë sesion.', en: 'this session.' },
-  'reality.sessionResult': { sq: 'Si ke dalë në sesion', en: 'Session result' },
-  'reality.responsibly': { sq: 'Luaj me mend. Po t’u desh, bëj një pauzë.', en: 'Play responsibly. If you need to, take a break.' },
-  'reality.takeBreak': { sq: 'Bëj pauzë', en: 'Take a break' },
-  'reality.continue': { sq: 'Vazhdo', en: 'Continue' },
   'rankedsearch.type1v1': { sq: '1 kundër 1', en: '1 vs 1' },
   'rankedsearch.type1v1v1': { sq: '1v1v1', en: '1v1v1' },
   'rankedsearch.type2v2': { sq: '2 kundër 2', en: '2 vs 2' },
@@ -1014,7 +1005,7 @@ const STRINGS: Record<string, Entry> = {
   'pile.tableLabel': { sq: 'Tavolina', en: 'Table' },
   'pile.emptyNewRound': { sq: 'Pa letra — radhë e re', en: 'No cards — new round' },
 
-  // Transaction-type labels (money.ts txLabel) + reality-check duration (realityCheck.ts)
+  // Transaction-type labels (money.ts txLabel)
   'tx.deposit': { sq: 'Depozitë', en: 'Deposit' },
   'tx.withdrawal': { sq: 'Tërheqje', en: 'Withdrawal' },
   'tx.bet': { sq: 'Bast', en: 'Bet' },
@@ -1024,9 +1015,6 @@ const STRINGS: Record<string, Entry> = {
   'tx.transferIn': { sq: 'Marrë', en: 'Received' },
   'tx.transferOut': { sq: 'Dërguar', en: 'Sent' },
   'tx.adminAdjust': { sq: 'Rregullim admin', en: 'Admin adjustment' },
-  'rc.hoursMins': { sq: '{h} orë {m} min', en: '{h}h {m}m' },
-  'rc.hours': { sq: '{h} orë', en: '{h}h' },
-  'rc.mins': { sq: '{m} min', en: '{m}m' },
 
   // Error codes (server speaks codes → client localizes) + toasts (errors.ts)
   'err.identity_mismatch': { sq: 'S’mund ta ndryshosh identitetin e lidhjes.', en: 'You cannot change the identity of the connection.' },

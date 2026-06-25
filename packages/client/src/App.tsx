@@ -12,7 +12,6 @@ import { TopBar } from './components/ui/TopBar.tsx';
 import { InviteBanner } from './components/ui/InviteBanner.tsx';
 import { ClubInviteBanner } from './components/ui/ClubInviteBanner.tsx';
 import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
-import { RealityCheckModal } from './components/ui/RealityCheckModal.tsx';
 import { CookieNotice } from './components/ui/CookieNotice.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
@@ -225,7 +224,6 @@ export function App() {
       {status === 'authed' && !room && !spectating && onboarded && <InstallModal />}
       {status === 'authed' && <RulesModal />}
       {status === 'authed' && <RankedSearchOverlay />}
-      {status === 'authed' && <RealityCheckModal />}
       {status === 'authed' && <ReconnectOverlay />}
       {/* Global profile modal — opened by /u/<id> deep-links. */}
       {status === 'authed' && profileUserId && (
