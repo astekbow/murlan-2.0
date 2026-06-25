@@ -4,7 +4,7 @@ import type { Transaction, TransactionType } from '../money/ledger.ts';
 import { InMemoryLedger } from '../money/ledger.ts';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { WalletService } from '../money/walletService.ts';
-import { stakedVolume, vipTierFor, VipService } from './vipService.ts';
+import { stakedVolume, vipTierFor, VipService, vipXpMultiplier, VIP_TIERS } from './vipService.ts';
 
 const tx = (type: TransactionType, amountCents: number): Transaction =>
   ({ id: `${type}${amountCents}`, userId: 'u', type, amountCents, currency: 'USD', status: 'completed', providerRef: null, matchId: null, reason: null, createdAt: 0 });
@@ -20,6 +20,15 @@ test('vipTierFor maps staked volume to the right tier', () => {
   assert.equal(vipTierFor(100_000).key, 'silver');
   assert.equal(vipTierFor(1_000_000).key, 'gold');
   assert.equal(vipTierFor(9_999_999).key, 'diamond');
+});
+
+test('vipXpMultiplier scales match XP by tier (a real perk; no rake-back)', () => {
+  const byKey = (k: string) => VIP_TIERS.find((t) => t.key === k)!;
+  assert.equal(vipXpMultiplier(byKey('standard')), 1);
+  assert.equal(vipXpMultiplier(byKey('bronze')), 1.1);
+  assert.equal(vipXpMultiplier(byKey('silver')), 1.2);
+  assert.equal(vipXpMultiplier(byKey('gold')), 1.35);
+  assert.equal(vipXpMultiplier(byKey('diamond')), 1.5);
 });
 
 test('getStatus derives tier + progress from the ledger', async () => {

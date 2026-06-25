@@ -6,13 +6,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryUserRepository } from '../auth/userRepository.ts';
 import { ProfileService, AVATARS } from './profileService.ts';
-import { levelInfo } from './level.ts';
+import { levelInfo, XP_PLAY, XP_WIN } from './level.ts';
+import type { Transaction } from '../money/ledger.ts';
 
 async function setup() {
   const users = new InMemoryUserRepository();
   const u = await users.create({ username: 'pic', email: 'p@x.com', passwordHash: 'h' });
   return { svc: new ProfileService(users), userId: u.id };
 }
+
+const betTx = (cents: number): Transaction =>
+  ({ id: 'b', userId: 'u', type: 'bet', amountCents: -cents, currency: 'USD', status: 'completed', providerRef: null, matchId: 'm', reason: null, createdAt: 0 });
+
+test('recordMatch applies the VIP XP boost from staked volume', async () => {
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'vipx', email: 'vx@x.com', passwordHash: 'h' });
+  // $100 lifetime staked → bronze (+10% XP). A win = (XP_PLAY + XP_WIN) * 1.1.
+  const ledger = { listTransactions: async () => [betTx(10_000)] };
+  const svc = new ProfileService(users, ledger, true);
+  await svc.recordMatch([{ userId: u.id, won: true, potCents: 0 }]);
+  assert.equal((await users.findById(u.id))!.xp, Math.round((XP_PLAY + XP_WIN) * 1.1));
+});
+
+test('recordMatch without a ledger awards base XP (no boost)', async () => {
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'noledger', email: 'nl@x.com', passwordHash: 'h' });
+  const svc = new ProfileService(users); // no ledger → standard, 1.0×
+  await svc.recordMatch([{ userId: u.id, won: false, potCents: 0 }]);
+  assert.equal((await users.findById(u.id))!.xp, XP_PLAY);
+});
 
 // A 1x1 PNG (valid magic bytes 89 50 4E 47 …) base64-encoded.
 const PNG_1x1 =

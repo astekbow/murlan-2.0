@@ -11,13 +11,19 @@ import type { VipTierInfo, VipStatusDTO } from '@murlan/shared';
 import type { Transaction } from '../money/ledger.ts';
 
 // Ascending; `minStakedCents` is the inclusive lower bound to reach the tier.
+// `xpBoostBps` is a REAL VIP perk: a match-XP boost (1000 bps = +10%) — NO rake-back (owner choice).
 export const VIP_TIERS: readonly VipTierInfo[] = [
-  { key: 'standard', name: 'Standard',     minStakedCents: 0,          color: '#9aa0a6' },
-  { key: 'bronze',   name: 'Bronz VIP',    minStakedCents: 10_000,     color: '#a97142' },
-  { key: 'silver',   name: 'Argjend VIP',  minStakedCents: 100_000,    color: '#b8c0c8' },
-  { key: 'gold',     name: 'Ar VIP',       minStakedCents: 1_000_000,  color: '#e4b51c' },
-  { key: 'diamond',  name: 'Diamant VIP',  minStakedCents: 5_000_000,  color: '#5fa8ff' },
+  { key: 'standard', name: 'Standard',     minStakedCents: 0,          color: '#9aa0a6', xpBoostBps: 0 },
+  { key: 'bronze',   name: 'Bronz VIP',    minStakedCents: 10_000,     color: '#a97142', xpBoostBps: 1000 },
+  { key: 'silver',   name: 'Argjend VIP',  minStakedCents: 100_000,    color: '#b8c0c8', xpBoostBps: 2000 },
+  { key: 'gold',     name: 'Ar VIP',       minStakedCents: 1_000_000,  color: '#e4b51c', xpBoostBps: 3500 },
+  { key: 'diamond',  name: 'Diamant VIP',  minStakedCents: 5_000_000,  color: '#5fa8ff', xpBoostBps: 5000 },
 ] as const;
+
+/** Match-XP multiplier for a tier (1.0 = no boost). E.g. diamond (5000 bps) → 1.5×. */
+export function vipXpMultiplier(tier: VipTierInfo): number {
+  return 1 + Math.max(0, tier.xpBoostBps) / 10_000;
+}
 
 /** Lifetime staked volume = the magnitude of all 'bet' debits in the ledger. */
 export function stakedVolume(txs: readonly Transaction[]): number {

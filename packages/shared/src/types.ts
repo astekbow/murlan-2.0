@@ -291,6 +291,7 @@ export interface VipTierInfo {
   name: string;        // Albanian, player-facing
   minStakedCents: number; // lifetime staked volume to reach this tier (the level)
   color: string;
+  xpBoostBps: number;  // match-XP boost in basis points (1000 = +10%); a real VIP perk
 }
 
 export interface VipStatusDTO {

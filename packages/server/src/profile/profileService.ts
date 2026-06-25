@@ -9,7 +9,7 @@
 import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo, XP_PLAY, XP_WIN, type LevelInfo } from './level.ts';
 import { newlyEarnedAchievements } from '../rewards/achievements.ts';
-import { vipTierFor, stakedVolume } from '../vip/vipService.ts';
+import { vipTierFor, stakedVolume, vipXpMultiplier } from '../vip/vipService.ts';
 import type { VipTierInfo } from '@murlan/shared';
 import type { Transaction } from '../money/ledger.ts';
 
@@ -222,11 +222,20 @@ export class ProfileService {
    */
   async recordMatch(seats: Array<{ userId: string; won: boolean; potCents: number }>): Promise<void> {
     await Promise.all(
-      seats.map((s) =>
-        this.users
-          .applyMatchResult(s.userId, { won: s.won, potCents: s.potCents, xpGain: XP_PLAY + (s.won ? XP_WIN : 0) })
-          .catch(() => null),
-      ),
+      seats.map(async (s) => {
+        const base = XP_PLAY + (s.won ? XP_WIN : 0);
+        // VIP perk: boost match XP by the player's tier multiplier (derived from lifetime staked
+        // volume, same source as the VIP badge). Best-effort — a ledger hiccup just means no boost.
+        let mult = 1;
+        if (this.ledger) {
+          try { mult = vipXpMultiplier(vipTierFor(stakedVolume(await this.ledger.listTransactions(s.userId)))); }
+          catch { /* no boost on failure */ }
+        }
+        const xpGain = Math.round(base * mult);
+        return this.users
+          .applyMatchResult(s.userId, { won: s.won, potCents: s.potCents, xpGain })
+          .catch(() => null);
+      }),
     );
   }
 

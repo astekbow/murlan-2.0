@@ -94,6 +94,24 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'felt_obsidian', name: 'Çoha obsidian', type: 'tableFelt', cost: 600 },
   { id: 'felt_midnight', name: 'Çoha mesnatë', type: 'tableFelt', cost: 700, featured: true },
   { id: 'felt_royalblue', name: 'Çoha blu mbretërore', type: 'tableFelt', cost: 900, featured: true },
+
+  // ── New batch (Wave 2.3) — more variety in the shop ───────────────────────
+  // Card-backs (XP-priced)
+  { id: 'cb_mint', name: 'Pas mente', type: 'cardBack', cost: 0, costXp: 250 },
+  { id: 'cb_slate', name: 'Pas guri', type: 'cardBack', cost: 0, costXp: 250 },
+  { id: 'cb_coral', name: 'Pas korali', type: 'cardBack', cost: 0, costXp: 350 },
+  { id: 'cb_lava', name: 'Pas llave', type: 'cardBack', cost: 0, costXp: 500 },
+  // Card-backs (money-priced)
+  { id: 'cb_onyx', name: 'Pas oniksi', type: 'cardBack', cost: 500 },
+  { id: 'cb_aurora', name: 'Pas aurore', type: 'cardBack', cost: 700, featured: true },
+  // Felts (XP-priced)
+  { id: 'felt_moss', name: 'Çoha myshku', type: 'tableFelt', cost: 0, costXp: 250 },
+  { id: 'felt_cocoa', name: 'Çoha kakao', type: 'tableFelt', cost: 0, costXp: 250 },
+  { id: 'felt_steel', name: 'Çoha çeliku', type: 'tableFelt', cost: 0, costXp: 350 },
+  { id: 'felt_rosewood', name: 'Çoha trëndafili', type: 'tableFelt', cost: 0, costXp: 500 },
+  // Felts (money-priced)
+  { id: 'felt_onyx', name: 'Çoha oniksi', type: 'tableFelt', cost: 600 },
+  { id: 'felt_aurora', name: 'Çoha aurore', type: 'tableFelt', cost: 700, featured: true },
 ];
 
 type Metric = 'gamesPlayed' | 'wins' | 'level' | 'currentStreak';

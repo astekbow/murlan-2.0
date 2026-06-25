@@ -114,7 +114,9 @@ export function VipView() {
                     ) : (
                       <p className="text-xs text-emerald-300">{t('vip.maxTier')}</p>
                     )}
-                    <p className="text-[11px] text-amber-300/90">{t('vip.rakebackSoon')}</p>
+                    {vip.tier.xpBoostBps > 0
+                      ? <p className="text-[11px] text-emerald-300">{t('vip.perkXp', { pct: Math.round(vip.tier.xpBoostBps / 100) })}</p>
+                      : <p className="text-[11px] text-muted/80">{t('vip.perkLocked')}</p>}
                   </>
                 ) : (
                   <p className="text-sm text-muted text-center py-6">{t('vip.statusNote')}</p>
@@ -133,12 +135,15 @@ export function VipView() {
                       <li key={t2.key} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border ${isMine ? 'border-gold bg-gold/[.10]' : 'border-white/10 bg-white/[.03]'}`}>
                         <Badge tier={t2} size="sm" />
                         {isMine && <span className="tag tag-open text-[11px]">{t('vip.you')}</span>}
-                        <span className="text-xs text-muted ml-auto">{t('vip.from')} {dollars(t2.minStakedCents)}</span>
+                        <span className="text-xs text-muted ml-auto flex items-center gap-2">
+                          {t2.xpBoostBps > 0 && <b className="text-emerald-300">+{Math.round(t2.xpBoostBps / 100)}% XP</b>}
+                          <span>{t('vip.from')} {dollars(t2.minStakedCents)}</span>
+                        </span>
                       </li>
                     );
                   })}
                 </ul>
-                <p className="text-[11px] text-muted/70 mt-2">{t('vip.rakebackNote')}</p>
+                <p className="text-[11px] text-muted/70 mt-2">{t('vip.perksNote')}</p>
               </div>
             </div>
           </div>
@@ -212,7 +217,7 @@ export function VipView() {
               })}
             </ul>
             <p className="text-[11px] text-muted/70 mt-3">{t('vip.statusNote')}</p>
-            <p className="text-[11px] text-muted/70 mt-1">{t('vip.rakebackNote')}</p>
+            <p className="text-[11px] text-muted/70 mt-1">{t('vip.perksNote')}</p>
           </section>
         </>
       )}
