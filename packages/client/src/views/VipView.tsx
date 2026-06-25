@@ -80,6 +80,7 @@ export function VipView() {
   // (they climbed since their last visit), fire confetti + a sound. localStorage-backed
   // so it fires once per actual climb, never on a first visit.
   const [celebrate, setCelebrate] = useState(false);
+  const [vipTab, setVipTab] = useState<'status' | 'tiers'>('status'); // portrait tabs → no scroll
   useEffect(() => {
     if (status !== 'ready' || !vip || tiers.length === 0) return;
     const rank = tiers.findIndex((x) => x.key === vip.tier.key);
@@ -202,7 +203,12 @@ export function VipView() {
         </div>
       ) : (
         <>
-          {vip && (
+          {/* Tabs so each part fits the screen without scroll. */}
+          <div className="seg grid grid-cols-2" role="tablist" aria-label="VIP">
+            <button type="button" role="tab" aria-selected={vipTab === 'status'} onClick={() => setVipTab('status')} className={`seg-tab text-center ${vipTab === 'status' ? 'active' : ''}`}>{t('vip.tabStatus')}</button>
+            <button type="button" role="tab" aria-selected={vipTab === 'tiers'} onClick={() => setVipTab('tiers')} className={`seg-tab text-center ${vipTab === 'tiers' ? 'active' : ''}`}>{t('vip.tiersTitle')}</button>
+          </div>
+          {vipTab === 'status' && vip && (
             <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.05s' }}>
               <div className="flex items-center justify-between gap-3">
                 <Badge tier={vip.tier} />
@@ -226,6 +232,7 @@ export function VipView() {
             </section>
           )}
 
+          {vipTab === 'tiers' && (
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.1s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('vip.tiersTitle')}</h2>
@@ -245,6 +252,7 @@ export function VipView() {
             <p className="text-[11px] text-muted/70 mt-3">{t('vip.statusNote')}</p>
             <p className="text-[11px] text-muted/70 mt-1">{t('vip.perksNote')}</p>
           </section>
+          )}
         </>
       )}
     </div>

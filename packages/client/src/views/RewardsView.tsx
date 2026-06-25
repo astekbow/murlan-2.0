@@ -25,6 +25,7 @@ export function RewardsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [rewardsTab, setRewardsTab] = useState<'daily' | 'quests' | 'challenges'>('daily'); // portrait tabs → no scroll
 
   const load = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
@@ -307,8 +308,16 @@ export function RewardsView() {
         </section>
       ) : (
         <>
+          {/* Tabs so each part fits the screen without scroll. */}
+          <div className="seg grid grid-cols-3" role="tablist" aria-label={t('rewards.title')}>
+            {(['daily', 'quests', 'challenges'] as const).map((tab) => (
+              <button key={tab} type="button" role="tab" aria-selected={rewardsTab === tab} onClick={() => setRewardsTab(tab)} className={`seg-tab text-center ${rewardsTab === tab ? 'active' : ''}`}>
+                {t(`rewards.tab.${tab}`)}
+              </button>
+            ))}
+          </div>
           {/* Daily reward */}
-          <section className="panel-solid p-6 animate-rise" style={{ animationDelay: '.08s' }}>
+          <section className={`panel-solid p-6 animate-rise ${rewardsTab === 'daily' ? '' : 'hidden'}`} style={{ animationDelay: '.08s' }}>
             <div className="flex items-center justify-between gap-4 mb-4">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.dailyTitle')}</h2>
               <span className="tag tag-open">🔥 {t('rewards.streakDays', { n: status.daily.streak })}</span>
@@ -343,7 +352,7 @@ export function RewardsView() {
 
           {/* Level-up reward — shown only when one is pending (reached but uncollected) */}
           {status.levelReward && (
-            <section className="panel-solid p-5 animate-rise border border-gold/30" style={{ animationDelay: '.1s' }}>
+            <section className={`panel-solid p-5 animate-rise border border-gold/30 ${rewardsTab === 'daily' ? '' : 'hidden'}`} style={{ animationDelay: '.1s' }}>
               <div className="flex items-center gap-4">
                 <span className="text-4xl leading-none" aria-hidden>🏆</span>
                 <div className="min-w-0 flex-1">
@@ -361,7 +370,7 @@ export function RewardsView() {
           )}
 
           {/* Daily quests (rotate every UTC day) */}
-          <section className="panel p-5 animate-rise" style={{ animationDelay: '.11s' }}>
+          <section className={`panel p-5 animate-rise ${rewardsTab === 'quests' ? '' : 'hidden'}`} style={{ animationDelay: '.11s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.dailyQuests')}</h2>
               <span className="text-xs text-muted">{t('rewards.dailyQuestsHint')}</span>
@@ -378,7 +387,7 @@ export function RewardsView() {
           </section>
 
           {/* Weekly quests (rotate every ISO week) */}
-          <section className="panel p-5 animate-rise" style={{ animationDelay: '.115s' }}>
+          <section className={`panel p-5 animate-rise ${rewardsTab === 'quests' ? '' : 'hidden'}`} style={{ animationDelay: '.115s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.weeklyQuests')}</h2>
               <span className="text-xs text-muted">{t('rewards.weeklyQuestsHint')}</span>
@@ -395,7 +404,7 @@ export function RewardsView() {
           </section>
 
           {/* Challenges */}
-          <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
+          <section className={`panel p-5 animate-rise ${rewardsTab === 'challenges' ? '' : 'hidden'}`} style={{ animationDelay: '.12s' }}>
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.challenges')}</h2>
               {claimableCount > 1 ? (
@@ -430,7 +439,7 @@ export function RewardsView() {
 
           {/* Achievements / badges ("Arritjet") */}
           {status.achievements.length > 0 && (
-            <section className="panel p-5 animate-rise" style={{ animationDelay: '.16s' }}>
+            <section className={`panel p-5 animate-rise ${rewardsTab === 'challenges' ? '' : 'hidden'}`} style={{ animationDelay: '.16s' }}>
               <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                 <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('rewards.achievements')}</h2>
                 <span className="text-xs text-muted">

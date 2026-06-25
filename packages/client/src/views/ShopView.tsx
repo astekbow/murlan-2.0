@@ -62,6 +62,7 @@ export function ShopView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ tableFelt?: string; cardBack?: string }>({});
+  const [shopCat, setShopCat] = useState<CosmeticType>('cardBack'); // portrait: one category at a time → no scroll
   const [priceSort, setPriceSort] = useState<'default' | 'asc' | 'desc'>('default');
   // The previewed cosmetics fall back to whatever is currently equipped.
   const previewFelt = preview.tableFelt ?? status?.equipped.tableFelt ?? '';
@@ -280,17 +281,25 @@ export function ShopView() {
             </div>
             <p className="text-center text-xs text-muted mt-2">{t('shop.previewHint')}</p>
           </section>
-          {/* Sort-by-price toggle (cycles default → cheapest → priciest). */}
-          <div className="flex justify-end -mt-1">
+          {/* Category tabs (one list at a time → fits the screen) + sort toggle. */}
+          <div className="flex items-center gap-2">
+            <div className="seg grid grid-cols-2 flex-1" role="tablist" aria-label={t('shop.title')}>
+              {GROUPS.map((g) => (
+                <button key={g.type} type="button" role="tab" aria-selected={shopCat === g.type} onClick={() => setShopCat(g.type)} className={`seg-tab text-center ${shopCat === g.type ? 'active' : ''}`}>
+                  <span className="mr-1" aria-hidden>{g.icon}</span>{g.title}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setPriceSort((s) => (s === 'default' ? 'asc' : s === 'asc' ? 'desc' : 'default'))}
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm shrink-0"
+              title={t('shop.sortPrice')}
             >
-              {t('shop.sortPrice')} {priceSort === 'asc' ? '↑' : priceSort === 'desc' ? '↓' : '—'}
+              {priceSort === 'asc' ? '↑' : priceSort === 'desc' ? '↓' : '⇅'}
             </button>
           </div>
-          <div className="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
-          {GROUPS.map((group, gi) => {
+          <div>
+          {GROUPS.filter((g) => g.type === shopCat).map((group, gi) => {
           const base = status.shop.filter((it) => it.type === group.type);
           const items = priceSort === 'default' ? base : [...base].sort((a, b) => priceSort === 'asc' ? sortKey(a) - sortKey(b) : sortKey(b) - sortKey(a));
           if (items.length === 0) return null;
