@@ -399,8 +399,9 @@ export class GameGateway {
     // Leaderboard live view: join/leave the shared channel while the page is open
     // (idempotent; auto-cleaned on disconnect by Socket.IO). A finished match then
     // pushes a 'leaderboard:refresh' here for live rank movement.
-    socket.on('leaderboard:watch', () => void socket.join(LEADERBOARD_ROOM));
-    socket.on('leaderboard:unwatch', () => void socket.leave(LEADERBOARD_ROOM));
+    // Rate-gate the watch/unwatch toggle so a tight join/leave loop can't thrash socket.io rooms.
+    socket.on('leaderboard:watch', () => { if (this.limiter.allow(socket.data.userId)) void socket.join(LEADERBOARD_ROOM); });
+    socket.on('leaderboard:unwatch', () => { if (this.limiter.allow(socket.data.userId)) void socket.leave(LEADERBOARD_ROOM); });
     socket.on('fair:clientSeed', (seed) => {
       if (!this.limiter.allow(socket.data.userId)) return;
       if (typeof seed === 'string' && seed.length > 0 && seed.length <= 128) {

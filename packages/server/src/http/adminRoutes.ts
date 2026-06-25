@@ -132,7 +132,12 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     // account data → manage_accounts. Was bare `admin`, so any scoped sub-admin could read both.
     const guard = id === '__house__' ? canRevenue : canAccounts;
     if (!(await guard(req, reply))) return;
-    return reply.send({ transactions: await wallet.listTransactions(id) });
+    // Bounded keyset page (≤500) instead of loading the WHOLE ledger — the __house__ rake ledger
+    // grows without bound, so listTransactions(id) was an OOM/stall risk. `cursor` pages older rows.
+    const { take, cursor } = req.query as { take?: string; cursor?: string };
+    const transactions = await wallet.listTransactionsPage(id, { take: Number(take) || 200, cursor: cursor ?? null });
+    const nextCursor = transactions.length > 0 ? transactions[transactions.length - 1]!.id : null;
+    return reply.send({ transactions, nextCursor });
   });
 
   app.get('/api/admin/matches', async (req, reply) => {
