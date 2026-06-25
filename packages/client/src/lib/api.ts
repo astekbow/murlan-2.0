@@ -208,6 +208,21 @@ export const lobbyApi = {
 
 export interface UserSearchResult { id: string; username: string; avatar: string | null; level: number }
 
+export interface DirectMessageDTO {
+  id: string;
+  fromUserId: string;
+  fromUsername: string;
+  toUserId: string;
+  text: string;
+  createdAt: number;
+}
+
+export const dmApi = {
+  conversation: (token: string, userId: string) => request<{ messages: DirectMessageDTO[] }>(`/dm/${encodeURIComponent(userId)}`, { token }),
+  send: (token: string, userId: string, text: string) => request<{ message: DirectMessageDTO }>(`/dm/${encodeURIComponent(userId)}`, { method: 'POST', token, body: { text } }),
+  unread: (token: string) => request<{ unread: Record<string, number> }>('/dm/unread', { token }),
+};
+
 export interface FriendFeedEntry {
   userId: string;
   username: string;

@@ -435,6 +435,22 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+// Direct messages (friends-only 1:1). fromUsername denormalized for join-free rendering;
+// readAt (null = unread) drives per-friend unread badges. No FK relations (app gates by friendship).
+model DirectMessage {
+  id           String    @id @default(cuid())
+  fromUserId   String
+  fromUsername String
+  toUserId     String
+  text         String
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([fromUserId, toUserId, createdAt])
+  @@index([toUserId, readAt])
+  @@map("direct_messages")
+}
+
 model ChatReport {
   id         String   @id @default(cuid())
   messageId  String

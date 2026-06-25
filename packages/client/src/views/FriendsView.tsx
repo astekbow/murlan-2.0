@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry, type UserSearchResult, type FriendFeedEntry } from '../lib/api.ts';
+import { friendsApi, walletApi, clubsApi, dmApi, ApiError, type FriendEntry, type UserSearchResult, type FriendFeedEntry, type DirectMessageDTO } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -46,6 +46,11 @@ export function FriendsView() {
 
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [feed, setFeed] = useState<FriendFeedEntry[]>([]); // friends' recent activity (wins)
+  const [unread, setUnread] = useState<Record<string, number>>({}); // DM unread counts by friend id
+  const [dmWith, setDmWith] = useState<FriendEntry | null>(null);    // open DM conversation
+  const [dmMessages, setDmMessages] = useState<DirectMessageDTO[]>([]);
+  const [dmText, setDmText] = useState('');
+  const [dmBusy, setDmBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
@@ -111,9 +116,11 @@ export function FriendsView() {
     try {
       const { friends } = await friendsApi.list(token);
       setFriends(friends);
-      // Friends' recent activity (best-effort — never blocks the friends list).
+      // Friends' recent activity + DM unread counts (best-effort — never block the friends list).
       const f = await friendsApi.feed(token).catch(() => ({ feed: [] as FriendFeedEntry[] }));
       setFeed(f.feed);
+      const u = await dmApi.unread(token).catch(() => ({ unread: {} as Record<string, number> }));
+      setUnread(u.unread);
     } catch (e) {
       useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errLoad'), toastKind: 'error' });
     } finally {
@@ -136,6 +143,46 @@ export function FriendsView() {
   useEffect(() => {
     if (socialRev > 0 && !actingRef.current) void load();
   }, [socialRev, load]);
+
+  // ---- Direct messages ----
+  const loadConversation = useCallback(async (friend: FriendEntry) => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    try {
+      const { messages } = await dmApi.conversation(token, friend.user.id);
+      setDmMessages(messages);
+      setUnread((u) => { const n = { ...u }; delete n[friend.user.id]; return n; }); // opening clears the badge
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errLoad'), toastKind: 'error' });
+    }
+  }, [t]);
+
+  const openDm = useCallback((friend: FriendEntry) => { setDmWith(friend); setDmText(''); setDmMessages([]); void loadConversation(friend); }, [loadConversation]);
+
+  const sendDm = useCallback(async () => {
+    const token = useAuthStore.getState().accessToken;
+    const text = dmText.trim();
+    if (!token || !dmWith || !text || dmBusy) return;
+    setDmBusy(true);
+    try {
+      const { message } = await dmApi.send(token, dmWith.user.id, text);
+      setDmMessages((m) => [...m, message]);
+      setDmText('');
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.dmSend'), toastKind: 'error' });
+    } finally {
+      setDmBusy(false);
+    }
+  }, [dmText, dmWith, dmBusy, t]);
+
+  // A new DM arrived over the socket → refresh the open thread + unread badges.
+  const dmRev = useGameStore((s) => s.dmRev);
+  useEffect(() => {
+    if (dmRev === 0) return;
+    if (dmWith) void loadConversation(dmWith);
+    const token = useAuthStore.getState().accessToken;
+    if (token) void dmApi.unread(token).then((u) => setUnread(u.unread)).catch(() => undefined);
+  }, [dmRev, dmWith, loadConversation]);
 
   // Run one mutating friend action at a time (guard + busy flag), then refresh.
   const act = useCallback(async (fn: () => Promise<void>, errKey: string) => {
@@ -306,6 +353,35 @@ export function FriendsView() {
     </div>
   );
 
+  // DM conversation modal (shared by both layouts). Distinguishes my bubbles (right, gold) from
+  // the friend's (left). A new dm:new socket event reloads it via the dmRev effect above.
+  const dmModal = dmWith && (
+    <div className="modal-backdrop" onClick={() => setDmWith(null)} role="dialog" aria-modal="true" aria-label={t('friends.dmTitle', { name: dmWith.user.username })}>
+      <div className="panel-solid w-full max-w-sm p-4 animate-pop flex flex-col" style={{ maxHeight: '80dvh' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2 gap-2">
+          <h3 className="font-display font-semibold tracking-wide text-gold-hi text-base truncate">{t('friends.dmTitle', { name: dmWith.user.username })}</h3>
+          <button className="iconbtn shrink-0" onClick={() => setDmWith(null)} aria-label={t('common.close')}>✕</button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 mb-2 pr-1">
+          {dmMessages.length === 0 ? (
+            <p className="text-sm text-muted text-center py-8">{t('friends.dmEmpty')}</p>
+          ) : dmMessages.map((m) => {
+            const mine = m.fromUserId !== dmWith.user.id;
+            return (
+              <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                <span className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-sm break-words ${mine ? 'bg-gold/20 text-txt' : 'bg-white/10 text-txt'}`}>{m.text}</span>
+              </div>
+            );
+          })}
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); void sendDm(); }} className="flex gap-2">
+          <input className="field flex-1" value={dmText} onChange={(e) => setDmText(e.target.value)} placeholder={t('friends.dmPlaceholder')} maxLength={500} autoFocus />
+          <button type="submit" disabled={dmBusy || !dmText.trim()} className="btn btn-gold shrink-0">{t('friends.dmSend')}</button>
+        </form>
+      </div>
+    </div>
+  );
+
   // ---- Landscape "console": LEFT = add-friend + requests + friends list (tap to select);
   // RIGHT = the selected friend's actions. Portaled to <body> to escape the ViewTransition transform.
   if (landscape) {
@@ -314,6 +390,7 @@ export function FriendsView() {
       <div className="pg-ls">
         {dialog}
         {sendMoneyModal}
+        {dmModal}
         <div className="pg-ls-top">
           <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
           <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('friends.title')}</h1>
@@ -399,6 +476,7 @@ export function FriendsView() {
                   {!inRoom && selected.online && (
                     <button onClick={() => void duel(selected)} disabled={acting} className="btn btn-gold">⚔️ {t('friends.duel')}</button>
                   )}
+                  <button onClick={() => openDm(selected)} className="btn btn-ghost relative">💬 {t('friends.message')}{unread[selected.user.id] ? <span className="absolute -top-1 -right-1 bg-suit text-white text-[10px] rounded-full px-1.5 leading-tight">{unread[selected.user.id]}</span> : null}</button>
                   <button onClick={() => { setSendTo(selected); setAmount(''); }} disabled={acting} className="btn btn-ghost">💸 {t('friends.sendMoney')}</button>
                   <button onClick={() => { void remove(selected.id); setSelectedId(null); }} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
                   <button onClick={() => { void block(selected.user.id); setSelectedId(null); }} disabled={acting} className="btn btn-ghost">{t('friends.block')}</button>
@@ -419,6 +497,7 @@ export function FriendsView() {
         {t('common.backToLobby')}
       </button>
       {dialog}
+      {dmModal}
 
       {/* Send-money-to-a-friend modal */}
       {sendTo && (
@@ -548,6 +627,7 @@ export function FriendsView() {
                         🛡️ {t('clubs.inviteToClub')}
                       </button>
                     )}
+                    <button onClick={() => openDm(f)} className="btn btn-ghost relative" title={t('friends.message')}>💬 {t('friends.message')}{unread[f.user.id] ? <span className="absolute -top-1 -right-1 bg-suit text-white text-[10px] rounded-full px-1.5 leading-tight">{unread[f.user.id]}</span> : null}</button>
                     <button onClick={() => { setSendTo(f); setAmount(''); }} disabled={acting} className="btn btn-ghost" title={t('friends.sendMoney')}>💸 {t('friends.sendMoney')}</button>
                     <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
                     <button onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>

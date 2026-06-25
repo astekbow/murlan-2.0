@@ -35,6 +35,7 @@ import type { SuspicionRepository, SuspicionFlag, NewSuspicionFlag } from '../an
 import type { PushSubscriptionRepository, PushSubscriptionRecord } from '../push/pushRepository.ts';
 import type { WebPushSubscription } from '../push/pushProvider.ts';
 import type { ChatRepository, ChatMessageRecord, ChatReportRecord } from '../chat/chatRepository.ts';
+import type { DmRepository, DirectMessageRecord } from '../social/dmRepository.ts';
 import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError, genClubCode } from '../social/clubRepository.ts';
 import type { TournamentRepository, Tournament, BracketMatch } from '../tournament/tournamentService.ts';
 import type { Card } from '@murlan/engine';
@@ -1011,6 +1012,33 @@ export class PrismaChat implements ChatRepository {
   }
 }
 
+function toDm(row: any): DirectMessageRecord {
+  return { id: row.id, fromUserId: row.fromUserId, fromUsername: row.fromUsername, toUserId: row.toUserId, text: row.text, createdAt: ms(row.createdAt), readAt: msOrNull(row.readAt) };
+}
+
+export class PrismaDms implements DmRepository {
+  constructor(private readonly db: PrismaClient) {}
+  async add(m: { fromUserId: string; fromUsername: string; toUserId: string; text: string }): Promise<DirectMessageRecord> {
+    return toDm(await this.db.directMessage.create({ data: m }));
+  }
+  async conversation(a: string, b: string, limit: number): Promise<DirectMessageRecord[]> {
+    const rows = await this.db.directMessage.findMany({
+      where: { OR: [{ fromUserId: a, toUserId: b }, { fromUserId: b, toUserId: a }] },
+      orderBy: { createdAt: 'desc' }, take: Math.max(0, limit),
+    });
+    return rows.reverse().map(toDm); // oldest→newest
+  }
+  async markRead(toUserId: string, fromUserId: string, now: number): Promise<void> {
+    await this.db.directMessage.updateMany({ where: { toUserId, fromUserId, readAt: null }, data: { readAt: new Date(now) } });
+  }
+  async unreadByFrom(toUserId: string): Promise<Record<string, number>> {
+    const groups = await this.db.directMessage.groupBy({ by: ['fromUserId'], where: { toUserId, readAt: null }, _count: { _all: true } });
+    const out: Record<string, number> = {};
+    for (const g of groups as Array<{ fromUserId: string; _count: { _all: number } }>) out[g.fromUserId] = g._count._all;
+    return out;
+  }
+}
+
 function toClub(row: any): Club {
   return { id: row.id, name: row.name, tag: row.tag, founderId: row.founderId, createdAt: ms(row.createdAt), private: !!row.private, joinCode: row.joinCode ?? null };
 }
@@ -1144,6 +1172,7 @@ export interface PrismaStores {
   suspicion: PrismaSuspicion;
   pushSubscriptions: PrismaPushSubscriptions;
   chat: PrismaChat;
+  dms: PrismaDms;
   clubs: PrismaClubs;
   tournaments: PrismaTournaments;
   verificationTokens: PrismaVerificationTokens;
@@ -1210,6 +1239,7 @@ export function createPrismaStores(db: PrismaClient): PrismaStores {
     suspicion: new PrismaSuspicion(db),
     pushSubscriptions: new PrismaPushSubscriptions(db),
     chat: new PrismaChat(db),
+    dms: new PrismaDms(db),
     clubs: new PrismaClubs(db),
     tournaments: new PrismaTournaments(db),
     verificationTokens: new PrismaVerificationTokens(db),

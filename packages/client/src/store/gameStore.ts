@@ -87,6 +87,7 @@ interface GameStore {
   connected: boolean;
   myUserId: string | null;
   socialRev: number; // bumps on a friend:request / social:refresh → the Friends page reloads
+  dmRev: number;     // bumps on dm:new → an open DM thread / unread badges reload
   rewardRev: number; // bumps on reward:refresh (a finished match changed my stats) → Challenges reloads
   lbRev: number;     // bumps on leaderboard:refresh (any finished match) → an open Leaderboard reloads
 
@@ -234,6 +235,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   connected: false,
   myUserId: null,
   socialRev: 0,
+  dmRev: 0,
   rewardRev: 0,
   lbRev: 0,
   lobby: [],
@@ -468,6 +470,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
     // A friends-list change concerning me (my request was answered / I was unfriended).
     socket.on('social:refresh', () => set((s) => ({ socialRev: s.socialRev + 1 })));
+    socket.on('dm:new', (dto) => {
+      set((s) => ({ dmRev: s.dmRev + 1 })); // refresh an open DM thread + unread badges
+      useNotifications.getState().push(tg('notifs.dmFrom', { name: dto.fromUsername }), 'info', { view: 'friends' });
+    });
     // A finished match changed my stats → refresh an open Challenges/Rewards page.
     socket.on('reward:refresh', () => set((s) => ({ rewardRev: s.rewardRev + 1 })));
     // A finished match (anyone's) may have moved ranks → refresh an open Leaderboard.

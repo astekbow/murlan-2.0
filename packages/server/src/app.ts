@@ -66,6 +66,8 @@ import { InMemoryFriends, type FriendsRepository } from './social/friendsReposit
 import { ProfileService } from './profile/profileService.ts';
 import { FriendsService } from './social/friendsService.ts';
 import { FeedService } from './social/feedService.ts';
+import { InMemoryDms, type DmRepository } from './social/dmRepository.ts';
+import { DmService } from './social/dmService.ts';
 import { Presence } from './realtime/presence.ts';
 import { socialRoutes } from './http/socialRoutes.ts';
 import { RewardsService } from './rewards/rewardsService.ts';
@@ -123,6 +125,7 @@ export interface HttpDeps {
   ranked?: RankedService;
   friends?: FriendsService;
   feed?: FeedService;
+  dms?: DmService;
   rewards?: RewardsService;
   adminAudit?: AdminAuditRepository;
   games?: GamesRepository;
@@ -271,7 +274,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push, wallet: deps.wallet, withdrawals: deps.withdrawals });
 
   if (deps.profiles && deps.friends) {
-    await socialRoutes(app, { auth: deps.auth, profiles: deps.profiles, friends: deps.friends, feed: deps.feed });
+    await socialRoutes(app, { auth: deps.auth, profiles: deps.profiles, friends: deps.friends, feed: deps.feed, dms: deps.dms });
   }
   if (deps.rewards) {
     await rewardsRoutes(app, { auth: deps.auth, rewards: deps.rewards, compliance: deps.compliance, rg: deps.rg });
@@ -438,6 +441,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   let suspicionRepo: SuspicionRepository;
   let pushSubsRepo: PushSubscriptionRepository;
   let chatRepo: ChatRepository;
+  let dmsRepo: DmRepository;
   let clubsRepo: ClubRepository;
   let tournamentsRepo: TournamentRepository;
   let seasonsRepo: SeasonRepository;
@@ -479,6 +483,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     suspicionRepo = stores.suspicion;
     pushSubsRepo = stores.pushSubscriptions;
     chatRepo = stores.chat;
+    dmsRepo = stores.dms;
     clubsRepo = stores.clubs;
     tournamentsRepo = stores.tournaments;
     seasonsRepo = stores.seasons;
@@ -510,6 +515,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     suspicionRepo = new InMemorySuspicion();
     pushSubsRepo = new InMemoryPushSubscriptions();
     chatRepo = new InMemoryChatRepository();
+    dmsRepo = new InMemoryDms();
     clubsRepo = new InMemoryClubRepository();
     tournamentsRepo = new InMemoryTournamentRepository();
     seasonsRepo = new InMemorySeasonRepository();
@@ -665,6 +671,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     const room = rooms.roomOf(uid);
     return !room ? 'lobby' : room.status === 'inMatch' ? 'match' : 'room';
   });
+  const dms = new DmService(dmsRepo, friends, repo);
 
   const wallet = new WalletService(repo, ledger, uow);
   // ProfileService takes the wallet (read-only) so a profile can show its VIP-tier ring.
@@ -925,7 +932,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     });
   }
 
-  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, feed, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
+  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, feed, dms, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -975,6 +982,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     clubs,
     presence,
     feed,
+    dms,
     games: gamesRepo,
     matchLog: matchLogRepo,
     push,

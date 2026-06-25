@@ -9,6 +9,7 @@ import type { ProfileService } from '../profile/profileService.ts';
 import { AVATARS } from '../profile/profileService.ts';
 import { FriendsService, FriendsError } from '../social/friendsService.ts';
 import type { FeedService } from '../social/feedService.ts';
+import type { DmService } from '../social/dmService.ts';
 import { requireAuth } from './authRoutes.ts';
 
 export interface SocialRoutesDeps {
@@ -16,6 +17,7 @@ export interface SocialRoutesDeps {
   profiles: ProfileService;
   friends: FriendsService;
   feed?: FeedService; // friend activity feed (optional — empty feed if absent)
+  dms?: DmService;    // direct messages between friends (optional)
 }
 
 export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps): Promise<void> {
@@ -91,6 +93,38 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
     const entries = await friends.list(caller.userId).catch(() => []);
     const friendIds = new Set(entries.filter((e) => e.direction === 'friends').map((e) => e.user.id));
     return reply.send({ feed: deps.feed.forFriends(friendIds) });
+  });
+
+  // ---- Direct messages (friends-only 1:1) ---------------------------------
+  // Per-friend unread counts (for badges).
+  app.get('/api/dm/unread', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!deps.dms) return reply.send({ unread: {} });
+    return reply.send({ unread: await deps.dms.unread(caller.userId) });
+  });
+
+  // The conversation with a friend (opening it marks the caller's side read).
+  app.get('/api/dm/:userId', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!deps.dms) return reply.send({ messages: [] });
+    const { userId } = req.params as { userId: string };
+    const messages = await deps.dms.conversation(caller.userId, userId, Date.now());
+    if (messages === null) return reply.code(403).send({ error: { code: 'not_friends', message: 'S’jeni miq.' } });
+    return reply.send({ messages });
+  });
+
+  // Send a DM to a friend.
+  app.post('/api/dm/:userId', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!deps.dms) return reply.code(409).send({ error: { code: 'disabled', message: 'Mesazhet s’janë aktive.' } });
+    const { userId } = req.params as { userId: string };
+    const { text } = (req.body ?? {}) as { text?: string };
+    const dto = await deps.dms.send(caller.userId, userId, String(text ?? ''));
+    if (!dto) return reply.code(400).send({ error: { code: 'send_failed', message: 'Mesazhi s’u dërgua dot (duhet të jeni miq).' } });
+    return reply.send({ message: dto });
   });
 
   app.post('/api/friends/request', async (req, reply) => {

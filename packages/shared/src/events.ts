@@ -150,6 +150,7 @@ export interface ServerToClientEvents {
   'tournament:matchReady': (dto: { roomId: string; tournamentId: string }) => void;
   'friend:request': (dto: { fromUsername: string }) => void; // someone sent you a friend request
   'social:refresh': () => void; // your friends list changed (answered/unfriended) — reload it
+  'dm:new': (dto: { id: string; fromUserId: string; fromUsername: string; toUserId: string; text: string; createdAt: number }) => void; // a direct message arrived
   'club:chat': (dto: ChatMessageDTO) => void; // a new message in your club channel
   // A finished match updated YOUR stats (XP/wins/streak) → reload your open
   // Challenges/Rewards page so progress + claimable rewards stay live.

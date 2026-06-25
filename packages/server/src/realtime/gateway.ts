@@ -39,6 +39,7 @@ import type { FriendsService } from '../social/friendsService.ts';
 import type { ClubService } from '../social/clubService.ts';
 import type { Presence } from './presence.ts';
 import type { FeedService } from '../social/feedService.ts';
+import type { DmService } from '../social/dmService.ts';
 import type { RankedService } from '../ranked/rankedService.ts';
 import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
 import type { PushService } from '../push/pushService.ts';
@@ -70,6 +71,7 @@ export interface GatewayOptions {
   clubs?: ClubService;       // resolves the inviter's club for club invites (social only)
   presence?: Presence;       // tracks who is online (shared with the friends routes)
   feed?: FeedService;        // records real-money wins for the friend activity feed (social only)
+  dms?: DmService;           // direct messages: wires the real-time 'dm:new' push to the recipient
   games?: GamesRepository;   // persists provably-fair seeds per game (durable audit)
   matchLog?: MatchActionsRepository; // persists the move-log for replay/dispute (isolated; never blocks play)
   matchmaking?: MatchmakingService;  // ranked skill-matched queue (requires `ranked` to rate the result)
@@ -246,6 +248,10 @@ export class GameGateway {
     // Friends page reloads instantly instead of waiting up to 8s for the next poll.
     this.friends?.setSocialNotifier((userId) => {
       this.io.to(personalRoom(userId)).emit('social:refresh');
+    });
+    // Real-time DM delivery: push a new direct message to the recipient's personal room.
+    opts.dms?.setNotifier((toUserId, dto) => {
+      this.io.to(personalRoom(toUserId)).emit('dm:new', dto);
     });
     this.clubs = opts.clubs ?? null;
     this.presence = opts.presence ?? null;
