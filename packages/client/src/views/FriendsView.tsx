@@ -236,6 +236,14 @@ export function FriendsView() {
     </div>
   ) : null;
 
+  // Duel: challenge a friend to a private FREE 1v1 — create the room (which seats me + navigates
+  // to the waiting room) then fire the existing room invite to them. Online friends only.
+  const duel = async (friend: FriendEntry) => {
+    const gs = useGameStore.getState();
+    const roomId = await gs.createRoom('1v1', 0, undefined, true);
+    if (roomId) await gs.inviteFriend(friend.user.id);
+  };
+
   // Shared send-money modal (also rendered inside the landscape portal so it overlays the console).
   const sendMoneyModal = sendTo && (
     <div className="modal-backdrop" onClick={() => { if (!sending) setSendTo(null); }} role="dialog" aria-modal="true" aria-label={t('friends.sendMoney')}>
@@ -371,6 +379,9 @@ export function FriendsView() {
                 <div className="grid grid-cols-2 gap-2">
                   {inRoom && (
                     <button onClick={() => void useGameStore.getState().inviteFriend(selected.user.id)} disabled={acting} className="btn btn-gold">{t('friends.invite')}</button>
+                  )}
+                  {!inRoom && selected.online && (
+                    <button onClick={() => void duel(selected)} disabled={acting} className="btn btn-gold">⚔️ {t('friends.duel')}</button>
                   )}
                   <button onClick={() => { setSendTo(selected); setAmount(''); }} disabled={acting} className="btn btn-ghost">💸 {t('friends.sendMoney')}</button>
                   <button onClick={() => { void remove(selected.id); setSelectedId(null); }} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
@@ -509,6 +520,11 @@ export function FriendsView() {
                     {inRoom && (
                       <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} disabled={acting} className="btn btn-gold">
                         {t('friends.invite')}
+                      </button>
+                    )}
+                    {!inRoom && f.online && (
+                      <button onClick={() => void duel(f)} disabled={acting} className="btn btn-gold" title={t('friends.duelHint')}>
+                        ⚔️ {t('friends.duel')}
                       </button>
                     )}
                     {inClub && (

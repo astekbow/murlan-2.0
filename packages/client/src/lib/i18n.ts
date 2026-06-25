@@ -426,6 +426,8 @@ const STRINGS: Record<string, Entry> = {
   'friends.social': { sq: 'SOCIALE', en: 'SOCIAL' },
   'friends.feedTitle': { sq: 'Aktiviteti i miqve', en: "Friends' activity" },
   'friends.feedWin': { sq: '{name} fitoi {amount}', en: '{name} won {amount}' },
+  'friends.duel': { sq: 'Sfido 1v1', en: 'Challenge 1v1' },
+  'friends.duelHint': { sq: 'Hap një 1v1 privat falas dhe e fton mikun', en: 'Opens a free private 1v1 and invites your friend' },
   'friends.title': { sq: 'MIQTË', en: 'FRIENDS' },
   'friends.addFriend': { sq: 'SHTO MIK', en: 'ADD FRIEND' },
   'friends.username': { sq: 'Përdoruesi', en: 'Username' },
