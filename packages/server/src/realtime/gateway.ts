@@ -38,6 +38,7 @@ import type { ProfileService } from '../profile/profileService.ts';
 import type { FriendsService } from '../social/friendsService.ts';
 import type { ClubService } from '../social/clubService.ts';
 import type { Presence } from './presence.ts';
+import type { FeedService } from '../social/feedService.ts';
 import type { RankedService } from '../ranked/rankedService.ts';
 import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
 import type { PushService } from '../push/pushService.ts';
@@ -68,6 +69,7 @@ export interface GatewayOptions {
   friends?: FriendsService;  // gates/handles friend room invites
   clubs?: ClubService;       // resolves the inviter's club for club invites (social only)
   presence?: Presence;       // tracks who is online (shared with the friends routes)
+  feed?: FeedService;        // records real-money wins for the friend activity feed (social only)
   games?: GamesRepository;   // persists provably-fair seeds per game (durable audit)
   matchLog?: MatchActionsRepository; // persists the move-log for replay/dispute (isolated; never blocks play)
   matchmaking?: MatchmakingService;  // ranked skill-matched queue (requires `ranked` to rate the result)
@@ -146,6 +148,7 @@ export class GameGateway {
   private readonly friends: FriendsService | null;
   private readonly clubs: ClubService | null;
   private readonly presence: Presence | null;
+  private readonly feed: FeedService | null;
   private readonly games: GamesRepository | null;
   private readonly matchLog: MatchActionsRepository | null;
   private readonly push: PushService | null;
@@ -246,6 +249,7 @@ export class GameGateway {
     });
     this.clubs = opts.clubs ?? null;
     this.presence = opts.presence ?? null;
+    this.feed = opts.feed ?? null;
     this.games = opts.games ?? null;
     this.matchLog = opts.matchLog ?? null;
     this.push = opts.push ?? null;
@@ -1804,14 +1808,17 @@ export class GameGateway {
       if (!payoutCents || payoutCents <= 0 || winnerSeats.length === 0) return; // no real payout to show
       const room = this.rooms.getRoom(roomId);
       if (!room || room.practice || room.stakeCents <= 0) return; // practice / free tables never tick
-      // Name the first human winner (a 2v2 side is represented by one row). A bot winner
-      // (ranked-vs-bot) is skipped — the ticker is for humans winning real money.
-      const winner = winnerSeats
+      // Human winners only (a bot winner in ranked-vs-bot is skipped).
+      const now = Date.now();
+      const humanWinners = winnerSeats
         .map((seat) => room.seats[seat])
-        .find((s) => s && s.userId && !isBot(s.userId));
-      if (!winner || !winner.username) return;
-      this.recentWinners.unshift({ username: winner.username, amountCents: payoutCents, at: Date.now() });
+        .filter((s): s is NonNullable<typeof s> => !!s && !!s.userId && !isBot(s.userId) && !!s.username);
+      if (humanWinners.length === 0) return;
+      // Lobby ticker: the FIRST human winner (a 2v2 side is one row).
+      this.recentWinners.unshift({ username: humanWinners[0]!.username!, amountCents: payoutCents, at: now });
       if (this.recentWinners.length > RECENT_WINNERS_MAX) this.recentWinners.length = RECENT_WINNERS_MAX;
+      // Friend activity feed: record EVERY human winner so each one's friends see it.
+      if (this.feed) for (const w of humanWinners) this.feed.recordWin(w.userId!, w.username!, payoutCents, now);
     } catch {
       // cosmetic only — never let a display bookkeeping error escape into settlement
     }

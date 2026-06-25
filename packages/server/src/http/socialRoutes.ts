@@ -8,12 +8,14 @@ import type { AuthService } from '../auth/authService.ts';
 import type { ProfileService } from '../profile/profileService.ts';
 import { AVATARS } from '../profile/profileService.ts';
 import { FriendsService, FriendsError } from '../social/friendsService.ts';
+import type { FeedService } from '../social/feedService.ts';
 import { requireAuth } from './authRoutes.ts';
 
 export interface SocialRoutesDeps {
   auth: AuthService;
   profiles: ProfileService;
   friends: FriendsService;
+  feed?: FeedService; // friend activity feed (optional — empty feed if absent)
 }
 
 export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps): Promise<void> {
@@ -79,6 +81,16 @@ export async function socialRoutes(app: FastifyInstance, deps: SocialRoutesDeps)
     const caller = await guard(req, reply);
     if (!caller) return;
     return { friends: await friends.list(caller.userId) };
+  });
+
+  // Friend activity feed: recent real-money wins by the caller's accepted friends.
+  app.get('/api/friends/feed', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    if (!deps.feed) return reply.send({ feed: [] });
+    const entries = await friends.list(caller.userId).catch(() => []);
+    const friendIds = new Set(entries.filter((e) => e.direction === 'friends').map((e) => e.user.id));
+    return reply.send({ feed: deps.feed.forFriends(friendIds) });
   });
 
   app.post('/api/friends/request', async (req, reply) => {

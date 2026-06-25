@@ -424,6 +424,8 @@ const STRINGS: Record<string, Entry> = {
   'friends.errBlock': { sq: 'S’u bllokua dot.', en: 'Blocking failed.' },
   'friends.errUnblock': { sq: 'S’u zhbllokua dot.', en: 'Unblocking failed.' },
   'friends.social': { sq: 'SOCIALE', en: 'SOCIAL' },
+  'friends.feedTitle': { sq: 'Aktiviteti i miqve', en: "Friends' activity" },
+  'friends.feedWin': { sq: '{name} fitoi {amount}', en: '{name} won {amount}' },
   'friends.title': { sq: 'MIQTË', en: 'FRIENDS' },
   'friends.addFriend': { sq: 'SHTO MIK', en: 'ADD FRIEND' },
   'friends.username': { sq: 'Përdoruesi', en: 'Username' },

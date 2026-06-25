@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry, type UserSearchResult } from '../lib/api.ts';
+import { friendsApi, walletApi, clubsApi, ApiError, type FriendEntry, type UserSearchResult, type FriendFeedEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -12,6 +12,15 @@ import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
 
+/** Compact, language-neutral relative time (s/m/h/d) for the activity feed. */
+function relTime(at: number): string {
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60); if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60); if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
 export function FriendsView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
@@ -20,6 +29,7 @@ export function FriendsView() {
   const [selectedId, setSelectedId] = useState<string | null>(null); // landscape master-detail
 
   const [friends, setFriends] = useState<FriendEntry[]>([]);
+  const [feed, setFeed] = useState<FriendFeedEntry[]>([]); // friends' recent activity (wins)
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
@@ -85,6 +95,9 @@ export function FriendsView() {
     try {
       const { friends } = await friendsApi.list(token);
       setFriends(friends);
+      // Friends' recent activity (best-effort — never blocks the friends list).
+      const f = await friendsApi.feed(token).catch(() => ({ feed: [] as FriendFeedEntry[] }));
+      setFeed(f.feed);
     } catch (e) {
       useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('friends.errLoad'), toastKind: 'error' });
     } finally {
@@ -207,6 +220,22 @@ export function FriendsView() {
   // Online friends first, then by name — used by both layouts' friends list.
   const acceptedSorted = [...accepted].sort((a, b) => (Number(b.online) - Number(a.online)) || a.user.username.localeCompare(b.user.username));
 
+  // Friend activity feed (recent real-money wins) — shared by both layouts.
+  const feedBlock = feed.length > 0 ? (
+    <div>
+      <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm mb-2">{t('friends.feedTitle')}</h2>
+      <ul className="space-y-1.5">
+        {feed.slice(0, 8).map((e, i) => (
+          <li key={`${e.userId}-${e.at}-${i}`} className="flex items-center gap-2 text-sm">
+            <span aria-hidden="true">🏆</span>
+            <span className="text-txt truncate flex-1 min-w-0">{t('friends.feedWin', { name: e.username, amount: dollars(e.amountCents) })}</span>
+            <span className="text-[11px] text-muted/60 shrink-0">{relTime(e.at)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
+
   // Shared send-money modal (also rendered inside the landscape portal so it overlays the console).
   const sendMoneyModal = sendTo && (
     <div className="modal-backdrop" onClick={() => { if (!sending) setSendTo(null); }} role="dialog" aria-modal="true" aria-label={t('friends.sendMoney')}>
@@ -319,10 +348,17 @@ export function FriendsView() {
           {/* RIGHT — selected friend's actions */}
           <div className="pg-ls-right pg-ls-scroll panel p-3">
             {!selected ? (
-              <div className="h-full flex flex-col items-center justify-center text-center text-muted">
-                <div className="text-3xl mb-2 opacity-60">👈</div>
-                <p className="text-sm">{t('friends.selectPrompt')}</p>
-              </div>
+              feedBlock ? (
+                <div className="space-y-3">
+                  {feedBlock}
+                  <p className="text-xs text-muted/70 text-center pt-1">{t('friends.selectPrompt')}</p>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center text-muted">
+                  <div className="text-3xl mb-2 opacity-60">👈</div>
+                  <p className="text-sm">{t('friends.selectPrompt')}</p>
+                </div>
+              )
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
@@ -393,6 +429,11 @@ export function FriendsView() {
         <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('friends.social')}</div>
         <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('friends.title')}</h1>
       </section>
+
+      {/* Friends' recent activity (wins) */}
+      {feedBlock && (
+        <section className="panel p-5 animate-rise" style={{ animationDelay: '.04s' }}>{feedBlock}</section>
+      )}
 
       {/* Add friend — search by username (debounced) or type a full name + Enter */}
       <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.08s' }}>

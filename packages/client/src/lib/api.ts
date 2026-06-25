@@ -207,8 +207,17 @@ export const lobbyApi = {
 
 export interface UserSearchResult { id: string; username: string; avatar: string | null; level: number }
 
+export interface FriendFeedEntry {
+  userId: string;
+  username: string;
+  kind: 'win';
+  amountCents: number;
+  at: number;
+}
+
 export const friendsApi = {
   list: (token: string) => request<{ friends: FriendEntry[] }>('/friends', { token }),
+  feed: (token: string) => request<{ feed: FriendFeedEntry[] }>('/friends/feed', { token }),
   // Username search for adding friends (≥2 chars; minimal public shape, caller excluded).
   search: (token: string, q: string) =>
     request<{ users: UserSearchResult[] }>(`/users/search?q=${encodeURIComponent(q)}`, { token }),
