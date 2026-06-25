@@ -276,7 +276,15 @@ export function RewardsView() {
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('rewards.progress')}</div>
           <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('rewards.title')}</h1>
         </div>
-        <span className="text-4xl opacity-80" aria-hidden="true">🎁</span>
+        {/* Show spendable XP here too (not just in the Shop) — this is where you earn it. */}
+        {status ? (
+          <div className="text-right shrink-0">
+            <div className="font-display font-bold text-xl text-gold-hi leading-none">{t('shop.xpBalance', { xp: status.spendableXp })}</div>
+            <div className="text-[10px] text-muted mt-1 tracking-wide uppercase">{t('rewards.spendableXp')}</div>
+          </div>
+        ) : (
+          <span className="text-4xl opacity-80" aria-hidden="true">🎁</span>
+        )}
       </section>
 
       {loading ? (
@@ -475,7 +483,7 @@ function AchievementRow({ achievement, index }: AchievementRowProps) {
         )}
       </div>
       {!earned && (
-        <div className="xpbar mt-2.5" style={{ width: '100%' }} role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={goal}>
+        <div className="xpbar mt-2.5" style={{ width: '100%' }} role="progressbar" aria-label={t('rewards.achProgressLabel', { title })} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={goal}>
           <i style={{ width: `${pct}%` }} />
         </div>
       )}

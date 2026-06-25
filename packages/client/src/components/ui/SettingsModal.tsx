@@ -104,9 +104,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <p className="text-sm text-txt mt-1">
             {t('settings.sessionLine', { dur: formatSessionDuration(minutes), games })}
             {delta != null && (
-              <> · <span className={delta >= 0 ? 'text-emerald-300' : 'text-red-300'}>{delta >= 0 ? '+' : '−'}{dollars(Math.abs(delta))}</span></>
+              <> · <span className={delta >= 0 ? 'text-emerald-300' : 'text-red-300'} title={t('settings.sessionDeltaHint')}>{delta >= 0 ? '+' : '−'}{dollars(Math.abs(delta))}</span></>
             )}
           </p>
+          {delta != null && <p className="text-[11px] text-muted/60 mt-1">{t('settings.sessionDeltaHint')}</p>}
           <p className="text-[11px] text-muted/80 mt-1">{t('settings.sessionHint')}</p>
         </div>
 

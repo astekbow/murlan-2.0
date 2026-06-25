@@ -4,6 +4,7 @@ import { useAuthStore } from './authStore.ts';
 import { translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
+const trp = (key: string, params: Record<string, string | number>) => translate(key, useLangStore.getState().lang, params);
 
 function token(): string | null {
   return useAuthStore.getState().accessToken;
@@ -37,6 +38,7 @@ interface AdminStore {
   setKyc: (id: string, status: 'none' | 'pending' | 'verified') => Promise<void>;
   setRole: (id: string, role: 'user' | 'admin') => Promise<void>;
   approve: (id: string) => Promise<void>;
+  approveMany: (ids: string[]) => Promise<string[]>; // bulk approve; returns the ids that FAILED
   reject: (id: string, reason?: string) => Promise<void>;
 }
 
@@ -148,6 +150,21 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
     } catch (e) {
       set({ error: err(e, 'err.approveFailed') });
     }
+  },
+  async approveMany(ids) {
+    const t = token();
+    if (!t) return ids; // no session → treat all as failed (nothing approved)
+    const failed: string[] = [];
+    // Sequential so a burst can't race the payout provider; each is the proven idempotent path.
+    for (const id of ids) {
+      try { await adminApi.approveWithdrawal(t, id); }
+      catch { failed.push(id); }
+    }
+    await get().refresh();
+    const ok = ids.length - failed.length;
+    if (failed.length === 0) set({ notice: trp('msg.withdrawApprovedN', { n: ok }), error: null });
+    else set({ error: trp('err.approveSomeFailed', { ok, total: ids.length }), notice: null });
+    return failed;
   },
 
   async reject(id, reason) {

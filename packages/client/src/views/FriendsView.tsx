@@ -184,6 +184,17 @@ export function FriendsView() {
     if (token) void dmApi.unread(token).then((u) => setUnread(u.unread)).catch(() => undefined);
   }, [dmRev, dmWith, loadConversation]);
 
+  // Auto-scroll the DM thread to the newest message whenever it grows (sent or received).
+  const dmEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { dmEndRef.current?.scrollIntoView({ block: 'end' }); }, [dmMessages]);
+  // Escape closes the DM thread (the backdrop isn't a focusable element with its own handler).
+  useEffect(() => {
+    if (!dmWith) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDmWith(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dmWith]);
+
   // Run one mutating friend action at a time (guard + busy flag), then refresh.
   const act = useCallback(async (fn: () => Promise<void>, errKey: string) => {
     const token = useAuthStore.getState().accessToken;
@@ -278,7 +289,9 @@ export function FriendsView() {
   const accepted = friends.filter((f) => f.direction === 'friends');
   const blocked = friends.filter((f) => f.direction === 'blocked');
 
-  const inRoom = useGameStore.getState().room !== null;
+  // Reactive (not a one-time getState snapshot): if you enter a room while this page is open,
+  // the duel buttons must disable immediately so "Sfido 1v1" can't spin up a SECOND room.
+  const inRoom = useGameStore((s) => s.room !== null);
 
   // Online friends first, then by name — used by both layouts' friends list.
   const acceptedSorted = [...accepted].sort((a, b) => (Number(b.online) - Number(a.online)) || a.user.username.localeCompare(b.user.username));
@@ -369,10 +382,11 @@ export function FriendsView() {
             const mine = m.fromUserId !== dmWith.user.id;
             return (
               <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                <span className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-sm break-words ${mine ? 'bg-gold/20 text-txt' : 'bg-white/10 text-txt'}`}>{m.text}</span>
+                <span className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-sm break-words whitespace-pre-wrap ${mine ? 'bg-gold/20 text-txt' : 'bg-white/10 text-txt'}`}>{m.text}</span>
               </div>
             );
           })}
+          <div ref={dmEndRef} />
         </div>
         <form onSubmit={(e) => { e.preventDefault(); void sendDm(); }} className="flex gap-2">
           <input className="field flex-1" value={dmText} onChange={(e) => setDmText(e.target.value)} placeholder={t('friends.dmPlaceholder')} maxLength={500} autoFocus />

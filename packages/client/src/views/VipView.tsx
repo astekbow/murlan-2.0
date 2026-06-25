@@ -127,7 +127,7 @@ export function VipView() {
                     <div className="text-xs text-muted">{t('vip.volume')} <b className="text-txt">{dollars(vip.stakedCents)}</b></div>
                     {vip.next ? (
                       <>
-                        <div className="h-2.5 w-full rounded-full bg-black/40 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ boxShadow: 'inset 0 0 0 1px rgba(232,200,121,0.25)' }}>
+                        <div className="h-2.5 w-full rounded-full bg-black/40 overflow-hidden" role="progressbar" aria-label={t('vip.tierProgress')} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ boxShadow: 'inset 0 0 0 1px rgba(232,200,121,0.25)' }}>
                           <i className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--gold), var(--gold-hi))' }} />
                         </div>
                         <p className="text-xs text-muted">{t('vip.more')} <b className="text-gold-hi">{dollars(vip.toNextCents)}</b> {t('vip.stakeFor')} <b style={{ color: vip.next.color }}>{vip.next.name}</b>.</p>
@@ -139,7 +139,7 @@ export function VipView() {
                       ? <p className="text-[11px] text-emerald-300">{t('vip.perkXp', { pct: Math.round(vip.tier.xpBoostBps / 100) })}</p>
                       : <p className="text-[11px] text-muted/80">{t('vip.perkLocked')}</p>}
                     {vip.giftAvailable && (
-                      <button onClick={() => void claimGift()} disabled={claiming} className="btn btn-gold btn-block btn-sm">
+                      <button onClick={() => void claimGift()} disabled={claiming} className={`btn btn-gold btn-block btn-sm ${claiming ? 'btn-loading' : ''}`}>
                         🎁 {claiming ? t('vip.giftClaiming') : t('vip.claimGift')}
                       </button>
                     )}
@@ -212,7 +212,7 @@ export function VipView() {
                 <>
                   <div
                     className="h-2.5 w-full rounded-full bg-black/40 overflow-hidden"
-                    role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+                    role="progressbar" aria-label={t('vip.tierProgress')} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
                     style={{ boxShadow: 'inset 0 0 0 1px rgba(232,200,121,0.25)' }}
                   >
                     <i className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--gold), var(--gold-hi))' }} />

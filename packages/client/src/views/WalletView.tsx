@@ -266,7 +266,7 @@ export function WalletView() {
           <p className="text-sm text-muted">{t('wallet.depositTrc20Steps')}</p>
           {/* Scan-to-pay QR — generated locally (never sent anywhere). */}
           <div className="flex justify-center">
-            <div className="rounded-xl bg-white p-2.5">
+            <div className="rounded-xl bg-white p-2.5" role="img" aria-label={t('wallet.depositQrAlt')}>
               <QRCodeSVG value={depAddr} size={132} bgColor="#ffffff" fgColor="#0b0a0e" level="M" />
             </div>
           </div>
@@ -336,9 +336,14 @@ export function WalletView() {
           </label>
         </div>
         {(parseDollarsToCents(withdrawAmt) ?? 0) > 0 && (
-          <p className="text-[12px] font-medium text-emerald-300">
-            {t('wallet.youReceive', { amount: dollars(Math.max(0, (parseDollarsToCents(withdrawAmt) ?? 0) - WITHDRAW_FEE_CENTS)) })}
-          </p>
+          (parseDollarsToCents(withdrawAmt) ?? 0) <= WITHDRAW_FEE_CENTS ? (
+            // Below the network fee → the payout would be $0 or negative. Warn instead of "you receive $0.00".
+            <p className="text-[12px] font-medium text-amber-300">{t('wallet.withdrawBelowFee', { fee: dollars(WITHDRAW_FEE_CENTS) })}</p>
+          ) : (
+            <p className="text-[12px] font-medium text-emerald-300">
+              {t('wallet.youReceive', { amount: dollars((parseDollarsToCents(withdrawAmt) ?? 0) - WITHDRAW_FEE_CENTS) })}
+            </p>
+          )
         )}
         {/* Honest payout timing so the player knows what to expect. */}
         <p className="text-[12px] text-muted">⏱ {t('wallet.withdrawTimeEstimate')}</p>
@@ -427,7 +432,12 @@ export function WalletView() {
             return (
               <div className="text-center py-8">
                 <div className="text-4xl mb-2 opacity-60">🧾</div>
-                <p className="text-sm text-muted">{t('wallet.noTx')}</p>
+                <p className="text-sm text-muted">
+                  {txFilter === 'all' ? t('wallet.noTx') : t('wallet.noTxFiltered', { filter: t(`wallet.txf.${txFilter}`) })}
+                </p>
+                {txFilter !== 'all' && (
+                  <button onClick={() => setTxFilter('all')} className="btn btn-ghost btn-sm mt-2">{t('wallet.txf.all')}</button>
+                )}
               </div>
             );
           }

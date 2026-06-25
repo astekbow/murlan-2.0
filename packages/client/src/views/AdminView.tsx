@@ -345,7 +345,7 @@ function RankedSeasonCard() {
 export function AdminView() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
-  const { users, withdrawals, matches, revenueCents, error, notice, loading, refresh, approve, reject, treasury, treasuryLoading, loadTreasury,
+  const { users, withdrawals, matches, revenueCents, error, notice, loading, refresh, approve, approveMany, reject, treasury, treasuryLoading, loadTreasury,
     userSort, userOffset, userTotal, userPageSize, setUserQuery, setUserSort, setUserPage } = useAdminStore();
   const setView = useUiStore((s) => s.setView);
   // Captures the (optional) rejection reason typed in the reject confirm dialog. A ref —
@@ -355,13 +355,13 @@ export function AdminView() {
   const [selectedW, setSelectedW] = useState<Set<string>>(() => new Set()); // bulk-approve selection
   const [tab, setTab] = useState<AdminTab>('overview');
 
-  // Approve every selected pending withdrawal (one confirm, then sequential — each is the proven,
-  // idempotent single-approve path; refresh happens via the store).
+  // Approve every selected pending withdrawal (one confirm). Failures are kept SELECTED so the
+  // admin sees which didn't go through (the store reports "approved X/N") and can retry them.
   const approveSelected = async () => {
     if (selectedW.size === 0) return;
     if (!(await confirm({ title: t('admin.approveSelected', { n: selectedW.size }), message: t('admin.bulkApproveM', { n: selectedW.size }) }))) return;
-    for (const id of [...selectedW]) await approve(id);
-    setSelectedW(new Set());
+    const failed = await approveMany([...selectedW]);
+    setSelectedW(new Set(failed));
   };
   const toggleW = (id: string) => setSelectedW((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [queryInput, setQueryInput] = useState(''); // local input; debounced into the store search
@@ -484,14 +484,18 @@ export function AdminView() {
                   {(() => {
                     const days = [...revenue.byDay].slice(0, 30).reverse(); // oldest→newest L→R
                     const max = Math.max(1, ...days.map((d) => d.rakeCents));
-                    return days.length > 0 ? (
-                      <div className="flex items-end gap-0.5 h-20 mb-2" role="img" aria-label={t('admin.revenueByDay')}>
-                        {days.map((d) => (
-                          <div key={d.date} className="flex-1 bg-gold/70 rounded-t hover:bg-gold transition-colors"
-                            style={{ height: `${Math.max(3, Math.round((d.rakeCents / max) * 100))}%` }}
-                            title={`${d.date}: ${dollars(d.rakeCents)} · ${d.matchCount}`} />
-                        ))}
-                      </div>
+                    // A single day isn't a trend — skip the chart (the exact value is in the table below).
+                    return days.length > 1 ? (
+                      <>
+                        <div className="flex items-end gap-0.5 h-20 mb-1" role="img" aria-label={t('admin.revenueByDay')}>
+                          {days.map((d) => (
+                            <div key={d.date} className="flex-1 bg-gold/70 rounded-t hover:bg-gold transition-colors"
+                              style={{ height: `${Math.max(3, Math.round((d.rakeCents / max) * 100))}%` }}
+                              title={`${d.date}: ${dollars(d.rakeCents)} · ${d.matchCount}`} />
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted/70 mb-2">{t('admin.revenueChartHint')}</p>
+                      </>
                     ) : null;
                   })()}
                   <ul className="space-y-1 max-h-32 overflow-y-auto -mr-1 pr-1">
@@ -553,10 +557,10 @@ export function AdminView() {
       {/* ── Withdrawals ── */}
       {tab === 'withdrawals' && (
         <section className="panel p-5 animate-rise">
-          <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('admin.pendingWithdrawals')}</h2>
             {selectedW.size > 0 && (
-              <button onClick={() => void approveSelected()} className="btn btn-green btn-sm shrink-0">✓ {t('admin.approveSelected', { n: selectedW.size })}</button>
+              <button onClick={() => void approveSelected()} className="btn btn-green btn-sm shrink-0 w-full sm:w-auto">✓ {t('admin.approveSelected', { n: selectedW.size })}</button>
             )}
           </div>
           {loading && withdrawals.length === 0 ? (
@@ -567,7 +571,7 @@ export function AdminView() {
             <ul className="space-y-2.5">
               {withdrawals.map((w) => (
                 <li key={w.id} className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
-                  <input type="checkbox" checked={selectedW.has(w.id)} onChange={() => toggleW(w.id)} className="w-4 h-4 accent-gold shrink-0" aria-label={t('admin.approveSelected', { n: 1 })} />
+                  <input type="checkbox" checked={selectedW.has(w.id)} onChange={() => toggleW(w.id)} className="w-4 h-4 accent-gold shrink-0" aria-label={t('admin.selectWithdrawal', { user: w.username ?? '?', amount: dollars(w.amountCents) })} />
                   <span className="text-sm min-w-0 flex-1">
                     <b className="text-txt">{dollars(w.amountCents)}</b>
                     <span className="text-muted"> → <span className="break-all">{w.destination}</span></span>

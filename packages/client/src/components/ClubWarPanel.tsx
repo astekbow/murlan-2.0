@@ -7,9 +7,11 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
 import { useT } from '../lib/i18n.ts';
+import { useConfirm } from './ui/useConfirm.tsx';
 
 export function ClubWarPanel({ club }: { club: ClubDetailDTO }) {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const myId = useAuthStore((s) => s.user?.id ?? null);
   const isFounder = club.members.find((m) => m.userId === myId)?.role === 'founder';
   const [wars, setWars] = useState<ClubWarDTO[]>([]);
@@ -48,6 +50,7 @@ export function ClubWarPanel({ club }: { club: ClubDetailDTO }) {
 
   return (
     <section className="panel p-4 animate-rise space-y-3">
+      {dialog}
       <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm flex items-center gap-1.5">⚔️ {t('clubwar.title')}</h2>
 
       {/* Create (founder only) */}
@@ -94,7 +97,9 @@ export function ClubWarPanel({ club }: { club: ClubDetailDTO }) {
 
                 {w.status === 'finished' && (
                   <p className={`text-center text-sm font-semibold ${wonByMyClub ? 'text-emerald-300' : w.winnerClubId ? 'text-suit' : 'text-muted'}`}>
-                    {w.winnerClubId ? t('clubwar.clubWon', { tag: w.winnerClubId === w.clubAId ? w.clubATag : w.clubBTag }) : t('clubwar.tie')}
+                    {w.winnerClubId
+                      ? t('clubwar.clubWon', { tag: w.winnerClubId === w.clubAId ? w.clubATag : w.clubBTag })
+                      : w.stakeCents > 0 ? t('clubwar.tieRefunded') : t('clubwar.tie')}
                   </p>
                 )}
 
@@ -106,13 +111,13 @@ export function ClubWarPanel({ club }: { club: ClubDetailDTO }) {
                       const opp = myId === p.aUserId ? p.bUserId : p.aUserId;
                       return (
                         <li key={i} className="flex items-center gap-2 text-xs">
-                          <span className={`flex-1 truncate ${p.winnerId === p.aUserId ? 'text-emerald-300' : 'text-txt'}`}>{name(p.aUserId, w)}</span>
+                          <span title={name(p.aUserId, w)} className={`flex-1 truncate ${p.winnerId === p.aUserId ? 'text-emerald-300' : 'text-txt'}`}>{name(p.aUserId, w)}</span>
                           <span className="text-muted/60">vs</span>
-                          <span className={`flex-1 truncate text-right ${p.winnerId === p.bUserId ? 'text-emerald-300' : 'text-txt'}`}>{name(p.bUserId, w)}</span>
+                          <span title={name(p.bUserId, w)} className={`flex-1 truncate text-right ${p.winnerId === p.bUserId ? 'text-emerald-300' : 'text-txt'}`}>{name(p.bUserId, w)}</span>
                           {p.winnerId ? (
                             <span className="text-emerald-300 shrink-0">🏆</span>
                           ) : iAmIn && w.status === 'running' ? (
-                            <button onClick={() => void useGameStore.getState().playClubWar(w.id, opp)} disabled={busy} className="btn btn-gold btn-sm shrink-0">{t('clubwar.play')}</button>
+                            <button onClick={() => void useGameStore.getState().playClubWar(w.id, opp)} disabled={busy} title={t('clubwar.playHint')} className="btn btn-gold btn-sm shrink-0">{t('clubwar.play')}</button>
                           ) : <span className="text-muted/40 shrink-0">·</span>}
                         </li>
                       );
@@ -124,8 +129,22 @@ export function ClubWarPanel({ club }: { club: ClubDetailDTO }) {
                 <div className="flex flex-wrap gap-2 pt-1">
                   {canRegister && <button onClick={() => void act((token) => clubWarApi.register(token, w.id))} disabled={busy} className="btn btn-gold btn-sm">{t('clubwar.register')}</button>}
                   {registered && w.status === 'registering' && <span className="text-xs text-emerald-300 self-center">{t('clubwar.registered')}</span>}
-                  {isFounder && w.status === 'registering' && <button onClick={() => void act((token) => clubWarApi.start(token, w.id))} disabled={busy} className="btn btn-ghost btn-sm">{t('clubwar.start')}</button>}
-                  {isFounder && (w.status === 'registering' || w.status === 'running') && <button onClick={() => void act((token) => clubWarApi.cancel(token, w.id))} disabled={busy} className="btn btn-ghost btn-sm ml-auto">{t('clubwar.cancel')}</button>}
+                  {/* Only the challenging club's (A) founder drives start/cancel; never start an empty side. */}
+                  {isFounder && amClubA && w.status === 'registering' && (
+                    <button
+                      onClick={() => void act((token) => clubWarApi.start(token, w.id))}
+                      disabled={busy || w.rosterA.length === 0 || w.rosterB.length === 0}
+                      title={w.rosterA.length === 0 || w.rosterB.length === 0 ? t('clubwar.needBothSides') : undefined}
+                      className="btn btn-ghost btn-sm"
+                    >{t('clubwar.start')}</button>
+                  )}
+                  {isFounder && amClubA && (w.status === 'registering' || w.status === 'running') && (
+                    <button
+                      onClick={async () => { if (await confirm({ title: t('clubwar.cancel'), message: t('clubwar.cancelConfirm'), danger: true })) void act((token) => clubWarApi.cancel(token, w.id)); }}
+                      disabled={busy}
+                      className="btn btn-ghost btn-sm ml-auto"
+                    >{t('clubwar.cancel')}</button>
+                  )}
                 </div>
               </li>
             );

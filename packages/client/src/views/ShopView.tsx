@@ -10,6 +10,7 @@ import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 import { dollars } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
+import { useConfirm } from '../components/ui/useConfirm.tsx';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
@@ -49,6 +50,7 @@ function sortKey(item: ShopItem): number {
 
 export function ShopView() {
   const t = useT();
+  const { confirm, dialog } = useConfirm();
   const setView = useUiStore((s) => s.setView);
   const landscape = useLandscapePage();
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
@@ -93,6 +95,8 @@ export function ShopView() {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     const isXp = (item.costXp ?? 0) > 0;
+    // XP is hard-earned and non-refundable — confirm before spending it (money buys already gate on balance).
+    if (isXp && !(await confirm({ title: t('shop.confirmXpTitle'), message: t('shop.confirmXpBody', { xp: item.costXp ?? 0, name: item.name }) }))) return;
     setBusyId(item.id);
     try {
       // XP items spend earned XP (never the wallet) → the XP buy endpoint; money items → /shop/buy.
@@ -129,6 +133,7 @@ export function ShopView() {
   if (landscape) {
     return createPortal(
       <div className="pg-ls">
+        {dialog}
         <div className="pg-ls-top">
           <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
           <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('shop.title')}</h1>
@@ -208,6 +213,7 @@ export function ShopView() {
 
   return (
     <div className="space-y-5">
+      {dialog}
       {/* Back to lobby */}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
         {t('common.backToLobby')}
@@ -370,7 +376,7 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
         <div className="flex items-center gap-2">
           <span className={`font-display font-semibold tracking-wide text-txt truncate ${compact ? 'text-sm' : ''}`}>{item.name}</span>
           {item.featured && !item.owned && <span className="tag tag-live shrink-0 text-[10px]">{t('shop.new')}</span>}
-          {isXp && !item.owned && <span className="tag tag-open shrink-0 text-[10px] text-gold-hi">XP</span>}
+          {isXp && !item.owned && <span className="tag tag-open shrink-0 text-[10px] text-gold-hi" title={t('shop.xpTagHint')}>XP</span>}
           {isDeal && <span className="tag tag-open shrink-0 text-[10px] text-emerald-300">−{status.dailyDeal!.pct}%</span>}
         </div>
         <div className="text-xs text-muted mt-0.5">
