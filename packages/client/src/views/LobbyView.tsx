@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { MatchType } from '@murlan/shared';
 import { useGameStore } from '../store/gameStore.ts';
+import { useRulesStore } from '../store/rulesStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
@@ -313,7 +314,10 @@ export function LobbyView() {
         /* ---- Home — four equal cards ---- */
         <div className="space-y-3">
           {/* Liveliness: online count + recent-winners ticker (display-only). */}
-          <LobbyLiveStrip data={live2} />
+          <div className="flex items-center justify-between gap-2">
+            <LobbyLiveStrip data={live2} />
+            <button onClick={() => useRulesStore.getState().setOpen(true)} className="btn btn-ghost btn-sm shrink-0">{t('rules.openBtn')}</button>
+          </div>
           <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 

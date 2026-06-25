@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { Modal } from './Modal.tsx';
 import { useOnboardingStore } from '../../store/onboardingStore.ts';
+import { useRulesStore } from '../../store/rulesStore.ts';
 import { useGameStore } from '../../store/gameStore.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
@@ -62,6 +63,7 @@ export function OnboardingModal() {
               {t('onb.next')}
             </button>
           )}
+          <button className="btn btn-ghost btn-block text-sm" onClick={() => useRulesStore.getState().setOpen(true)}>{t('onb.viewRules')}</button>
           <button className="btn btn-ghost btn-block text-sm" onClick={complete}>{t('onb.skip')}</button>
         </div>
       </div>
