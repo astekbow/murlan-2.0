@@ -60,6 +60,10 @@ export function WalletView() {
   const [savingProfile, setSavingProfile] = useState(false); // DOB/country save in flight — guard double-submit
   const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
   const [txFilter, setTxFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'transfer'>('all');
+  // Wallet is split into tabs so each part (deposit / withdraw / history) fits the screen with NO
+  // internal scroll, instead of one long stacked page. Visibility is toggled (sections stay mounted,
+  // so in-progress input/state is never lost when switching tabs).
+  const [walletTab, setWalletTab] = useState<'deposit' | 'withdraw' | 'history'>('deposit');
   const [exporting, setExporting] = useState(false); // GDPR data export in flight
   const [deleting, setDeleting] = useState(false); // GDPR account deletion in flight
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
@@ -258,9 +262,25 @@ export function WalletView() {
 
       <RgStatusBanner />
 
+      {/* Tabs: only the active one renders → each fits the screen without scrolling. */}
+      <div className="seg grid grid-cols-3" role="tablist" aria-label={t('wallet.title')}>
+        {(['deposit', 'withdraw', 'history'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={walletTab === tab}
+            onClick={() => setWalletTab(tab)}
+            className={`seg-tab text-center ${walletTab === tab ? 'active' : ''}`}
+          >
+            {t(`wallet.tab.${tab}`)}
+          </button>
+        ))}
+      </div>
+
       {/* Fee-free USDT-TRC20 deposit: send to our address, then paste the TxID. */}
       {depAddr && (
-        <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.06s' }}>
+        <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
           <TronWarning />
           <p className="text-sm text-muted">{t('wallet.depositTrc20Steps')}</p>
@@ -310,7 +330,7 @@ export function WalletView() {
       )}
 
       {/* Withdraw */}
-      <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.12s' }}>
+      <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'withdraw' ? '' : 'hidden'}`} style={{ animationDelay: '.12s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.withdraw')}</h2>
         {/* KYC removed (owner decision): no identity verification is required to
             withdraw. Large/uncapped requests still go to MANUAL operator review. */}
@@ -351,7 +371,7 @@ export function WalletView() {
       </section>
 
       {/* Verification / responsible gaming */}
-      <section className="panel p-5 space-y-3 animate-rise" style={{ animationDelay: '.16s' }}>
+      <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'withdraw' ? '' : 'hidden'}`} style={{ animationDelay: '.16s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.verifyRG')}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <label className="block">
@@ -398,7 +418,7 @@ export function WalletView() {
       </section>
 
       {/* History */}
-      <section className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
+      <section className={`panel p-5 animate-rise ${walletTab === 'history' ? '' : 'hidden'}`} style={{ animationDelay: '.2s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.txHistory')}</h2>
         {/* Filter chips: narrow the ledger to one kind. */}
         <div className="flex flex-wrap gap-1.5 mb-3">
@@ -470,7 +490,7 @@ export function WalletView() {
       </section>
 
       {firstLoad && withdrawals.length === 0 ? (
-        <section className="panel p-5 animate-rise" style={{ animationDelay: '.24s' }}>
+        <section className={`panel p-5 animate-rise ${walletTab === 'withdraw' ? '' : 'hidden'}`} style={{ animationDelay: '.24s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.withdrawalsTitle')}</h2>
           <ul className="space-y-2.5" aria-hidden>
             {Array.from({ length: 2 }).map((_, i) => (
@@ -485,7 +505,7 @@ export function WalletView() {
           </ul>
         </section>
       ) : withdrawals.length > 0 && (
-        <section className="panel p-5 animate-rise" style={{ animationDelay: '.24s' }}>
+        <section className={`panel p-5 animate-rise ${walletTab === 'withdraw' ? '' : 'hidden'}`} style={{ animationDelay: '.24s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.withdrawalsTitle')}</h2>
           <ul className="space-y-2.5">
             {withdrawals.map((w) => (
