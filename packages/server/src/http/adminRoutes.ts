@@ -105,7 +105,9 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   };
 
   app.get('/api/admin/users', async (req, reply) => {
-    if (!(await admin(req, reply))) return;
+    // PII (emails, balances) is account data → require manage_accounts, not just any scoped admin
+    // (a chat-only moderator shouldn't be able to enumerate every player's email + balance).
+    if (!(await canAccounts(req, reply))) return;
     // Server-side search + sort + pagination so the panel scales past a few-screens cap
     // (was: send EVERY user, filter/sort/cap on the client). Returns the page + the
     // filtered total so the client can render "showing X of Y" + prev/next.
@@ -125,8 +127,12 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   app.get('/api/admin/users/:id/transactions', async (req, reply) => {
-    if (!(await admin(req, reply))) return;
-    return reply.send({ transactions: await wallet.listTransactions((req.params as { id: string }).id) });
+    const id = (req.params as { id: string }).id;
+    // The house rake ledger (__house__) is revenue data → view_revenue; a player's ledger is
+    // account data → manage_accounts. Was bare `admin`, so any scoped sub-admin could read both.
+    const guard = id === '__house__' ? canRevenue : canAccounts;
+    if (!(await guard(req, reply))) return;
+    return reply.send({ transactions: await wallet.listTransactions(id) });
   });
 
   app.get('/api/admin/matches', async (req, reply) => {
@@ -410,7 +416,8 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   app.get('/api/admin/withdrawals', async (req, reply) => {
-    if (!(await admin(req, reply))) return;
+    // The pending-withdrawal queue (amounts, destinations, who) is for approvers → require the scope.
+    if (!(await canWithdraw(req, reply))) return;
     // Enrich each pending row with WHO is withdrawing + their KYC status, so the
     // operator has context to approve/reject. One listUsers() call, no N+1.
     const [pending, users] = await Promise.all([withdrawals.listPending(), auth.listUsers()]);
@@ -426,7 +433,8 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   if (deps.chat) {
     const chat = deps.chat;
     app.get('/api/admin/chat-reports', async (req, reply) => {
-      if (!(await admin(req, reply))) return;
+      // Moderation data → require moderate_chat (matches the mute/unmute actions below).
+      if (!(await canModerate(req, reply))) return;
       // Enrich each report with the REPORTED message's text + author username (one batched
       // lookup, no N+1) so the moderator sees what was actually reported, not just an id.
       return reply.send({ reports: await chat.listReportsEnriched() });
