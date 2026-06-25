@@ -101,10 +101,17 @@ Severity legend: 🔴 crit · 🟠 high · 🟡 med. "votes" = how many of 2 ver
 - 🟠 **Login throttle in-memory** (`authService`) — resets on restart / not shared across instances; owner
   email lockable by anyone who knows `ADMIN_EMAIL`. *Fix:* move throttle to DB/Redis; don't lock by known email.
 
-**This cluster is a deliberate deferral**: it requires a DB migration (a `version` column) and careful
-optimistic-locking changes to live money-settlement code, and NONE of it is exploitable on the current
-single-host deploy. It should be done as ONE dedicated pass immediately before enabling horizontal scaling
-(multiple instances / replicas) — rushing it into working single-host money code now adds risk for no current gain.
+**This cluster is a deliberate deferral** (owner decision, 2026-06-26): it requires a DB migration (a
+`version` column) and careful optimistic-locking changes to live money-settlement code, and NONE of it is
+exploitable on the current single-host deploy. To be done as ONE dedicated pass immediately before enabling
+horizontal scaling (multiple instances / replicas) — rushing it into working single-host money code now adds
+risk for no current gain.
+
+**Login-throttle lockout — KEPT AS-IS (owner decision, 2026-06-26).** The throttle locks an email for up to
+1h after 5 failed logins *even with the correct password* (tested, intentional = strongest anti-brute-force).
+The tradeoff (someone who knows your email can cause a temporary, escalating, ≤1h lockout — no takeover) was
+reviewed and accepted: a correct-password-always-works flip would let a successful guesser straight in, and an
+email+IP key would reopen the proxy-rotation brute-force the per-email lock was built to stop. Do NOT flip it.
 
 ---
 
