@@ -1076,6 +1076,10 @@ export class PrismaClubWars implements ClubWarRepository {
     const rows = await this.db.clubWar.findMany({ where: { OR: [{ clubAId: clubId }, { clubBId: clubId }] }, orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
     return rows.map((r: any) => this.map(r));
   }
+  async listActive(): Promise<ClubWar[]> {
+    const rows = await this.db.clubWar.findMany({ where: { status: { in: ['registering', 'running'] } } });
+    return rows.map((r: any) => this.map(r));
+  }
 }
 
 function toClub(row: any): Club {

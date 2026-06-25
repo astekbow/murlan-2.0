@@ -156,3 +156,25 @@ test('a failed buy-in debit never seats the player', async () => {
   assert.equal(w!.rosterA.length, 0);
   assert.equal(w!.prizePoolCents, 0);
 });
+
+test('sweepStaleWars: an abandoned registering war refunds every registrant + cancels (idempotent)', async () => {
+  const wallet = new RecWallet();
+  const svc = new ClubWarService(new InMemoryClubWars(), 1000, wallet);
+  const war = await svc.create(CLUB_A, CLUB_B, 500, 2); // $5 buy-in, 2v2 (needs 4 to start)
+  await svc.register(war.id, 'a1', 'A');
+  await svc.register(war.id, 'b1', 'B'); // only 2 registered → never starts
+  assert.equal(wallet.debits.length, 2);
+
+  const swept = await svc.sweepStaleWars(-1); // negative age → cutoff in the future → all active are stale
+  assert.deepEqual(swept, [war.id]);
+  const w = await svc.get(war.id);
+  assert.equal(w!.status, 'cancelled');
+  // CONSERVATION: every escrowed buy-in refunded exactly once.
+  assert.equal(wallet.credits.length, 2);
+  assert.equal(
+    wallet.credits.reduce((s, x) => s + x.amount, 0),
+    wallet.debits.reduce((s, x) => s + x.amount, 0),
+  );
+  // Idempotent: a second sweep finds nothing active (no double refund).
+  assert.deepEqual(await svc.sweepStaleWars(-1), []);
+});

@@ -1081,6 +1081,10 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         if (voidedTournaments.length) {
           app.log.warn({ tournamentIds: voidedTournaments }, 'voided + refunded abandoned tournaments (periodic sweep)');
         }
+        const sweptWars = await clubWars.sweepStaleWars(TOURNAMENT_MAX_AGE_MS).catch(() => [] as string[]);
+        if (sweptWars.length) {
+          app.log.warn({ warIds: sweptWars }, 'swept (refunded/settled) abandoned club wars (periodic sweep)');
+        }
         const rec = await wallet.reconcile();
         if (!rec.ok) {
           app.log.error({ mismatches: rec.mismatches }, 'BALANCE RECONCILE MISMATCH — investigate');

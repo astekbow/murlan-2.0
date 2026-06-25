@@ -193,6 +193,39 @@ export class ClubWarService {
     }
   }
 
+  /**
+   * Recover money stranded in abandoned/stuck wars (cancel is now registering-only, so a war that
+   * never starts — or crashes mid-settle — can't be cleared by a user). Idempotent + safe:
+   *  • registering, or running with any UNPLAYED pairing → no payout has happened (settle only runs
+   *    when EVERY pairing is decided) → void + refundAll (per-user idempotent refs).
+   *  • running with ALL pairings decided → it should have settled but the save/payout was interrupted
+   *    → finish it (decide + save + idempotent payout). NEVER refund these (winners may already hold the prize).
+   * Returns the swept war ids.
+   */
+  async sweepStaleWars(maxAgeMs: number): Promise<string[]> {
+    const cutoff = Date.now() - maxAgeMs;
+    const active = await this.repo.listActive();
+    const swept: string[] = [];
+    for (const snap of active) {
+      if (snap.createdAt > cutoff) continue;
+      await this.withLock(snap.id, async () => {
+        const w = await this.repo.get(snap.id); // re-read under the lock
+        if (!w || (w.status !== 'registering' && w.status !== 'running')) return;
+        if (w.status === 'running' && w.pairings.length > 0 && w.pairings.every((p) => p.winnerId)) {
+          this.decideOutcome(w);
+          await this.repo.save(w);
+          await this.payoutSettled(w); // idempotent — safe even if a prior settle partially ran
+        } else {
+          await this.refundAll(w);
+          w.status = 'cancelled';
+          await this.repo.save(w);
+        }
+        swept.push(w.id);
+      });
+    }
+    return swept;
+  }
+
   get(warId: string): Promise<ClubWar | null> { return this.repo.get(warId); }
   listForClub(clubId: string, limit = 20): Promise<ClubWar[]> { return this.repo.listForClub(clubId, limit); }
 }

@@ -38,6 +38,8 @@ export interface ClubWarRepository {
   save(w: ClubWar): Promise<void>;
   /** Active + recent wars involving a club (either side), newest first. */
   listForClub(clubId: string, limit: number): Promise<ClubWar[]>;
+  /** Wars still in a non-terminal state (registering/running) — for the stranded-money sweep. */
+  listActive(): Promise<ClubWar[]>;
 }
 
 export class InMemoryClubWars implements ClubWarRepository {
@@ -59,6 +61,11 @@ export class InMemoryClubWars implements ClubWarRepository {
       .filter((w) => w.clubAId === clubId || w.clubBId === clubId)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, Math.max(0, limit))
+      .map((w) => structuredClone(w));
+  }
+  async listActive(): Promise<ClubWar[]> {
+    return [...this.wars.values()]
+      .filter((w) => w.status === 'registering' || w.status === 'running')
       .map((w) => structuredClone(w));
   }
 }
