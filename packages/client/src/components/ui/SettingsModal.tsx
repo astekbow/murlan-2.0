@@ -1,6 +1,7 @@
 import { Modal } from './Modal.tsx';
 import { useSettingsStore } from '../../store/settingsStore.ts';
 import { useSessionStore, useSessionMinutes, formatSessionDuration } from '../../store/sessionStore.ts';
+import { useRulesStore } from '../../store/rulesStore.ts';
 import { useWalletStore } from '../../store/walletStore.ts';
 import { dollars } from '../../lib/money.ts';
 import { sound } from '../../lib/sound.ts';
@@ -24,6 +25,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title={t('settings.title')} onClose={onClose}>
       <div className="space-y-5">
+        {/* How to play — opens the rules sheet (and closes Settings so they don't stack). */}
+        <button className="btn btn-ghost btn-block" onClick={() => { useRulesStore.getState().setOpen(true); onClose(); }}>{t('rules.openBtn')}</button>
+
         {/* Language */}
         <div>
           <div className="field-label">{t('settings.language')}</div>

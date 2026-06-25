@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { MatchType } from '@murlan/shared';
 import { useGameStore } from '../store/gameStore.ts';
-import { useRulesStore } from '../store/rulesStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
@@ -67,14 +66,10 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
  *  real-money winners ("Ardit fitoi $20"). Display-only; data is polled read-only. */
 function LobbyLiveStrip({ data }: { data: LobbyLiveDTO | null }) {
   const t = useT();
-  const online = data?.online ?? 0;
   const winners = data?.recentWinners ?? [];
+  if (winners.length === 0) return null; // nothing to show (online-count chip removed by owner)
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm animate-rise" aria-live="polite">
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-200 font-display font-semibold tracking-wide">
-        <span className="pls" aria-hidden />
-        {t('lobby.onlineCount', { n: online })}
-      </span>
       {winners.length > 0 && (
         <span className="min-w-0 flex-1 flex items-baseline gap-2 overflow-hidden">
           <span className="shrink-0 font-serif text-[10px] tracking-[0.25em] text-muted uppercase">{t('lobby.recentWinners')}</span>
@@ -313,11 +308,8 @@ export function LobbyView() {
       ) : (
         /* ---- Home — four equal cards ---- */
         <div className="space-y-3">
-          {/* Liveliness: online count + recent-winners ticker (display-only). */}
-          <div className="flex items-center justify-between gap-2">
-            <LobbyLiveStrip data={live2} />
-            <button onClick={() => useRulesStore.getState().setOpen(true)} className="btn btn-ghost btn-sm shrink-0">{t('rules.openBtn')}</button>
-          </div>
+          {/* Recent-winners ticker (display-only). */}
+          <LobbyLiveStrip data={live2} />
           <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 
