@@ -660,7 +660,11 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     await ranked.createSeason('Sezoni 1').catch(() => undefined);
   }
   const matchmaking = new MatchmakingService();
-  const friends = new FriendsService(repo, friendsRepo, presence);
+  const friends = new FriendsService(repo, friendsRepo, presence, (uid) => {
+    // Detailed presence: derive activity from the rooms service at query time (no eager tracking).
+    const room = rooms.roomOf(uid);
+    return !room ? 'lobby' : room.status === 'inMatch' ? 'match' : 'room';
+  });
 
   const wallet = new WalletService(repo, ledger, uow);
   // ProfileService takes the wallet (read-only) so a profile can show its VIP-tier ring.

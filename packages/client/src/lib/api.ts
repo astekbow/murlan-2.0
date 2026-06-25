@@ -179,6 +179,7 @@ export interface FriendEntry {
   status: 'pending' | 'accepted' | 'blocked';
   direction: 'incoming' | 'outgoing' | 'friends' | 'blocked';
   online: boolean;
+  activity?: 'lobby' | 'room' | 'match'; // present when online: in lobby / waiting room / live match
   user: { id: string; username: string; avatar: string | null; level: number };
 }
 

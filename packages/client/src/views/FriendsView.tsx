@@ -12,6 +12,22 @@ import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
 
+/** Detailed presence label for a friend (offline / online / in a room / in a live match). */
+function presenceText(entry: FriendEntry, t: (k: string) => string): string {
+  if (!entry.online) return t('common.offline');
+  if (entry.activity === 'match') return t('friends.inMatch');
+  if (entry.activity === 'room') return t('friends.inRoom');
+  return t('common.online');
+}
+
+/** Status-dot colour: gray offline, gold in a match, blue in a room, green idle-online. */
+function presenceDot(entry: FriendEntry): string {
+  if (!entry.online) return 'bg-white/25';
+  if (entry.activity === 'match') return 'bg-amber-400';
+  if (entry.activity === 'room') return 'bg-sky-400';
+  return 'bg-emerald-400';
+}
+
 /** Compact, language-neutral relative time (s/m/h/d) for the activity feed. */
 function relTime(at: number): string {
   const s = Math.max(0, Math.round((Date.now() - at) / 1000));
@@ -345,7 +361,7 @@ export function FriendsView() {
                     >
                       <span className="pfp shrink-0" style={{ width: 28, height: 28 }}><AvatarFace id={f.user.avatar} fill className="text-sm leading-none" /></span>
                       <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{f.user.username}</span>
-                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`} title={f.online ? t('common.online') : t('common.offline')} aria-label={f.online ? t('common.online') : t('common.offline')} />
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${presenceDot(f)}`} title={presenceText(f, t)} aria-label={presenceText(f, t)} />
                     </button>
                   </li>
                 ))}
@@ -373,7 +389,7 @@ export function FriendsView() {
                   <span className="pfp shrink-0" style={{ width: 44, height: 44 }}><AvatarFace id={selected.user.avatar} fill className="text-xl leading-none" /></span>
                   <div className="min-w-0">
                     <div className="font-display font-semibold tracking-wide text-txt truncate">{selected.user.username}</div>
-                    <div className="text-xs text-muted">{t('friends.level', { n: selected.user.level })} · {selected.online ? t('common.online') : t('common.offline')}</div>
+                    <div className="text-xs text-muted">{t('friends.level', { n: selected.user.level })} · {presenceText(selected, t)}</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -576,14 +592,14 @@ function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
         <div className="flex items-center gap-2">
           {showOnline && (
             <span
-              className={`inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-emerald-400' : 'bg-white/25'}`}
-              title={online ? t('common.online') : t('common.offline')}
-              aria-label={online ? t('common.online') : t('common.offline')}
+              className={`inline-block w-2.5 h-2.5 rounded-full ${presenceDot(entry)}`}
+              title={presenceText(entry, t)}
+              aria-label={presenceText(entry, t)}
             />
           )}
           <span className="font-display font-semibold tracking-wide text-txt truncate">{user.username}</span>
         </div>
-        <div className="text-xs text-muted">{t('friends.level', { n: user.level })}</div>
+        <div className="text-xs text-muted">{t('friends.level', { n: user.level })}{showOnline && online ? ` · ${presenceText(entry, t)}` : ''}</div>
       </div>
       <div className="ml-auto flex items-center gap-2">{children}</div>
     </li>

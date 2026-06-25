@@ -17,11 +17,15 @@ export class FriendsError extends Error {
   }
 }
 
+/** What an online friend is currently doing (for the detailed presence label). */
+export type FriendActivity = 'lobby' | 'room' | 'match';
+
 export interface FriendEntry {
   id: string; // friendship id
   status: 'pending' | 'accepted' | 'blocked';
   direction: 'incoming' | 'outgoing' | 'friends' | 'blocked';
   online: boolean;
+  activity?: FriendActivity; // present only when online: in lobby / waiting room / live match
   user: { id: string; username: string; avatar: string | null; level: number };
 }
 
@@ -37,6 +41,9 @@ export class FriendsService {
     private readonly users: UserRepository,
     private readonly friends: FriendsRepository,
     private readonly presence: Presence,
+    // Optional: resolves a user's current activity (in a room / live match) for detailed
+    // presence. Wired by app.ts to the rooms service; absent ⇒ online friends read as 'lobby'.
+    private readonly activityOf?: (userId: string) => FriendActivity,
   ) {}
 
   setNotifier(fn: (targetUserId: string, fromUsername: string) => void): void {
@@ -114,11 +121,13 @@ export class FriendsService {
         if (!other) return null;
         const direction: FriendEntry['direction'] =
           r.status === 'blocked' ? 'blocked' : r.status === 'accepted' ? 'friends' : r.addresseeId === userId ? 'incoming' : 'outgoing';
+        const online = this.presence.isOnline(otherId);
         return {
           id: r.id,
           status: r.status,
           direction,
-          online: this.presence.isOnline(otherId),
+          online,
+          activity: online ? (this.activityOf?.(otherId) ?? 'lobby') : undefined,
           user: { id: other.id, username: other.username, avatar: other.avatar, level: levelInfo(other.xp).level },
         };
       }),
