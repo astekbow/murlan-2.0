@@ -36,6 +36,7 @@ import type { PushSubscriptionRepository, PushSubscriptionRecord } from '../push
 import type { WebPushSubscription } from '../push/pushProvider.ts';
 import type { ChatRepository, ChatMessageRecord, ChatReportRecord } from '../chat/chatRepository.ts';
 import type { DmRepository, DirectMessageRecord } from '../social/dmRepository.ts';
+import type { ClubWarRepository, ClubWar, ClubWarStatus, WarPairing } from '../social/clubWarRepository.ts';
 import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError, genClubCode } from '../social/clubRepository.ts';
 import type { TournamentRepository, Tournament, BracketMatch } from '../tournament/tournamentService.ts';
 import type { Card } from '@murlan/engine';
@@ -1039,6 +1040,41 @@ export class PrismaDms implements DmRepository {
   }
 }
 
+export class PrismaClubWars implements ClubWarRepository {
+  constructor(private readonly db: PrismaClient) {}
+  private map(row: any): ClubWar {
+    return {
+      id: row.id, clubAId: row.clubAId, clubBId: row.clubBId, status: row.status as ClubWarStatus,
+      stakeCents: row.stakeCents, rakeBps: row.rakeBps, size: row.size,
+      rosterA: (row.rosterA as string[]) ?? [], rosterB: (row.rosterB as string[]) ?? [],
+      pairings: (row.pairings as WarPairing[]) ?? [], scoreA: row.scoreA, scoreB: row.scoreB,
+      prizePoolCents: row.prizePoolCents, winnerClubId: row.winnerClubId ?? null, createdAt: ms(row.createdAt),
+    };
+  }
+  async create(w: ClubWar): Promise<ClubWar> {
+    await this.db.clubWar.create({ data: {
+      id: w.id, clubAId: w.clubAId, clubBId: w.clubBId, status: w.status, stakeCents: w.stakeCents, rakeBps: w.rakeBps,
+      size: w.size, rosterA: w.rosterA, rosterB: w.rosterB, pairings: w.pairings as any, scoreA: w.scoreA, scoreB: w.scoreB,
+      prizePoolCents: w.prizePoolCents, winnerClubId: w.winnerClubId,
+    } });
+    return w;
+  }
+  async get(id: string): Promise<ClubWar | null> {
+    const row = await this.db.clubWar.findUnique({ where: { id } });
+    return row ? this.map(row) : null;
+  }
+  async save(w: ClubWar): Promise<void> {
+    await this.db.clubWar.update({ where: { id: w.id }, data: {
+      status: w.status, rosterA: w.rosterA, rosterB: w.rosterB, pairings: w.pairings as any,
+      scoreA: w.scoreA, scoreB: w.scoreB, prizePoolCents: w.prizePoolCents, winnerClubId: w.winnerClubId,
+    } });
+  }
+  async listForClub(clubId: string, limit: number): Promise<ClubWar[]> {
+    const rows = await this.db.clubWar.findMany({ where: { OR: [{ clubAId: clubId }, { clubBId: clubId }] }, orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
+    return rows.map((r: any) => this.map(r));
+  }
+}
+
 function toClub(row: any): Club {
   return { id: row.id, name: row.name, tag: row.tag, founderId: row.founderId, createdAt: ms(row.createdAt), private: !!row.private, joinCode: row.joinCode ?? null };
 }
@@ -1173,6 +1209,7 @@ export interface PrismaStores {
   pushSubscriptions: PrismaPushSubscriptions;
   chat: PrismaChat;
   dms: PrismaDms;
+  clubWars: PrismaClubWars;
   clubs: PrismaClubs;
   tournaments: PrismaTournaments;
   verificationTokens: PrismaVerificationTokens;
@@ -1240,6 +1277,7 @@ export function createPrismaStores(db: PrismaClient): PrismaStores {
     pushSubscriptions: new PrismaPushSubscriptions(db),
     chat: new PrismaChat(db),
     dms: new PrismaDms(db),
+    clubWars: new PrismaClubWars(db),
     clubs: new PrismaClubs(db),
     tournaments: new PrismaTournaments(db),
     verificationTokens: new PrismaVerificationTokens(db),

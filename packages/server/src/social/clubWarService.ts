@@ -76,13 +76,20 @@ export class ClubWarService {
       if (w.rosterA.includes(userId) || w.rosterB.includes(userId)) throw new ClubWarError('already', 'Je regjistruar tashmë.');
       const roster = side === 'A' ? w.rosterA : w.rosterB;
       if (roster.length >= w.size) throw new ClubWarError('full', 'Skuadra është plot.');
-      // Escrow the buy-in BEFORE adding to the roster (so a failed debit never seats a
-      // player who didn't pay). On failure the wallet throws (insufficient funds) → no seat.
-      if (w.stakeCents > 0) await this.wallet!.debit(userId, w.stakeCents, `clubwar:${w.id}:buyin`);
-      roster.push(userId);
-      w.prizePoolCents += w.stakeCents;
-      if (w.rosterA.length >= w.size && w.rosterB.length >= w.size) this.begin(w);
-      await this.repo.save(w);
+      // Escrow the buy-in BEFORE seating (a failed debit → insufficient funds → no seat). Then
+      // persist, with a COMPENSATING REFUND if the persist throws — so a debited player is never
+      // left unseated with a trapped buy-in (mirrors tournamentService's non-uow path).
+      const buyInRef = `clubwar:${w.id}:buyin:${userId}`;
+      if (w.stakeCents > 0) await this.wallet!.debit(userId, w.stakeCents, buyInRef);
+      try {
+        roster.push(userId);
+        w.prizePoolCents += w.stakeCents;
+        if (w.rosterA.length >= w.size && w.rosterB.length >= w.size) this.begin(w);
+        await this.repo.save(w);
+      } catch (e) {
+        if (w.stakeCents > 0) await this.wallet!.credit(userId, w.stakeCents, `clubwar:${w.id}:buyin-rollback:${userId}`).catch(() => undefined);
+        throw e;
+      }
       return w;
     });
   }
@@ -160,8 +167,10 @@ export class ClubWarService {
 
   private async refundAll(w: ClubWar): Promise<void> {
     if (w.stakeCents === 0) return;
+    // Per-user ref so each refund is idempotent on its own (a shared ref would collide and
+    // only refund the first player). Distinct from the buy-in/payout refs.
     for (const userId of [...w.rosterA, ...w.rosterB]) {
-      await this.wallet!.credit(userId, w.stakeCents, `clubwar:${w.id}:refund`);
+      await this.wallet!.credit(userId, w.stakeCents, `clubwar:${w.id}:refund:${userId}`);
     }
   }
 

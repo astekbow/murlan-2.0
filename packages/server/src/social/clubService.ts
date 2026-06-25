@@ -90,6 +90,18 @@ export class ClubService {
     return m ? { clubId: m.clubId, role: m.role as ClubRoleDTO } : null;
   }
 
+  /** Resolve a club by its TAG (e.g. to challenge it to a war). Public summary only. */
+  async byTag(tag: string): Promise<{ id: string; name: string; tag: string } | null> {
+    const c = await this.clubs.getByTag(tag.trim());
+    return c ? { id: c.id, name: c.name, tag: c.tag } : null;
+  }
+
+  /** Resolve a club by id → public summary (id/name/tag), or null. */
+  async byId(clubId: string): Promise<{ id: string; name: string; tag: string } | null> {
+    const c = await this.clubs.getClub(clubId);
+    return c ? { id: c.id, name: c.name, tag: c.tag } : null;
+  }
+
   async create(userId: string, name: string, tag: string, priv = false): Promise<ClubDetailDTO> {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const trimmed = name.trim();

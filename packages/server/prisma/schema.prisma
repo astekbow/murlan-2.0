@@ -451,6 +451,30 @@ model DirectMessage {
   @@map("direct_messages")
 }
 
+// Club War: a round-robin series between two clubs (free or buy-in). rosters/pairings as JSON
+// (mirrors Tournament.playerIds/bracket) so escrowed buy-ins + scores survive a restart.
+model ClubWar {
+  id             String   @id @default(cuid())
+  clubAId        String
+  clubBId        String
+  status         String   @default("registering")
+  stakeCents     Int
+  rakeBps        Int
+  size           Int
+  rosterA        Json     @default("[]")
+  rosterB        Json     @default("[]")
+  pairings       Json     @default("[]")
+  scoreA         Int      @default(0)
+  scoreB         Int      @default(0)
+  prizePoolCents Int      @default(0)
+  winnerClubId   String?
+  createdAt      DateTime @default(now())
+
+  @@index([clubAId, createdAt])
+  @@index([clubBId, createdAt])
+  @@map("club_wars")
+}
+
 model ChatReport {
   id         String   @id @default(cuid())
   messageId  String

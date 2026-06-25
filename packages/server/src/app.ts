@@ -68,6 +68,8 @@ import { FriendsService } from './social/friendsService.ts';
 import { FeedService } from './social/feedService.ts';
 import { InMemoryDms, type DmRepository } from './social/dmRepository.ts';
 import { DmService } from './social/dmService.ts';
+import { InMemoryClubWars, type ClubWarRepository } from './social/clubWarRepository.ts';
+import { ClubWarService, type ClubWarWallet } from './social/clubWarService.ts';
 import { Presence } from './realtime/presence.ts';
 import { socialRoutes } from './http/socialRoutes.ts';
 import { RewardsService } from './rewards/rewardsService.ts';
@@ -86,6 +88,7 @@ import { PushService } from './push/pushService.ts';
 import { ConsolePushProvider } from './push/pushProvider.ts';
 import { VipService } from './vip/vipService.ts';
 import { vipRoutes } from './http/vipRoutes.ts';
+import { clubWarRoutes } from './http/clubWarRoutes.ts';
 import { InMemoryClubRepository, type ClubRepository } from './social/clubRepository.ts';
 import { ClubService } from './social/clubService.ts';
 import { InMemoryChatRepository, type ChatRepository } from './chat/chatRepository.ts';
@@ -126,6 +129,7 @@ export interface HttpDeps {
   friends?: FriendsService;
   feed?: FeedService;
   dms?: DmService;
+  clubWars?: ClubWarService;
   rewards?: RewardsService;
   adminAudit?: AdminAuditRepository;
   games?: GamesRepository;
@@ -288,6 +292,9 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   if (deps.vip) {
     await vipRoutes(app, { auth: deps.auth, vip: deps.vip, rewards: deps.rewards });
   }
+  if (deps.clubWars && deps.clubs && deps.users) {
+    await clubWarRoutes(app, { auth: deps.auth, clubWars: deps.clubWars, clubs: deps.clubs, users: deps.users });
+  }
   if (deps.clubs) {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
   }
@@ -442,6 +449,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   let pushSubsRepo: PushSubscriptionRepository;
   let chatRepo: ChatRepository;
   let dmsRepo: DmRepository;
+  let clubWarsRepo: ClubWarRepository;
   let clubsRepo: ClubRepository;
   let tournamentsRepo: TournamentRepository;
   let seasonsRepo: SeasonRepository;
@@ -484,6 +492,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     pushSubsRepo = stores.pushSubscriptions;
     chatRepo = stores.chat;
     dmsRepo = stores.dms;
+    clubWarsRepo = stores.clubWars;
     clubsRepo = stores.clubs;
     tournamentsRepo = stores.tournaments;
     seasonsRepo = stores.seasons;
@@ -516,6 +525,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     pushSubsRepo = new InMemoryPushSubscriptions();
     chatRepo = new InMemoryChatRepository();
     dmsRepo = new InMemoryDms();
+    clubWarsRepo = new InMemoryClubWars();
     clubsRepo = new InMemoryClubRepository();
     tournamentsRepo = new InMemoryTournamentRepository();
     seasonsRepo = new InMemorySeasonRepository();
@@ -714,6 +724,20 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Pass the uow so register/finish can make escrow+payout atomic with the row write (SCH-3).
   // dualControl: four-eyes on the champion payout (off by default — solo operation).
   const tournaments = new TournamentService(tournamentsRepo, tournamentWallet, config.rakeBps, undefined, undefined, uow, config.tournamentDualControl);
+
+  // Club War: buy-in escrow + split prize reuse the proven wallet paths. Each credit carries a
+  // UNIQUE providerRef → idempotent (a re-run can't double-pay a winner or a refund).
+  const clubWarWallet: ClubWarWallet = {
+    async debit(userId, cents, reason) { await wallet.debit(userId, cents, { type: 'bet', reason }); },
+    async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
+    async payoutSplit(winners, rakeCents, ref) {
+      for (const wnr of winners) {
+        await wallet.credit(wnr.userId, wnr.amountCents, { type: 'payout', reason: `clubwar prize:${ref}`, providerRef: `${ref}:${wnr.userId}` });
+      }
+      if (rakeCents > 0) await wallet.recordRake(rakeCents, { providerRef: `clubwar-rake:${ref}` });
+    },
+  };
+  const clubWars = new ClubWarService(clubWarsRepo, config.rakeBps, clubWarWallet);
   // Club chat + moderation. Membership-gated + mute-aware + abuse reports.
   // Foundation ships ON; review moderation POLICY before broad public promotion.
   const chat = new ChatService(chatRepo, clubs);
@@ -932,7 +956,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     });
   }
 
-  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, feed, dms, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
+  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, feed, dms, clubWars, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
