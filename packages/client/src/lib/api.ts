@@ -403,6 +403,7 @@ export type { ClubSummaryDTO, ClubDetailDTO, ChatMessageDTO };
 export const vipApi = {
   status: (token: string) => request<{ vip: VipStatusDTO }>('/vip', { token }),
   tiers: () => request<{ tiers: VipTierInfo[] }>('/vip/tiers'),
+  claimGift: (token: string) => request<{ ok: boolean; cosmeticId?: string; bonusXp?: number }>('/vip/weekly-gift', { method: 'POST', token }),
 };
 export type { VipStatusDTO, VipTierInfo };
 

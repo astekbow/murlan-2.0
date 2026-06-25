@@ -150,6 +150,7 @@ model User {
   dailyAnchor         Json?
   weeklyAnchor        Json?
   badges            String[]  @default([]) // earned achievement/season badge ids (append-only)
+  lastVipGift       String?   // ISO-week key of the last claimed VIP weekly gift (null = never)
 
   transactions         Transaction[]
   withdrawals          Withdrawal[]  @relation("WithdrawalUser")

@@ -53,6 +53,27 @@ export function VipView() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Claim the free weekly VIP gift (server derives the tier — can't be self-granted). On success,
+  // celebrate + reload so the gift button hides and the new cosmetic shows up in the shop.
+  const [claiming, setClaiming] = useState(false);
+  const claimGift = useCallback(async () => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || claiming) return;
+    setClaiming(true);
+    try {
+      const res = await vipApi.claimGift(token);
+      if (res.ok) {
+        sound.play('coin'); haptics.win();
+        useGameStore.setState({ toast: res.cosmeticId ? tr('vip.giftGot') : tr('vip.giftGotXp'), toastKind: 'success' });
+        load();
+      }
+    } catch (e) {
+      useGameStore.setState({ toast: e instanceof ApiError ? e.message : tr('vip.giftFailed'), toastKind: 'error' });
+    } finally {
+      setClaiming(false);
+    }
+  }, [claiming, load]);
+
   const pct = vip && vip.next ? Math.min(100, Math.round((vip.stakedCents / vip.next.minStakedCents) * 100)) : 100;
 
   // Tier-up celebration: when the player's tier is HIGHER than the last one we recorded
@@ -117,6 +138,11 @@ export function VipView() {
                     {vip.tier.xpBoostBps > 0
                       ? <p className="text-[11px] text-emerald-300">{t('vip.perkXp', { pct: Math.round(vip.tier.xpBoostBps / 100) })}</p>
                       : <p className="text-[11px] text-muted/80">{t('vip.perkLocked')}</p>}
+                    {vip.giftAvailable && (
+                      <button onClick={() => void claimGift()} disabled={claiming} className="btn btn-gold btn-block btn-sm">
+                        🎁 {claiming ? t('vip.giftClaiming') : t('vip.claimGift')}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <p className="text-sm text-muted text-center py-6">{t('vip.statusNote')}</p>

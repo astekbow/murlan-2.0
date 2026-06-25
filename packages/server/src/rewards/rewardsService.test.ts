@@ -403,3 +403,28 @@ test('a reset streak does NOT remove an already-earned streak badge (append-only
   await rewards.status(u.id, DAY1);
   assert.ok((await users.findById(u.id))!.badges.includes('streak_5'), 'badge retained after reset');
 });
+
+// ---- VIP weekly gift (bronze+, once per ISO-week) -------------------------------------
+
+test('VIP weekly gift: a VIP claims once per week; standard is refused; resets next week', async () => {
+  const users = new InMemoryUserRepository();
+  const u = await users.create({ username: 'vg', email: 'vg@x.com', passwordHash: 'h' });
+  const rewards = new RewardsService(users, true, new FakeWallet());
+
+  // A standard player (isVip=false) is refused — the route gates by real staked volume.
+  assert.deepEqual(await rewards.claimVipGift(u.id, { isVip: false, now: MON }), { ok: false, code: 'not_vip' });
+
+  // A VIP claims → gets a real cosmetic, owned, and the week is marked.
+  const first = await rewards.claimVipGift(u.id, { isVip: true, now: MON });
+  assert.equal(first.ok, true);
+  assert.ok(first.cosmeticId, 'granted a cosmetic');
+  assert.ok((await users.findById(u.id))!.cosmetics.includes(first.cosmeticId!), 'cosmetic owned');
+
+  // Second claim the SAME week → already; availability is false.
+  assert.deepEqual(await rewards.claimVipGift(u.id, { isVip: true, now: MON }), { ok: false, code: 'already' });
+  assert.equal(await rewards.isVipGiftAvailable(u.id, MON), false);
+
+  // Next ISO-week → available again and claimable.
+  assert.equal(await rewards.isVipGiftAvailable(u.id, NEXT_WEEK), true);
+  assert.equal((await rewards.claimVipGift(u.id, { isVip: true, now: NEXT_WEEK })).ok, true);
+});

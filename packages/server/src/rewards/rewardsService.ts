@@ -114,6 +114,22 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'felt_aurora', name: 'Çoha aurore', type: 'tableFelt', cost: 700, featured: true },
 ];
 
+// VIP weekly gift: a free cosmetic for bronze+ VIPs, once per ISO-week. The week deterministically
+// picks a starting point in this pool; the player gets the first one they don't already own (or, if
+// they own them all, a small XP gift). XP/cosmetic only — never money.
+const VIP_GIFT_POOL = [
+  'cb_ocean', 'felt_forest', 'cb_emerald', 'felt_teal', 'cb_sunset',
+  'felt_plum', 'cb_mint', 'felt_moss', 'cb_sapphire', 'felt_amber',
+] as const;
+const VIP_GIFT_XP = 120;
+
+/** Small deterministic index from a week key (FNV-1a) so the gift rotates by week. */
+function weekIndex(weekKey: string, mod: number): number {
+  let h = 2166136261;
+  for (let i = 0; i < weekKey.length; i += 1) { h ^= weekKey.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % mod;
+}
+
 type Metric = 'gamesPlayed' | 'wins' | 'level' | 'currentStreak';
 interface ChallengeDef {
   id: string;
@@ -368,6 +384,40 @@ export class RewardsService {
       await this.users.purchaseCosmetic(userId, pending.cosmeticId, 0).catch(() => undefined);
     }
     return pending;
+  }
+
+  /** Is the VIP weekly gift claimable for this user right now (i.e. not already claimed this
+   *  ISO-week)? The VIP-tier gate (bronze+) is enforced by the caller, which knows the tier. */
+  async isVipGiftAvailable(userId: string, now: number): Promise<boolean> {
+    const u = await this.users.findById(userId);
+    return !!u && u.lastVipGift !== isoWeekKey(now);
+  }
+
+  /** Claim the VIP weekly cosmetic gift (bronze+, once per ISO-week). `isVip` is supplied by the
+   *  route (which derives the tier from staked volume). Grants the first pool cosmetic the player
+   *  doesn't own (rotating by week); if they own them all, a small XP gift instead. */
+  async claimVipGift(userId: string, opts: { isVip: boolean; now: number }): Promise<{ ok: boolean; code?: string; cosmeticId?: string; bonusXp?: number }> {
+    if (!this.enabled) return { ok: false, code: 'disabled' };
+    if (!opts.isVip) return { ok: false, code: 'not_vip' };
+    const u = await this.users.findById(userId);
+    if (!u) return { ok: false, code: 'not_found' };
+    const week = isoWeekKey(opts.now);
+    if (u.lastVipGift === week) return { ok: false, code: 'already' }; // one gift per week
+    const start = weekIndex(week, VIP_GIFT_POOL.length);
+    let cosmeticId: string | null = null;
+    for (let i = 0; i < VIP_GIFT_POOL.length; i += 1) {
+      const id = VIP_GIFT_POOL[(start + i) % VIP_GIFT_POOL.length]!;
+      if (!u.cosmetics.includes(id)) { cosmeticId = id; break; }
+    }
+    if (cosmeticId) {
+      // Grant the cosmetic AND mark the week in one write (no double-claim window).
+      await this.users.setRewards(userId, { cosmetics: [...u.cosmetics, cosmeticId], lastVipGift: week });
+      return { ok: true, cosmeticId };
+    }
+    // Owns the whole pool → a small XP gift, still once per week.
+    await this.users.setRewards(userId, { lastVipGift: week });
+    await this.users.addXp(userId, VIP_GIFT_XP);
+    return { ok: true, bonusXp: VIP_GIFT_XP };
   }
 
   /** Buy a cosmetic with the wallet balance (real money). Debits the ledger, then

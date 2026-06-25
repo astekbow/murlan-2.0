@@ -299,6 +299,7 @@ export interface VipStatusDTO {
   tier: VipTierInfo;
   next: VipTierInfo | null;     // the tier above, if any
   toNextCents: number;          // staked volume still needed for `next` (0 at top)
+  giftAvailable?: boolean;      // a free weekly VIP cosmetic gift is claimable now (bronze+)
 }
 
 // ---------- Clubs (social) --------------------------------------------------

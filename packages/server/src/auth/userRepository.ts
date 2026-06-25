@@ -81,6 +81,9 @@ export interface User {
   // Earned achievement/season BADGE ids (§2.6). Append-only, never removed.
   // Stored like `cosmetics` (TEXT[]); a milestone grant adds an id once.
   badges: string[];
+  // ISO-week key ('YYYY-Www') of the last claimed VIP weekly gift, or null if never.
+  // Gates the once-per-week VIP cosmetic gift (bronze+).
+  lastVipGift: string | null;
 }
 
 /** Patch for reward/cosmetic fields. */
@@ -97,6 +100,7 @@ export interface RewardsPatch {
   dailyAnchor?: { period: string; games: number; wins: number } | null;
   weeklyAnchor?: { period: string; games: number; wins: number } | null;
   badges?: string[];
+  lastVipGift?: string | null;
 }
 
 /** A finished-match result applied to a player's cosmetic stats/XP. */
@@ -273,6 +277,7 @@ export class InMemoryUserRepository implements UserRepository {
       dailyAnchor: null,
       weeklyAnchor: null,
       badges: [],
+      lastVipGift: null,
     };
     this.byId.set(user.id, user);
     this.byEmail.set(email, user.id);
@@ -434,6 +439,7 @@ export class InMemoryUserRepository implements UserRepository {
     if (patch.dailyAnchor !== undefined) user.dailyAnchor = patch.dailyAnchor ? { ...patch.dailyAnchor } : null;
     if (patch.weeklyAnchor !== undefined) user.weeklyAnchor = patch.weeklyAnchor ? { ...patch.weeklyAnchor } : null;
     if (patch.badges !== undefined) user.badges = [...patch.badges];
+    if (patch.lastVipGift !== undefined) user.lastVipGift = patch.lastVipGift;
     return { ...user };
   }
 

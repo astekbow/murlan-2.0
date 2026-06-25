@@ -281,7 +281,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await supportRoutes(app, { auth: deps.auth, support: deps.support, audit: deps.adminAudit, onTicketCreated: (t) => { void deps.telegramAdminBot?.notifyNewTicket(t); } });
   }
   if (deps.vip) {
-    await vipRoutes(app, { auth: deps.auth, vip: deps.vip });
+    await vipRoutes(app, { auth: deps.auth, vip: deps.vip, rewards: deps.rewards });
   }
   if (deps.clubs) {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });
