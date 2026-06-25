@@ -1007,6 +1007,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     presence,
     feed,
     dms,
+    clubWars,
     games: gamesRepo,
     matchLog: matchLogRepo,
     push,

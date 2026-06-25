@@ -180,6 +180,8 @@ interface GameStore {
   cancelRanked: () => void;
   /** Start a private zero-stake match vs AI bots. */
   startPractice: (type: MatchType, tier?: 'easy' | 'medium' | 'hard') => Promise<boolean>;
+  /** Start a Club War pairing vs a specific opponent (server spins the room + auto-joins both). */
+  playClubWar: (warId: string, opponentUserId: string) => Promise<boolean>;
   spectate: (roomId: string) => Promise<boolean>;
   stopSpectate: () => void;
   /** Join/leave the leaderboard live-refresh channel (call while the page is open). */
@@ -464,6 +466,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ toast: tg('msg.tournamentMatchReady'), toastKind: 'info' });
       void get().joinRoom(dto.roomId);
     });
+    socket.on('clubwar:matchReady', (dto) => {
+      // Our Club War pairing room is up — auto-join (gateway gated it to the two players).
+      set({ toast: tg('msg.clubWarMatchReady'), toastKind: 'info' });
+      void get().joinRoom(dto.roomId);
+    });
     socket.on('friend:request', (dto) => {
       useNotifications.getState().push(`👥 ${tg('msg.friendRequestFrom', { name: dto.fromUsername })}`, 'invite', { view: 'friends' });
       set((s) => ({ socialRev: s.socialRev + 1 })); // refresh an open Friends page instantly
@@ -541,6 +548,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const res = await request<Ack>(socket, 'practice:start', { type, tier });
     if (!res.ok) set({ toast: ackText(res.error, 'err.practiceStartFailed'), toastKind: 'error' });
     return res.ok;
+  },
+
+  async playClubWar(warId, opponentUserId) {
+    const socket = get().socket;
+    if (!socket) return false;
+    const res = await request<Ack>(socket, 'clubwar:play', { warId, opponentUserId });
+    if (!res.ok) { set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' }); return false; }
+    return true; // on success the server emits clubwar:matchReady → we auto-join
   },
 
   async findRanked(matchType) {

@@ -7,6 +7,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
+import { ClubWarPanel } from '../components/ClubWarPanel.tsx';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
@@ -29,7 +30,7 @@ export function ClubsView() {
   const [codeInput, setCodeInput] = useState('');
   const [busy, setBusy] = useState(false);
   const landscape = useLandscapePage();
-  const [tab, setTab] = useState<'turne' | 'chat'>('turne');
+  const [tab, setTab] = useState<'turne' | 'luftë' | 'chat'>('turne');
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
   const myId = useAuthStore((s) => s.user?.id ?? null);
   // The caller founded this club → they may toggle its privacy + invite friends.
@@ -112,10 +113,11 @@ export function ClubsView() {
             <div className="pg-ls-right">
               <div className="pg-ls-tabs">
                 <button className={`pg-ls-tab ${tab === 'turne' ? 'on' : ''}`} onClick={() => setTab('turne')}>{t('clubs.tournaments')}</button>
+                <button className={`pg-ls-tab ${tab === 'luftë' ? 'on' : ''}`} onClick={() => setTab('luftë')}>⚔️</button>
                 <button className={`pg-ls-tab ${tab === 'chat' ? 'on' : ''}`} onClick={() => setTab('chat')}>{t('clubs.chatTitle')}</button>
               </div>
               <div className="pg-ls-scroll">
-                {tab === 'turne' ? <ClubTournaments club={mine} /> : <ClubChat club={mine} />}
+                {tab === 'turne' ? <ClubTournaments club={mine} /> : tab === 'luftë' ? <ClubWarPanel club={mine} /> : <ClubChat club={mine} />}
               </div>
             </div>
           </div>
@@ -224,6 +226,8 @@ export function ClubsView() {
       ) : null}
 
       {mine && <ClubTournaments club={mine} />}
+
+      {mine && <ClubWarPanel club={mine} />}
 
       {mine && <ClubChat club={mine} />}
 

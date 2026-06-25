@@ -40,6 +40,7 @@ import type { ClubService } from '../social/clubService.ts';
 import type { Presence } from './presence.ts';
 import type { FeedService } from '../social/feedService.ts';
 import type { DmService } from '../social/dmService.ts';
+import type { ClubWarService } from '../social/clubWarService.ts';
 import type { RankedService } from '../ranked/rankedService.ts';
 import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
 import type { PushService } from '../push/pushService.ts';
@@ -72,6 +73,7 @@ export interface GatewayOptions {
   presence?: Presence;       // tracks who is online (shared with the friends routes)
   feed?: FeedService;        // records real-money wins for the friend activity feed (social only)
   dms?: DmService;           // direct messages: wires the real-time 'dm:new' push to the recipient
+  clubWars?: ClubWarService; // club wars: spins pairing rooms + reports 1v1 results to the war
   games?: GamesRepository;   // persists provably-fair seeds per game (durable audit)
   matchLog?: MatchActionsRepository; // persists the move-log for replay/dispute (isolated; never blocks play)
   matchmaking?: MatchmakingService;  // ranked skill-matched queue (requires `ranked` to rate the result)
@@ -151,6 +153,7 @@ export class GameGateway {
   private readonly clubs: ClubService | null;
   private readonly presence: Presence | null;
   private readonly feed: FeedService | null;
+  private readonly clubWars: ClubWarService | null;
   private readonly games: GamesRepository | null;
   private readonly matchLog: MatchActionsRepository | null;
   private readonly push: PushService | null;
@@ -256,6 +259,7 @@ export class GameGateway {
     this.clubs = opts.clubs ?? null;
     this.presence = opts.presence ?? null;
     this.feed = opts.feed ?? null;
+    this.clubWars = opts.clubWars ?? null;
     this.games = opts.games ?? null;
     this.matchLog = opts.matchLog ?? null;
     this.push = opts.push ?? null;
@@ -428,6 +432,7 @@ export class GameGateway {
     socket.on('club:invite', (payload, ack) => void this.onClubInvite(socket, payload, ack));
     socket.on('club:message', (payload, ack) => void this.onClubMessage(socket, payload, ack));
     socket.on('practice:start', (payload, ack) => this.onPracticeStart(socket, payload, ack));
+    socket.on('clubwar:play', (payload, ack) => void this.onClubWarPlay(socket, payload, ack));
 
     socket.on('disconnect', () => this.onDisconnect(socket));
   }
@@ -1798,6 +1803,29 @@ export class GameGateway {
       .catch(() => undefined);
   }
 
+  /** A player initiates their Club War pairing vs a specific opponent: validate the UNDECIDED
+   *  pairing in a RUNNING war (both online + free), then spin a tagged 1v1 and pull both in (they
+   *  auto-join on 'clubwar:matchReady'). The 1v1 result is reported to the war in
+   *  settleAndEmitMatchEnd via clubWarMetaOf — the gateway never self-decides the winner. */
+  private async onClubWarPlay(socket: IOSocket, payload: { warId: string; opponentUserId: string }, ack: (res: Ack) => void): Promise<void> {
+    const userId = socket.data.userId;
+    if (!this.clubWars) return ack(ackError('unavailable', 'Luftat e klubeve s’janë aktive.'));
+    if (this.rooms.roomIdOf(userId)) return ack(ackError('busy', 'Je tashmë në një dhomë.'));
+    const war = await this.clubWars.get(payload.warId).catch(() => null);
+    if (!war || war.status !== 'running') return ack(ackError('not_running', 'Lufta s’është aktive.'));
+    const pairing = war.pairings.find((p) => !p.winnerId && (
+      (p.aUserId === userId && p.bUserId === payload.opponentUserId) ||
+      (p.bUserId === userId && p.aUserId === payload.opponentUserId)));
+    if (!pairing) return ack(ackError('no_pairing', 'S’ka ndeshje të paluajtur me këtë kundërshtar.'));
+    const { aUserId, bUserId } = pairing;
+    if (this.rooms.roomIdOf(aUserId) || this.rooms.roomIdOf(bUserId)) return ack(ackError('busy', 'Njëri lojtar është në një ndeshje tjetër.'));
+    if (this.socketCountFor(aUserId) === 0 || this.socketCountFor(bUserId) === 0) return ack(ackError('offline', 'Kundërshtari s’është online.'));
+    const roomId = this.rooms.createClubWarRoom([aUserId, bUserId], { warId: war.id, aUserId, bUserId });
+    this.ownership?.claim(roomId);
+    for (const uid of [aUserId, bUserId]) this.io.to(personalRoom(uid)).emit('clubwar:matchReady', { roomId, warId: war.id });
+    ack({ ok: true });
+  }
+
   /**
    * Record the just-finished match's winner for the cosmetic lobby ticker. This is a
    * PURELY READ-ONLY side effect: it reads the ALREADY-decided `winnerSeats` and the
@@ -2019,6 +2047,13 @@ export class GameGateway {
 
     this.recordMatchStats(roomId, winnerSeats); // cosmetic XP/stats (isolated)
     this.recordRecentWinner(roomId, winnerSeats, payoutCents); // cosmetic lobby ticker (read-only side effect)
+    // Club War pairing → report the 1v1 winner to the war (isolated; the war room is zero-stake,
+    // so THIS match moves no money — the war pool is settled by ClubWarService on the last pairing).
+    const cw = this.rooms.clubWarMetaOf(roomId);
+    if (cw && this.clubWars && winnerSeats.length > 0) {
+      const warWinner = this.userAtSeat(roomId, winnerSeats[0]!);
+      if (warWinner) void this.clubWars.reportResult(cw.warId, cw.aUserId, cw.bUserId, warWinner).catch((err) => console.error(`[clubwar] reportResult failed for ${cw.warId}:`, err));
+    }
     // Tournament matches never touch the ranked MMR ladder (they're their own bracket).
     const ratingDeltas = tourn ? [] : await this.recordRankedResult(roomId, winnerSeats);
     this.recordAntiCheat(roomId, winnerSeats); // heuristic flags for review (isolated)

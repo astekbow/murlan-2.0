@@ -74,12 +74,23 @@ interface Room {
   // (the buy-ins are escrowed in the tournament pool), join-restricted to the two
   // paired players, and its result advances the bracket (see the gateway runner).
   tournament: TournamentRoomMeta | null;
+  // When set, this room is one pairing of a running Club War: zero-stake (buy-ins are
+  // escrowed in the war pool), join-restricted to the two paired players, and its result
+  // is reported to the ClubWarService (see the gateway).
+  clubWar: ClubWarRoomMeta | null;
 }
 
 export interface TournamentRoomMeta {
   tournamentId: string;
   round: number;
   index: number;
+  players: [string, string]; // the only two userIds allowed to join this room
+}
+
+export interface ClubWarRoomMeta {
+  warId: string;
+  aUserId: string; // the club-A player (pairing canonical order)
+  bUserId: string; // the club-B player
   players: [string, string]; // the only two userIds allowed to join this room
 }
 
@@ -180,6 +191,7 @@ export class RoomManager {
       practice: !!payload.practice,
       private: isPrivate,
       joinCode: isPrivate ? genJoinCode() : null,
+      clubWar: null,
       tournament: null,
     };
     this.rooms.set(room.id, room);
@@ -212,6 +224,7 @@ export class RoomManager {
       private: true, // never in the public lobby
       joinCode: null,
       tournament: { tournamentId: meta.tournamentId, round: meta.round, index: meta.index, players: [...players] as [string, string] },
+      clubWar: null,
     };
     this.rooms.set(room.id, room);
     return room.id;
@@ -220,6 +233,36 @@ export class RoomManager {
   /** The tournament pairing this room is running, or null for a normal room. */
   tournamentMetaOf(roomId: string): TournamentRoomMeta | null {
     return this.rooms.get(roomId)?.tournament ?? null;
+  }
+
+  /** Create an EMPTY 2-seat zero-stake room for ONE Club War pairing (join-restricted to the
+   *  two paired players; buy-ins are escrowed in the war pool, so the room never escrows). */
+  createClubWarRoom(players: [string, string], meta: { warId: string; aUserId: string; bUserId: string }): string {
+    const room: Room = {
+      id: this.newId(),
+      type: '1v1',
+      stakeCents: 0,
+      status: 'waiting',
+      seats: Array.from({ length: PLAYERS_PER_TYPE['1v1'] }, () => emptySeat()),
+      target: this.startTarget,
+      match: null,
+      matchId: null,
+      matchSeq: 0,
+      createdAt: Date.now(),
+      ranked: false,
+      practice: false,
+      private: true, // never in the public lobby
+      joinCode: null,
+      tournament: null,
+      clubWar: { warId: meta.warId, aUserId: meta.aUserId, bUserId: meta.bUserId, players: [...players] as [string, string] },
+    };
+    this.rooms.set(room.id, room);
+    return room.id;
+  }
+
+  /** The Club War pairing this room is running, or null for a normal room. */
+  clubWarMetaOf(roomId: string): ClubWarRoomMeta | null {
+    return this.rooms.get(roomId)?.clubWar ?? null;
   }
 
   /** Resolve a private-room share code → its room id (case-insensitive). */
@@ -236,6 +279,7 @@ export class RoomManager {
     if (!room) return err('no_room', 'Dhoma nuk ekziston.');
     // A tournament pairing room only admits its two paired players (no walk-ins).
     if (room.tournament && !room.tournament.players.includes(user.userId)) return err('not_your_match', 'Kjo ndeshje turneu nuk është e jotja.');
+    if (room.clubWar && !room.clubWar.players.includes(user.userId)) return err('not_your_match', 'Kjo ndeshje lufte nuk është e jotja.');
     if (room.status !== 'waiting') return err('room_unavailable', 'Dhoma nuk pranon lojtarë të rinj.');
     if (!this.seat(room, user, team)) return err('room_full', 'Dhoma është plot ose ekipi është plot.');
     return okResult;

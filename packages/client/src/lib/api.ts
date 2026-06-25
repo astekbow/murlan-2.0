@@ -423,6 +423,33 @@ export const clubsApi = {
 };
 export type { ClubSummaryDTO, ClubDetailDTO, ChatMessageDTO };
 
+// ---------- Club War (round-robin series between two clubs) -----------------
+export interface ClubWarPairing { aUserId: string; bUserId: string; winnerId: string | null; }
+export interface ClubWarDTO {
+  id: string;
+  clubAId: string; clubBId: string;
+  clubATag: string; clubBTag: string;
+  clubAName: string | null; clubBName: string | null;
+  status: 'registering' | 'running' | 'finished' | 'cancelled';
+  stakeCents: number;
+  size: number;
+  rosterA: string[]; rosterB: string[];
+  pairings: ClubWarPairing[];
+  scoreA: number; scoreB: number;
+  prizePoolCents: number;
+  winnerClubId: string | null;
+  usernames: Record<string, string>;
+  createdAt: number;
+}
+export const clubWarApi = {
+  list: (token: string) => request<{ wars: ClubWarDTO[] }>('/clubwar', { token }),
+  get: (token: string, id: string) => request<{ war: ClubWarDTO }>(`/clubwar/${encodeURIComponent(id)}`, { token }),
+  create: (token: string, opponentTag: string, stakeCents: number, size: number) => request<{ war: ClubWarDTO }>('/clubwar', { method: 'POST', token, body: { opponentTag, stakeCents, size } }),
+  register: (token: string, id: string) => request<{ war: ClubWarDTO }>(`/clubwar/${encodeURIComponent(id)}/register`, { method: 'POST', token }),
+  start: (token: string, id: string) => request<{ war: ClubWarDTO }>(`/clubwar/${encodeURIComponent(id)}/start`, { method: 'POST', token }),
+  cancel: (token: string, id: string) => request<{ war: ClubWarDTO }>(`/clubwar/${encodeURIComponent(id)}/cancel`, { method: 'POST', token }),
+};
+
 // ---------- VIP / loyalty ---------------------------------------------------
 
 export const vipApi = {

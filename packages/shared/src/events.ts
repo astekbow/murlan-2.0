@@ -77,6 +77,8 @@ export interface ClientToServerEvents {
   'ranked:queue:leave': (ack: (res: Ack) => void) => void;
   // Practice vs bots: spin up a private zero-stake room filled with AI opponents.
   'practice:start': (payload: { type: MatchType; tier?: 'easy' | 'medium' | 'hard' }, ack: (res: Ack) => void) => void;
+  // Club War: play your pairing vs a specific opponent — the server spins a tagged 1v1 + pulls both in.
+  'clubwar:play': (payload: { warId: string; opponentUserId: string }, ack: (res: Ack) => void) => void;
   // Spectating: watch a live match (broadcast-safe public state only — no hands).
   'room:spectate': (payload: { roomId: string }, ack: (res: Ack) => void) => void;
   'room:unspectate': (ack: (res: Ack) => void) => void;
@@ -151,6 +153,7 @@ export interface ServerToClientEvents {
   'friend:request': (dto: { fromUsername: string }) => void; // someone sent you a friend request
   'social:refresh': () => void; // your friends list changed (answered/unfriended) — reload it
   'dm:new': (dto: { id: string; fromUserId: string; fromUsername: string; toUserId: string; text: string; createdAt: number }) => void; // a direct message arrived
+  'clubwar:matchReady': (dto: { roomId: string; warId: string }) => void; // your Club War pairing room is up — auto-join
   'club:chat': (dto: ChatMessageDTO) => void; // a new message in your club channel
   // A finished match updated YOUR stats (XP/wins/streak) → reload your open
   // Challenges/Rewards page so progress + claimable rewards stay live.
