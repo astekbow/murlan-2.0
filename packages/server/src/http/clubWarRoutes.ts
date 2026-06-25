@@ -9,14 +9,22 @@ import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth/authService.ts';
 import type { UserRepository } from '../auth/userRepository.ts';
 import type { ClubService } from '../social/clubService.ts';
+import type { ComplianceService } from '../compliance/complianceService.ts';
+import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
+import { checkRealMoneyAccess } from '../compliance/realMoneyGate.ts';
 import { ClubWarService, ClubWarError, type ClubWar } from '../social/clubWarService.ts';
 import { requireAuth } from './authRoutes.ts';
+
+// Hard upper bound on a Club War buy-in (defense against an unbounded/overflowing stake).
+const MAX_STAKE_CENTS = 1_000_000; // $10,000 per player
 
 export interface ClubWarRoutesDeps {
   auth: AuthService;
   clubWars: ClubWarService;
   clubs: ClubService;
   users: UserRepository;
+  compliance?: ComplianceService; // real-money entry gate (KYC/age/geo/self-exclusion) when enabled
+  rg?: ResponsibleGamingService;  // responsible-gaming daily loss cap
 }
 
 export async function clubWarRoutes(app: FastifyInstance, deps: ClubWarRoutesDeps): Promise<void> {
@@ -70,11 +78,19 @@ export async function clubWarRoutes(app: FastifyInstance, deps: ClubWarRoutesDep
     const me = await clubs.memberOf(caller.userId);
     if (!me || me.role !== 'founder') return reply.code(403).send({ error: { code: 'not_founder', message: 'Vetëm themeluesi hap luftë klubi.' } });
     const { opponentTag, stakeCents, size } = (req.body ?? {}) as { opponentTag?: string; stakeCents?: number; size?: number };
+    // Validate + bound the stake (was unbounded — a huge/NaN value could overflow the pool math).
+    const stake = Math.max(0, Math.floor(Number(stakeCents) || 0));
+    if (stake > MAX_STAKE_CENTS) return reply.code(400).send({ error: { code: 'stake_too_high', message: 'Basti është shumë i lartë.' } });
+    // Real-money gate (frozen/banned/self-excluded/over-loss-cap may not open a PAID war).
+    if (stake > 0) {
+      const gate = await checkRealMoneyAccess(deps, caller.userId, { checkLoss: true });
+      if (!gate.allowed) return reply.code(403).send({ error: { code: gate.code ?? 'blocked', message: gate.message ?? 'Bllokuar.' } });
+    }
     const opp = await clubs.byTag(String(opponentTag ?? '').trim());
     if (!opp) return reply.code(404).send({ error: { code: 'no_opponent', message: 'Klubi kundërshtar nuk u gjet.' } });
     if (opp.id === me.clubId) return reply.code(400).send({ error: { code: 'self', message: 'Një klub s’luan kundër vetes.' } });
     try {
-      const war = await clubWars.create(me.clubId, opp.id, Math.max(0, Math.floor(Number(stakeCents) || 0)), Math.floor(Number(size) || 1));
+      const war = await clubWars.create(me.clubId, opp.id, stake, Math.floor(Number(size) || 1));
       await clubWars.register(war.id, caller.userId, 'A'); // the founder auto-joins side A
       const fresh = await clubWars.get(war.id);
       return reply.send({ war: await decorate(fresh!) });
@@ -90,6 +106,11 @@ export async function clubWarRoutes(app: FastifyInstance, deps: ClubWarRoutesDep
     const me = await clubs.memberOf(caller.userId);
     const side = sideOf(war, me?.clubId ?? null);
     if (!side) return reply.code(403).send({ error: { code: 'not_in_clubs', message: 'S’je në asnjë nga të dy klubet.' } });
+    // Real-money gate for a PAID war (mirrors create) — a frozen/excluded player can't buy in.
+    if (war.stakeCents > 0) {
+      const gate = await checkRealMoneyAccess(deps, caller.userId, { checkLoss: true });
+      if (!gate.allowed) return reply.code(403).send({ error: { code: gate.code ?? 'blocked', message: gate.message ?? 'Bllokuar.' } });
+    }
     try {
       await clubWars.register(id, caller.userId, side);
       return reply.send({ war: await decorate((await clubWars.get(id))!) });

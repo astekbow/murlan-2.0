@@ -293,7 +293,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await vipRoutes(app, { auth: deps.auth, vip: deps.vip, rewards: deps.rewards });
   }
   if (deps.clubWars && deps.clubs && deps.users) {
-    await clubWarRoutes(app, { auth: deps.auth, clubWars: deps.clubWars, clubs: deps.clubs, users: deps.users });
+    await clubWarRoutes(app, { auth: deps.auth, clubWars: deps.clubWars, clubs: deps.clubs, users: deps.users, compliance: deps.compliance, rg: deps.rg });
   }
   if (deps.clubs) {
     await clubRoutes(app, { auth: deps.auth, clubs: deps.clubs, chat: deps.chat });

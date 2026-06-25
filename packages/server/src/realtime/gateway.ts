@@ -45,6 +45,7 @@ import type { RankedService } from '../ranked/rankedService.ts';
 import type { AntiCheatService } from '../antiCheat/antiCheatService.ts';
 import type { PushService } from '../push/pushService.ts';
 import type { ChatService } from '../chat/chatService.ts';
+import { sanitizeChat } from '../chat/chatService.ts';
 import type { TournamentService } from '../tournament/tournamentService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
 import { settlementFailures, socketConnections, settlementDuration } from '../metrics.ts';
@@ -419,15 +420,7 @@ export class GameGateway {
       if (seat < 0) return;
       this.io.to(room.id).emit('emote', { seat, emote: emote.slice(0, 16) });
     });
-    socket.on('chat', (text) => {
-      const userId = socket.data.userId;
-      if (!this.limiter.allow(userId) || typeof text !== 'string' || !text.trim()) return;
-      const room = this.rooms.roomOf(userId);
-      if (!room) return;
-      const seat = this.rooms.seatOf(room.id, userId);
-      if (seat < 0) return;
-      this.io.to(room.id).emit('chat', { seat, username: socket.data.username, text: text.slice(0, 80) });
-    });
+    socket.on('chat', (text) => void this.onGameChat(socket, text));
     socket.on('room:invite', (payload, ack) => void this.onInvite(socket, payload, ack));
     socket.on('club:invite', (payload, ack) => void this.onClubInvite(socket, payload, ack));
     socket.on('club:message', (payload, ack) => void this.onClubMessage(socket, payload, ack));
@@ -2609,6 +2602,22 @@ export class GameGateway {
    * ok, no broadcast). On success, broadcast to the club channel. Isolated from
    * all game/money logic.
    */
+  /** In-game table chat. Mirrors the club-chat controls the inline handler was missing:
+   *  a globally-muted user is shadow-muted (silently dropped), and the text runs through the
+   *  same profanity/length/control-char sanitizer instead of a raw slice. */
+  private async onGameChat(socket: IOSocket, text: unknown): Promise<void> {
+    const userId = socket.data.userId;
+    if (!this.limiter.allow(userId) || typeof text !== 'string' || !text.trim()) return;
+    const room = this.rooms.roomOf(userId);
+    if (!room) return;
+    const seat = this.rooms.seatOf(room.id, userId);
+    if (seat < 0) return;
+    if (this.chat && (await this.chat.isMuted(userId))) return; // shadow-mute (no broadcast)
+    const clean = sanitizeChat(text);
+    if (!clean) return;
+    this.io.to(room.id).emit('chat', { seat, username: socket.data.username, text: clean });
+  }
+
   private async onClubMessage(socket: IOSocket, payload: { text: string } | undefined, ack: (res: Ack) => void): Promise<void> {
     const reply = safeAck(ack);
     if (!this.chat) return reply(ackError('disabled', 'Chat-i nuk është aktiv.'));
