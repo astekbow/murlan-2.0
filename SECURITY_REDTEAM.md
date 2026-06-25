@@ -38,37 +38,39 @@ Severity legend: 🔴 crit · 🟠 high · 🟡 med. "votes" = how many of 2 ver
    text skipped profanity/length/control-char cleaning. Routed through `chat.isMuted` (shadow-mute) +
    `sanitizeChat`.
 
+### Batch 3 — commit `bffdfa4` (1 high + 3 med)
+9. 🟠 **Prisma `addXp` non-atomic** — read-modify-write lost an increment under concurrency. Now an atomic
+   DB-side `{ increment }` (delta clamped ≥0; spending uses `xpSpent`, never a negative addXp).
+10. 🟡 **p2p transfer daily-cap failed OPEN** (`walletRoutes`) — a ledger hiccup (`.catch(()=>0)`) bypassed
+    the AML cap. Now fails CLOSED (503).
+11. 🟡 **Password length uncapped** (`authService`) — Argon2id DoS. Capped at 128 (register/login/reset).
+12. 🟡 **`onReady`/`onClubWarPlay` raw ack + no guard/limit** — TypeError crash on omitted ack; `onClubWarPlay`
+    also lacked a payload guard + rate limit. Now `safeAck` + type-guard + rate-gate.
+
+### Batch 4 — commits `3bcd2b3` (sweep) + `e88eb8a` (RBAC)
+13. 🟠 **ClubWar stale-sweep** — abandoned/stuck wars stranded buy-ins (after cancel was restricted).
+    `sweepStaleWars` refunds abandoned wars / finishes stuck-decided ones (idempotent), on the sweep timer.
+14. 🟡 **RBAC scope gaps** — financial/PII read endpoints used the bare `admin` guard. Now scoped:
+    `/users`→manage_accounts, `/users/:id/transactions`→manage_accounts (`__house__`→view_revenue),
+    `/withdrawals`→approve_withdrawals, `/chat-reports`→moderate_chat. (Full admin passes all; only scoped sub-admins restricted.)
+
+### Verified FALSE POSITIVES (re-checked against the real code — no change needed)
+- **"Shuffle seed leak"** — `serverSeed` is correctly withheld until match-end reveal in BOTH the HTTP
+  endpoint and the socket; `clientSeed` alone (the player's own public contribution) can't reconstruct a deal.
+- **"No admin self-credit guard"** — `checkAdjustGovernance` already blocks crediting your own account.
+- **"Dual-control is a no-op"** — intentional stub kept OFF so the solo owner isn't locked out (documented in the policy).
+
 ---
 
-## ⏳ REMAINING — Batch 3 (clear, single-host, mostly small)
-- 🟠 **Shuffle seed leak (potential cheat)** — `fairRoutes:30` exposes `clientSeed` and `gateway:2082`
-  emits `serverSeed` for **live unrevealed** matches. A player who reads them could compute the deal.
-  *Fix:* never expose seeds for a match until it's revealed/finished. **VERIFY then fix — highest remaining priority.**
-- 🟠 **Prisma `addXp` non-atomic** (`prismaRepositories.ts:266`) — read-modify-write loses/duplicates XP
-  under concurrency. *Fix:* `update({ data: { xp: { increment: n } } })`.
+## ⏳ REMAINING (lower value / multi-admin only)
 - 🟡 **Rewards/shop claim TOCTOU** (`rewardsService` claimDaily/Challenge/Quest/Level/VipGift, shop `buy`) —
-  double-XP / double-cosmetic / double-debit under concurrent calls. *Fix:* per-user serialize + atomic DB guards.
-- 🟡 **p2p transfer-cap ledger error treated as zero** (`walletRoutes:195`) — fail-open. *Fix:* fail-closed.
-- 🟡 **Password field no max-length** (`authService:28`) — Argon2id CPU DoS. *Fix:* cap at ~128 chars in the zod schema.
-- 🟡 **Missing per-route rate limits + socket `safeAck`** — `/auth/refresh`, `/users/search`, `/api/dm/:id`,
-  admin `/users/:id/transactions` + revenue (also unbounded ledger scans), `lobby:list`, `clubwar:play`,
-  `leaderboard:watch`; `onClubWarPlay`/`onReady` miss `safeAck` (TypeError crash when ack omitted). *Fix:*
-  add per-route limits + paginate the admin ledger reads + `safeAck` on those handlers.
-
-## ⏳ REMAINING — Batch 4 (authz / leaks, moderate)
-- 🟡 **RBAC scope gaps** (`adminRoutes`) — any `admin` (no specific scope) can list all users + PII, all
-  pending withdrawals, any user's full tx ledger, the house rake ledger (`/users/__house__/transactions`),
-  and chat-reports. *Fix:* gate each on its scope (`manage_accounts`/`approve_withdrawals`/`view_revenue`/`moderate_chat`).
-- 🟠 **Admin governance** (`adminAdjustPolicy` + `adminRoutes`) — `ADJUST_DUAL_CONTROL` is a **no-op**; no
-  self-credit guard; an admin can credit another admin; the owner's balance is adjustable; Telegram
-  account-state path skips `isProtectedOwner`. *Fix:* enforce dual-control or block self/admin-to-admin/owner adjusts.
-- 🟡 **Friends/block leaks** (`socialRoutes` + `prismaRepositories`) — `remove()` deletes block rows (a
-  blocked user can lift their own block); username search + public profile reveal blockers/blocked;
-  FK-error user-existence oracle on block. *Fix:* separate block deletion from unfriend; filter blocked from search.
-- 🟡 **DM unread endpoint leaks historical sender ids** (`dmService:68`) without a friendship guard. *Fix:* filter to friends.
-- 🟠 **ClubWar has no stale-sweep** (`clubWarService`) — buy-ins stranded in a crashed/stuck `running` war
-  (now that user-cancel is `registering`-only). *Fix:* `sweepStaleWars(maxAge)` mirroring `tournament.sweepStale`
-  (idempotent re-decide/refund), wired to a periodic timer.
+  concurrent double-claim → double-XP / double-cosmetic (NOT real money). *Fix:* per-user serialize the claims.
+- 🟡 **Remaining per-route rate limits** — `/auth/refresh`, `/users/search`, `/api/dm/:id`, `lobby:list`,
+  `leaderboard:watch`, + paginate admin ledger reads. *Fix:* add per-route limiters + LIMIT the ledger queries.
+- 🟡 **Friends/block leaks** — `remove()` deletes block rows; search/public-profile reveal blockers; FK
+  existence oracle on block. **DM unread endpoint leaks historical sender ids** without a friendship guard.
+- 🟡 **Admin self-DEBIT not blocked** (audit-trail obfuscation only — no money gain); owner balance
+  adjustable by a second admin. Low value for the solo-owner model.
 
 ## 🧊 DEFERRED — infra / needs migration (NOT exploitable on current single-host deploy)
 - 🔴/🟠 **Multi-instance double-pay races** — tournament/clubwar `cancel`+`finish`/`register` use **in-process**
