@@ -749,6 +749,14 @@ select:focus-visible,
   .spectate-root .panel { padding: 0.55rem 0.8rem; }
 }
 
+/* PORTRAIT phones: tighten the Friends + waiting-Room pages (stacked panels + lists) so they fit
+   with much less scroll. The friends/invite LISTS are still variable-length, but the chrome shrinks. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .friends-page.space-y-5 > :not([hidden]) ~ :not([hidden]),
+  .room-page.space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.7rem; }
+  .friends-page .panel, .room-page .panel { padding: 0.8rem 0.9rem; }
+}
+
 /* In-match table root: safe-area insets (the felt screen renders outside the lobby
    Shell). Lives in CSS — not inline — so the landscape rules below can override it. */
 .tv-root {

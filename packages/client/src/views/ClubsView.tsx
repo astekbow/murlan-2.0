@@ -225,11 +225,18 @@ export function ClubsView() {
         </section>
       ) : null}
 
-      {mine && <ClubTournaments club={mine} />}
-
-      {mine && <ClubWarPanel club={mine} />}
-
-      {mine && <ClubChat club={mine} />}
+      {/* Tournaments / War / Chat as tabs (reusing the landscape tab state) so portrait shows ONE
+          at a time instead of stacking all three → no long scroll. */}
+      {mine && (
+        <>
+          <div className="seg grid grid-cols-3" role="tablist" aria-label={mine.name}>
+            <button type="button" role="tab" aria-selected={tab === 'turne'} onClick={() => setTab('turne')} className={`seg-tab text-center ${tab === 'turne' ? 'active' : ''}`}>{t('clubs.tournaments')}</button>
+            <button type="button" role="tab" aria-selected={tab === 'luftë'} onClick={() => setTab('luftë')} className={`seg-tab text-center ${tab === 'luftë' ? 'active' : ''}`}>⚔️</button>
+            <button type="button" role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')} className={`seg-tab text-center ${tab === 'chat' ? 'active' : ''}`}>{t('clubs.chatTitle')}</button>
+          </div>
+          {tab === 'turne' ? <ClubTournaments club={mine} /> : tab === 'luftë' ? <ClubWarPanel club={mine} /> : <ClubChat club={mine} />}
+        </>
+      )}
 
       {!mine && status !== 'loading' && (
         <>

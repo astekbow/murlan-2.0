@@ -507,7 +507,7 @@ export function FriendsView() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="friends-page space-y-5">
       {/* Back to lobby */}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
         {t('common.backToLobby')}
