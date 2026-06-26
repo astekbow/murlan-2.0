@@ -29,6 +29,7 @@ import { InMemoryGames, type GamesRepository } from './fair/gamesRepository.ts';
 import { InMemoryMatchActions, type MatchActionsRepository } from './realtime/matchActions.ts';
 import { InMemoryVerificationTokens, type VerificationTokenRepository } from './auth/verificationTokens.ts';
 import { fairRoutes } from './http/fairRoutes.ts';
+import { installRoutes } from './http/installRoutes.ts';
 import { registry, httpRequestDuration, reconcileMismatches, orphanedMatchesRefunded, activeMatches, pendingWithdrawals, treasuryBufferCents as treasuryBufferGauge, tronDeposits } from './metrics.ts';
 import { authRoutes, requireAdmin } from './http/authRoutes.ts';
 import { walletRoutes } from './http/walletRoutes.ts';
@@ -315,6 +316,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   if (deps.games) {
     await fairRoutes(app, { games: deps.games });
   }
+  await installRoutes(app); // GET /api/install/ios.mobileconfig — public, no deps
   if (deps.games && deps.matchLog) {
     await replayRoutes(app, { games: deps.games, matchLog: deps.matchLog });
   }

@@ -45,31 +45,28 @@ identity — back it up.
 
 ## 2. iOS `.mobileconfig` (Web Clip)
 
-A ready file is generated at **`packages/client/public/install/crypto-murlan.mobileconfig`** (app icon
-already embedded; opens full-screen). Two edits before use:
+**Nothing to edit — the server generates it.** The route `GET /api/install/ios.mobileconfig`
+(`packages/server/src/http/installRoutes.ts`) builds the profile on the fly from the request origin
+(the app icon is embedded), so it always points at whatever domain it's served from. The in-app
+**Install** prompt shows a one-tap **"Install profile"** button on iOS that links to it.
 
-1. Open it and replace `https://REPLACE_WITH_YOUR_DOMAIN/` with `https://YOUR_DOMAIN/`.
-2. (Optional) regenerate the two `PayloadUUID` values (any unique UUIDs).
+**The user flow (iPhone/iPad, in Safari):**
+1. Tap **Install profile** in the app (or open `https://YOUR_DOMAIN/api/install/ios.mobileconfig`).
+2. "This website is trying to download a configuration profile" → **Allow**.
+3. **Settings** → *Profile Downloaded* (top, or *General → VPN & Device Management*) → **Install**.
+4. A home-screen **Crypto-Murlan** icon appears → launches full-screen, landscape.
 
-**Distribute it:** it ships in `public/`, so after deploy it's served at
-`https://YOUR_DOMAIN/install/crypto-murlan.mobileconfig`. The user opens that link **in Safari** →
-"This website is trying to download a configuration profile" → **Allow** → Settings shows
-*Profile Downloaded* → **Install**. A home-screen "Crypto-Murlan" icon appears that launches the PWA
-full-screen (landscape per the manifest + the in-app rotate lock).
-
-- **Unsigned** profiles install fine but show an **"Unverified"** warning. To remove it, **sign** the
-  `.mobileconfig` with an Apple-trusted cert:
-  ```bash
-  # with an Apple Developer cert in your Keychain:
-  security cms -S -N "Your Cert Name" -i crypto-murlan.mobileconfig -o crypto-murlan-signed.mobileconfig
-  ```
-- This is **NOT** an App Store app and needs no Developer account to *work* — only to *sign* (remove the
-  warning) or to ship a real native iOS app later (Capacitor/Swift wrapper).
+- **Unsigned** profiles install fine but show an **"Unverified"** label. To remove it, **sign** the
+  output with an Apple-trusted cert (`security cms -S -N "Your Cert" -i in -o out`). Needs an Apple
+  Developer cert in your Keychain — optional; the profile works unsigned.
+- This is **NOT** an App Store app and needs no Developer account to *work*.
 
 ### Serving note (nginx)
-`.mobileconfig` is best served as `application/x-apple-aspen-config`. Safari downloads it by extension
-regardless, but to be correct add to `deploy/nginx.conf` (inside the `server` block):
+The route is under `/api/`, already proxied to the server, which sets `Content-Type:
+application/x-apple-aspen-config` itself (that MIME is what makes Safari offer to install it). No nginx
+change needed for iOS.
 ```nginx
+# (legacy — only if you also host a STATIC .mobileconfig somewhere)
 location ~ \.mobileconfig$ { default_type application/x-apple-aspen-config; }
 ```
 Also confirm dot-dirs ship: after `vite build`, `dist/.well-known/assetlinks.json` and

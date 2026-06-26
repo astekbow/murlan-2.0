@@ -60,23 +60,37 @@ export function InstallModal() {
             {t('install.cta')}
           </button>
         ) : (
-          // iOS has no programmatic install — show the exact Safari steps with the Share glyph.
-          <ol className="mt-4 space-y-2.5 text-sm text-txt">
-            <li className="flex items-center gap-2.5">
-              <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">1</span>
-              <span className="flex items-center gap-1.5">{t('install.iosStep1')}
-                <span aria-hidden className="inline-flex items-center justify-center w-5 h-6 rounded-[5px] border border-current leading-none relative -top-px">↑</span>
-              </span>
-            </li>
-            <li className="flex items-center gap-2.5">
-              <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">2</span>
-              <span>{t('install.iosStep2')}</span>
-            </li>
-            <li className="flex items-center gap-2.5">
-              <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">3</span>
-              <span>{t('install.iosStep3')}</span>
-            </li>
-          </ol>
+          // iOS: one-tap CONFIGURATION-PROFILE install (downloads → Settings → Install). Built by the
+          // server for THIS origin. A collapsed manual "Add to Home Screen" stays as a fallback.
+          <>
+            <a
+              href="/api/install/ios.mobileconfig"
+              className="btn btn-gold btn-lg btn-block mt-4"
+              onClick={() => sound.play('button')}
+            >
+              {t('install.iosProfileCta')}
+            </a>
+            <p className="text-[11px] text-muted/80 mt-2 leading-relaxed">{t('install.iosProfileHint')}</p>
+            <details className="mt-3">
+              <summary className="text-xs text-muted cursor-pointer select-none">{t('install.iosManualToggle')}</summary>
+              <ol className="mt-2.5 space-y-2.5 text-sm text-txt">
+                <li className="flex items-center gap-2.5">
+                  <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">1</span>
+                  <span className="flex items-center gap-1.5">{t('install.iosStep1')}
+                    <span aria-hidden className="inline-flex items-center justify-center w-5 h-6 rounded-[5px] border border-current leading-none relative -top-px">↑</span>
+                  </span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">2</span>
+                  <span>{t('install.iosStep2')}</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">3</span>
+                  <span>{t('install.iosStep3')}</span>
+                </li>
+              </ol>
+            </details>
+          </>
         )}
         <button type="button" className="btn btn-ghost btn-block mt-2 text-sm" onClick={() => dismiss(true)}>
           {t('install.dontRemind')}
