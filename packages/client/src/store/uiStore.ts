@@ -10,6 +10,9 @@ interface UiStore {
   replayMatchId: string | null;
   // When set, a player's profile modal is shown globally (used by /u/<id> deep-links).
   profileUserId: string | null;
+  // Force-open the "Install the app" prompt (from a Settings entry) even if it was dismissed.
+  installOpen: boolean;
+  setInstallOpen: (open: boolean) => void;
   setView: (v: LobbyView) => void;
   openReplay: (matchId: string) => void;
   closeReplay: () => void;
@@ -22,6 +25,8 @@ export const useUiStore = create<UiStore>((set) => ({
   view: 'lobby',
   replayMatchId: null,
   profileUserId: null,
+  installOpen: false,
+  setInstallOpen: (installOpen) => set({ installOpen }),
   setView: (view) => set({ view }),
   openReplay: (replayMatchId) => set({ replayMatchId }),
   closeReplay: () => set({ replayMatchId: null }),

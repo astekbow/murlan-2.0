@@ -935,6 +935,7 @@ const STRINGS: Record<string, Entry> = {
   'install.iosProfileCta': { sq: '⬇️ Instalo profilin (iPhone/iPad)', en: '⬇️ Install profile (iPhone/iPad)' },
   'install.iosProfileHint': { sq: 'Prek Lejo → hap Settings → «Profile Downloaded» → Install. (Hape në Safari.)', en: 'Tap Allow → open Settings → “Profile Downloaded” → Install. (Open in Safari.)' },
   'install.iosManualToggle': { sq: 'Ose shtoje manualisht', en: 'Or add it manually' },
+  'install.openOnPhone': { sq: 'Hape aplikacionin në telefon (Android ose iPhone) që ta instalosh.', en: 'Open the app on your phone (Android or iPhone) to install it.' },
   'install.iosStep1': { sq: 'Prek Share te shiriti i Safari-t', en: 'Tap Share in the Safari bar' },
   'install.iosStep2': { sq: 'Zgjidh «Add to Home Screen»', en: 'Choose “Add to Home Screen”' },
   'install.iosStep3': { sq: 'Prek «Add» — gati! 🎉', en: 'Tap “Add” — done! 🎉' },

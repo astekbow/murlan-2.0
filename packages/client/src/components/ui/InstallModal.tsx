@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCanInstall, isIos, isStandalone, promptInstall } from '../../lib/pwa.ts';
+import { useUiStore } from '../../store/uiStore.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
 
@@ -16,14 +17,19 @@ export function InstallModal() {
   const [closed, setClosed] = useState(() => {
     try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
   });
+  const installOpen = useUiStore((s) => s.installOpen);
+  const setInstallOpen = useUiStore((s) => s.setInstallOpen);
   const iosHint = isIos() && !isStandalone();
 
-  // Nothing to offer (already installed, or no install path), or the user dismissed it.
-  if (closed || isStandalone() || (!canInstall && !iosHint)) return null;
+  // Already installed → nothing to offer. Otherwise show when force-opened from Settings, OR
+  // (auto) the first time if not dismissed and there's an install path for this platform.
+  if (isStandalone()) return null;
+  if (!installOpen && (closed || (!canInstall && !iosHint))) return null;
 
   const dismiss = (forever: boolean) => {
     if (forever) { try { localStorage.setItem(DISMISS_KEY, '1'); } catch { /* private mode */ } }
     setClosed(true);
+    setInstallOpen(false); // also clears a force-open from Settings
   };
 
   return createPortal(
@@ -59,7 +65,7 @@ export function InstallModal() {
           >
             {t('install.cta')}
           </button>
-        ) : (
+        ) : iosHint ? (
           // iOS: one-tap CONFIGURATION-PROFILE install (downloads → Settings → Install). Built by the
           // server for THIS origin. A collapsed manual "Add to Home Screen" stays as a fallback.
           <>
@@ -91,6 +97,9 @@ export function InstallModal() {
               </ol>
             </details>
           </>
+        ) : (
+          // Force-opened from Settings on a desktop / unsupported browser: nothing to install here.
+          <p className="text-sm text-muted mt-4 leading-relaxed">{t('install.openOnPhone')}</p>
         )}
         <button type="button" className="btn btn-ghost btn-block mt-2 text-sm" onClick={() => dismiss(true)}>
           {t('install.dontRemind')}

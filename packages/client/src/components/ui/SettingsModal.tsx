@@ -2,6 +2,8 @@ import { Modal } from './Modal.tsx';
 import { useSettingsStore } from '../../store/settingsStore.ts';
 import { useSessionStore, useSessionMinutes, formatSessionDuration } from '../../store/sessionStore.ts';
 import { useRulesStore } from '../../store/rulesStore.ts';
+import { useUiStore } from '../../store/uiStore.ts';
+import { isStandalone } from '../../lib/pwa.ts';
 import { useWalletStore } from '../../store/walletStore.ts';
 import { dollars } from '../../lib/money.ts';
 import { sound } from '../../lib/sound.ts';
@@ -26,6 +28,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       <div className="space-y-4">
         {/* How to play — opens the rules sheet (and closes Settings so they don't stack). */}
         <button className="btn btn-ghost btn-block" onClick={() => { useRulesStore.getState().setOpen(true); onClose(); }}>{t('rules.openBtn')}</button>
+
+        {/* Install the app — always reachable here (the auto-prompt only shows once). Hidden once
+            already installed (standalone). On the device it shows the right path (Android one-tap /
+            iOS profile + steps). */}
+        {!isStandalone() && (
+          <button type="button" className="btn btn-ghost btn-block" onClick={() => { useUiStore.getState().setInstallOpen(true); onClose(); }}>📲 {t('install.title')}</button>
+        )}
 
         {/* Language */}
         <div>
