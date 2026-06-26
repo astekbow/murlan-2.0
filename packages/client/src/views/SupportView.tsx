@@ -37,6 +37,7 @@ export function SupportView() {
   // fetch shows an inline error + retry instead of masquerading as "no tickets".
   const [listStatus, setListStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [listError, setListError] = useState<string | null>(null);
+  const [supportTab, setSupportTab] = useState<'new' | 'tickets'>('new'); // tabs → each fits without scroll
 
   const load = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
@@ -81,7 +82,14 @@ export function SupportView() {
         <span className="text-4xl opacity-80" aria-hidden="true">🛟</span>
       </section>
 
+      {/* Tabs so the form and the list each fit the screen without scrolling. */}
+      <div className="seg grid grid-cols-2" role="tablist" aria-label={t('support.title')}>
+        <button type="button" role="tab" aria-selected={supportTab === 'new'} onClick={() => setSupportTab('new')} className={`seg-tab text-center ${supportTab === 'new' ? 'active' : ''}`}>{t('support.openTicket')}</button>
+        <button type="button" role="tab" aria-selected={supportTab === 'tickets'} onClick={() => setSupportTab('tickets')} className={`seg-tab text-center ${supportTab === 'tickets' ? 'active' : ''}`}>{t('support.myTickets')}</button>
+      </div>
+
       {/* New ticket */}
+      {supportTab === 'new' && (
       <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.06s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('support.openTicket')}</h2>
         <label className="block">
@@ -110,8 +118,10 @@ export function SupportView() {
           {busy ? t('support.sending') : t('support.submit')}
         </button>
       </section>
+      )}
 
       {/* My tickets */}
+      {supportTab === 'tickets' && (
       <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('support.myTickets')}</h2>
         {listStatus === 'loading' ? (
@@ -145,6 +155,7 @@ export function SupportView() {
           </ul>
         )}
       </section>
+      )}
     </div>
   );
 }

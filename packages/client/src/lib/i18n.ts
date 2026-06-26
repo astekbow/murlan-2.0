@@ -950,6 +950,8 @@ const STRINGS: Record<string, Entry> = {
   'onb.viewRules': { sq: '📖 Shih rregullat e plota', en: '📖 See the full rules' },
   // ---- How-to-play (rules) ----
   'rules.title': { sq: 'Si luhet Murlani', en: 'How to play Murlan' },
+  'rules.tabBasics': { sq: 'Bazat', en: 'Basics' },
+  'rules.tabPlay': { sq: 'Loja', en: 'Play' },
   'rules.openBtn': { sq: '📖 Si luhet?', en: '📖 How to play?' },
   'rules.goalTitle': { sq: 'Qëllimi', en: 'Goal' },
   'rules.goalBody': { sq: 'Hidh të gjitha letrat para të tjerëve — i pari që mbetet pa letra fiton.', en: 'Get rid of all your cards first — the first to empty their hand wins.' },
