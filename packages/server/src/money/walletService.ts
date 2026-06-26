@@ -409,6 +409,21 @@ export class WalletService {
     return txs.filter((t) => t.type === 'rake').reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
   }
 
+  /**
+   * Lifetime staked volume (Σ of the magnitude of a user's 'bet' escrow rows) — the input to the
+   * cosmetic VIP tier. Prefers the ledger's DB aggregate so the hot paths (every match-end + every
+   * profile/VIP view) never scan a player's whole growing ledger into memory (audit M4). Bet rows are
+   * stored as negative debits and sumByUserAndType returns abs(Σ), so this exactly equals the pure
+   * stakedVolume() over the same rows. Falls back to summing when no DB aggregate is available.
+   */
+  async stakedVolumeCents(userId: string): Promise<number> {
+    if (this.ledger.sumByUserAndType) {
+      return this.ledger.sumByUserAndType(userId, 'bet');
+    }
+    const txs = await this.ledger.listByUser(userId);
+    return txs.filter((t) => t.type === 'bet').reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
+  }
+
   /** Bounded, newest-first page of a user's transactions for DISPLAY lists (HTTP
    *  history / GDPR export). `take` is clamped to [1, 500] (default 200); `cursor` is a
    *  transaction id for keyset paging. Unlike listTransactions() this never loads the

@@ -41,6 +41,9 @@ export function vipTierFor(stakedCents: number): VipTierInfo {
 
 interface LedgerReader {
   listTransactions: (userId: string) => Promise<Transaction[]>;
+  // Bounded DB aggregate of lifetime staked volume (audit M4). When present it's used instead of
+  // scanning the whole ledger; absent (e.g. a tiny test stub) → fall back to stakedVolume(list).
+  stakedVolumeCents?: (userId: string) => Promise<number>;
 }
 
 export class VipService {
@@ -51,7 +54,9 @@ export class VipService {
   }
 
   async getStatus(userId: string): Promise<VipStatusDTO> {
-    const stakedCents = stakedVolume(await this.wallet.listTransactions(userId));
+    const stakedCents = this.wallet.stakedVolumeCents
+      ? await this.wallet.stakedVolumeCents(userId)
+      : stakedVolume(await this.wallet.listTransactions(userId));
     const tier = vipTierFor(stakedCents);
     const idx = VIP_TIERS.findIndex((t) => t.key === tier.key);
     const next = idx >= 0 && idx < VIP_TIERS.length - 1 ? VIP_TIERS[idx + 1]! : null;

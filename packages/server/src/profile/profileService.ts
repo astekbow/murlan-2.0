@@ -17,6 +17,9 @@ import type { Transaction } from '../money/ledger.ts';
  *  Optional so callers/tests without a wallet still work (no badge then). */
 interface LedgerReader {
   listTransactions: (userId: string) => Promise<Transaction[]>;
+  // Bounded DB aggregate of lifetime staked volume (audit M4) — used on the hot paths (every
+  // match-end + every profile open) instead of scanning the whole ledger; absent → fall back.
+  stakedVolumeCents?: (userId: string) => Promise<number>;
 }
 
 /** Cosmetic avatar ids (a fixed preset set; the client maps these to art). */
@@ -200,7 +203,10 @@ export class ProfileService {
     let vipTier: VipTierInfo | null = null;
     if (this.ledger) {
       try {
-        const tier = vipTierFor(stakedVolume(await this.ledger.listTransactions(userId)));
+        const staked = this.ledger.stakedVolumeCents
+          ? await this.ledger.stakedVolumeCents(userId)
+          : stakedVolume(await this.ledger.listTransactions(userId));
+        const tier = vipTierFor(staked);
         if (tier.key !== 'standard') vipTier = tier;
       } catch { /* cosmetic only */ }
     }
@@ -228,8 +234,12 @@ export class ProfileService {
         // volume, same source as the VIP badge). Best-effort — a ledger hiccup just means no boost.
         let mult = 1;
         if (this.ledger) {
-          try { mult = vipXpMultiplier(vipTierFor(stakedVolume(await this.ledger.listTransactions(s.userId)))); }
-          catch { /* no boost on failure */ }
+          try {
+            const staked = this.ledger.stakedVolumeCents
+              ? await this.ledger.stakedVolumeCents(s.userId)
+              : stakedVolume(await this.ledger.listTransactions(s.userId));
+            mult = vipXpMultiplier(vipTierFor(staked));
+          } catch { /* no boost on failure */ }
         }
         const xpGain = Math.round(base * mult);
         return this.users
