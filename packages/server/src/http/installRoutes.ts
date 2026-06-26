@@ -9,10 +9,41 @@
 // ============================================================================
 
 import type { FastifyInstance } from 'fastify';
+import { execFileSync } from 'node:child_process';
 import { WEBCLIP_ICON_B64 } from './iosWebClipIcon.ts';
 
 const xmlEscape = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * Sign the .mobileconfig (CMS / PKCS#7, DER) so iOS shows it as "Verified" (green) with NO
+ * "Unsigned"/"Not Verified" warning. iOS only trusts a signature whose certificate chains to a root
+ * in its trust store — i.e. a PUBLICLY-trusted cert, NOT a self-signed one. So sign with the domain's
+ * own TLS certificate (Let's Encrypt fullchain + privkey), which already chains to a trusted root and
+ * carries the domain name shown to the user.
+ *
+ * Wire it on the VPS by pointing these env vars at PEM files the server container can read:
+ *   IOS_PROFILE_SIGN_CERT = fullchain.pem  (leaf + intermediate; e.g. the Caddy/Let's Encrypt cert)
+ *   IOS_PROFILE_SIGN_KEY  = privkey.pem
+ * If unset (or signing fails — missing openssl/bad cert), we fall back to the UNSIGNED profile so the
+ * install still works, just with the warning until the cert is wired.
+ */
+function signProfile(plist: string): Buffer | null {
+  const cert = process.env.IOS_PROFILE_SIGN_CERT;
+  const key = process.env.IOS_PROFILE_SIGN_KEY;
+  if (!cert || !key) return null;
+  try {
+    // -nodetach embeds the plist in the signature (Apple requires the content inline); -certfile adds
+    // the intermediate(s) from the same fullchain so iOS can build the path to the trusted root.
+    return execFileSync(
+      'openssl',
+      ['smime', '-sign', '-signer', cert, '-inkey', key, '-certfile', cert, '-outform', 'DER', '-nodetach', '-md', 'sha256'],
+      { input: plist, maxBuffer: 8 * 1024 * 1024 },
+    );
+  } catch {
+    return null; // misconfig / no openssl → serve unsigned (still installs, with the warning)
+  }
+}
 
 function buildWebClipProfile(appUrl: string): string {
   const url = xmlEscape(appUrl);
@@ -73,10 +104,13 @@ export async function installRoutes(app: FastifyInstance): Promise<void> {
     const proto = (typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto']) || req.protocol || 'https';
     const host = req.headers.host || 'localhost';
     const profile = buildWebClipProfile(`${proto}://${host}/`);
+    // Sign it (CMS/DER) when a cert is wired → iOS shows "Verified", no warning; else serve the
+    // plain XML profile (still installs, with an "Unsigned" note until the cert is configured).
+    const signed = signProfile(profile);
     // The Content-Type is what makes Safari recognise it as a configuration profile (→ Settings → Install).
-    return reply
-      .header('Content-Type', 'application/x-apple-aspen-config; charset=utf-8')
-      .header('Cache-Control', 'no-store')
-      .send(profile);
+    reply
+      .header('Content-Type', signed ? 'application/x-apple-aspen-config' : 'application/x-apple-aspen-config; charset=utf-8')
+      .header('Cache-Control', 'no-store');
+    return reply.send(signed ?? profile);
   });
 }

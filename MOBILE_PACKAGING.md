@@ -56,9 +56,19 @@ identity — back it up.
 3. **Settings** → *Profile Downloaded* (top, or *General → VPN & Device Management*) → **Install**.
 4. A home-screen **Crypto-Murlan** icon appears → launches full-screen, landscape.
 
-- **Unsigned** profiles install fine but show an **"Unverified"** label. To remove it, **sign** the
-  output with an Apple-trusted cert (`security cms -S -N "Your Cert" -i in -o out`). Needs an Apple
-  Developer cert in your Keychain — optional; the profile works unsigned.
+- **Signed = no warning (recommended).** The server **auto-signs** the profile (CMS/DER) when you point
+  two env vars at the domain's TLS cert — iOS then shows **"Verified"** (green, with your domain) and
+  **no "Unsigned"/"Not Verified" warning**:
+  ```
+  IOS_PROFILE_SIGN_CERT=/certs/fullchain.pem   # leaf + intermediate (the Let's Encrypt / Caddy cert)
+  IOS_PROFILE_SIGN_KEY=/certs/privkey.pem      # its private key
+  ```
+  iOS only trusts a signature that chains to a **public** root, so this MUST be the domain's real
+  (Let's Encrypt) cert — a self-signed cert would still read "Not Verified". On the single-host deploy,
+  mount Caddy's cert dir (or a copy of `fullchain.pem` + `privkey.pem`) **read-only** into the server
+  container and set the two vars. The runtime image already has `openssl`. If the vars are unset (or the
+  cert is unreadable) the route falls back to the **unsigned** profile — it still installs, just with the
+  "Unverified" label until you wire the cert.
 - This is **NOT** an App Store app and needs no Developer account to *work*.
 
 ### Serving note (nginx)
