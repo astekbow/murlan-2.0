@@ -19,7 +19,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { WalletService } from './walletService.ts';
+import { WalletService, HOUSE_ACCOUNT_ID } from './walletService.ts';
 import { MoneyService } from './moneyService.ts';
 
 const PG_URL = process.env.DATABASE_TEST_URL;
@@ -104,6 +104,29 @@ test('Postgres: a duplicate-providerRef credit is idempotent (credited once)', {
     assert.equal(r1.idempotent, false);
     assert.equal(r2.idempotent, true); // ON CONFLICT DO NOTHING — not re-credited
     assert.equal(await wallet.getBalance(a.id), before + 500); // +500 once, not +1000
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+// REGRESSION for the __house__ FK (audit C1): a staked settle books rake to the '__house__' account.
+// transactions.userId is an enforced FK to users(id), so this ONLY works because the house users row
+// is seeded (migration 20260626000000_house_account). Before that seed the rake INSERT raised a
+// foreign-key violation INSIDE the settle $transaction, rolling back the whole settlement → the
+// winner was never paid. The in-memory ledger has no FK, which is why this slipped every unit test.
+test('Postgres: staked settle books rake to the __house__ ledger (house row satisfies the FK)', { skip }, async () => {
+  const { prisma, wallet, money, a, b, matchId } = await setup();
+  try {
+    await money.escrow({ matchId, type: '1v1', stakeCents: 1000, rakeBps: 1000, players: [{ seat: 0, userId: a.id }, { seat: 1, userId: b.id }] });
+    const s = await money.settle({ matchId, winnerSeats: [0] });
+    if (!s) throw new Error('settle rolled back — the __house__ users row is missing (run db:migrate)');
+    assert.equal(s.rakeCents, 200); // 10% of the 2000 pot
+    assert.equal(await wallet.getBalance(a.id), 1800); // winner paid (pot − rake), so settle committed
+    const houseTxs = await wallet.listTransactions(HOUSE_ACCOUNT_ID);
+    assert.ok(
+      houseTxs.some((t) => t.type === 'rake' && t.matchId === matchId && t.amountCents === 200),
+      'the booked rake row must land in the __house__ ledger',
+    );
   } finally {
     await prisma.$disconnect();
   }
