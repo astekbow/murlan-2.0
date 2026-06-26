@@ -4,6 +4,15 @@ Operational guide for running the real-money stack in production. Pairs with `RE
 (dev setup) and `AUDIT_REPORT.md` (security posture). **Read the Compliance note in the
 README first — a license + KYC/AML are legal prerequisites for real-money operation.**
 
+> ⚠️ **PARTIALLY SUPERSEDED — the files are authoritative, not this prose.** The real production deploy
+> is **`docker-compose.deploy.yml`**, run via **`deploy/redeploy.sh`**. That stack bundles **its own
+> Postgres + a `db-backup` container** and a **Caddy** service that fronts the `client` container
+> (`reverse_proxy client:80`, see `deploy/Caddyfile`) — there is **no Supabase**, and no manual
+> `127.0.0.1:8080` Caddyfile, in the live topology. **Payments are on-chain USDT-TRC20 HD-wallet
+> deposits + Binance/NOWPayments payouts — NOT Stripe/PayPal.** The current day-to-day operational
+> guide is **`RUNBOOK.md`**. Where anything below disagrees with those files, **the files win**; this
+> document is kept for the conceptual walkthrough (architecture, env vars, scaling).
+
 ---
 
 ## 0. Quickstart — single-host deploy (one VPS, Docker)
@@ -28,21 +37,24 @@ MIN_AGE=0
 GEO_BLOCKED_COUNTRIES=
 RESPONSIBLE_GAMING=false
 # DEMO/STAGING WITHOUT payment+email integration → true (mock deposits, emails to logs).
-# For a REAL-money instance: leave false and wire real Stripe/PayPal + SMTP providers first.
+# For a REAL-money instance: leave false and wire the real rails first — on-chain USDT-TRC20
+# deposits (TRON_DEPOSIT_XPUB) + Binance/NOWPayments payouts + an SMTP provider.
 ALLOW_STUB_PROVIDERS=true
 # Optional persistence (else in-memory). If set, run migrations FIRST (see §4):
 # DATABASE_URL=postgres://murlan:murlan@postgres:5432/murlan
 ```
 
-**3. TLS is required** (auth cookies are `secure`/HTTPS-only in production). Easiest is
-**Caddy** in front of the client (auto Let's Encrypt). On the host, a one-line `Caddyfile`:
+**3. TLS is required** (auth cookies are `secure`/HTTPS-only in production). The production
+`docker-compose.deploy.yml` **already includes a Caddy service** that auto-provisions Let's Encrypt
+and proxies to the client container — its `deploy/Caddyfile` is simply:
 ```
 yourdomain.com {
-  reverse_proxy 127.0.0.1:8080
+  reverse_proxy client:80
 }
 ```
-…then `caddy run` (or run Caddy as a container/service). Cloudflare Tunnel or your own
-nginx+certbot work too. Plain HTTP works for a quick look but login won't persist (secure cookie).
+(`client:80` is the container on the internal Docker network — NOT `127.0.0.1:8080`.) If instead you
+run Caddy on the host outside Compose, point it at the published client port. Cloudflare Tunnel or your
+own nginx+certbot work too. Plain HTTP works for a quick look but login won't persist (secure cookie).
 
 **4. Launch:**
 ```bash

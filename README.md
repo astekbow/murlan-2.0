@@ -94,18 +94,22 @@ npm run db:generate --workspace @murlan/server   # generate the Prisma client
 npm run db:migrate  --workspace @murlan/server   # apply prisma/migrations/0001_init
 ```
 
-## Production notes / remaining follow-ups
+## Production notes
 
-- Prisma/Postgres persistence is **implemented** (opt-in via `DATABASE_URL`). The one
-  remaining hardening is wrapping the WalletService credit/debit *pair* (ledger row +
-  balance) in a single `prisma.$transaction` so the two writes are atomic under DB
-  failure — the in-memory store is already effectively atomic (documented at the
-  `WalletService` / `MoneyService` boundaries). Per-game seeds can be persisted to the
-  `games` table so a reveal survives a process crash.
+The authoritative deploy + operations guides are **`RUNBOOK.md`** and **`docker-compose.deploy.yml`**
+(single-host Docker: Caddy/TLS → nginx/client → Fastify server + bundled Postgres + Redis + a
+`db-backup` container + Prometheus/Alertmanager). `DEPLOYMENT.md` is a conceptual companion.
+
+- **Persistence + money atomicity are done.** Prisma/Postgres is the production store; the
+  WalletService credit/debit *pair* (ledger row + balance) runs inside one `prisma.$transaction`
+  via the `UnitOfWork`, and match escrow/settle/refund are atomic + idempotent (a unique
+  `providerRef` makes every credit at-most-once). Provably-fair per-game seeds persist so a reveal
+  survives a process crash.
 - The Socket.IO **Redis adapter** activates when `REDIS_URL` is set (multi-instance fan-out);
-  authoritative room state is single-instance until the store is externalised.
-- Payment providers sit behind a `PaymentProvider` interface with a deterministic mock;
-  a real provider (NOWPayments / Coinbase Commerce / PayPal) is a drop-in implementation.
+  authoritative room state is single-instance until the store is externalised (see `RUNBOOK.md` §7).
+- **Payments are real and on-chain.** Deposits are per-player USDT-TRC20 HD-wallet addresses
+  (watch-only, derived from `TRON_DEPOSIT_XPUB`); payouts go through Binance/NOWPayments. A
+  deterministic stub remains for demo/staging via `ALLOW_STUB_PROVIDERS=true`.
 
 ## Build phases (all complete)
 
