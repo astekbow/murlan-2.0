@@ -64,6 +64,19 @@ test('a private room is hidden from the lobby, gets a code, and is reachable by 
   assert.ok(join.ok, 'a second player joins via the code-resolved id');
 });
 
+test('M6: many concurrent private rooms all get DISTINCT codes, each resolving to its own room', () => {
+  const m = mgr();
+  const codeToRoom = new Map<string, string>();
+  for (let i = 0; i < 500; i++) {
+    const r = m.createRoom(U(i), { type: '1v1', stakeCents: 100, private: true });
+    assert.ok(r.ok && r.joinCode, `room ${i} gets a code`);
+    assert.ok(!codeToRoom.has(r.joinCode!), `code ${r.joinCode} is unique among live private rooms`);
+    codeToRoom.set(r.joinCode!, r.roomId!);
+  }
+  // Uniqueness means roomIdForCode (first-match) can only ever resolve to the ONE owning room.
+  for (const [code, roomId] of codeToRoom) assert.equal(m.roomIdForCode(code), roomId);
+});
+
 test('a user cannot be in two rooms at once', () => {
   const m = mgr();
   m.createRoom(U(1), { type: '1v1', stakeCents: 100 });

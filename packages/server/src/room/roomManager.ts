@@ -38,10 +38,10 @@ export interface CreateResult extends ManagerResult {
 // Shareable private-room codes are DIGITS ONLY (easy to read out + type on a phone).
 const CODE_ALPHABET = '0123456789';
 const CODE_LEN = 6;
-function genJoinCode(): string {
-  const b = randomBytes(CODE_LEN);
+function genJoinCode(len: number = CODE_LEN): string {
+  const b = randomBytes(len);
   let s = '';
-  for (let i = 0; i < CODE_LEN; i++) s += CODE_ALPHABET[b[i]! % CODE_ALPHABET.length];
+  for (let i = 0; i < len; i++) s += CODE_ALPHABET[b[i]! % CODE_ALPHABET.length];
   return s;
 }
 
@@ -194,7 +194,7 @@ export class RoomManager {
       ranked: !!payload.ranked,
       practice: !!payload.practice,
       private: isPrivate,
-      joinCode: isPrivate ? genJoinCode() : null,
+      joinCode: isPrivate ? this.genUniqueJoinCode() : null,
       invited: new Set(),
       clubWar: null,
       tournament: null,
@@ -272,7 +272,29 @@ export class RoomManager {
     return this.rooms.get(roomId)?.clubWar ?? null;
   }
 
-  /** Resolve a private-room share code → its room id (case-insensitive). */
+  /** True if a LIVE private room already holds this share code (audit M6). Codes are freed when a
+   *  room closes, so only currently-open rooms count — codes recycle safely. */
+  private codeInUse(code: string): boolean {
+    for (const r of this.rooms.values()) if (r.private && r.joinCode === code) return true;
+    return false;
+  }
+
+  /** A share code guaranteed unique among live private rooms, so redeeming a code can never seat a
+   *  user into the WRONG room (audit M6 — collisions become likely at ~1k concurrent codes otherwise).
+   *  Bounded retries at CODE_LEN; if that space is somehow saturated, widen by a digit to terminate. */
+  private genUniqueJoinCode(): string {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const code = genJoinCode();
+      if (!this.codeInUse(code)) return code;
+    }
+    for (let len = CODE_LEN + 1; ; len++) {
+      const code = genJoinCode(len);
+      if (!this.codeInUse(code)) return code;
+    }
+  }
+
+  /** Resolve a private-room share code → its room id (case-insensitive). With creation-time
+   *  uniqueness (genUniqueJoinCode) at most one live private room holds a given code. */
   roomIdForCode(code: string): string | null {
     const c = code.trim().toUpperCase();
     if (!c) return null;
