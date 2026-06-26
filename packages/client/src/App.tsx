@@ -12,6 +12,7 @@ import { TopBar } from './components/ui/TopBar.tsx';
 import { InviteBanner } from './components/ui/InviteBanner.tsx';
 import { ClubInviteBanner } from './components/ui/ClubInviteBanner.tsx';
 import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
+import { RotateOverlay } from './components/ui/RotateOverlay.tsx';
 import { CookieNotice } from './components/ui/CookieNotice.tsx';
 import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
@@ -20,6 +21,7 @@ import { RulesModal } from './components/ui/RulesModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
+import { useForceLandscapeApp } from './lib/useForceLandscapeApp.ts';
 import { takePendingJoinCode, takePendingProfileId } from './lib/deepLink.ts';
 import { getResetToken, takeVerifyToken } from './lib/hashTokens.ts';
 import { ProfileModal } from './components/ui/ProfileModal.tsx';
@@ -98,6 +100,9 @@ export function App() {
   const t = useT();
   const connected = useGameStore((s) => s.connected);
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
+  // Phones + tablets are LANDSCAPE-ONLY: held portrait, the whole app is blocked by the rotate
+  // prompt (no portrait UI at all). Desktops/laptops are unaffected — they render normally.
+  const forceRotate = useForceLandscapeApp();
 
   // Shareable room invite (/join/<CODE>): once the player is authenticated AND the
   // socket is connected and they're not already in a room, consume the captured code
@@ -217,6 +222,9 @@ export function App() {
     <ErrorBoundary>
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
+      {/* Landscape-only on phones/tablets: a portrait device gets the full-screen rotate prompt over
+          EVERYTHING (auth, lobby, game, modals). Desktops never see it. */}
+      {forceRotate && <RotateOverlay />}
       {status === 'authed' && <InviteBanner />}
       {status === 'authed' && <ClubInviteBanner />}
       {/* First-run welcome takes precedence; the install prompt waits until it's done. */}
