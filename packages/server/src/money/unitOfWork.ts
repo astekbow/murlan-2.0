@@ -13,6 +13,7 @@ import type { LedgerRepository } from './ledger.ts';
 import { type MatchesRepository, InMemoryMatchesRepository } from './matchesRepository.ts';
 import { type WithdrawalRepository, InMemoryWithdrawals } from './withdrawals.ts';
 import { type TournamentRepository, InMemoryTournamentRepository } from '../tournament/tournamentService.ts';
+import { type ClubWarRepository, InMemoryClubWars } from '../social/clubWarRepository.ts';
 import { type AdminAuditRepository, InMemoryAdminAudit } from '../auth/adminAudit.ts';
 
 export interface WalletTxContext {
@@ -29,6 +30,11 @@ export interface WalletTxContext {
   // buy-in (debit lost with no registration), and no champion paid while the row stays
   // 'running' (which a later stale-sweep would wrongly refund → double-pay). (SCH-3)
   tournaments: TournamentRepository;
+  // Bound too (audit M2): a club-war buy-in escrow (debit) AND the war-row write (roster,
+  // prizePool, status) commit or roll back together — so a crash between them can't strand a
+  // debited player with no seat (which sweepStaleWars couldn't recover, since the roster never
+  // recorded them). Same guarantee tournaments got in SCH-3.
+  clubWars: ClubWarRepository;
   // Bound too (admin-5): a privileged balance mutation AND its AdminAction audit row
   // commit or roll back together — the action can't commit without its audit trail.
   audit: AdminAuditRepository;
@@ -55,9 +61,10 @@ export class InMemoryUnitOfWork implements UnitOfWork {
     private readonly withdrawals: WithdrawalRepository = new InMemoryWithdrawals(),
     private readonly tournaments: TournamentRepository = new InMemoryTournamentRepository(),
     private readonly audit: AdminAuditRepository = new InMemoryAdminAudit(),
+    private readonly clubWars: ClubWarRepository = new InMemoryClubWars(),
   ) {}
 
   transaction<T>(fn: (ctx: WalletTxContext) => Promise<T>): Promise<T> {
-    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals, tournaments: this.tournaments, audit: this.audit });
+    return fn({ users: this.users, ledger: this.ledger, matches: this.matches, withdrawals: this.withdrawals, tournaments: this.tournaments, clubWars: this.clubWars, audit: this.audit });
   }
 }

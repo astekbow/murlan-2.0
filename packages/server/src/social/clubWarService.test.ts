@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryClubWars } from './clubWarRepository.ts';
 import { ClubWarService, ClubWarError, type ClubWarWallet } from './clubWarService.ts';
+import { InMemoryUserRepository } from '../auth/userRepository.ts';
+import { InMemoryLedger } from '../money/ledger.ts';
+import { WalletService } from '../money/walletService.ts';
+import { InMemoryUnitOfWork } from '../money/unitOfWork.ts';
 
 class RecWallet implements ClubWarWallet {
   debits: Array<{ userId: string; amount: number }> = [];
@@ -177,4 +181,42 @@ test('sweepStaleWars: an abandoned registering war refunds every registrant + ca
   );
   // Idempotent: a second sweep finds nothing active (no double refund).
   assert.deepEqual(await svc.sweepStaleWars(-1), []);
+});
+
+test('M2: with a UnitOfWork, register escrows the buy-in + persists the war atomically via the tx-bound repo', async () => {
+  // Real wallet + the SAME adapter shape app.ts wires, plus an InMemoryUnitOfWork whose bound
+  // clubWars repo IS the service's repo — so the escrow debit AND the war-row write go through one
+  // ctx. (In-memory has no real rollback; this proves the ctx threading + that the tx-bound repo is
+  // the one that actually persists. The prod Prisma tx then gives the real all-or-nothing guarantee.)
+  const users = new InMemoryUserRepository();
+  const ledger = new InMemoryLedger();
+  const wallet = new WalletService(users, ledger);
+  const repo = new InMemoryClubWars();
+  const uow = new InMemoryUnitOfWork(users, ledger, undefined, undefined, undefined, undefined, repo);
+  const cw: ClubWarWallet = {
+    async debit(userId, cents, reason, ctx) { await (ctx ? wallet.bind(ctx) : wallet).debit(userId, cents, { type: 'bet', reason }); },
+    async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
+    async payoutSplit() { /* not exercised here */ },
+  };
+  const svc = new ClubWarService(repo, 1000, cw, uow);
+
+  const a = await users.create({ username: 'cwA', email: 'cwa@t.com', passwordHash: 'h' });
+  const b = await users.create({ username: 'cwB', email: 'cwb@t.com', passwordHash: 'h' });
+  await wallet.credit(a.id, 1000, { type: 'deposit', providerRef: 'dep_cwa' });
+  await wallet.credit(b.id, 1000, { type: 'deposit', providerRef: 'dep_cwb' });
+  const war = await svc.create(CLUB_A, CLUB_B, 500, 1); // 1v1, $5 buy-in
+
+  await svc.register(war.id, a.id, 'A');
+  const w = await svc.register(war.id, b.id, 'B'); // 2nd → auto-starts
+
+  // Both escrowed through the tx (balances dropped by the buy-in), pool grew, war is running...
+  assert.equal(await wallet.getBalance(a.id), 500);
+  assert.equal(await wallet.getBalance(b.id), 500);
+  assert.equal(w.status, 'running');
+  assert.equal(w.prizePoolCents, 1000);
+  // ...and the tx-bound ctx.clubWars.save persisted to the SAME repo the service reads from.
+  const reread = await repo.get(war.id);
+  assert.equal(reread!.rosterA.length, 1);
+  assert.equal(reread!.rosterB.length, 1);
+  assert.equal(reread!.prizePoolCents, 1000);
 });

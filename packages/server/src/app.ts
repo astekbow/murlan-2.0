@@ -732,7 +732,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Club War: buy-in escrow + split prize reuse the proven wallet paths. Each credit carries a
   // UNIQUE providerRef → idempotent (a re-run can't double-pay a winner or a refund).
   const clubWarWallet: ClubWarWallet = {
-    async debit(userId, cents, reason) { await wallet.debit(userId, cents, { type: 'bet', reason }); },
+    // `ctx` (when register opened an outer tx) → escrow on the SAME tx as the war-row write (M2).
+    async debit(userId, cents, reason, ctx) { await (ctx ? wallet.bind(ctx) : wallet).debit(userId, cents, { type: 'bet', reason }); },
     async credit(userId, cents, reason) { await wallet.credit(userId, cents, { type: 'payout', reason, providerRef: reason }); },
     async payoutSplit(winners, rakeCents, ref) {
       for (const wnr of winners) {
@@ -741,7 +742,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       if (rakeCents > 0) await wallet.recordRake(rakeCents, { providerRef: `clubwar-rake:${ref}` });
     },
   };
-  const clubWars = new ClubWarService(clubWarsRepo, config.rakeBps, clubWarWallet);
+  // Pass the uow so register makes the buy-in escrow atomic with the war-row write (audit M2).
+  const clubWars = new ClubWarService(clubWarsRepo, config.rakeBps, clubWarWallet, uow);
   // Club chat + moderation. Membership-gated + mute-aware + abuse reports.
   // Foundation ships ON; review moderation POLICY before broad public promotion.
   const chat = new ChatService(chatRepo, clubs);

@@ -13,6 +13,7 @@
 
 import { randomBytes } from 'node:crypto';
 import type { ClubWar, ClubWarRepository, ClubWarStatus } from './clubWarRepository.ts';
+import type { UnitOfWork, WalletTxContext } from '../money/unitOfWork.ts';
 
 export class ClubWarError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -26,7 +27,8 @@ export class ClubWarError extends Error {
  *  AND records the house rake — atomically in prod (one tx) so a crash can't pay the prize
  *  but lose the rake. */
 export interface ClubWarWallet {
-  debit(userId: string, amountCents: number, reason: string): Promise<void>;  // buy-in escrow
+  // `ctx` (when register opened an outer tx) → escrow on the SAME tx as the war-row write (audit M2).
+  debit(userId: string, amountCents: number, reason: string, ctx?: WalletTxContext): Promise<void>;  // buy-in escrow
   credit(userId: string, amountCents: number, reason: string): Promise<void>; // refund
   payoutSplit(winners: Array<{ userId: string; amountCents: number }>, rakeCents: number, ref: string): Promise<void>;
 }
@@ -42,6 +44,9 @@ export class ClubWarService {
     private readonly repo: ClubWarRepository,
     private readonly rakeBps: number,
     private readonly wallet?: ClubWarWallet, // required only for paid wars
+    // Present in prod (Prisma): wraps the buy-in escrow + the war-row write in ONE $transaction
+    // (audit M2). Absent in-memory (single-threaded) → the compensating-refund fallback is used.
+    private readonly uow?: UnitOfWork,
   ) {}
 
   private async withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -76,19 +81,35 @@ export class ClubWarService {
       if (w.rosterA.includes(userId) || w.rosterB.includes(userId)) throw new ClubWarError('already', 'Je regjistruar tashmë.');
       const roster = side === 'A' ? w.rosterA : w.rosterB;
       if (roster.length >= w.size) throw new ClubWarError('full', 'Skuadra është plot.');
-      // Escrow the buy-in BEFORE seating (a failed debit → insufficient funds → no seat). Then
-      // persist, with a COMPENSATING REFUND if the persist throws — so a debited player is never
-      // left unseated with a trapped buy-in (mirrors tournamentService's non-uow path).
       const buyInRef = `clubwar:${w.id}:buyin:${userId}`;
-      if (w.stakeCents > 0) await this.wallet!.debit(userId, w.stakeCents, buyInRef);
-      try {
+      // Seat the player + grow the pool, and (when full) generate pairings. Mutates `w` in place;
+      // `w` is re-read from the repo on every call, so a rolled-back tx leaves no stale state.
+      const seat = () => {
         roster.push(userId);
         w.prizePoolCents += w.stakeCents;
         if (w.rosterA.length >= w.size && w.rosterB.length >= w.size) this.begin(w);
-        await this.repo.save(w);
-      } catch (e) {
-        if (w.stakeCents > 0) await this.wallet!.credit(userId, w.stakeCents, `clubwar:${w.id}:buyin-rollback:${userId}`).catch(() => undefined);
-        throw e;
+      };
+      if (this.uow && w.stakeCents > 0) {
+        // ATOMIC (audit M2): the escrow debit + the war-row write commit (or roll back) together. If
+        // the debit fails (insufficient funds) the row write never runs; if the row write fails the
+        // debit rolls back — never a trapped buy-in. Mirrors tournamentService's uow path (SCH-3).
+        await this.uow.transaction(async (ctx) => {
+          await this.wallet!.debit(userId, w.stakeCents, buyInRef, ctx);
+          seat();
+          await ctx.clubWars.save(w);
+        });
+      } else {
+        // No uow (in-memory/single-threaded) or a free war: escrow BEFORE seating (a failed debit →
+        // insufficient funds → no seat), then persist with a COMPENSATING REFUND if the persist
+        // throws — so a debited player is never left unseated with a trapped buy-in.
+        if (w.stakeCents > 0) await this.wallet!.debit(userId, w.stakeCents, buyInRef);
+        try {
+          seat();
+          await this.repo.save(w);
+        } catch (e) {
+          if (w.stakeCents > 0) await this.wallet!.credit(userId, w.stakeCents, `clubwar:${w.id}:buyin-rollback:${userId}`).catch(() => undefined);
+          throw e;
+        }
       }
       return w;
     });

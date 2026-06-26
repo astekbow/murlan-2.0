@@ -1188,6 +1188,9 @@ export class PrismaUnitOfWork implements UnitOfWork {
         matches: new PrismaMatchesRepository(tx as unknown as PrismaClient),
         withdrawals: new PrismaWithdrawals(tx as unknown as PrismaClient),
         tournaments: new PrismaTournaments(tx as unknown as PrismaClient),
+        // audit M2: the club-war row write shares the tx so a buy-in escrow can't commit
+        // without the matching roster/pool update (and vice-versa).
+        clubWars: new PrismaClubWars(tx as unknown as PrismaClient),
         // admin-5: the AdminAction audit insert shares the tx so a balance mutation
         // can't commit without its audit row.
         audit: new PrismaAdminAudit(tx as unknown as PrismaClient),
