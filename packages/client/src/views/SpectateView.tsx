@@ -30,7 +30,7 @@ export function SpectateView({ room }: { room: RoomStateDTO }) {
   return (
     // Renders outside the lobby Shell → inset for the iPhone notch (audit finding H10).
     <div
-      className="relative z-10 mx-auto w-full max-w-[680px] pb-6 space-y-4"
+      className="spectate-root relative z-10 mx-auto w-full max-w-[680px] pb-6 space-y-4"
       style={{
         paddingTop: 'calc(0.75rem + env(safe-area-inset-top))',
         paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',

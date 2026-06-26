@@ -36,7 +36,7 @@ export function ResetPasswordView({ token, onDone }: { token: string; onDone: ()
       className="min-h-full flex items-center justify-center"
       style={{ padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))' }}
     >
-      <div className="panel-solid w-full max-w-sm p-7 space-y-4 animate-pop">
+      <div className="reset-card panel-solid w-full max-w-sm p-7 space-y-4 animate-pop">
         <h1 className="gold-text font-display font-bold tracking-wide text-2xl text-center">{t('reset.title')}</h1>
         {done ? (
           <>

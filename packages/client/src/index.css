@@ -726,6 +726,29 @@ select:focus-visible,
   .mode .mname { font-size: 22px; }
 }
 
+/* SHORT portrait phones (e.g. SE-class): shrink the 2×2 mode cards hard so the hub + the first
+   open rooms fit above the fold with little/no scroll. Tall phones keep the bigger cards. */
+@media (orientation: portrait) and (max-height: 740px) {
+  .mode { min-height: 124px; padding: 11px 14px; gap: 3px; border-radius: 16px; }
+  .mode .micon { font-size: 32px; }
+  .mode .mname { font-size: 18px; letter-spacing: 0.4px; }
+  .mode .mdesc { font-size: 10.5px; margin-top: 0; line-height: 1.25; }
+  .mode .mcta { margin-top: 5px; font-size: 11px; padding: 5px 14px; }
+}
+
+/* Short LANDSCAPE: compact the standalone reset-password card + the spectate page so they fit
+   without scroll (these render outside the lobby Shell / modal-backdrop, so the modal rule misses them). */
+@media (orientation: landscape) and (max-height: 600px) {
+  .reset-card { padding: 0.9rem 1.2rem; max-height: 94dvh; overflow-y: auto; }
+  .reset-card h1 { font-size: 1.2rem; }
+  .reset-card.space-y-4 > :not([hidden]) ~ :not([hidden]),
+  .reset-card .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  .spectate-root.space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.45rem; }
+  .spectate-root .panel { padding: 0.55rem 0.8rem; }
+}
+
 /* In-match table root: safe-area insets (the felt screen renders outside the lobby
    Shell). Lives in CSS — not inline — so the landscape rules below can override it. */
 .tv-root {
