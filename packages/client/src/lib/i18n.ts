@@ -938,6 +938,8 @@ const STRINGS: Record<string, Entry> = {
   'install.openOnPhone': { sq: 'Hape aplikacionin në telefon (Android ose iPhone) që ta instalosh.', en: 'Open the app on your phone (Android or iPhone) to install it.' },
   // Login-page "get the app" buttons + per-platform install guide.
   'download.prompt': { sq: 'Shkarko aplikacionin', en: 'Get the app' },
+  'download.pick': { sq: 'Zgjidh pajisjen tënde:', en: 'Pick your device:' },
+  'download.back': { sq: 'Mbrapa', en: 'Back' },
   'download.ios': { sq: 'iPhone', en: 'iPhone' },
   'download.android': { sq: 'Android', en: 'Android' },
   'download.iosTitle': { sq: 'Instalo në iPhone / iPad', en: 'Install on iPhone / iPad' },
