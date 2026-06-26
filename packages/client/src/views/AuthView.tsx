@@ -63,7 +63,7 @@ export function AuthView() {
   }
 
   return (
-    <div className="relative z-10 min-h-full flex flex-col items-center justify-center gap-3 p-3">
+    <div className="relative z-10 min-h-full flex items-center justify-center p-3">
       {/* On a short LANDSCAPE phone the stacked form is taller than the screen → it scrolls. There
           we switch to a compact two-column card (branding | form) so it fits with NO scroll. */}
       <form
@@ -71,8 +71,16 @@ export function AuthView() {
         className={`panel-solid w-full animate-rise ${landscape ? 'max-w-2xl p-5 grid grid-cols-2 gap-6 items-center' : 'max-w-sm p-7 space-y-5'}`}
       >
         <div className="text-center">
+          {/* Brand logo on top — the self-contained app icon (its own dark bg shows on the panel). */}
+          <img
+            src="/icon-192.png"
+            alt="Crypto-Murlan"
+            className={`mx-auto rounded-2xl shadow-lg ring-1 ring-gold/25 mb-3 ${landscape ? 'w-20 h-20' : 'w-16 h-16'}`}
+          />
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">CARD CLUB</div>
           <h1 className={`gold-text font-display font-bold tracking-wide leading-none ${landscape ? 'text-3xl' : 'text-4xl'}`}>CRYPTO-MURLAN</h1>
+          {/* Get the app — iPhone + Android buttons right under the title (no bottom-of-page scroll). */}
+          {!isStandalone() && <AppDownload landscape={landscape} />}
         </div>
 
         <div className={landscape ? 'space-y-3 min-w-0' : 'space-y-5'}>
@@ -128,34 +136,14 @@ export function AuthView() {
           )}
         </div>
       </form>
-
-      {/* Download the native-feeling app — one button per platform (only before it's installed). */}
-      {!isStandalone() && <AppDownload />}
     </div>
   );
 }
 
-/** A compact "Get the app" link below the login form (one line → no extra scroll). Tapping opens a
- *  modal with the two platform buttons + a per-device step-by-step guide. */
-function AppDownload() {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="block w-full text-center text-xs text-gold-hi border-b border-dashed border-gold/40 pb-0.5 mx-auto"
-        style={{ width: 'fit-content' }}
-      >
-        📲 {t('download.prompt')}
-      </button>
-      {open && <DownloadModal onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-function DownloadModal({ onClose }: { onClose: () => void }) {
+/** "Get the app" — iPhone + Android buttons shown INLINE under the brand title (no bottom-of-page
+ *  scroll; everything stays in the one card). Each button starts the download AND opens a per-device
+ *  step-by-step guide. The visitor's own platform is highlighted. */
+function AppDownload({ landscape }: { landscape: boolean }) {
   const t = useT();
   const [guide, setGuide] = useState<null | 'ios' | 'android'>(null);
   // Is the Android .apk actually hosted yet? (HEAD check) — until it is, show a friendly note instead
@@ -170,35 +158,34 @@ function DownloadModal({ onClose }: { onClose: () => void }) {
   }, []);
   const device: 'ios' | 'android' | null = isIos() ? 'ios' : (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) ? 'android' : null;
 
-  const title = guide === 'ios' ? t('download.iosTitle') : guide === 'android' ? t('download.androidTitle') : t('download.prompt');
   return (
-    <Modal title={title} onClose={onClose}>
-      {guide === null ? (
-        <div className="space-y-3">
-          <p className="text-sm text-muted">{t('download.pick')}</p>
-          <div className="flex gap-2">
-            <a href="/api/install/ios.mobileconfig" onClick={() => setGuide('ios')} className={`btn flex-1 ${device === 'ios' ? 'btn-gold' : 'btn-ghost'}`}>🍎 {t('download.ios')}</a>
-            {apkOk === false ? (
-              <button type="button" disabled className="btn btn-ghost flex-1 opacity-60 cursor-not-allowed">🤖 {t('download.android')}</button>
-            ) : (
-              <a href="/install/crypto-murlan.apk" download onClick={() => setGuide('android')} className={`btn flex-1 ${device === 'android' ? 'btn-gold' : 'btn-ghost'}`}>🤖 {t('download.android')}</a>
-            )}
-          </div>
-          {apkOk === false && <p className="text-[11px] text-amber-300">{t('download.apkMissing')}</p>}
-        </div>
-      ) : guide === 'ios' ? (
-        <>
+    <div className={landscape ? 'pt-2' : 'pt-3'}>
+      <p className="font-serif text-[10px] tracking-[0.25em] text-muted/80 uppercase mb-1.5">📲 {t('download.prompt')}</p>
+      <div className="flex gap-2">
+        {/* iOS: navigating to the profile triggers the Safari "install profile" flow. */}
+        <a href="/api/install/ios.mobileconfig" onClick={() => setGuide('ios')} className={`btn btn-sm flex-1 ${device === 'ios' ? 'btn-gold' : 'btn-ghost'}`}>🍎 {t('download.ios')}</a>
+        {/* Android: the download attr saves the .apk (disabled with a note until it's hosted). */}
+        {apkOk === false ? (
+          <button type="button" disabled className="btn btn-ghost btn-sm flex-1 opacity-60 cursor-not-allowed">🤖 {t('download.android')}</button>
+        ) : (
+          <a href="/install/crypto-murlan.apk" download onClick={() => setGuide('android')} className={`btn btn-sm flex-1 ${device === 'android' ? 'btn-gold' : 'btn-ghost'}`}>🤖 {t('download.android')}</a>
+        )}
+      </div>
+      {apkOk === false && <p className="text-[10px] text-amber-300 mt-1">{t('download.apkMissing')}</p>}
+
+      {/* Per-device install guide (modal) — opens when a button is tapped. */}
+      {guide === 'ios' && (
+        <Modal title={t('download.iosTitle')} onClose={() => setGuide(null)}>
           <p className="text-xs text-amber-300 mb-3 leading-relaxed">{t('download.iosOpenSafari')}</p>
           <DownloadSteps items={[t('download.ios1'), t('download.ios2'), t('download.ios3')]} />
-          <button type="button" className="btn btn-ghost btn-sm btn-block mt-4" onClick={() => setGuide(null)}>← {t('download.back')}</button>
-        </>
-      ) : (
-        <>
-          <DownloadSteps items={[t('download.android1'), t('download.android2'), t('download.android3')]} />
-          <button type="button" className="btn btn-ghost btn-sm btn-block mt-4" onClick={() => setGuide(null)}>← {t('download.back')}</button>
-        </>
+        </Modal>
       )}
-    </Modal>
+      {guide === 'android' && (
+        <Modal title={t('download.androidTitle')} onClose={() => setGuide(null)}>
+          <DownloadSteps items={[t('download.android1'), t('download.android2'), t('download.android3')]} />
+        </Modal>
+      )}
+    </div>
   );
 }
 

@@ -934,9 +934,11 @@ select:focus-visible,
 /* ---- Hand zone: WIDE (60%, between the two corner buttons) so 14 big cards overlap
    less and each rank corner stays readable. */
 .tv-ls .tvc-hand {
-  left: 20%;
+  /* Narrowed (was 20%/60%) so the card fan stays in the CENTRE and never reaches the bottom
+     corners where the round Pas/Luaj buttons live — the buttons sit in the clear side-gutters. */
+  left: 22%;
   top: 65%;          /* lower still — owner is fine with the very bottom of the cards being cut off */
-  width: 60%;
+  width: 56%;
   height: 38%;
   z-index: 20;                 /* above the felt + pile */
   display: flex;
@@ -1007,8 +1009,10 @@ select:focus-visible,
 .tv-ls .ctrl-hint, .tv-ls .ctrl-clear { display: none !important; }
 .tv-ls .ctrl-row { width: auto !important; max-width: none !important; gap: 0 !important; }
 .tv-ls .ctrl-pass, .tv-ls .ctrl-play {
-  position: absolute; top: 81%; z-index: 25;
-  width: 13.5cqw; height: 13.5cqw;
+  /* Pinned LOWER (84%) + slightly smaller (12cqw) and pushed OUT to the 10%/90% gutters so the
+     fan (now 22–78%) never slides under them — they no longer cover the 3♥/2♣ edge cards. */
+  position: absolute; top: 84%; z-index: 25;
+  width: 12cqw; height: 12cqw;
   min-width: 44px; min-height: 44px; /* a11y touch-target floor on small canvases */
   transform: translate(-50%, -50%);
   flex: none !important; padding: 0 !important; border-radius: 9999px !important;
@@ -1021,7 +1025,7 @@ select:focus-visible,
   /* Nudge inward by the LEFT safe-area inset so a notch / rounded corner on a
      landscape phone never overlaps the button (env() is 0 on inset-free devices,
      so the % position is unchanged there). */
-  left: calc(12% + env(safe-area-inset-left, 0px));
+  left: calc(10% + env(safe-area-inset-left, 0px));
   /* Clearly visible on the felt: a LIGHTER slate disc (not near-black, which blended in),
      a bright 2px gold ring + soft gold glow, and gold text. Distinct from the gold-FILLED
      Luaj, but obviously a real button. */
@@ -1033,7 +1037,7 @@ select:focus-visible,
 .tv-ls .ctrl-play {
   /* Mirror of .ctrl-pass: pull inward by the RIGHT safe-area inset on notched
      landscape phones (no change on inset-free devices). */
-  left: calc(88% - env(safe-area-inset-right, 0px));
+  left: calc(90% - env(safe-area-inset-right, 0px));
   box-shadow: 0 0 22px rgba(232, 200, 121, 0.5), 0 8px 20px -6px rgba(0, 0, 0, 0.8) !important;
 }
 /* Pas/Luaj appear (fade in) only on MY turn; faded + non-interactive otherwise. */

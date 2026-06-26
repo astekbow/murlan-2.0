@@ -293,6 +293,11 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // ON the real hand (no blurring modal) — tap an eligible card to give it.
   const switching = !!switchPrompt && switchPrompt.winner === mySeat;
   const eligibleSwitchIds = switching ? new Set(myHand.filter(isReturnEligible).map(cardKey)) : null;
+  // While a card-switch is in progress (winner picking, loser→winner pending, or the give/return
+  // reveal) HIDE the centre pile: it still holds the PREVIOUS hand's last-played card, which — sitting
+  // on the table beside a freshly-dealt hand that may share that rank — looks like a duplicate card.
+  // It reappears the moment the switch completes and the new hand's first card is played.
+  const hidePile = switching || switchPending || !!switchCards;
   // The card the winner has PICKED to return — held until they confirm, so an
   // accidental tap never sends a card. Cleared once the switch is over.
   const [switchPick, setSwitchPick] = useState<Card | null>(null);
@@ -502,7 +507,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   };
 
   // Centre pile (pointer-events:none so it never steals taps from the hand below).
-  const pileEl = (
+  const pileEl = hidePile ? null : (
     <div className={`absolute inset-0 grid place-items-center z-[3] pointer-events-none${finishFx ? ' finish-pop' : ''}`}>
       <Pile pile={game?.pile ?? null} history={pileHistory} />
     </div>
@@ -627,9 +632,11 @@ export function TableView({ room }: { room: RoomStateDTO }) {
 
         {/* Centre played pile — center (50%, 38.5%). pointer-events:none so it never
             steals a tap meant for the hand below; finish-pop on a go-out. */}
-        <div className={`tvc-pile${finishFx ? ' finish-pop' : ''}`}>
-          <Pile pile={game?.pile ?? null} history={pileHistory} />
-        </div>
+        {!hidePile && (
+          <div className={`tvc-pile${finishFx ? ' finish-pop' : ''}`}>
+            <Pile pile={game?.pile ?? null} history={pileHistory} />
+          </div>
+        )}
 
         {/* Opponent seats — absolutely placed at their spec center coordinates. */}
         {mySeat !== null &&
