@@ -153,7 +153,9 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     if (!caller) return;
     // Bounded, newest-first page (keyset cursor) — never an unbounded per-user scan.
     const q = req.query as { limit?: string; cursor?: string };
-    const take = Number(q.limit) || 200;
+    // Clamp at parse (1..500) so a client can't request its whole ledger into the heap — matches the
+    // admin/export endpoints and the nextCursor bound below (audit L1).
+    const take = Math.min(500, Math.max(1, Number(q.limit) || 200));
     const transactions = await wallet.listTransactionsPage(caller.userId, { take, cursor: q.cursor ?? null });
     // Next-page cursor = the oldest id in this page (null when fewer than a full page).
     const nextCursor = transactions.length >= Math.min(500, Math.max(1, take)) ? transactions[transactions.length - 1]!.id : null;

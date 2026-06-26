@@ -8,6 +8,10 @@ export function RotateOverlay() {
   const t = useT();
   return (
     <div
+      // Announce the rotate prompt when it appears (audit L8) — on iOS this overlay is the only
+      // signal that the app is intentionally blocked until the phone is turned to landscape.
+      role="status"
+      aria-live="assertive"
       className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 text-center px-8"
       style={{
         background: 'var(--bg-0)',

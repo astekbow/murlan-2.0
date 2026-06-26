@@ -76,9 +76,10 @@ const schema = z.object({
   // default (the owner is a solo admin; mandatory dual-control would lock them out). The
   // per-call ceiling + per-admin rolling-24h cap + no-self-credit ALWAYS apply regardless.
   ADJUST_DUAL_CONTROL: z.string().optional(),
-  // money-4/6: per-user rolling-24h cap on P2P transfers OUT (cents). 0 = UNLIMITED (the
-  // owner keeps transfers open by default); >0 turns on the DB/ledger-enforced AML rail.
-  DAILY_TRANSFER_CAP_CENTS: z.coerce.number().int().nonnegative().default(0),
+  // money-4/6: per-user rolling-24h cap on P2P transfers OUT (cents). Default $1,000/day as a
+  // baseline AML guardrail (audit M1 — default-capped, not default-open). Set 0 to disable, or a
+  // higher value to loosen. >0 turns on the DB/ledger-enforced rail (sum of transfer_out in 24h).
+  DAILY_TRANSFER_CAP_CENTS: z.coerce.number().int().nonnegative().default(100_000),
   // money-7: global rolling-24h auto-payout budget across ALL users (cents). 0 = OFF; >0 =
   // once total auto-paid in 24h would breach this, further auto-sends are forced to MANUAL.
   GLOBAL_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0),

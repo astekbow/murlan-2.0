@@ -130,7 +130,7 @@ container exit). To persist/search, ship the container's stdout to journald/Loki
 | Withdraw blocked / "limit reached" | Age/geo gate, or per-user 24h auto cap hit (larger → manual) | Check the player's gates + the pending queue; Approve manually if legit |
 | Deposit credited but not in TronLink | Funds at the per-player address (not index 0) | `tools/tron-scan.mjs` finds the right index |
 | Server crash-loop on boot | Bad migration / DB unreachable | Check `docker compose logs server`; restore pre-deploy dump |
-| Site reachable on `:8080` (plain HTTP) | Client port published on host (bypasses Caddy TLS) | Bind client to 127.0.0.1 / drop the host publish (follow-up) |
+| Site reachable on `:8080` from outside the host | (Should NOT happen) client is already bound `127.0.0.1:8080` in both compose files — reachable only on the host for local checks, never publicly | If it IS externally reachable, a compose override re-published the port: remove it so only Caddy (80/443) is public |
 
 ## 7. Secrets
 Rotate if exposed: `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `PAYMENT_WEBHOOK_SECRET`
