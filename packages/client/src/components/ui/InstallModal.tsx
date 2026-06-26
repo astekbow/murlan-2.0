@@ -50,8 +50,8 @@ export function InstallModal() {
         </button>
         <div className="text-4xl mb-2">📲</div>
         <div className="font-display font-bold text-gold-hi text-lg pr-8">{t('install.title')}</div>
-        <p className="text-sm text-muted mt-1">{canInstall ? t('install.subtitle') : t('install.iosHint')}</p>
-        {canInstall && (
+        <p className="text-sm text-muted mt-1">{t('install.subtitle')}</p>
+        {canInstall ? (
           <button
             type="button"
             className="btn btn-gold btn-lg btn-block mt-4"
@@ -59,6 +59,24 @@ export function InstallModal() {
           >
             {t('install.cta')}
           </button>
+        ) : (
+          // iOS has no programmatic install — show the exact Safari steps with the Share glyph.
+          <ol className="mt-4 space-y-2.5 text-sm text-txt">
+            <li className="flex items-center gap-2.5">
+              <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">1</span>
+              <span className="flex items-center gap-1.5">{t('install.iosStep1')}
+                <span aria-hidden className="inline-flex items-center justify-center w-5 h-6 rounded-[5px] border border-current leading-none relative -top-px">↑</span>
+              </span>
+            </li>
+            <li className="flex items-center gap-2.5">
+              <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">2</span>
+              <span>{t('install.iosStep2')}</span>
+            </li>
+            <li className="flex items-center gap-2.5">
+              <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">3</span>
+              <span>{t('install.iosStep3')}</span>
+            </li>
+          </ol>
         )}
         <button type="button" className="btn btn-ghost btn-block mt-2 text-sm" onClick={() => dismiss(true)}>
           {t('install.dontRemind')}

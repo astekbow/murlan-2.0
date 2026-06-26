@@ -932,6 +932,9 @@ const STRINGS: Record<string, Entry> = {
   'install.subtitle': { sq: 'Luaje si aplikacion — në ekran të plotë, më shpejt.', en: 'Play as an app — full screen, faster.' },
   'install.cta': { sq: 'Instalo', en: 'Install' },
   'install.iosHint': { sq: 'Prek butonin Share, pastaj “Add to Home Screen”.', en: 'Tap the Share button, then “Add to Home Screen”.' },
+  'install.iosStep1': { sq: 'Prek Share te shiriti i Safari-t', en: 'Tap Share in the Safari bar' },
+  'install.iosStep2': { sq: 'Zgjidh «Add to Home Screen»', en: 'Choose “Add to Home Screen”' },
+  'install.iosStep3': { sq: 'Prek «Add» — gati! 🎉', en: 'Tap “Add” — done! 🎉' },
   'install.dontRemind': { sq: 'Mos ma kujto më', en: 'Don’t remind me again' },
   'install.close': { sq: 'Mbyll', en: 'Close' },
   // First-run onboarding wizard
