@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { useAuthStore } from '../store/authStore.ts';
 import { authApi } from '../lib/api.ts';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
+import { isIos, isStandalone } from '../lib/pwa.ts';
+import { Modal } from '../components/ui/Modal.tsx';
 import { useT } from '../lib/i18n.ts';
 
 export function AuthView() {
@@ -61,7 +63,7 @@ export function AuthView() {
   }
 
   return (
-    <div className="relative z-10 min-h-full flex items-center justify-center p-3">
+    <div className="relative z-10 min-h-full flex flex-col items-center justify-center gap-3 p-3">
       {/* On a short LANDSCAPE phone the stacked form is taller than the screen → it scrolls. There
           we switch to a compact two-column card (branding | form) so it fits with NO scroll. */}
       <form
@@ -126,7 +128,55 @@ export function AuthView() {
           )}
         </div>
       </form>
+
+      {/* Download the native-feeling app — one button per platform (only before it's installed). */}
+      {!isStandalone() && <AppDownload />}
     </div>
+  );
+}
+
+/** Login-page "get the app" buttons: iPhone (iOS Web Clip profile) + Android (.apk). Each starts the
+ *  download AND opens a step-by-step guide for THAT platform. The player's own device is highlighted. */
+function AppDownload() {
+  const t = useT();
+  const [guide, setGuide] = useState<null | 'ios' | 'android'>(null);
+  const device: 'ios' | 'android' | null = isIos() ? 'ios' : (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) ? 'android' : null;
+
+  return (
+    <div className="w-full max-w-sm text-center">
+      <p className="font-serif text-[11px] tracking-[0.25em] text-muted/80 uppercase mb-1.5">📲 {t('download.prompt')}</p>
+      <div className="flex gap-2">
+        {/* iOS: navigating to the profile triggers the Safari "install profile" flow. */}
+        <a href="/api/install/ios.mobileconfig" onClick={() => setGuide('ios')} className={`btn btn-sm flex-1 ${device === 'ios' ? 'btn-gold' : 'btn-ghost'}`}>🍎 {t('download.ios')}</a>
+        {/* Android: download attribute saves the .apk. */}
+        <a href="/install/crypto-murlan.apk" download onClick={() => setGuide('android')} className={`btn btn-sm flex-1 ${device === 'android' ? 'btn-gold' : 'btn-ghost'}`}>🤖 {t('download.android')}</a>
+      </div>
+
+      {guide === 'ios' && (
+        <Modal title={t('download.iosTitle')} onClose={() => setGuide(null)}>
+          <p className="text-xs text-amber-300 mb-3 leading-relaxed">{t('download.iosOpenSafari')}</p>
+          <DownloadSteps items={[t('download.ios1'), t('download.ios2'), t('download.ios3')]} />
+        </Modal>
+      )}
+      {guide === 'android' && (
+        <Modal title={t('download.androidTitle')} onClose={() => setGuide(null)}>
+          <DownloadSteps items={[t('download.android1'), t('download.android2'), t('download.android3')]} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function DownloadSteps({ items }: { items: string[] }) {
+  return (
+    <ol className="space-y-3 text-sm text-txt">
+      {items.map((s, i) => (
+        <li key={i} className="flex items-start gap-3">
+          <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">{i + 1}</span>
+          <span className="leading-relaxed">{s}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
