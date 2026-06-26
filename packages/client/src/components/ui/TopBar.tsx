@@ -120,7 +120,7 @@ export function TopBar() {
         </button>
         <div className="relative shrink-0">
           <button type="button" className="iconbtn" onClick={() => setNotifOpen((o) => !o)} title={t('topbar.notifications')} aria-label={t('topbar.notifications')} aria-haspopup="true" aria-expanded={notifOpen}>
-            🔔
+            <span aria-hidden="true">🔔</span>
           </button>
           {unread > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-suit text-white text-[11px] font-bold grid place-items-center pointer-events-none">
@@ -139,7 +139,7 @@ export function TopBar() {
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
-            ⚙
+            <span aria-hidden="true">⚙</span>
           </button>
           {menuOpen && createPortal(
             <>

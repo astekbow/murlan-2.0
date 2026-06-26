@@ -15,8 +15,11 @@ export function useFocusTrap<T extends HTMLElement>(active = true) {
     if (!node) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
+    // Visibility filter via getClientRects() (audit I4): offsetParent is null for position:fixed
+    // elements even when visible, so an offsetParent check would silently drop fixed-positioned
+    // focusables (e.g. a fixed dialog footer) from the trap. getClientRects().length covers both.
     const focusables = () =>
-      Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null || el === node);
+      Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.getClientRects().length > 0 || el === node);
     (focusables()[0] ?? node).focus?.();
 
     const onKey = (e: KeyboardEvent) => {

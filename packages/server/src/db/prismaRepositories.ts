@@ -238,20 +238,25 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async applyMatchResult(id: string, r: { won: boolean; potCents: number; xpGain: number }): Promise<User | null> {
-    // Cosmetic stats — a plain read-modify-write (no money, no transaction needed).
-    const cur = await this.db.user.findUnique({ where: { id } });
-    if (!cur) return null;
-    const row = await this.db.user.update({
-      where: { id },
-      data: {
-        gamesPlayed: { increment: 1 },
-        wins: { increment: r.won ? 1 : 0 },
-        xp: { increment: Math.max(0, Math.floor(r.xpGain)) },
-        currentStreak: r.won ? cur.currentStreak + 1 : 0,
-        biggestPotCents: Math.max(cur.biggestPotCents, r.potCents),
-      },
+    // Cosmetic stats. gamesPlayed/wins/xp are atomic {increment}s, but currentStreak/biggestPotCents
+    // are read-modify-write — two concurrent match-ends for the same user could lose a streak bump or
+    // a biggestPot update (audit L5). Wrap the read+write in one $transaction so the RMW is atomic
+    // (this is OUTSIDE the wallet UnitOfWork — pure stats — so it adds no money-path coupling).
+    const row = await this.db.$transaction(async (tx) => {
+      const cur = await tx.user.findUnique({ where: { id } });
+      if (!cur) return null;
+      return tx.user.update({
+        where: { id },
+        data: {
+          gamesPlayed: { increment: 1 },
+          wins: { increment: r.won ? 1 : 0 },
+          xp: { increment: Math.max(0, Math.floor(r.xpGain)) },
+          currentStreak: r.won ? cur.currentStreak + 1 : 0,
+          biggestPotCents: Math.max(cur.biggestPotCents, r.potCents),
+        },
+      });
     });
-    return toUser(row);
+    return row ? toUser(row) : null;
   }
 
   async setAvatar(id: string, avatar: string): Promise<User | null> {

@@ -48,7 +48,7 @@ import type { ChatService } from '../chat/chatService.ts';
 import { sanitizeChat } from '../chat/chatService.ts';
 import type { TournamentService } from '../tournament/tournamentService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
-import { settlementFailures, socketConnections, settlementDuration } from '../metrics.ts';
+import { settlementFailures, socketConnections, settlementDuration, auditWriteFailures } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
 import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, botThinkDelay } from './gatewayHelpers.ts';
 import { HandshakeThrottle } from './handshakeThrottle.ts';
@@ -782,7 +782,12 @@ export class GameGateway {
     if (!matchId) return;
     const seq = this.matchActionSeq.get(matchId) ?? 0;
     this.matchActionSeq.set(matchId, seq + 1);
-    void this.matchLog.append({ matchId, seq, gameIndex: log.gameIndex, seat, type: log.type, cards: log.cards, at: Date.now() }).catch(() => undefined);
+    void this.matchLog.append({ matchId, seq, gameIndex: log.gameIndex, seat, type: log.type, cards: log.cards, at: Date.now() }).catch((e) => {
+      // Swallowed by design (the replay/dispute trail must never block play), but COUNT+LOG it so a
+      // chronic logging failure is visible instead of silently dropping the audit trail (audit I1).
+      auditWriteFailures.inc({ kind: 'matchlog' });
+      console.error('[gateway] matchLog.append failed', { matchId, seq, seat }, e);
+    });
   }
 
   // ---------- Spectating -----------------------------------------------------
@@ -1287,7 +1292,12 @@ export class GameGateway {
       // Never strand players "ready" or strand an escrowed pot on an unexpected
       // error — refund any escrow, unready players, and report.
       const matchId = this.rooms.matchIdOf(roomId);
-      if (this.money && matchId) await this.money.refund(matchId).catch(() => undefined);
+      if (this.money && matchId) await this.money.refund(matchId).catch((e) => {
+        // The match failed to start; this emergency refund failing means a pot may be STRANDED
+        // (the periodic orphan sweep is the backstop). Count+log so it's not silently lost (audit I1).
+        auditWriteFailures.inc({ kind: 'emergency_refund' });
+        console.error('[beginMatch] emergency refund failed — possible stranded pot', { roomId, matchId }, e);
+      });
       const room = this.rooms.getRoom(roomId);
       if (room && room.status !== 'inMatch') {
         for (const s of room.seats) if (s.userId) this.rooms.setReady(s.userId, false);
@@ -1935,7 +1945,12 @@ export class GameGateway {
       .filter((x): x is { seat: number; userId: string; won: boolean; team: 0 | 1 | null } => x.userId !== null && !isBot(x.userId));
     if (seats.length < 2) return;
     // Pass the staked flag so collusion analysis (cross-match) runs for money tables only.
-    void this.antiCheat.analyzeMatch(matchId, seats, { staked: room.stakeCents > 0 }).catch(() => undefined);
+    void this.antiCheat.analyzeMatch(matchId, seats, { staked: room.stakeCents > 0 }).catch((e) => {
+      // Swallowed so analysis can never block a match end, but COUNT+LOG it — a chronic failure here
+      // means suspicion/collusion records are silently NOT being written for staked tables (audit I1).
+      auditWriteFailures.inc({ kind: 'anticheat' });
+      console.error('[gateway] antiCheat.analyzeMatch failed', { matchId, seats: seats.length }, e);
+    });
   }
 
   // ---------- Settlement & forfeit -------------------------------------------

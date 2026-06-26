@@ -20,8 +20,17 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Trimmed to the weights actually used (audit L9): Cinzel 900 (.crest/.tlogo only — 600/700 were
+         never used), Oswald 600/700 (buttons/labels — 500 unused), Outfit 300–700 (body + Tailwind
+         font-weight utilities). display=swap renders text immediately with the fallback then swaps (no
+         FOIT); the preload hint prioritizes the font CSS without an inline script (CSP-safe). -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Oswald:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@900&family=Oswald:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@900&family=Oswald:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
   </head>

@@ -107,3 +107,14 @@ export const treasuryBufferCents = new client.Gauge({
   help: 'Binance free USDT minus total player balances, in cents (negative = under-funded)',
   registers: [registry],
 });
+
+/** Audit-relevant background writes that FAILED and were swallowed by design (so a chronic failure
+ *  stays VISIBLE — audit I1). kind: matchlog (replay/dispute trail) | emergency_refund (a stranded
+ *  pot — beginMatch failed and the refund also failed) | anticheat (a missed suspicion record). A
+ *  non-zero rate here means a safety/audit write is silently dropping — investigate. */
+export const auditWriteFailures = new client.Counter({
+  name: 'murlan_audit_write_failures_total',
+  help: 'Swallowed audit-relevant background write failures, by kind',
+  labelNames: ['kind'] as const,
+  registers: [registry],
+});
