@@ -269,6 +269,9 @@ export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = 
   }
 
   // ----- MEDIUM -------------------------------------------------------------
+  // Medium is intentionally the WEAKER brain (it hoards trumps rather than burning them to deny a
+  // win — that judgement is what makes HARD harder). All real fill bots play HARD (see gateway),
+  // which already spends a trump to stop a near-finished opponent (below + in the search rollouts).
   if (tier === 'medium') {
     if (!view.pile) return { action: 'play', cards: (bestLead(plays, view.hand) ?? sorted[0]!).cards };
     if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };

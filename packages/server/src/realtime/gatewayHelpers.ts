@@ -40,6 +40,22 @@ export function pickGhostNames(count: number, exclude?: string | null): string[]
   }
   return pool.slice(0, Math.max(0, count));
 }
-/** Bot "thinking" delay before it acts, for a natural pace (ms). */
+/** Bot "thinking" delay before it acts, for a natural pace (ms). Kept for tests / fallback. */
 export const BOT_MIN_DELAY = 550;
 export const BOT_MAX_DELAY = 1100;
+/**
+ * Human-like "thinking" pause before a bot acts (ms). A flat 0.55–1.1s band felt robotic
+ * (every move the same metronomic tempo). Instead: a reaction floor + time that grows with how
+ * much there is to weigh (hand size), a touch more when LEADING (an open choice) than when just
+ * beating the pile, natural jitter, and an occasional longer ponder so the rhythm isn't uniform.
+ * Range ≈ 0.8–2.6s — clearly under the turn timeout, so timers/tests are unaffected.
+ */
+export function botThinkDelay(handSize: number, leading: boolean): number {
+  const base = 700;                                  // reaction floor (no more near-instant 550)
+  const perCard = Math.min(handSize, 14) * 45;       // more cards → more to consider (13 → ~585ms)
+  const leadBonus = leading ? 250 : 0;               // leading = a freer decision → deliberate a bit
+  const jitter = Math.floor(Math.random() * 500);    // 0–500ms natural variance
+  // ~12% of moves: a longer "thinking hard" pause so the pace never feels mechanical.
+  const ponder = Math.random() < 0.12 ? Math.floor(Math.random() * 900) : 0;
+  return Math.min(2600, base + perCard + leadBonus + jitter + ponder);
+}

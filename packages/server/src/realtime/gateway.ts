@@ -50,7 +50,7 @@ import type { TournamentService } from '../tournament/tournamentService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
 import { settlementFailures, socketConnections, settlementDuration } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
-import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, BOT_MIN_DELAY, BOT_MAX_DELAY } from './gatewayHelpers.ts';
+import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, botThinkDelay } from './gatewayHelpers.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -1116,11 +1116,18 @@ export class GameGateway {
     return true;
   }
 
-  /** Schedule a bot's move after a short, natural "thinking" delay. */
+  /** Schedule a bot's move after a human-like "thinking" delay (scaled by hand size + lead/respond). */
   private scheduleBot(roomId: string, seat: number): void {
     const prev = this.botTimers.get(roomId);
     if (prev) clearTimeout(prev);
-    const delay = this.botDelayMs ?? (BOT_MIN_DELAY + Math.floor(Math.random() * (BOT_MAX_DELAY - BOT_MIN_DELAY)));
+    let delay: number;
+    if (this.botDelayMs != null) {
+      delay = this.botDelayMs; // tests pin this (≈1ms) for deterministic, instant bots
+    } else {
+      const handSize = this.rooms.handOf(roomId, seat)?.length ?? 8;
+      const leading = this.rooms.publicGameDTO(roomId, null)?.pile == null;
+      delay = botThinkDelay(handSize, leading);
+    }
     this.botTimers.set(roomId, setTimeout(() => { this.botTimers.delete(roomId); this.driveBot(roomId, seat); }, delay));
   }
 
