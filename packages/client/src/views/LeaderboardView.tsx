@@ -179,7 +179,7 @@ export function LeaderboardView() {
           </div>
         </div>
       </div>,
-      document.body,
+      document.getElementById('root') ?? document.body,
     );
   }
 

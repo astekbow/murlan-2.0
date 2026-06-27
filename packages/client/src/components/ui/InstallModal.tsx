@@ -106,6 +106,6 @@ export function InstallModal() {
         </button>
       </div>
     </div>,
-    document.body,
+    document.getElementById('root') ?? document.body,
   );
 }

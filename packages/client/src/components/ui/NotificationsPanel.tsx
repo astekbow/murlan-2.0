@@ -172,6 +172,6 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </>,
-    document.body,
+    document.getElementById('root') ?? document.body,
   );
 }

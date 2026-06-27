@@ -176,7 +176,7 @@ export function VipView() {
           </div>
         )}
       </div>,
-      document.body,
+      document.getElementById('root') ?? document.body,
     );
   }
 

@@ -210,7 +210,7 @@ export function LobbyView() {
           {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} onCreate={createRoom} />}
           {joinTeamFor && <JoinTeamModal room={joinTeamFor} onClose={() => setJoinTeamFor(null)} onJoin={joinRoom} />}
         </div>,
-      document.body,
+      document.getElementById('root') ?? document.body,
     );
   }
 

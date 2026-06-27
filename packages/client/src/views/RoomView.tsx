@@ -326,7 +326,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           </div>
         </div>
       </div>,
-      document.body,
+      document.getElementById('root') ?? document.body,
     );
   }
 

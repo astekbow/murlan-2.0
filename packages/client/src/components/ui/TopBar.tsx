@@ -177,7 +177,7 @@ export function TopBar() {
                 </button>
               </div>
             </>,
-            document.body,
+            document.getElementById('root') ?? document.body,
           )}
         </div>
       </div>

@@ -260,7 +260,7 @@ export function RewardsView() {
           </div>
         )}
       </div>,
-      document.body,
+      document.getElementById('root') ?? document.body,
     );
   }
 
