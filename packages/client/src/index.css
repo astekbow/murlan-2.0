@@ -356,6 +356,16 @@ select:focus-visible,
     .modal-backdrop > .panel-solid > [class*="space-y-"] > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
     /* Trim per-row vertical padding inside compact modals so more fits. */
     .modal-backdrop > .panel-solid .seg-tab, .modal-backdrop > .panel-solid .field { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+    /* Match-end win screen: it's tall (emoji + title + winnings + rating + standings + add-friends +
+       CTAs) and previously had NO max-height/overflow, so the bottom 'Luaj prap' button was clipped
+       off-screen and unreachable. The panel now caps height + scrolls; compact it here so it FITS
+       without scroll on a short landscape phone and the rematch CTA is visible. */
+    .match-result-panel { padding: 0.7rem 1.1rem; }
+    .match-result-panel > .text-5xl { font-size: 1.7rem; margin-bottom: 0.15rem; }
+    .match-result-panel > h2 { font-size: 1.35rem; margin-bottom: 0.1rem; }
+    .match-result-panel > p { margin-bottom: 0.4rem; }
+    .match-result-panel > .mb-4, .match-result-panel > .mb-5 { margin-bottom: 0.45rem; }
+    .match-result-panel .btn-lg { padding-top: 0.5rem; padding-bottom: 0.5rem; }
   }
 
   /* ---- Waiting-screen crest --------------------------------------------- */

@@ -798,7 +798,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {matchResult && iWon && <Confetti />}
       {matchResult && (
         <div className="modal-backdrop !z-[60]" role="dialog" aria-modal="true" aria-label={t('table.matchOver')}>
-          <div ref={matchOverTrapRef} tabIndex={-1} className="panel-solid w-full max-w-sm p-7 text-center animate-pop outline-none">
+          <div ref={matchOverTrapRef} tabIndex={-1} className="match-result-panel panel-solid w-full max-w-sm p-7 text-center animate-pop outline-none max-h-[94dvh] overflow-y-auto overscroll-contain">
             <div className="text-5xl mb-2">{iWon ? '🏆' : '🃏'}</div>
             <h2 className="gold-text font-display font-bold tracking-wide text-3xl mb-1">{t('table.matchOverBang')}</h2>
             <p className="text-sm text-muted mb-4">
