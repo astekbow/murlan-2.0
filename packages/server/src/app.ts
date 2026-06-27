@@ -73,7 +73,7 @@ import { InMemoryClubWars, type ClubWarRepository } from './social/clubWarReposi
 import { ClubWarService, type ClubWarWallet } from './social/clubWarService.ts';
 import { Presence } from './realtime/presence.ts';
 import { socialRoutes } from './http/socialRoutes.ts';
-import { RewardsService } from './rewards/rewardsService.ts';
+import { RewardsService, type PurchaseWallet } from './rewards/rewardsService.ts';
 import { rewardsRoutes } from './http/rewardsRoutes.ts';
 import { InMemorySeasonRepository, type SeasonRepository } from './ranked/seasonRepository.ts';
 import { RankedService } from './ranked/rankedService.ts';
@@ -691,7 +691,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // ProfileService takes the wallet (read-only) so a profile can show its VIP-tier ring.
   // demoLeaderboard seeds the global board with ~100 demo players (config-gated, ON by default).
   const profiles = new ProfileService(repo, wallet, config.demoLeaderboard);
-  const rewards = new RewardsService(repo, config.rewardsEnabled, wallet);
+  // Adapter so a cosmetic charge can run on the buy() transaction (ctx) → atomic with the grant.
+  const purchaseWallet: PurchaseWallet = {
+    debit: (userId, cents, opts, ctx) => (ctx ? wallet.bind(ctx) : wallet).debit(userId, cents, opts),
+    credit: (userId, cents, opts) => wallet.credit(userId, cents, opts),
+  };
+  const rewards = new RewardsService(repo, config.rewardsEnabled, purchaseWallet, uow);
   const money = new MoneyService(wallet, matchesRepo, uow);
   // Pass the UoW (Prisma only) so a withdrawal's debit + record-insert are one atomic
   // transaction (no phantom debit on a crash). In-memory: uow is undefined → safe

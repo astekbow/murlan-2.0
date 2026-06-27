@@ -10,6 +10,7 @@
 import type { UserRepository, User } from '../auth/userRepository.ts';
 import { levelInfo } from '../profile/level.ts';
 import { InsufficientFundsError } from '../money/walletService.ts';
+import type { UnitOfWork, WalletTxContext } from '../money/unitOfWork.ts';
 import {
   dailyQuestsFor, weeklyQuestsFor, dailyClaimKey, weeklyClaimKey,
   utcDayKey, isoWeekKey, effectiveAnchor, questPeriodProgress,
@@ -21,8 +22,15 @@ import { ACHIEVEMENTS, achievementValue, newlyEarnedAchievements } from './achie
 /** The wallet capability the shop needs: debit to charge, credit to REFUND a charge
  *  whose cosmetic grant then failed (so a player is never charged for nothing). */
 export interface PurchaseWallet {
-  debit(userId: string, amountCents: number, opts: { type: 'purchase'; reason?: string }): Promise<unknown>;
+  // `ctx` (when buy() opened an outer tx) → debit on the SAME tx as the cosmetic grant (atomicity).
+  debit(userId: string, amountCents: number, opts: { type: 'purchase'; reason?: string }, ctx?: WalletTxContext): Promise<unknown>;
   credit(userId: string, amountCents: number, opts: { type: 'purchase'; reason?: string }): Promise<unknown>;
+}
+
+/** Internal sentinel: thrown inside the buy() transaction when the grant is REJECTED (e.g. already
+ *  owned by a racing buy), so the debit rolls back; caught + mapped to a {ok:false} result. */
+class GrantRejected extends Error {
+  constructor(public readonly grantCode?: string) { super('cosmetic grant rejected'); }
 }
 
 export type CosmeticType = 'cardBack' | 'tableFelt';
@@ -202,6 +210,9 @@ export class RewardsService {
     private readonly users: UserRepository,
     public readonly enabled: boolean,
     private readonly wallet: PurchaseWallet,
+    // Present in prod (Prisma): wraps the cosmetic charge + grant in ONE $transaction so a crash
+    // can't debit without granting (or vice-versa). Absent in-memory → compensating-refund fallback.
+    private readonly uow?: UnitOfWork,
   ) {}
 
   private async withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
@@ -461,15 +472,34 @@ export class RewardsService {
       // The PRICE is computed server-side: today's daily-deal item gets the discount, never
       // trusted from the client. Charge the wallet first (money is the critical step).
       const charge = cosmeticId === dailyDealId(now) ? dealPriceCents(c.cost) : c.cost;
+
+      // ATOMIC PATH (Prisma): the charge + the grant commit (or roll back) together, so a crash
+      // between them can't debit a player for a cosmetic they didn't receive. A rejected grant
+      // (e.g. a racing buy already owns it) throws GrantRejected → the debit rolls back.
+      if (this.uow) {
+        try {
+          return await this.uow.transaction(async (ctx) => {
+            await this.wallet.debit(userId, charge, { type: 'purchase', reason: `cosmetic:${cosmeticId}` }, ctx);
+            const granted = await ctx.users.purchaseCosmetic(userId, cosmeticId, 0);
+            if (!granted.ok) throw new GrantRejected(granted.code);
+            return granted;
+          });
+        } catch (e) {
+          if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
+          if (e instanceof GrantRejected) return { ok: false, code: e.grantCode };
+          throw e;
+        }
+      }
+
+      // FALLBACK (in-memory: single-threaded, already atomic): charge first, then grant with a
+      // compensating REFUND if the grant THROWS or is REJECTED — a player must never be debited for
+      // a cosmetic they didn't get.
       try {
         await this.wallet.debit(userId, charge, { type: 'purchase', reason: `cosmetic:${cosmeticId}` });
       } catch (e) {
         if (e instanceof InsufficientFundsError) return { ok: false, code: 'insufficient_funds' };
         throw e;
       }
-      // Grant the cosmetic (cost 0 → no XP spent, just the ownership flag). If the
-      // grant THROWS or is REJECTED (e.g. a concurrent buy already granted it), REFUND
-      // the charge — a player must never be debited for a cosmetic they didn't get.
       let granted: { ok: boolean; code?: string };
       try {
         granted = await this.users.purchaseCosmetic(userId, cosmeticId, 0);

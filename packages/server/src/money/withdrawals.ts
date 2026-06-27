@@ -207,12 +207,23 @@ export class WithdrawalService {
     if (audit?.resolvedByAdminId && rec.userId === audit.resolvedByAdminId) {
       throw new WithdrawalError('self_resolve', 'Nuk mund të vendosësh për tërheqjen tënde.');
     }
-    // CLAIM the transition FIRST (atomic compare-and-set). Only the winner refunds —
-    // so a concurrent approve() (which already paid out) can't also trigger a refund
-    // here (that would be a double-pay). The loser of the race throws not_pending.
+    // ATOMIC PATH (Prisma): the CAS status flip + the refund credit commit (or roll back) together,
+    // so a crash between them can't leave a 'rejected' withdrawal with the held funds NOT returned.
+    // The CAS still guarantees only the winner refunds (a racing approve()/reject() rolls back).
+    if (this.uow) {
+      return await this.uow.transaction(async (ctx) => {
+        const claimed = await ctx.withdrawals.setStatusIfPending(id, 'rejected', audit);
+        if (!claimed) throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
+        await this.wallet.bind(ctx).credit(rec.userId, rec.amountCents, {
+          type: 'admin_adjust', reason: 'rikthim tërheqjeje', providerRef: `withdrawal_refund:${id}`,
+        });
+        return claimed;
+      });
+    }
+    // FALLBACK (in-memory: single-threaded, already atomic). CLAIM the transition FIRST so only the
+    // winner refunds; the providerRef makes the refund idempotent even if this somehow re-runs.
     const claimed = await this.repo.setStatusIfPending(id, 'rejected', audit);
     if (!claimed) throw new WithdrawalError('not_pending', 'Tërheqja nuk është në pritje.');
-    // Idempotent refund (providerRef): safe even if this path somehow re-runs.
     await this.wallet.credit(rec.userId, rec.amountCents, {
       type: 'admin_adjust',
       reason: 'rikthim tërheqjeje',
