@@ -56,6 +56,7 @@ import { SpectatorRegistry } from './spectatorRegistry.ts';
 import { RematchCoordinator } from './rematchCoordinator.ts';
 import { BotDriver } from './botDriver.ts';
 import { TournamentMatchRegistry } from './tournamentMatchRegistry.ts';
+import { FairnessCoordinator } from './fairnessCoordinator.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -203,9 +204,10 @@ export class GameGateway {
   // Written ONLY as a read-only side effect AFTER settlement records the already-decided
   // winner + already-paid amount; never read by, and never an input to, any money/game path.
   private recentWinners: RecentWinner[] = [];
-  private fairByRoom = new Map<string, FairShuffle>(); // provably-fair shuffle per active match
-  private pendingServerSeeds = new Map<string, string>(); // roomId -> serverSeed committed at countdown start
-  private clientSeeds = new Map<string, string>(); // userId -> clientSeed (submitted AFTER the commit)
+  // Provably-fair seed state (live shuffle + committed server seed + client seeds) extracted to a
+  // coordinator (audit M5); the crypto (generate/combine/createFairShuffle) + fair:commit/reveal emits
+  // stay below — this is a thin, behavior-preserving STATE lift of a settlement-critical flow.
+  private readonly fairness = new FairnessCoordinator();
   // Per-user token bucket: 40 burst, 20/s sustained — ample for real play, caps abuse.
   private readonly limiter: RateLimiter;
   // Dedicated, MUCH tighter bucket for room join-by-code: ~6 attempts then 1 every 5s,
@@ -382,7 +384,7 @@ export class GameGateway {
       if (!this.limiter.allow(socket.data.userId)) return;
       if (typeof seed === 'string' && seed.length > 0 && seed.length <= 128) {
         socket.data.clientSeed = seed;
-        this.clientSeeds.set(socket.data.userId, seed);
+        this.fairness.recordClientSeed(socket.data.userId, seed);
       }
     });
     socket.on('auth', (token, ack) => void this.onReAuth(socket, token, ack));
@@ -414,7 +416,7 @@ export class GameGateway {
     // If other sockets for this user remain, keep state untouched.
     if (this.socketCountFor(userId) > 0) return;
     this.limiter.release(userId); // no sockets left — free the rate bucket
-    this.clientSeeds.delete(userId); // don't carry a stale seed into a future match
+    this.fairness.dropClientSeed(userId); // don't carry a stale seed into a future match
     this.matchmaking?.remove(userId); // stop trying to matchmake a user who's gone
     this.clearRankedBotTimer(userId); // last socket gone — cancel any pending vs-bot fallback
     this.presence?.remove(userId); // last socket gone — mark offline
@@ -1251,9 +1253,9 @@ export class GameGateway {
     // is what stops the server from grinding the deal (the seed is fixed first).
     if (this.provablyFair) {
       const { serverSeed, serverSeedHash } = generateServerSeed();
-      this.pendingServerSeeds.set(roomId, serverSeed);
+      this.fairness.commitServerSeed(roomId, serverSeed);
       const room = this.rooms.getRoom(roomId);
-      if (room) for (const s of room.seats) if (s.userId) this.clientSeeds.delete(s.userId);
+      if (room) for (const s of room.seats) if (s.userId) this.fairness.dropClientSeed(s.userId);
       this.io.to(roomId).emit('fair:commit', { serverSeedHash });
     }
 
@@ -1381,14 +1383,14 @@ export class GameGateway {
     let fair: FairShuffle | null = null;
     if (this.provablyFair) {
       const numPlayers = room.seats.length as 2 | 3 | 4;
-      let serverSeed = this.pendingServerSeeds.get(roomId);
+      let serverSeed = this.fairness.pendingServerSeed(roomId);
       if (!serverSeed) {
         // Defensive: no prior commit (shouldn't happen) — commit now.
         const g = generateServerSeed();
         serverSeed = g.serverSeed;
         this.io.to(roomId).emit('fair:commit', { serverSeedHash: g.serverSeedHash });
       }
-      const seeds = room.seats.map((s) => (s.userId ? this.clientSeeds.get(s.userId) ?? '' : '')).filter(Boolean);
+      const seeds = room.seats.map((s) => (s.userId ? this.fairness.clientSeed(s.userId) ?? '' : '')).filter(Boolean);
       if (seeds.length === 0 && room.stakeCents > 0) {
         // No untrusted entropy arrived after the commit — the deal becomes a pure
         // function of the (already-committed, hence reproducible) serverSeed.
@@ -1433,8 +1435,7 @@ export class GameGateway {
     const state = this.roomStateWithCountdown(roomId);
     if (state) this.io.to(roomId).emit('match:start', state);
     if (fair) {
-      this.fairByRoom.set(roomId, fair); // commit was already emitted at countdown start
-      this.pendingServerSeeds.delete(roomId);
+      this.fairness.recordDeal(roomId, fair); // store for reveal + consume the pending seed (commit already emitted)
     }
     this.startNewGameBroadcast(roomId); // arms the turn timer before broadcasting
     this.broadcastLobby();
@@ -1442,7 +1443,7 @@ export class GameGateway {
 
   private clearCountdown(roomId: string): void {
     this.timers.clearCountdown(roomId);
-    this.pendingServerSeeds.delete(roomId); // abandon the committed-but-unused seed
+    this.fairness.abandonServerSeed(roomId); // abandon the committed-but-unused seed
   }
 
   /** Room DTO with the live ready-check countdown (ms remaining) overlaid. */
@@ -2058,7 +2059,7 @@ export class GameGateway {
 
   /** Publish the serverSeed so players can verify every deal, then drop it. */
   private revealFair(roomId: string): void {
-    const fair = this.fairByRoom.get(roomId);
+    const fair = this.fairness.shuffle(roomId);
     if (fair) {
       const matchId = this.rooms.matchIdOf(roomId);
       this.io.to(roomId).emit('fair:reveal', { ...fair.reveal(), matchId: matchId ?? undefined });
@@ -2067,7 +2068,7 @@ export class GameGateway {
       if (this.games && matchId) {
         void this.games.revealMatch(matchId).catch((err) => console.error('[fair] failed to reveal persisted games', err));
       }
-      this.fairByRoom.delete(roomId);
+      this.fairness.clearShuffle(roomId);
     }
   }
 
