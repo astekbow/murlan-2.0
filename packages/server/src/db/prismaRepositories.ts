@@ -39,6 +39,7 @@ import type { DmRepository, DirectMessageRecord } from '../social/dmRepository.t
 import type { ClubWarRepository, ClubWar, ClubWarStatus, WarPairing } from '../social/clubWarRepository.ts';
 import { type ClubRepository, type Club, type ClubMember, type ClubRole, type NewClub, DuplicateClubTagError, genClubCode } from '../social/clubRepository.ts';
 import type { TournamentRepository, Tournament, BracketMatch } from '../tournament/tournamentService.ts';
+import { parseBracket, parseWarPairings, parseStringArray } from './jsonValidators.ts';
 import type { Card } from '@murlan/engine';
 import type { MatchType } from '@murlan/shared';
 
@@ -1056,8 +1057,8 @@ export class PrismaClubWars implements ClubWarRepository {
     return {
       id: row.id, clubAId: row.clubAId, clubBId: row.clubBId, status: row.status as ClubWarStatus,
       stakeCents: row.stakeCents, rakeBps: row.rakeBps, size: row.size,
-      rosterA: (row.rosterA as string[]) ?? [], rosterB: (row.rosterB as string[]) ?? [],
-      pairings: (row.pairings as WarPairing[]) ?? [], scoreA: row.scoreA, scoreB: row.scoreB,
+      rosterA: parseStringArray(row.rosterA, 'clubwar.rosterA'), rosterB: parseStringArray(row.rosterB, 'clubwar.rosterB'),
+      pairings: parseWarPairings(row.pairings), scoreA: row.scoreA, scoreB: row.scoreB,
       prizePoolCents: row.prizePoolCents, winnerClubId: row.winnerClubId ?? null, createdAt: ms(row.createdAt),
     };
   }
@@ -1238,7 +1239,7 @@ export class PrismaTournaments implements TournamentRepository {
   private map(row: any): Tournament {
     return {
       id: row.id, name: row.name, buyInCents: row.buyInCents, capacity: row.capacity,
-      status: row.status, playerIds: (row.playerIds as string[]) ?? [], bracket: (row.bracket as BracketMatch[]) ?? [],
+      status: row.status, playerIds: parseStringArray(row.playerIds, 'tournament.playerIds'), bracket: parseBracket(row.bracket),
       prizePoolCents: row.prizePoolCents, rakeBps: row.rakeBps, winnerId: row.winnerId ?? null,
       pendingWinnerId: row.pendingWinnerId ?? null, reportedByAdminId: row.reportedByAdminId ?? null,
       clubId: row.clubId ?? null,
