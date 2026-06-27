@@ -1686,18 +1686,11 @@ export class GameGateway {
   }
 
   private emitCardSwitch(roomId: string, dto: CardSwitchDTO): void {
-    // The two participants get the FULL reveal (their own exchanged cards). Every
-    // other seat gets an explicitly redacted copy (identities withheld) — addressed
-    // per-seat so the no-leak guarantee never depends on socket-room membership.
-    const room = this.rooms.getRoom(roomId);
-    if (!room) return;
-    const redacted: CardSwitchDTO = { ...dto, given: null, returned: null };
-    for (let seat = 0; seat < room.seats.length; seat++) {
-      const userId = this.userAtSeat(roomId, seat);
-      if (!userId) continue;
-      const payload = seat === dto.winner || seat === dto.loser ? dto : redacted;
-      this.io.to(personalRoom(userId)).emit('card:switch', payload);
-    }
+    // The tribute is PUBLIC (owner decision — matches traditional Murlan): broadcast the FULL reveal
+    // to EVERYONE in the room — both participants, the other players, AND spectators — so all can see
+    // which card the loser handed over and which low card the winner returned. (The winner's private
+    // "choose a 3–10 to return" PROMPT is still sent only to them, via the awaitingSwitch path.)
+    this.io.to(roomId).emit('card:switch', dto);
   }
 
   // ---------- Social --------------------------------------------------------
