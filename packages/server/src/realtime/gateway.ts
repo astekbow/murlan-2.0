@@ -54,6 +54,7 @@ import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostN
 import { HandshakeThrottle } from './handshakeThrottle.ts';
 import { SpectatorRegistry } from './spectatorRegistry.ts';
 import { RematchCoordinator } from './rematchCoordinator.ts';
+import { BotDriver } from './botDriver.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -189,19 +190,16 @@ export class GameGateway {
   // All scheduled timers (countdown / turn / abandon) + their deadlines live here.
   private readonly timers = new TimerOrchestrator();
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
-  private botTiers = new Map<string, BotTier>(); // practice roomId -> bot difficulty
-  private botTimers = new Map<string, ReturnType<typeof setTimeout>>(); // practice roomId -> pending bot-move timer
-  // Ranked solo-queue → vs-BOT fallback: per-USER timer that fires if no human opponent
-  // is found within rankedBotMs, starting a RATED match against bot(s). Keyed by userId;
-  // cleared when the player leaves the queue, gets matched, or disconnects.
-  private rankedBotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Bot state (difficulty tiers, the per-room bot-move timer, the per-user ranked vs-bot fallback
+  // timer, and card-counting memory) extracted to a unit-tested driver (audit M5); the bot DECISION +
+  // PLAY logic (driveBot, formRankedVsBots) stays below — it reads the live room/match.
+  private readonly botDriver = new BotDriver();
   // Inter-hand pause gate: between hands the next deal is held briefly so players can
   // see the final play + the standings; it releases EARLY once every connected human
   // has tapped Continue, else on the timer. roomId -> { timer, who's-ready, release }.
   private interHandGates = new Map<string, { timer: ReturnType<typeof setTimeout>; ready: Set<number>; release: () => void }>();
   private ghostFillTimers = new Map<string, ReturnType<typeof setTimeout>>(); // free roomId -> pending auto-fill timer
   private readonly ghostFillMs: number;
-  private seenCards = new Map<string, Card[]>(); // practice roomId -> cards played this game (bot card-counting)
   private finalizedMatches = new Set<string>(); // matchIds whose match:end has been emitted (exactly-once finalize)
   // Cosmetic lobby ticker: a tiny ring of the last few real-money winners (newest first).
   // Written ONLY as a read-only side effect AFTER settlement records the already-decided
@@ -925,16 +923,11 @@ export class GameGateway {
 
   /** Arm (idempotently) the ranked solo-queue → vs-BOT fallback for one waiting user. */
   private armRankedBotTimer(userId: string, type: MatchType): void {
-    this.clearRankedBotTimer(userId); // idempotent — never stack two timers for a user
-    this.rankedBotTimers.set(userId, setTimeout(() => {
-      this.rankedBotTimers.delete(userId);
-      this.formRankedVsBots(userId, type);
-    }, this.rankedBotMs));
+    this.botDriver.armRankedFill(userId, this.rankedBotMs, () => this.formRankedVsBots(userId, type));
   }
 
   private clearRankedBotTimer(userId: string): void {
-    const t = this.rankedBotTimers.get(userId);
-    if (t) { clearTimeout(t); this.rankedBotTimers.delete(userId); }
+    this.botDriver.cancelRankedFill(userId);
   }
 
   /**
@@ -959,7 +952,7 @@ export class GameGateway {
     if (!created.ok || !created.roomId) { this.emitQueueTo(userId, null); return; }
     const roomId = created.roomId;
     this.ownership?.claim(roomId);
-    this.botTiers.set(roomId, 'hard'); // strongest brain — a rated opponent should play well
+    this.botDriver.setTier(roomId, 'hard'); // strongest brain — a rated opponent should play well
     for (const s of sockets) {
       s.data.roomId = roomId;
       s.data.seat = this.rooms.seatOf(roomId, userId);
@@ -1052,7 +1045,7 @@ export class GameGateway {
     if (!created.ok || !created.roomId) return reply(ackError('create_failed', created.error?.message ?? 'Nuk u krijua dot.'));
     const roomId = created.roomId;
     this.ownership?.claim(roomId);
-    this.botTiers.set(roomId, tier);
+    this.botDriver.setTier(roomId, tier);
 
     for (const s of this.socketsOf(userId)) {
       s.data.roomId = roomId;
@@ -1096,8 +1089,6 @@ export class GameGateway {
 
   /** Schedule a bot's move after a human-like "thinking" delay (scaled by hand size + lead/respond). */
   private scheduleBot(roomId: string, seat: number): void {
-    const prev = this.botTimers.get(roomId);
-    if (prev) clearTimeout(prev);
     let delay: number;
     if (this.botDelayMs != null) {
       delay = this.botDelayMs; // tests pin this (≈1ms) for deterministic, instant bots
@@ -1106,7 +1097,7 @@ export class GameGateway {
       const leading = this.rooms.publicGameDTO(roomId, null)?.pile == null;
       delay = botThinkDelay(handSize, leading);
     }
-    this.botTimers.set(roomId, setTimeout(() => { this.botTimers.delete(roomId); this.driveBot(roomId, seat); }, delay));
+    this.botDriver.scheduleMove(roomId, delay, () => this.driveBot(roomId, seat));
   }
 
   /** Compute + apply a bot's move for its current turn (or card-switch return). */
@@ -1115,7 +1106,7 @@ export class GameGateway {
     if (!room?.match || room.status !== 'inMatch') return;
     const botUserId = this.userAtSeat(roomId, seat);
     if (!isBot(botUserId)) return;
-    const tier = this.botTiers.get(roomId) ?? 'hard';
+    const tier = this.botDriver.tier(roomId);
     const snap = room.match.snapshot();
 
     // Card-switch: the bot is the winner who must return a 3–10 card. Return the
@@ -1146,7 +1137,7 @@ export class GameGateway {
       {
         hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
         opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude,
-        seen: this.seenCards.get(roomId) ?? [],
+        seen: this.botDriver.seenCards(roomId),
         // Full public state so the Hard tier can run its look-ahead search.
         mySeat: seat,
         numPlayers: pub.handCounts.length,
@@ -1176,8 +1167,7 @@ export class GameGateway {
   }
 
   private clearBotTimer(roomId: string): void {
-    const t = this.botTimers.get(roomId);
-    if (t) { clearTimeout(t); this.botTimers.delete(roomId); }
+    this.botDriver.cancelMove(roomId);
   }
 
   /** Arm an auto-fill for a FREE (zero-stake) waiting room: if no humans join within
@@ -1204,7 +1194,7 @@ export class GameGateway {
       if (!r.seats.some((s) => !s.userId)) return; // already full
       const host = human[0];
       this.rooms.markPractice(roomId); // no XP/ranked/stats/money vs fill-players (also stake is 0)
-      this.botTiers.set(roomId, 'hard'); // free-table ghosts play with the strong (search) brain
+      this.botDriver.setTier(roomId, 'hard'); // free-table ghosts play with the strong (search) brain
       if (!this.fillEmptySeatsWithBots(roomId, host?.username ?? null)) { this.teardownBotRoom(roomId); return; }
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
@@ -1226,7 +1216,7 @@ export class GameGateway {
     const room = this.rooms.getRoom(roomId);
     if (!room) return false;
     if (room.practice) return true;
-    if (this.botTiers.has(roomId)) return true; // ranked-vs-bot (and free-lobby ghost fill) rooms
+    if (this.botDriver.hasTier(roomId)) return true; // ranked-vs-bot (and free-lobby ghost fill) rooms
     return room.seats.some((s) => isBot(s.userId));
   }
 
@@ -1239,9 +1229,7 @@ export class GameGateway {
    */
   private teardownBotRoom(roomId: string): void {
     this.clearGhostFill(roomId);
-    this.clearBotTimer(roomId);
-    this.botTiers.delete(roomId);
-    this.seenCards.delete(roomId);
+    this.botDriver.teardown(roomId); // bot-move timer + tier + card memory
     this.ownership?.release(roomId);
     const room = this.rooms.getRoom(roomId);
     if (room) for (const s of room.seats) if (isBot(s.userId)) this.rooms.leaveRoom(s.userId!);
@@ -1483,11 +1471,7 @@ export class GameGateway {
     const trackSeen = this.rooms.getRoom(roomId)?.practice ?? false;
     for (const ev of res.gameEvents) {
       if (ev.kind === 'played') {
-        if (trackSeen) {
-          const arr = this.seenCards.get(roomId) ?? [];
-          arr.push(...ev.combo.cards);
-          this.seenCards.set(roomId, arr);
-        }
+        if (trackSeen) this.botDriver.appendSeen(roomId, ev.combo.cards);
       } else if (ev.kind === 'trickWon') this.io.to(roomId).emit('game:trickWon', { winner: ev.winner, leadsNext: ev.leadsNext });
       else if (ev.kind === 'playerFinished') this.io.to(roomId).emit('game:playerFinished', { seat: ev.seat, place: ev.place });
     }
@@ -1615,7 +1599,7 @@ export class GameGateway {
   private startNewGameBroadcast(roomId: string): void {
     const room = this.rooms.getRoom(roomId);
     // Fresh deal ⇒ no cards seen yet this game (resets the bot's card memory).
-    if (room?.practice) this.seenCards.set(roomId, []);
+    if (room?.practice) this.botDriver.resetSeen(roomId);
     // Arm the turn timer FIRST so the dealt state carries a live deadline.
     this.armTurnTimer(roomId);
     const pub = this.rooms.publicGameDTO(roomId, this.deadlineFor(roomId));
