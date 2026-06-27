@@ -1235,4 +1235,51 @@ select:focus-visible,
      refer to the physical viewport; cap modals to the frame HEIGHT (=100vw) so they don't overgrow. */
   html.force-landscape .modal-backdrop > .panel-solid,
   html.force-landscape .match-result-panel { max-height: 92vw; }
+
+  /* R1 — the landscape compaction in `@media (orientation: landscape)` blocks NEVER fires here (the
+     device is physically PORTRAIT), so re-apply it keyed on the class. Mirrors index.css:349 / :1079 /
+     :1099 so modals, lobby mode-cards, and the app shell fit the short rotated frame without scroll. */
+
+  /* Lobby hero "mode" cards — shrink to the landscape size (mirror of the :1079 block). */
+  html.force-landscape .mode { min-height: 124px; padding: 10px 14px; border-radius: 16px; gap: 3px; }
+  html.force-landscape .mode .micon { font-size: 30px; }
+  html.force-landscape .mode .mname { font-size: 17px; letter-spacing: 0.4px; }
+  html.force-landscape .mode .mdesc { font-size: 10.5px; margin-top: 1px; }
+  html.force-landscape .mode .mcta { margin-top: 6px; font-size: 11px; padding: 6px 16px; }
+
+  /* Modal compaction (mirror of the :349 block, minus its dvh max-height — capped to 92vw above). */
+  html.force-landscape .modal-backdrop { padding-top: 6px; padding-bottom: 6px; }
+  html.force-landscape .modal-backdrop > .panel-solid { padding: 0.7rem 1.1rem; }
+  html.force-landscape .modal-backdrop > .panel-solid > .flex.mb-4 { margin-bottom: 0.5rem; }
+  html.force-landscape .modal-backdrop > .panel-solid h2 { font-size: 1.05rem; }
+  html.force-landscape .modal-backdrop > .panel-solid > [class*="space-y-"] > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
+  html.force-landscape .modal-backdrop > .panel-solid .seg-tab,
+  html.force-landscape .modal-backdrop > .panel-solid .field { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+  html.force-landscape .match-result-panel { padding: 0.7rem 1.1rem; }
+  html.force-landscape .match-result-panel > .text-5xl { font-size: 1.7rem; margin-bottom: 0.15rem; }
+  html.force-landscape .match-result-panel > h2 { font-size: 1.35rem; margin-bottom: 0.1rem; }
+  html.force-landscape .match-result-panel > p { margin-bottom: 0.4rem; }
+  html.force-landscape .match-result-panel > .mb-4,
+  html.force-landscape .match-result-panel > .mb-5 { margin-bottom: 0.45rem; }
+  html.force-landscape .match-result-panel .btn-lg { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+
+  /* App shell — reclaim vertical space (mirror of the :1099 landscape block). */
+  html.force-landscape .app-shell {
+    padding-top: calc(.4rem + env(safe-area-inset-top));
+    padding-bottom: calc(.6rem + env(safe-area-inset-bottom));
+  }
+
+  /* Wallet page (it uses tabs, not a .pg-ls console): compact the balance hero + tighten the stack, and
+     lay the DEPOSIT body out side-by-side (QR | address+notes) so it uses the WIDE rotated frame and the
+     tab fits with NO scroll. In portrait everything stays stacked (this only applies under rotation). */
+  html.force-landscape .wallet-page > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
+  html.force-landscape .wallet-page > .panel-solid { padding: 0.6rem 1rem; }   /* balance hero */
+  html.force-landscape .wallet-page .coin-anim { width: 24px !important; height: 24px !important; }
+  html.force-landscape .wallet-page .text-5xl { font-size: 2.1rem; }            /* balance figure */
+  html.force-landscape .wallet-page .panel { padding: 0.6rem 0.85rem; }
+  html.force-landscape .wallet-page .dep-steps { font-size: 0.78rem; }
+  html.force-landscape .wallet-deposit-body { display: flex; gap: 12px; align-items: flex-start; }
+  html.force-landscape .wallet-deposit-body > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
+  html.force-landscape .wallet-deposit-qr { flex: 0 0 auto; }
+  html.force-landscape .wallet-deposit-info { flex: 1 1 auto; min-width: 0; }
 }

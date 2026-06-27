@@ -210,7 +210,7 @@ export function WalletView() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="wallet-page space-y-5">
       {/* Back to lobby */}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
         {t('common.backToLobby')}
@@ -283,49 +283,55 @@ export function WalletView() {
         <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
           <TronWarning />
-          <p className="text-sm text-muted">{t('wallet.depositTrc20Steps')}</p>
-          {/* Scan-to-pay QR — generated locally (never sent anywhere). */}
-          <div className="flex justify-center">
-            <div className="rounded-xl bg-white p-2.5" role="img" aria-label={t('wallet.depositQrAlt')}>
-              <QRCodeSVG value={depAddr} size={132} bgColor="#ffffff" fgColor="#0b0a0e" level="M" />
+          <p className="text-sm text-muted dep-steps">{t('wallet.depositTrc20Steps')}</p>
+          {/* In force-landscape the short frame can't stack QR + address + notes, so this body row goes
+              side-by-side (QR | info) to use the WIDE frame; in portrait it stays stacked (space-y). */}
+          <div className="wallet-deposit-body space-y-3">
+            {/* Scan-to-pay QR — generated locally (never sent anywhere). */}
+            <div className="wallet-deposit-qr flex justify-center">
+              <div className="rounded-xl bg-white p-2.5" role="img" aria-label={t('wallet.depositQrAlt')}>
+                <QRCodeSVG value={depAddr} size={132} bgColor="#ffffff" fgColor="#0b0a0e" level="M" />
+              </div>
+            </div>
+            <div className="wallet-deposit-info space-y-3">
+              <div>
+                <span className="field-label">{t('wallet.yourAddress')}</span>
+                <div className="flex items-center gap-2">
+                  <code className="field flex-1 font-mono text-xs break-all select-all">{depAddr}</code>
+                  <button onClick={() => void navigator.clipboard?.writeText(depAddr)} className="btn btn-ghost btn-sm shrink-0">{t('common.copy')}</button>
+                </div>
+              </div>
+              {/* Auto-credit is the primary path now (unique per-player address). */}
+              <p className="text-sm text-emerald-300 bg-emerald-700/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+                ✓ {t('wallet.autoCreditNote')}
+              </p>
+              {/* Calm, honest "waiting" hint — no fake confirmation counter — plus a
+                  Tronscan link for the actual receiving address so the player can watch
+                  the chain themselves. */}
+              <div className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2 space-y-1.5">
+                <p className="text-[12px] text-muted leading-snug">⏳ {t('wallet.depositWaitHint')}</p>
+                <a
+                  href={`https://tronscan.org/#/address/${depAddr}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[12px] font-medium text-gold-hi underline underline-offset-2 hover:opacity-80"
+                >
+                  {t('wallet.viewOnTronscan')} ↗
+                </a>
+              </div>
+              {/* TxID is now a FALLBACK for when the poller is slow / the page was closed. */}
+              <details className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2">
+                <summary className="text-xs text-muted cursor-pointer select-none">{t('wallet.txidFallback')}</summary>
+                <label className="block mt-2">
+                  <span className="field-label">{t('wallet.txidLabel')}</span>
+                  <input value={txId} onChange={(e) => setTxId(e.target.value)} placeholder={t('wallet.txidPlaceholder')} aria-label={t('wallet.txidLabel')} className="field font-mono" />
+                </label>
+                <button onClick={() => void onSubmitTxid()} disabled={submittingTxid} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
+                  {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
+                </button>
+              </details>
             </div>
           </div>
-          <div>
-            <span className="field-label">{t('wallet.yourAddress')}</span>
-            <div className="flex items-center gap-2">
-              <code className="field flex-1 font-mono text-xs break-all select-all">{depAddr}</code>
-              <button onClick={() => void navigator.clipboard?.writeText(depAddr)} className="btn btn-ghost btn-sm shrink-0">{t('common.copy')}</button>
-            </div>
-          </div>
-          {/* Auto-credit is the primary path now (unique per-player address). */}
-          <p className="text-sm text-emerald-300 bg-emerald-700/10 border border-emerald-500/30 rounded-lg px-3 py-2">
-            ✓ {t('wallet.autoCreditNote')}
-          </p>
-          {/* Calm, honest "waiting" hint — no fake confirmation counter — plus a
-              Tronscan link for the actual receiving address so the player can watch
-              the chain themselves. */}
-          <div className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2 space-y-1.5">
-            <p className="text-[12px] text-muted leading-snug">⏳ {t('wallet.depositWaitHint')}</p>
-            <a
-              href={`https://tronscan.org/#/address/${depAddr}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[12px] font-medium text-gold-hi underline underline-offset-2 hover:opacity-80"
-            >
-              {t('wallet.viewOnTronscan')} ↗
-            </a>
-          </div>
-          {/* TxID is now a FALLBACK for when the poller is slow / the page was closed. */}
-          <details className="rounded-lg border border-white/10 bg-white/[.02] px-3 py-2">
-            <summary className="text-xs text-muted cursor-pointer select-none">{t('wallet.txidFallback')}</summary>
-            <label className="block mt-2">
-              <span className="field-label">{t('wallet.txidLabel')}</span>
-              <input value={txId} onChange={(e) => setTxId(e.target.value)} placeholder={t('wallet.txidPlaceholder')} aria-label={t('wallet.txidLabel')} className="field font-mono" />
-            </label>
-            <button onClick={() => void onSubmitTxid()} disabled={submittingTxid} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
-              {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
-            </button>
-          </details>
         </section>
       )}
 

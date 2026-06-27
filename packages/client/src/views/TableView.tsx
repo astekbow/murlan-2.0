@@ -221,16 +221,6 @@ function AddFriendButtons({ room, mySeat }: { room: RoomStateDTO; mySeat: number
 export function TableView({ room }: { room: RoomStateDTO }) {
   const { ls, forced } = useForceLandscape(); // landscape-only: rotate if held portrait
   useWakeLock(true); // keep the screen awake the whole time the player is at the table (re-acquires on resume)
-  // Always-horizontal GAME without a "rotate your phone" prompt: while the table is on screen on a
-  // PORTRAIT phone, add `force-landscape` to <html> → CSS rotates the app 90° (see index.css). Scoped
-  // to the table (removed on unmount), so the lobby/menus keep their normal portrait layouts. On Android
-  // the OS lock already makes it real landscape (forced=false there), so this is a no-op.
-  useEffect(() => {
-    if (!forced) return;
-    const el = document.documentElement;
-    el.classList.add('force-landscape');
-    return () => el.classList.remove('force-landscape');
-  }, [forced]);
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {

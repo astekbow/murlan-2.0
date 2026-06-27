@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
  * - A plain mobile/tablet UA covers everything else (incl. emulators that mis-report pointer media).
  * Desktops (no touch, fine pointer) return false → never forced.
  */
-function isMobileOrTablet(): boolean {
+export function isMobileOrTablet(): boolean {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
   const ua = navigator.userAgent || '';
   const mobileUA = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|Kindle|PlayBook|BlackBerry|Opera Mini|IEMobile/i.test(ua);
@@ -38,11 +38,19 @@ export function useForceLandscapeApp(): boolean {
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
     const mq = window.matchMedia('(orientation: portrait)');
-    const update = () => setPortrait(mq.matches);
+    const update = () => {
+      const p = mq.matches;
+      setPortrait(p);
+      // Whole-app fake-landscape (owner wants EVERYTHING horizontal): when a mobile device is held
+      // PORTRAIT and the OS lock didn't take (iOS), add `force-landscape` to <html> → CSS rotates the
+      // entire app 90° (index.css). On Android the lock makes it real landscape → not portrait → no class.
+      document.documentElement.classList.toggle('force-landscape', p);
+    };
     update();
     mq.addEventListener('change', update);
     return () => {
       mq.removeEventListener('change', update);
+      document.documentElement.classList.remove('force-landscape');
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);
