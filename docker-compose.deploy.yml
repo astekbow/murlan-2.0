@@ -142,15 +142,24 @@ services:
       - -c
       - |
         while true; do
-          if [ -z "$$DOMAIN" ]; then echo "[ios-cert-sync] DOMAIN unset — set it in .env"; sleep 3600; continue; fi
-          dir=$$(find /caddy-data/caddy/certificates -type d -name "$$DOMAIN" 2>/dev/null | head -1)
-          if [ -n "$$dir" ] && [ -f "$$dir/$$DOMAIN.crt" ] && [ -f "$$dir/$$DOMAIN.key" ]; then
-            cp "$$dir/$$DOMAIN.crt" /out/fullchain.pem && cp "$$dir/$$DOMAIN.key" /out/privkey.pem
+          if [ -z "$$DOMAIN" ]; then echo "[ios-cert-sync] CADDY_DOMAIN unset — set it in .env"; sleep 3600; continue; fi
+          # CADDY_DOMAIN may list several hostnames (e.g. "cryptomurlan.com www.cryptomurlan.com") and
+          # Caddy stores ONE cert per hostname dir. Find the cert/key by FILENAME (any ACME-CA subdir),
+          # trying each hostname until one resolves — robust to multi-domain + ZeroSSL/Let's Encrypt.
+          crt=""; key=""
+          for d in $$DOMAIN; do
+            crt=$$(find /caddy-data/caddy/certificates -name "$$d.crt" 2>/dev/null | head -1)
+            key=$$(find /caddy-data/caddy/certificates -name "$$d.key" 2>/dev/null | head -1)
+            [ -n "$$crt" ] && [ -n "$$key" ] && break
+          done
+          if [ -n "$$crt" ] && [ -n "$$key" ]; then
+            cp "$$crt" /out/fullchain.pem && cp "$$key" /out/privkey.pem
             chown 1000:1000 /out/fullchain.pem /out/privkey.pem
             chmod 0640 /out/fullchain.pem /out/privkey.pem
-            echo "[ios-cert-sync] synced cert for $$DOMAIN at $$(date -u)"
+            echo "[ios-cert-sync] synced $$crt at $$(date -u)"
           else
-            echo "[ios-cert-sync] no cert found yet for $$DOMAIN under /caddy-data/caddy/certificates (has Caddy issued it?)"
+            echo "[ios-cert-sync] no cert yet for [$$DOMAIN] under /caddy-data/caddy/certificates — .crt files present:"
+            find /caddy-data/caddy/certificates -name '*.crt' 2>/dev/null | head -20
           fi
           sleep 43200
         done
