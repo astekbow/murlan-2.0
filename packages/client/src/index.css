@@ -1099,6 +1099,11 @@ select:focus-visible,
 @media (orientation: landscape) and (max-height: 560px) {
   .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); }
 }
+/* Short PORTRAIT phones: the 3.5rem bottom reservation (no bottom-nav consumes it) eats ~28% of a small
+   viewport and pushes tall pages into overflow. Trim it (keeping breathing room) so more fits w/o scroll. */
+@media (orientation: portrait) and (max-height: 740px) {
+  .app-shell { padding-top: calc(.6rem + env(safe-area-inset-top)); padding-bottom: calc(1.1rem + env(safe-area-inset-bottom)); }
+}
 
 /* Touch devices have no hover: press affordance + ≥44px tap targets (WCAG). */
 @media (hover: none) {
