@@ -84,6 +84,31 @@ services:
       postgres:
         condition: service_healthy
 
+  # --- Offsite backup (OPT-IN: `--profile backup`) ----------------------------
+  # db-backup above writes to ./backups on the SAME host disk as the live DB, so a disk/VPS loss
+  # takes the real-money DB AND its only backups together (audit 2026-06-08 H5). This syncs
+  # ./backups → an rclone remote (S3 / Backblaze B2 / Drive / …) once a day. Setup on the HOST:
+  #   1) install + `rclone config` a remote (default config dir ./deploy/rclone, or set RCLONE_CONFIG_DIR)
+  #   2) set BACKUP_REMOTE=<remote:bucket> in .env
+  #   3) docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile backup up -d offsite-backup
+  # Off by default (profile-gated) → it never runs unless explicitly enabled; defaults below keep the
+  # normal stack parsing cleanly. Mirrors deploy/backup-offsite.sh (the manual/host-cron alternative).
+  offsite-backup:
+    profiles: ["backup"]
+    image: rclone/rclone:1@sha256:623378ad0ff3ebd5cebf77720843c0e02edfe46e2d5b5ac6bed54c6371780dfb # pinned (audit L11)
+    restart: unless-stopped
+    environment:
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    volumes:
+      - ./backups:/data:ro
+      - ${RCLONE_CONFIG_DIR:-./deploy/rclone}:/config/rclone:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'while true; do if [ -z "$$BACKUP_REMOTE" ]; then echo "[offsite] BACKUP_REMOTE unset — skipping (see compose comment)"; sleep 3600; continue; fi; echo "[offsite] sync $$(date -u)"; rclone sync /data "$$BACKUP_REMOTE" --create-empty-src-dirs --transfers 4 || echo "[offsite] sync FAILED"; sleep 86400; done'
+    depends_on:
+      - db-backup
+
   # --- Monitoring (OPT-IN: add `--profile monitoring` to the up command) ------
   # Prometheus scrapes the server's /metrics over the internal network (no token —
   # it's a private 172.x IP) + evaluates deploy/prometheus/alerts.yml. Alertmanager

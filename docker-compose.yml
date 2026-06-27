@@ -80,9 +80,10 @@ services:
       # Four-eyes on a MANUAL balance adjust (admin-6). OFF by default (solo owner). The
       # per-call ceiling + per-admin 24h cap + no-self-credit apply regardless of this flag.
       ADJUST_DUAL_CONTROL: ${ADJUST_DUAL_CONTROL:-false}
-      # Per-user 24h P2P transfer-OUT cap (cents). 0 = UNLIMITED (transfers stay open);
-      # >0 turns on the ledger-enforced AML rail (money-4/6).
-      DAILY_TRANSFER_CAP_CENTS: ${DAILY_TRANSFER_CAP_CENTS:-0}
+      # Per-user 24h P2P transfer-OUT cap (cents). Default $1,000/day AML guardrail (audit M1) —
+      # MUST match the code default (config.ts) so the compose env doesn't silently re-open it to
+      # unlimited. Set 0 to disable, or higher to loosen. >0 = ledger-enforced rail (money-4/6).
+      DAILY_TRANSFER_CAP_CENTS: ${DAILY_TRANSFER_CAP_CENTS:-100000}
       # When set, GET /metrics requires Authorization: Bearer <token> (else it's served
       # only to private/loopback IPs — fine behind Docker's internal network).
       METRICS_TOKEN: ${METRICS_TOKEN:-}
