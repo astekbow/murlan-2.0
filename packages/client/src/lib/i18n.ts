@@ -175,6 +175,7 @@ const STRINGS: Record<string, Entry> = {
   'lobby.team': { sq: 'Ekipi', en: 'Team' },
   'lobby.team1': { sq: 'Ekipi 1', en: 'Team 1' },
   'lobby.team2': { sq: 'Ekipi 2', en: 'Team 2' },
+  'lobby.chooseTeam': { sq: 'Zgjidh ekipin', en: 'Choose your team' },
   'lobby.creating': { sq: 'Po krijohet…', en: 'Creating…' },
   'lobby.createCta': { sq: 'KRIJO DHOMË', en: 'CREATE ROOM' },
 

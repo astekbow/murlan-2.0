@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { MatchType } from '@murlan/shared';
+import type { MatchType, LobbyRoomInfo } from '@murlan/shared';
 import { useGameStore } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
@@ -99,12 +99,19 @@ export function LobbyView() {
   const [rankedOpen, setRankedOpen] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [showRooms, setShowRooms] = useState(false); // Open-rooms opens its own page
+  const [joinTeamFor, setJoinTeamFor] = useState<LobbyRoomInfo | null>(null); // 2v2: pick a team before joining
 
   const onJoinByCode = async () => {
     const c = codeInput.trim();
     if (c.length < 4) return;
     const ok = await joinByCode(c);
     if (ok) setCodeInput('');
+  };
+
+  // 2v2 → let the player choose their team first; other modes join straight in.
+  const handleJoin = (r: LobbyRoomInfo) => {
+    if (r.type === '2v2') setJoinTeamFor(r);
+    else void joinRoom(r.id);
   };
 
   // A 0-stake room is a FREE game — show "Falas" instead of "$0.00" wherever a stake
@@ -186,7 +193,7 @@ export function LobbyView() {
                         <span className="text-xs text-muted">{r.seatsFilled}/{r.seatsTotal} 👥</span>
                         {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
                         <button
-                          onClick={() => void joinRoom(r.id)}
+                          onClick={() => handleJoin(r)}
                           disabled={!joinable}
                           title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
                           className={`btn btn-sm ml-auto shrink-0 ${joinable ? 'btn-gold' : 'btn-ghost'}`}
@@ -201,6 +208,7 @@ export function LobbyView() {
             </div>
           </div>
           {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} onCreate={createRoom} />}
+          {joinTeamFor && <JoinTeamModal room={joinTeamFor} onClose={() => setJoinTeamFor(null)} onJoin={joinRoom} />}
         </div>,
       document.body,
     );
@@ -266,7 +274,7 @@ export function LobbyView() {
                       </div>
                       {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
                       <button
-                        onClick={() => void joinRoom(r.id)}
+                        onClick={() => handleJoin(r)}
                         disabled={!joinable}
                         title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
                         className={`btn w-full sm:w-auto ${joinable ? 'btn-gold' : 'btn-ghost'}`}
@@ -368,6 +376,7 @@ export function LobbyView() {
         />
       )}
       {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} onCreate={createRoom} />}
+      {joinTeamFor && <JoinTeamModal room={joinTeamFor} onClose={() => setJoinTeamFor(null)} onJoin={joinRoom} />}
       {rankedOpen && <RankedModal onClose={() => setRankedOpen(false)} onFind={findRanked} />}
     </div>
   );
@@ -539,6 +548,42 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
             </button>
           </>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+// 2v2 only: pick which team to join (full teams disabled). The server still validates the choice
+// (rejects a full team), so this is a UX convenience over the auto-assignment, not a trust boundary.
+function JoinTeamModal({ room, onClose, onJoin }: { room: LobbyRoomInfo; onClose: () => void; onJoin: (id: string, team?: 0 | 1) => Promise<boolean> }) {
+  const t = useT();
+  const [busy, setBusy] = useState<0 | 1 | null>(null);
+  const filled = room.teams ?? [0, 0];
+  async function pick(team: 0 | 1) {
+    if (busy !== null) return;
+    setBusy(team);
+    const ok = await onJoin(room.id, team);
+    if (ok) onClose();
+    else setBusy(null); // failure → store toast explains; modal stays open to retry the other team
+  }
+  return (
+    <Modal title={t('lobby.chooseTeam')} onClose={onClose}>
+      <div className="grid grid-cols-2 gap-3">
+        {([0, 1] as const).map((team) => {
+          const full = filled[team] >= 2;
+          return (
+            <button
+              key={team}
+              type="button"
+              disabled={full || busy !== null}
+              onClick={() => void pick(team)}
+              className={`btn btn-lg flex flex-col items-center gap-1 py-4 ${full ? 'btn-ghost' : 'btn-gold'}`}
+            >
+              <span>{t(team === 0 ? 'lobby.team1' : 'lobby.team2')}</span>
+              <span className="text-xs opacity-80">{full ? t('lobby.full') : `${filled[team]}/2`}</span>
+            </button>
+          );
+        })}
       </div>
     </Modal>
   );

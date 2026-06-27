@@ -37,6 +37,9 @@ export interface LobbyRoomInfo {
   seatsTotal: number;
   status: RoomStatus;
   createdAt: number; // epoch ms (server-stamped)
+  // 2v2 only: seats filled per team [team1, team2] (each out of 2), so the lobby can let a joiner
+  // pick an OPEN team and disable a full one. Undefined for 1v1 / 1v1v1.
+  teams?: [number, number];
 }
 
 /** A live (in-match) room a user can spectate. Public-safe: usernames + seats

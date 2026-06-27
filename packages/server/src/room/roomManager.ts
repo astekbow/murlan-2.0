@@ -151,6 +151,13 @@ export class RoomManager {
         seatsTotal: r.seats.length,
         status: r.status,
         createdAt: r.createdAt,
+        // 2v2: expose per-team occupancy so the lobby can offer a team choice on join.
+        teams: r.type === '2v2'
+          ? [
+              TEAM_SEATS[0].filter((i) => r.seats[i]?.userId != null).length,
+              TEAM_SEATS[1].filter((i) => r.seats[i]?.userId != null).length,
+            ] as [number, number]
+          : undefined,
       }));
     // Live (in-match) rooms anyone can spectate — usernames + seats only, no cards.
     const live = all
