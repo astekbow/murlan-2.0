@@ -11,6 +11,7 @@ import { cardKey, cardLabel } from '../lib/cards.ts';
 import { seatPosition, type SeatPosition } from '../lib/layout.ts';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
+import { useWakeLock } from '../lib/useWakeLock.ts';
 import { dollars } from '../lib/money.ts';
 import { wentOutSeat } from '../lib/finish.ts';
 import { Hand } from '../components/Hand.tsx';
@@ -220,6 +221,7 @@ function AddFriendButtons({ room, mySeat }: { room: RoomStateDTO; mySeat: number
 
 export function TableView({ room }: { room: RoomStateDTO }) {
   const { ls, forced } = useForceLandscape(); // landscape-only: rotate if held portrait
+  useWakeLock(true); // keep the screen awake the whole time the player is at the table (re-acquires on resume)
   // Select only what the table renders (with shallow equality) so unrelated
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {

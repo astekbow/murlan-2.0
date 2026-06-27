@@ -256,6 +256,11 @@ select:focus-visible,
   .iconbtn:hover { border-color: var(--gold); transform: translateY(-1px); }
 
   /* ---- Inputs & selects -------------------------------------------------- */
+  /* iOS auto-zoom guard: Safari zooms IN (with a jarring flash/flicker) when you focus a form control
+     whose font-size is < 16px, and doesn't always zoom back out cleanly. Floor EVERY input/select/
+     textarea at 16px so focusing a field never triggers that — regardless of class. (Pinch-zoom stays
+     ENABLED for accessibility/compliance; see the viewport meta — we fix the cause, not disable zoom.) */
+  input, select, textarea { font-size: 16px; }
   .field-label { font-size: 12px; font-weight: 500; color: var(--muted-sm); letter-spacing: 0.2px; }
   .field {
     /* 16px (not 14px) is REQUIRED everywhere: iOS Safari auto-zooms when you focus an

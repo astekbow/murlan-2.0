@@ -176,6 +176,26 @@ export function App() {
     }
   }, [status, accessToken, user, socket, connect, disconnect]);
 
+  // Mobile resume recovery: returning from background / screen-wake can leave the socket stuck
+  // "reconnecting" forever — the OS froze Socket.IO's backoff timer (or silently tore down the
+  // transport), so it never retries until a full app relaunch. Force an immediate connect on
+  // visibility/online/focus whenever the socket isn't connected — what previously only a restart did.
+  useEffect(() => {
+    const kick = () => {
+      const s = useGameStore.getState().socket;
+      if (s && !s.connected) s.connect();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') kick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', kick);
+    window.addEventListener('focus', kick);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', kick);
+      window.removeEventListener('focus', kick);
+    };
+  }, []);
+
   // Responsible-gaming session clock: stamp the start time once signed in (idempotent
   // across token refreshes) and reset it when the session ends. Drives the TopBar
   // "Po luan: 42m" indicator.
