@@ -22,7 +22,6 @@ import { SeatBadge } from '../components/SeatBadge.tsx';
 import { Controls } from '../components/Controls.tsx';
 import { TurnTimer } from '../components/TurnTimer.tsx';
 import { useForceLandscape } from '../lib/useForceLandscape.ts';
-import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { EmoteChat } from '../components/EmoteChat.tsx';
@@ -518,7 +517,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // The hand + (when not switching) the Play/Pass controls — same components,
   // same handlers, in both layouts.
   const handBlock = (
-    <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate fit={ls} />
+    <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate fit={ls || forced} />
   );
   const controlsBlock = !switching ? (
     <Controls
@@ -684,15 +683,16 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     // In landscape (`ls`) the table becomes a single fixed-aspect CANVAS; portrait/
     // desktop keep the original vertical flow layout. ALL overlays/modals below are
     // rendered as siblings (fixed / modal-backdrop) so the canvas can never clip them.
-    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls ? ' tv-ls' : ''}${shake ? ' shake-fx' : ''}`}>
+    <div className={`tv-root relative z-10 min-h-[100dvh] flex flex-col mx-auto w-full max-w-[680px]${ls || forced ? ' tv-ls' : ''}${shake ? ' shake-fx' : ''}`}>
       <h1 className="sr-only">{t('table.title')}</h1>
       <GameAnnouncer
         isMyTurn={isMyTurn}
         result={matchResult ? (iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })) : null}
       />
-      {forced && <RotateOverlay />}
 
-      {ls ? canvasLayout : flowLayout}
+      {/* Portrait phone (`forced`) uses the SAME landscape canvas — the app is CSS-rotated 90° (see
+          useForceLandscapeApp), so no "rotate your phone" prompt is needed. */}
+      {ls || forced ? canvasLayout : flowLayout}
 
       {/* Shuffle splash: ONLY at match start / between deals — never during the
           card switch (which would cover the winner's hand and block the give). */}

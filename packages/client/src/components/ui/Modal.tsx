@@ -41,6 +41,9 @@ export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) 
         {children}
       </div>
     </div>,
-    document.body,
+    // Portal into #root (not <body>) so the modal sits INSIDE the CSS-rotated app frame on a portrait
+    // phone (force-landscape) — otherwise it'd render upright while the table is sideways. #root is
+    // still a top-level container, so it keeps the modal above the lobby's stacking contexts.
+    document.getElementById('root') ?? document.body,
   );
 }

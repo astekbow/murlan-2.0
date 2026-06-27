@@ -38,11 +38,20 @@ export function useForceLandscapeApp(): boolean {
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
     const mq = window.matchMedia('(orientation: portrait)');
-    const update = () => setPortrait(mq.matches);
+    const update = () => {
+      const p = mq.matches;
+      setPortrait(p);
+      // CSS fake-landscape (replaces the "rotate your phone" prompt): when the device is held PORTRAIT
+      // and the OS lock didn't take (iOS has no lock API), rotate the whole app 90° so it's ALWAYS
+      // horizontal without asking the player to turn the phone. On Android the lock makes it landscape
+      // → not portrait → this class is never added (native rotation handles it there).
+      document.documentElement.classList.toggle('force-landscape', p);
+    };
     update();
     mq.addEventListener('change', update);
     return () => {
       mq.removeEventListener('change', update);
+      document.documentElement.classList.remove('force-landscape');
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);

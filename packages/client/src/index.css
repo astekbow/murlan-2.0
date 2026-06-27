@@ -1201,3 +1201,38 @@ select:focus-visible,
 .pg-ls-tab.on { color: var(--gold-hi); border-color: var(--gold-line); background: rgba(232, 200, 121, 0.10); }
 
 /* (Lobby HUB keeps its original layout in landscape — no landscape-console grid here.) */
+
+/* ============================================================================
+   FORCE-LANDSCAPE — always-horizontal without a "rotate your phone" prompt
+   ----------------------------------------------------------------------------
+   A phone held PORTRAIT gets `force-landscape` on <html> (useForceLandscapeApp) where the OS can't
+   lock orientation (iOS). Instead of the rotate prompt, we ROTATE THE WHOLE APP 90°: #root becomes a
+   landscape frame (width = the portrait viewport's HEIGHT, height = its WIDTH) rotated 90° CW to fill
+   the screen. Modals portal into #root, so they rotate with it. Only fires on a physically-portrait
+   viewport; desktops + real landscape are untouched. (On Android the OS lock makes it real landscape,
+   so the class is never added there.)
+   ========================================================================== */
+@media (orientation: portrait) {
+  html.force-landscape, html.force-landscape body { overflow: hidden; height: 100%; }
+  html.force-landscape #root {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vh;   /* landscape width  = the portrait viewport's HEIGHT */
+    height: 100vw;  /* landscape height = the portrait viewport's WIDTH  */
+    transform-origin: top left;
+    transform: translateX(100vw) rotate(90deg);
+    overflow: hidden;
+  }
+  /* Inside the rotated frame, vw/svh STILL mean the physical (portrait) viewport, so the fixed-aspect
+     table canvas must SWAP them — width tracks the frame width (=100vh), height the frame height
+     (=100vw). Without this the canvas would size to the narrow portrait width and shrink to nothing. */
+  html.force-landscape .tv-ls .tv-canvas {
+    width: min(100vh, calc(100vw * 1280 / 590));
+    height: min(100vw, calc(100vh * 590 / 1280));
+  }
+  /* Overlays are fixed inset:0 → they fill the rotated #root frame. But dvh/dvw-based max-heights now
+     refer to the physical viewport; cap modals to the frame HEIGHT (=100vw) so they don't overgrow. */
+  html.force-landscape .modal-backdrop > .panel-solid,
+  html.force-landscape .match-result-panel { max-height: 92vw; }
+}

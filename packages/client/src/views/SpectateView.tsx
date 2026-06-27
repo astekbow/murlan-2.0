@@ -8,8 +8,6 @@ import { useGameStore } from '../store/gameStore.ts';
 import { Pile } from '../components/Pile.tsx';
 import { sound } from '../lib/sound.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
-import { useForceLandscape } from '../lib/useForceLandscape.ts';
-import { RotateOverlay } from '../components/ui/RotateOverlay.tsx';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
@@ -17,7 +15,6 @@ const TYPE_LABEL: Record<string, string> = { '1v1': tr('spectate.type1v1'), '1v1
 
 export function SpectateView({ room }: { room: RoomStateDTO }) {
   const t = useT();
-  const { forced } = useForceLandscape(); // landscape-only: rotate if held portrait
   const { game, scoreboard, matchResult, stopSpectate } = useGameStore(
     useShallow((s) => ({ game: s.game, scoreboard: s.scoreboard, matchResult: s.matchResult, stopSpectate: s.stopSpectate })),
   );
@@ -38,7 +35,7 @@ export function SpectateView({ room }: { room: RoomStateDTO }) {
       }}
     >
       <h1 className="sr-only">{t('spectate.srWatchingLive')}</h1>
-      {forced && <RotateOverlay />}
+      {/* No rotate prompt — a portrait phone CSS-rotates the whole app (see useForceLandscapeApp). */}
       <div className="flex items-center justify-between gap-3 animate-rise">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-2xl">👁</span>
