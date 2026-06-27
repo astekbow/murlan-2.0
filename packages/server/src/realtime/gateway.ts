@@ -55,6 +55,7 @@ import { HandshakeThrottle } from './handshakeThrottle.ts';
 import { SpectatorRegistry } from './spectatorRegistry.ts';
 import { RematchCoordinator } from './rematchCoordinator.ts';
 import { BotDriver } from './botDriver.ts';
+import { TournamentMatchRegistry } from './tournamentMatchRegistry.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -164,12 +165,9 @@ export class GameGateway {
   private readonly push: PushService | null;
   private readonly chat: ChatService | null;
   private readonly tournaments: TournamentService | null;
-  // Tournament pairing → its live room id, so we never spin up two rooms for the
-  // same bracket match (and can clean up on result). Key: `${tid}:${round}:${index}`.
-  private tournamentMatchRooms = new Map<string, string>();
-  // Per tournament-room no-show timers: if a paired player never joins, the match
-  // is walked over to whoever did, so the bracket can't stall. roomId → timer.
-  private tournamentNoShowTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // In-flight bracket-pairing bookkeeping (which pairings have a live room + the per-room no-show
+  // timer) extracted to a registry (audit M5); the spin-up/walkover/advance logic stays below.
+  private readonly tournamentMatches = new TournamentMatchRegistry();
   // Rematch offers: who has opted in + the window deadline + the expiry timer. Offer state extracted
   // to a unit-tested coordinator (audit M5); the consensus → reset/countdown logic stays below.
   private readonly rematch = new RematchCoordinator();
@@ -1245,8 +1243,7 @@ export class GameGateway {
     if (this.timers.hasCountdown(roomId)) return; // already counting down
     this.clearGhostFill(roomId); // the room is starting → cancel any pending free-lobby auto-fill
     // A tournament pairing is starting (both joined) → cancel its no-show walkover.
-    const noShow = this.tournamentNoShowTimers.get(roomId);
-    if (noShow) { clearTimeout(noShow); this.tournamentNoShowTimers.delete(roomId); }
+    this.tournamentMatches.cancelNoShow(roomId);
 
     // Provably-fair COMMIT happens here — BEFORE clientSeeds are collected for
     // this match. We generate+commit the serverSeed, discard any pre-commit
@@ -2151,8 +2148,7 @@ export class GameGateway {
     if (!t || t.status !== 'running') return;
     for (const m of t.bracket) {
       if (m.winnerId || !m.aUserId || !m.bUserId) continue; // decided, or not yet ready
-      const key = `${tournamentId}:${m.round}:${m.index}`;
-      if (this.tournamentMatchRooms.has(key)) continue; // already running
+      if (this.tournamentMatches.isRunning(tournamentId, m.round, m.index)) continue; // already running
       await this.startTournamentMatch(tournamentId, m.round, m.index, m.aUserId, m.bUserId);
     }
   }
@@ -2168,18 +2164,16 @@ export class GameGateway {
     if (!bReady) return void this.advanceTournament(tournamentId, round, index, a);
 
     const roomId = this.rooms.createTournamentRoom('1v1', [a, b], { tournamentId, round, index });
-    this.tournamentMatchRooms.set(`${tournamentId}:${round}:${index}`, roomId);
+    this.tournamentMatches.markRunning(tournamentId, round, index, roomId);
     this.ownership?.claim(roomId);
     for (const uid of [a, b]) this.io.to(personalRoom(uid)).emit('tournament:matchReady', { roomId, tournamentId });
-    const timer = setTimeout(() => void this.onTournamentNoShow(roomId, tournamentId, round, index, a, b), this.tournamentJoinMs);
-    timer.unref?.();
-    this.tournamentNoShowTimers.set(roomId, timer);
+    this.tournamentMatches.armNoShow(roomId, this.tournamentJoinMs, () => void this.onTournamentNoShow(roomId, tournamentId, round, index, a, b));
   }
 
   /** A paired player never joined in time → walk the match over to whoever did (seed a
    *  if neither), discard the un-started room. */
   private async onTournamentNoShow(roomId: string, tournamentId: string, round: number, index: number, a: string, b: string): Promise<void> {
-    this.tournamentNoShowTimers.delete(roomId);
+    this.tournamentMatches.cancelNoShow(roomId);
     const room = this.rooms.getRoom(roomId);
     if (!room || room.status !== 'waiting') return; // already started → the match decides it
     const winner = this.rooms.seatOf(roomId, a) >= 0 ? a : this.rooms.seatOf(roomId, b) >= 0 ? b : a;
@@ -2205,7 +2199,7 @@ export class GameGateway {
    *  rooms (or finish + pay the champion via reportResult/finish). Isolated + logged. */
   private async advanceTournament(tournamentId: string, round: number, index: number, winnerUserId: string): Promise<void> {
     if (!this.tournaments) return;
-    this.tournamentMatchRooms.delete(`${tournamentId}:${round}:${index}`);
+    this.tournamentMatches.clearPairing(tournamentId, round, index);
     // Record the ENGINE-decided winner so a later MANUAL admin /report for this pairing
     // is reconciled against it (admin-4): a contradicting manual winner is rejected.
     this.tournaments.recordRoomOutcome(tournamentId, round, index, winnerUserId);
