@@ -52,6 +52,7 @@ import { settlementFailures, socketConnections, settlementDuration, auditWriteFa
 import type { RoomOwnership } from './roomOwnership.ts';
 import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, botThinkDelay } from './gatewayHelpers.ts';
 import { HandshakeThrottle } from './handshakeThrottle.ts';
+import { SpectatorRegistry } from './spectatorRegistry.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -182,8 +183,9 @@ export class GameGateway {
   // synchronously so ordering is correct regardless of async write timing; the
   // entry is dropped when the match finalizes.
   private matchActionSeq = new Map<string, number>();
-  // Spectators per room (count only; identity not needed). Bounded by SPECTATOR_CAP.
-  private spectatorCount = new Map<string, number>();
+  // Spectators per room (count only; identity not needed). Bounded by SPECTATOR_CAP. Bookkeeping
+  // extracted to a unit-tested registry (audit M5); the spectate methods below stay as delegators.
+  private readonly spectators = new SpectatorRegistry(SPECTATOR_CAP);
   // All scheduled timers (countdown / turn / abandon) + their deadlines live here.
   private readonly timers = new TimerOrchestrator();
   private idleStrikes = new Map<string, number>(); // userId -> consecutive turn timeouts (reset on any real move)
@@ -819,9 +821,8 @@ export class GameGateway {
     }
     if (socket.data.spectating && socket.data.spectating !== roomId) this.removeSpectator(socket);
     if (socket.data.spectating !== roomId) {
-      const current = this.spectatorCount.get(roomId) ?? 0;
-      if (current >= SPECTATOR_CAP) return reply(ackError('spectators_full', 'Kuota e shikuesve është mbushur.'));
-      this.spectatorCount.set(roomId, current + 1);
+      if (this.spectators.isFull(roomId)) return reply(ackError('spectators_full', 'Kuota e shikuesve është mbushur.'));
+      this.spectators.add(roomId);
       socket.data.spectating = roomId;
       void socket.join(roomId);
       this.emitSpectatorCount(roomId);
@@ -832,7 +833,7 @@ export class GameGateway {
 
   /** Broadcast the room's live spectator count to everyone in it (players + watchers). */
   private emitSpectatorCount(roomId: string): void {
-    this.io.to(roomId).emit('room:spectators', { count: this.spectatorCount.get(roomId) ?? 0 });
+    this.io.to(roomId).emit('room:spectators', { count: this.spectators.count(roomId) });
   }
 
   private onUnspectate(socket: IOSocket, ack: (res: Ack) => void): void {
@@ -870,9 +871,7 @@ export class GameGateway {
     if (!roomId) return;
     socket.data.spectating = null;
     void socket.leave(roomId);
-    const n = (this.spectatorCount.get(roomId) ?? 1) - 1;
-    if (n <= 0) this.spectatorCount.delete(roomId);
-    else this.spectatorCount.set(roomId, n);
+    this.spectators.remove(roomId);
     if (this.rooms.getRoom(roomId)) this.emitSpectatorCount(roomId); // notify remaining watchers/players
   }
 
@@ -2586,7 +2585,7 @@ export class GameGateway {
       this.clearTurnTimer(roomId);
       this.clearInterHandTimer(roomId); // room gone — drop any pending inter-hand pause
       this.ownership?.release(roomId); // room gone — drop ownership claim
-      this.spectatorCount.delete(roomId); // room gone — drop its spectator tally
+      this.spectators.clear(roomId); // room gone — drop its spectator tally
     } else {
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
