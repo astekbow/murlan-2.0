@@ -1218,18 +1218,26 @@ select:focus-visible,
     position: fixed;
     top: 0;
     left: 0;
-    width: 100vh;   /* landscape width  = the portrait viewport's HEIGHT */
-    height: 100vw;  /* landscape height = the portrait viewport's WIDTH  */
+    /* DYNAMIC viewport units (dvh/dvw) so the rotated frame matches the VISIBLE area on iOS. With static
+       vh/vw, Safari's address bar makes 100vh TALLER than what's on screen, so the rotated app looked
+       zoomed/stretched when held portrait (but fine after a physical rotate, which gives the real
+       landscape viewport). dvh/dvw track the actual visible viewport. vh/vw declared first as a fallback
+       for any engine without dvh support. */
+    width: 100vh;
+    width: 100dvh;   /* landscape width  = the portrait viewport's HEIGHT */
+    height: 100vw;
+    height: 100dvw;  /* landscape height = the portrait viewport's WIDTH  */
     transform-origin: top left;
     transform: translateX(100vw) rotate(90deg);
+    transform: translateX(100dvw) rotate(90deg);
     overflow: hidden;
   }
   /* Inside the rotated frame, vw/svh STILL mean the physical (portrait) viewport, so the fixed-aspect
-     table canvas must SWAP them — width tracks the frame width (=100vh), height the frame height
-     (=100vw). Without this the canvas would size to the narrow portrait width and shrink to nothing. */
+     table canvas must SWAP them — width tracks the frame width (=100dvh), height the frame height
+     (=100dvw). Without this the canvas would size to the narrow portrait width and shrink to nothing. */
   html.force-landscape .tv-ls .tv-canvas {
-    width: min(100vh, calc(100vw * 1280 / 590));
-    height: min(100vw, calc(100vh * 590 / 1280));
+    width: min(100dvh, calc(100dvw * 1280 / 590));
+    height: min(100dvw, calc(100dvh * 590 / 1280));
   }
   /* Overlays are fixed inset:0 → they fill the rotated #root frame. But dvh/dvw-based max-heights now
      refer to the physical viewport; cap modals to the frame HEIGHT (=100vw) so they don't overgrow. */
