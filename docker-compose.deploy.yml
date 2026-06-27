@@ -123,16 +123,17 @@ services:
   # Caddy stores it 0600/root inside caddy_data; the server runs as the unprivileged `node` user and
   # can't read that. This root sidecar copies the cert+key into the ios_certs volume, chowned to the
   # server's uid (1000) so it CAN read them, and refreshes every 12h to follow renewals.
-  # Enable:  (1) set DOMAIN=yourdomain.com in .env  (2) set IOS_PROFILE_SIGN_CERT=/ios-certs/fullchain.pem
-  #          and IOS_PROFILE_SIGN_KEY=/ios-certs/privkey.pem in .env  (3) add `--profile ios-signing`.
+  # Enable: in .env set IOS_PROFILE_SIGN_CERT=/ios-certs/fullchain.pem + IOS_PROFILE_SIGN_KEY=/ios-certs/
+  #         privkey.pem (CADDY_DOMAIN is already set), then add `--profile ios-signing` to the up command.
   ios-cert-sync:
     profiles: ["ios-signing"]
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # pinned (audit L11)
     restart: unless-stopped
     environment:
-      # Defaulted empty (NOT `:?`) so the normal `up` never errors — Compose interpolates every service
-      # at load time, even profile-gated ones. Set DOMAIN in .env when enabling ios-signing.
-      DOMAIN: ${DOMAIN:-}
+      # Reuse CADDY_DOMAIN (the domain Caddy already issues the cert for) — the cert hostname can never
+      # mismatch and there's nothing extra to set. Defaulted empty (NOT `:?`) so the normal `up` never
+      # errors: Compose interpolates every service at load time, even profile-gated ones.
+      DOMAIN: ${CADDY_DOMAIN:-}
     volumes:
       - caddy_data:/caddy-data:ro
       - ios_certs:/out

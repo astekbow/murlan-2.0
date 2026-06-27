@@ -70,10 +70,9 @@ identity — back it up.
 
   **Turnkey on the single-host deploy** (`docker-compose.deploy.yml`): Caddy stores its Let's Encrypt
   cert `0600`/root in `caddy_data`, which the unprivileged `node` server can't read — so an opt-in
-  **`ios-cert-sync`** sidecar copies it into the `ios_certs` volume, `chown`ed to the server's uid. To
-  enable, in `.env`:
+  **`ios-cert-sync`** sidecar copies it into the `ios_certs` volume, `chown`ed to the server's uid. The
+  cert hostname is taken from `CADDY_DOMAIN` automatically. To enable, in `.env`:
   ```
-  DOMAIN=yourdomain.com                          # the exact cert hostname Caddy issued
   IOS_PROFILE_SIGN_CERT=/ios-certs/fullchain.pem
   IOS_PROFILE_SIGN_KEY=/ios-certs/privkey.pem
   ```
