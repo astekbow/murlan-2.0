@@ -1,12 +1,10 @@
 # Murlan game server (Fastify + Socket.IO). Runs the TypeScript sources via tsx.
 #
-# SUPPLY CHAIN: pin the base image to a content digest for reproducible, tamper-
-# evident builds before production. Resolve the current digest in an env with
-# Docker, then replace the tag below with it:
-#   docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
-#   → FROM node:22-alpine@sha256:<digest> AS deps   (and the runtime stage)
-# (Left as a floating tag here because this build env has no Docker to resolve it.)
-FROM node:22-alpine AS deps
+# SUPPLY CHAIN: base image pinned to a content digest (audit L11) for reproducible, tamper-evident
+# builds. The :22-alpine tag is kept for readability; the @sha256 digest is what's enforced. Re-pin on
+# a base bump with: docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
+# (or run deploy/pin-images.sh). Digest resolved 2026-06 for node:22-alpine.
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS deps
 WORKDIR /app
 # Prisma needs openssl present to pick the correct engine for Alpine/musl (else it
 # guesses openssl-1.1.x and tries to download an engine at runtime — which fails as
@@ -20,7 +18,7 @@ COPY packages/server/package.json packages/server/package.json
 COPY packages/client/package.json packages/client/package.json
 RUN npm ci
 
-FROM node:22-alpine AS runtime
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runtime
 WORKDIR /app
 # openssl so Prisma detects the right engine at build AND runtime (see deps stage).
 RUN apk add --no-cache openssl

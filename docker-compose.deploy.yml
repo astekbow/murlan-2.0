@@ -10,7 +10,7 @@
 # (sslip.io does this automatically: 203.0.113.7.sslip.io → 203.0.113.7).
 services:
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 # pinned (audit L11)
     restart: unless-stopped
     ports:
       - '80:80'
@@ -64,7 +64,7 @@ services:
   # ./backups on the host. Daily by default; keeps 7 daily / 4 weekly / 6 monthly.
   # Restore later with: gunzip -c backups/daily/<file>.sql.gz | docker compose exec -T postgres psql -U murlan -d murlan
   db-backup:
-    image: prodrigestivill/postgres-backup-local:16
+    image: prodrigestivill/postgres-backup-local:16@sha256:a0103fbce0c48ccc7693ddbb2a2bfa733048db845354f635efef9e4566de185d # pinned (audit L11)
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
@@ -91,7 +91,7 @@ services:
   #   docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile monitoring up -d
   # Then watch the bracket at http://127.0.0.1:9090 (Prometheus) — bind to localhost.
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:latest@sha256:a75c5a35bc21d7afe69551eefa3cb1e1fb1775fe759408007a66b54ec3de1f29 # digest-pinned (audit L11); digest wins over :latest
     profiles: ['monitoring']
     restart: unless-stopped
     ports: ['127.0.0.1:9090:9090'] # localhost only — never expose Prometheus publicly
@@ -102,7 +102,7 @@ services:
     depends_on: ['server']
 
   alertmanager:
-    image: prom/alertmanager:latest
+    image: prom/alertmanager:latest@sha256:af26fbe4dd1886ac0efd7bd55cd9027da262e105b137a376522b7c14c3626e4a # digest-pinned (audit L11); digest wins over :latest
     profiles: ['monitoring']
     restart: unless-stopped
     environment:

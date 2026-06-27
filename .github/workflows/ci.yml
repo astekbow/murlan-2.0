@@ -103,14 +103,14 @@ jobs:
       # block (an un-patched base-OS CVE shouldn't wedge deploys); a finding here means "rebuild
       # on a newer base / bump the dep", which is actionable.
       - name: Scan server image (Trivy)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 — pinned to an immutable commit (audit L12), was @master
         with:
           image-ref: murlan-server:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
       - name: Scan client image (Trivy)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 — pinned to an immutable commit (audit L12), was @master
         with:
           image-ref: murlan-client:ci
           severity: HIGH,CRITICAL
