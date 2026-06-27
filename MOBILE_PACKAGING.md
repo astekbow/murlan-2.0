@@ -64,11 +64,24 @@ identity — back it up.
   IOS_PROFILE_SIGN_KEY=/certs/privkey.pem      # its private key
   ```
   iOS only trusts a signature that chains to a **public** root, so this MUST be the domain's real
-  (Let's Encrypt) cert — a self-signed cert would still read "Not Verified". On the single-host deploy,
-  mount Caddy's cert dir (or a copy of `fullchain.pem` + `privkey.pem`) **read-only** into the server
-  container and set the two vars. The runtime image already has `openssl`. If the vars are unset (or the
-  cert is unreadable) the route falls back to the **unsigned** profile — it still installs, just with the
-  "Unverified" label until you wire the cert.
+  (Let's Encrypt) cert — a self-signed cert would still read "Not Verified". If the vars are unset (or
+  the cert is unreadable) the route falls back to the **unsigned** profile — it still installs, just with
+  the "Unverified" label; a misconfigured cert now logs `[install] iOS .mobileconfig signing FAILED …`.
+
+  **Turnkey on the single-host deploy** (`docker-compose.deploy.yml`): Caddy stores its Let's Encrypt
+  cert `0600`/root in `caddy_data`, which the unprivileged `node` server can't read — so an opt-in
+  **`ios-cert-sync`** sidecar copies it into the `ios_certs` volume, `chown`ed to the server's uid. To
+  enable, in `.env`:
+  ```
+  DOMAIN=yourdomain.com                          # the exact cert hostname Caddy issued
+  IOS_PROFILE_SIGN_CERT=/ios-certs/fullchain.pem
+  IOS_PROFILE_SIGN_KEY=/ios-certs/privkey.pem
+  ```
+  then bring it up with the profile:
+  ```
+  docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile ios-signing up -d
+  ```
+  The sidecar refreshes every 12h (follows cert renewals); the runtime image already has `openssl`.
 - This is **NOT** an App Store app and needs no Developer account to *work*.
 
 ### Serving note (nginx)

@@ -55,6 +55,14 @@ services:
     # CPU capping adds little next to mem_limit (the real ledger-corruption guard). If you
     # move to a multi-core box and want a cap, add `cpus: <n>` here (n <= host CPUs).
     logging: { driver: json-file, options: { max-size: '20m', max-file: '5' } }
+    # iOS .mobileconfig signing (→ "Verified", no "Unsigned" warning): the ios-cert-sync sidecar
+    # (profile: ios-signing) copies Caddy's Let's Encrypt cert here, chowned to this container's `node`
+    # uid. EMPTY unless you enable it — set the two env vars in .env to turn signing on (see below).
+    environment:
+      IOS_PROFILE_SIGN_CERT: ${IOS_PROFILE_SIGN_CERT:-}
+      IOS_PROFILE_SIGN_KEY: ${IOS_PROFILE_SIGN_KEY:-}
+    volumes:
+      - ios_certs:/ios-certs:ro
   client:
     restart: unless-stopped
     mem_limit: ${CLIENT_MEM_LIMIT:-64m}
@@ -109,6 +117,45 @@ services:
     depends_on:
       - db-backup
 
+  # --- iOS profile signing cert-sync (OPT-IN: `--profile ios-signing`) --------
+  # Makes the iOS install profile (.mobileconfig) show "Verified" instead of "Unsigned". iOS only
+  # trusts a signature from a PUBLICLY-trusted cert, so we sign with Caddy's own Let's Encrypt cert.
+  # Caddy stores it 0600/root inside caddy_data; the server runs as the unprivileged `node` user and
+  # can't read that. This root sidecar copies the cert+key into the ios_certs volume, chowned to the
+  # server's uid (1000) so it CAN read them, and refreshes every 12h to follow renewals.
+  # Enable:  (1) set DOMAIN=yourdomain.com in .env  (2) set IOS_PROFILE_SIGN_CERT=/ios-certs/fullchain.pem
+  #          and IOS_PROFILE_SIGN_KEY=/ios-certs/privkey.pem in .env  (3) add `--profile ios-signing`.
+  ios-cert-sync:
+    profiles: ["ios-signing"]
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # pinned (audit L11)
+    restart: unless-stopped
+    environment:
+      # Defaulted empty (NOT `:?`) so the normal `up` never errors — Compose interpolates every service
+      # at load time, even profile-gated ones. Set DOMAIN in .env when enabling ios-signing.
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - caddy_data:/caddy-data:ro
+      - ios_certs:/out
+    command:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          if [ -z "$$DOMAIN" ]; then echo "[ios-cert-sync] DOMAIN unset — set it in .env"; sleep 3600; continue; fi
+          dir=$$(find /caddy-data/caddy/certificates -type d -name "$$DOMAIN" 2>/dev/null | head -1)
+          if [ -n "$$dir" ] && [ -f "$$dir/$$DOMAIN.crt" ] && [ -f "$$dir/$$DOMAIN.key" ]; then
+            cp "$$dir/$$DOMAIN.crt" /out/fullchain.pem && cp "$$dir/$$DOMAIN.key" /out/privkey.pem
+            chown 1000:1000 /out/fullchain.pem /out/privkey.pem
+            chmod 0640 /out/fullchain.pem /out/privkey.pem
+            echo "[ios-cert-sync] synced cert for $$DOMAIN at $$(date -u)"
+          else
+            echo "[ios-cert-sync] no cert found yet for $$DOMAIN under /caddy-data/caddy/certificates (has Caddy issued it?)"
+          fi
+          sleep 43200
+        done
+    depends_on:
+      - caddy
+
   # --- Monitoring (OPT-IN: add `--profile monitoring` to the up command) ------
   # Prometheus scrapes the server's /metrics over the internal network (no token —
   # it's a private 172.x IP) + evaluates deploy/prometheus/alerts.yml. Alertmanager
@@ -150,3 +197,4 @@ volumes:
   caddy_config:
   prometheus_data:
   alertmanager_data:
+  ios_certs: # synced Let's Encrypt cert for iOS .mobileconfig signing (profile: ios-signing)
