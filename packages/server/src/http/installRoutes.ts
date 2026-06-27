@@ -31,7 +31,7 @@ const xmlEscape = (s: string): string =>
 function signProfile(plist: string): Buffer | null {
   const cert = process.env.IOS_PROFILE_SIGN_CERT;
   const key = process.env.IOS_PROFILE_SIGN_KEY;
-  if (!cert || !key) return null;
+  if (!cert || !key) return null; // signing NOT configured — expected, quiet fallback to unsigned
   try {
     // -nodetach embeds the plist in the signature (Apple requires the content inline); -certfile adds
     // the intermediate(s) from the same fullchain so iOS can build the path to the trusted root.
@@ -40,8 +40,15 @@ function signProfile(plist: string): Buffer | null {
       ['smime', '-sign', '-signer', cert, '-inkey', key, '-certfile', cert, '-outform', 'DER', '-nodetach', '-md', 'sha256'],
       { input: plist, maxBuffer: 8 * 1024 * 1024 },
     );
-  } catch {
-    return null; // misconfig / no openssl → serve unsigned (still installs, with the warning)
+  } catch (e) {
+    // The env vars ARE set but signing FAILED (no openssl, or an unreadable/bad cert). Don't fail
+    // silently — otherwise the profile serves 'Unsigned' forever with no clue why. Log it loudly.
+    console.error(
+      '[install] iOS .mobileconfig signing FAILED — serving UNSIGNED. Verify IOS_PROFILE_SIGN_CERT/KEY ' +
+        'point at a readable, publicly-trusted (Let\'s Encrypt) fullchain+key and that openssl is installed.',
+      e,
+    );
+    return null; // serve unsigned (still installs, with the warning)
   }
 }
 
