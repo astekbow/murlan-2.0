@@ -104,7 +104,7 @@ export function SupportView() {
         </label>
         <label className="block">
           <span className="field-label">{t('support.message')}</span>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={2000} rows={4} placeholder={t('support.messagePlaceholder')} className="field resize-y" />
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={2000} rows={4} placeholder={t('support.messagePlaceholder')} className="field resize-y support-ta" />
         </label>
         {category === 'match' && (
           <label className="block">

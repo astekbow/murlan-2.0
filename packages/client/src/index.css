@@ -1282,4 +1282,29 @@ select:focus-visible,
   html.force-landscape .wallet-deposit-body > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
   html.force-landscape .wallet-deposit-qr { flex: 0 0 auto; }
   html.force-landscape .wallet-deposit-info { flex: 1 1 auto; min-width: 0; }
+
+  /* R2 — under rotation, vh/dvh/svh still mean the PHYSICAL portrait viewport (tall), so height
+     utilities overflow the short frame. Swap each to vw (= the rotated frame's HEIGHT). Covers the
+     Admin lists (were 🟥 broken), the notifications panel, the club roster, the in-game standings +
+     match-end modals, and the tv-root min-height. Only active on a rotated portrait phone. */
+  html.force-landscape .max-h-\[30vh\] { max-height: 30vw; }
+  html.force-landscape .max-h-\[40vh\] { max-height: 40vw; }
+  html.force-landscape .max-h-\[60vh\] { max-height: 60vw; }
+  html.force-landscape .max-h-\[70vh\] { max-height: 70vw; }
+  html.force-landscape .max-h-\[88dvh\] { max-height: 88vw; }
+  html.force-landscape .max-h-\[92dvh\] { max-height: 92vw; }
+  html.force-landscape .max-h-\[94dvh\] { max-height: 94vw; }
+  html.force-landscape .min-h-\[100dvh\] { min-height: 100vw; }
+
+  /* Support "new ticket" textarea — the tallest element on a flat (console-less) page; cap it on a
+     rotated phone so the subject/category/submit all stay on screen without scroll. */
+  html.force-landscape .support-ta { height: 60px; min-height: 60px; resize: none; }
+
+  /* Reset-password card renders OUTSIDE the lobby Shell; its compaction lives in an
+     @media(orientation:landscape) block (index.css:756) that can't fire on a rotated portrait phone —
+     mirror it here, with the dvh cap swapped to vw (frame height). */
+  html.force-landscape .reset-card { padding: 0.9rem 1.2rem; max-height: 94vw; overflow-y: auto; }
+  html.force-landscape .reset-card h1 { font-size: 1.2rem; }
+  html.force-landscape .reset-card.space-y-4 > :not([hidden]) ~ :not([hidden]),
+  html.force-landscape .reset-card .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
 }
