@@ -177,20 +177,23 @@ Remediation was carried out in verified, committed batches (server+client tsc cl
 | 🔵 **L1** wallet-tx clamp · **L4** JSON zod-on-read · **L5** atomic stats · **L6** clubwar status CHECK · **L7/L8** overlay a11y · **L9** font trim+preload · **L10** RUNBOOK row | all shipped. |
 | ⚪ **I1** swallow visibility | The 3 audit-relevant gateway swallows now `inc` a `murlan_audit_write_failures_total` counter + log. |
 | ⚪ **I4** focus trap · **I5** TopBar emoji aria | shipped. |
-| 🟡 **M5 (partial)** gateway god-object | **3 of the cleanly-separable collaborators extracted** (HandshakeThrottle, SpectatorRegistry, RematchCoordinator) — each behavior-preserving with a unit test, ~7 mutable Maps lifted out. |
+| 🟡 **M5** gateway god-object | **All 6 cleanly-separable collaborators extracted** (HandshakeThrottle, SpectatorRegistry, RematchCoordinator, BotDriver, TournamentMatchRegistry, FairnessCoordinator) — each a behavior-preserving STATE lift with a unit test; the coupled decision/settlement LOGIC stays in the gateway. Every mutable Map the audit cited is now in a unit-tested unit. |
+| 🔵 **L11/L12** image/action pinning | All base + monitoring images pinned to real `@sha256` digests (resolved via the Docker registry API); Trivy `@master` → `@ed142fd` (v0.36.0 commit). |
 
 ### ⚪ Verified already-correct (no change needed)
 - **I2** — a strict CSP **is already set** for the client origin at `packages/client/deploy/nginx.conf` (the API/helmet omitting CSP is correct — it serves JSON).
 - **I3** — tournament/clubwar bracket/roster JSON is fine at the current capacities {2,4,8}; normalize only if larger tournaments are added.
 
 ### ⏸️ Deferred — with engineering rationale (NOT skipped)
-- **M5 deep slices** (`BotDriver`, `ProvablyFair`, `TournamentMatchBridge`) — unlike the 3 extracted, these own **logic** woven into the live move/settlement path (`driveBot` plays moves + broadcasts; provably-fair reveals on settle; the tournament bridge advances the bracket on settle). Extracting them is the dedicated, integration-test-gated ARCH-1 effort where a subtle error (a leaked timer firing into a settled match, a seed not cleared between matches corrupting fairness, a double-advance) has real money/trust cost. Left for a focused pass, not rushed.
-- **L2** (DB-backed auto-payout budget) and **L3** (Redis-backed deposit serializer/watch) — these only change behavior under **multi-instance** scaling; the deploy is single-host, so they add **no current benefit**, are **money-path risk**, and **can't be verified offline** (no Redis/multi-instance rig). Note: the scoper's suggestion to *delete* the in-process deposit serializer as "redundant with the advisory lock" was checked and is **incorrect** — the advisory lock exists only on the Postgres path, so the serializer is the cap guard for the in-memory path and must stay. Revisit all of L2/L3 only when actually scaling horizontally.
+- **M5 — the remaining coupled LOGIC** (not the state, which is now all extracted): `driveBot`'s decision/play, provably-fair seed *combination*, and the tournament bracket-*advance* still live in the gateway because they're woven into the live move/settlement path. Moving the **logic** (vs. the state, done) is a separate integration-test-gated effort; the state-lifts already removed every Map and shrank the god-object substantially.
+- **L2** (DB-backed auto-payout budget) and **L3** (Redis-backed deposit serializer/watch) — these only change behavior under **multi-instance** scaling; the deploy is single-host, so they add **no current benefit**, are **money-path risk**, and **can't be verified offline** (no Redis/multi-instance rig). Two findings reinforce *deferral* over a rushed fix: **(a)** the proposed "advisory lock + DB-sum inside the claim tx" for L2 **cannot work as described** — the auto-pay critical section makes an **external provider HTTP call** (Binance/NOWPayments), and a DB lock/transaction cannot span an external call (the code already documents this at `walletRoutes.ts:125-126`); a correct multi-instance fix needs a *reserve-then-confirm* distributed design, not a simple lock. **(b)** the scoper's suggestion to *delete* the in-process deposit serializer as "redundant with the advisory lock" is **incorrect** — the advisory lock exists only on the Postgres path, so the serializer is the cap guard for the in-memory path and must stay. Revisit all of L2/L3 only when actually scaling horizontally (with a reserve/confirm design + a multi-instance test rig).
 - **I6** — CI builds+scans but doesn't push the image; acceptable for single-operator (prod rebuilds from source via `redeploy.sh`).
 
-### 🔧 Owner action — needs a connected Docker host / network (cannot be done safely offline)
-- **L11** (pin Docker base + monitoring images to `@sha256`) — digests must be resolved with `bash deploy/pin-images.sh` on a Docker host; guessing narrower tags offline risks a `manifest not found` CI/build break.
-- **L12** (pin the Trivy CI action off `@master`) — needs the real release tag/SHA looked up online; pinning a guessed tag risks breaking CI.
+### 🔧 Owner action — none outstanding
+L11/L12 were initially flagged as needing a Docker host, but network access was available so the real
+digests/SHA were resolved via the registry + GitHub APIs and pinned (see ✅ above). Re-pin on a base bump
+with `deploy/pin-images.sh`. The only remaining owner items are the separate compliance/licensing track
+(not a code finding) and the deploy itself (`bash deploy/redeploy.sh`, which applies the 2 new migrations).
 
 ---
 *Generated 2026-06-26 by a 6-agent forensic pass (5 domain auditors + adversarial verification, Opus high-effort) over commit `c31efbd`. Read-only at audit time; §8 records the subsequent remediation (verified + committed).*
