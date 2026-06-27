@@ -152,6 +152,21 @@ function timingSafeStrEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+/** Coarsen an IP before it goes into a log line (privacy/GDPR data-minimization, audit fix 4): keep
+ *  the network prefix, drop the host part — enough to correlate abuse / coarse geography, NOT enough
+ *  to single out an individual. IPv4 → zero the last octet (/24); IPv6 → keep the first 3 groups (/48). */
+export function redactIp(ip: string | undefined | null): string {
+  if (!ip) return 'unknown';
+  if (ip.includes('.')) {
+    const p = ip.split('.');
+    return p.length === 4 ? `${p[0]}.${p[1]}.${p[2]}.0` : ip;
+  }
+  if (ip.includes(':')) {
+    return ip.split(':').slice(0, 3).join(':') + '::/48';
+  }
+  return ip;
+}
+
 export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   // Structured (pino) logging always on — info in prod, warn in dev to stay quiet.
   // Redact credentials so tokens/cookies never land in logs.
@@ -367,7 +382,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
           stack: typeof b.stack === 'string' ? b.stack.slice(0, 2000) : undefined,
           url: typeof b.url === 'string' ? b.url.slice(0, 300) : undefined,
           kind: typeof b.kind === 'string' ? b.kind.slice(0, 40) : undefined,
-          ip: req.ip,
+          ip: redactIp(req.ip),
         },
       },
       'client error',
@@ -393,7 +408,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
           userId,
           version: typeof b.version === 'string' ? b.version.slice(0, 40) : 'unknown',
           accepted: b.accepted === true,
-          ip: req.ip,
+          ip: redactIp(req.ip),
           at: new Date().toISOString(),
         },
       },
