@@ -36,7 +36,7 @@ export function useWakeLock(active: boolean): void {
     document.addEventListener('visibilitychange', onVisible);
     // Backstop: if the lock was dropped silently (some iOS builds), re-take it. The 'release' listener +
     // visibilitychange already cover the normal cases, so this only needs to be an occasional sweep.
-    const retry = window.setInterval(() => { if (!sentinel) void acquire(); }, 120_000);
+    const retry = window.setInterval(() => { if (!sentinel) void acquire(); }, 300_000);
 
     return () => {
       cancelled = true;
