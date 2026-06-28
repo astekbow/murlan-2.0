@@ -18,6 +18,9 @@ const STRINGS: Record<string, Entry> = {
   // Common
   'common.backToLobby': { sq: '← Kthehu te lobi', en: '← Back to lobby' },
   'common.save': { sq: 'Ruaj', en: 'Save' },
+  // Plural example pair for the plural() helper (one/other). Use plural('common.gamesN', n, lang).
+  'common.gamesN.one': { sq: '{n} lojë', en: '{n} game' },
+  'common.gamesN.other': { sq: '{n} lojëra', en: '{n} games' },
   'common.cancel': { sq: 'Anulo', en: 'Cancel' },
   'common.confirm': { sq: 'Konfirmo', en: 'Confirm' },
 
@@ -1267,6 +1270,15 @@ export function translate(key: string, lang: Lang, vars?: TVars): string {
   const raw = e ? (e[lang] || e.sq || key) : key;
   if (!vars) return raw;
   return raw.replace(/\{(\w+)\}/g, (_m, name: string) => (name in vars ? String(vars[name]) : `{${name}}`));
+}
+
+/**
+ * Count-aware lookup: picks `<baseKey>.one` when n === 1, else `<baseKey>.other`, with `{n}` bound to
+ * the count (and any extra vars merged in). Albanian + English both use the simple one/other rule.
+ * e.g. `plural('common.gamesN', 1, 'en')` → "1 game"; `plural('common.gamesN', 3, 'en')` → "3 games".
+ */
+export function plural(baseKey: string, n: number, lang: Lang, vars?: TVars): string {
+  return translate(`${baseKey}.${n === 1 ? 'one' : 'other'}`, lang, { n, ...vars });
 }
 
 const STORAGE_KEY = 'murlan.lang.v1';

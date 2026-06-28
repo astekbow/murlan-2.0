@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { translate } from './i18n.ts';
+import { translate, plural } from './i18n.ts';
 
 test('translate returns the requested language', () => {
   assert.equal(translate('auth.login', 'sq'), 'HYR');
@@ -27,4 +27,12 @@ test('translate interpolates {placeholders} from vars (unknown tokens left intac
   assert.match(translate('wallet.selfExcludedUntil', 'en', { date: '2026-07-01' }), /2026-07-01/);
   assert.match(translate('wallet.selfExcludedUntil', 'sq', { date: '2026-07-01' }), /2026-07-01/);
   assert.match(translate('wallet.selfExcludedUntil', 'en'), /\{date\}/); // missing var → literal token, no crash
+});
+
+test('plural picks one vs other by count and binds {n}', () => {
+  assert.equal(plural('common.gamesN', 1, 'en'), '1 game');
+  assert.equal(plural('common.gamesN', 3, 'en'), '3 games');
+  assert.equal(plural('common.gamesN', 0, 'en'), '0 games'); // 0 → other
+  assert.equal(plural('common.gamesN', 1, 'sq'), '1 lojë');
+  assert.equal(plural('common.gamesN', 2, 'sq'), '2 lojëra');
 });
