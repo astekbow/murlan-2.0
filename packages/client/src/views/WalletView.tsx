@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useWalletStore } from '../store/walletStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
-import { accountApi, walletApi, ApiError, type RgLimits } from '../lib/api.ts';
+import { accountApi, walletApi, ApiError } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
@@ -35,8 +35,8 @@ function TronWarning({ mode }: { mode: 'deposit' | 'withdraw' }) {
 
 export function WalletView() {
   const {
-    balanceCents, transactions, withdrawals, profile, error, notice, loading,
-    refresh, withdraw, setProfile, selfExclude, clearMessages,
+    balanceCents, transactions, withdrawals, error, notice, loading,
+    refresh, withdraw, clearMessages,
   } = useWalletStore();
   const setView = useUiStore((s) => s.setView);
   const t = useT();
@@ -51,14 +51,9 @@ export function WalletView() {
 
   const [withdrawAmt, setWithdrawAmt] = useState('5');
   const [destination, setDestination] = useState('');
-  const [dob, setDob] = useState(profile?.dateOfBirth ?? '');
-  const [country, setCountry] = useState(profile?.country ?? '');
-  const [exclDays, setExclDays] = useState('30');
   // In-flight guards: disable money buttons while a request is pending so a
   // double-click can't double-submit.
   const [withdrawing, setWithdrawing] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false); // DOB/country save in flight — guard double-submit
-  const [excluding, setExcluding] = useState(false); // self-exclude in flight (a safety control — guard double-fire)
   const [txFilter, setTxFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'bet' | 'payout' | 'transfer'>('all');
   // Wallet is split into tabs so each part (deposit / withdraw / history) fits the screen with NO
   // internal scroll, instead of one long stacked page. Visibility is toggled (sections stay mounted,
@@ -123,10 +118,6 @@ export function WalletView() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  useEffect(() => {
-    setDob(profile?.dateOfBirth ?? '');
-    setCountry(profile?.country ?? '');
-  }, [profile]);
 
   const onWithdraw = async () => {
     if (withdrawing) return;
@@ -148,25 +139,6 @@ export function WalletView() {
     try { await withdraw(cents, destination.trim()); } finally { setWithdrawing(false); }
   };
 
-  const onSaveProfile = async () => {
-    if (savingProfile) return;
-    setSavingProfile(true);
-    try { await setProfile(dob, country); } finally { setSavingProfile(false); }
-  };
-
-  const onSelfExclude = async () => {
-    if (excluding) return;
-    const days = Number(exclDays) || 0;
-    if (days <= 0) return;
-    if (!(await confirm({
-      title: t('wallet.confirmExcludeT'),
-      message: t('wallet.confirmExcludeM', { days }),
-      danger: true,
-      confirmLabel: t('wallet.selfExclude'),
-    }))) return;
-    setExcluding(true);
-    try { await selfExclude(days); } finally { setExcluding(false); }
-  };
 
   // GDPR Art.15/20: download everything we hold about you as one JSON file.
   const onExportData = async () => {
@@ -259,8 +231,6 @@ export function WalletView() {
           {error || notice}
         </button>
       )}
-
-      <RgStatusBanner />
 
       {/* Tabs: only the active one renders → each fits the screen without scrolling. */}
       <div className="seg grid grid-cols-3" role="tablist" aria-label={t('wallet.title')}>
@@ -381,51 +351,19 @@ export function WalletView() {
         <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
 
-      {/* Verification / responsible gaming */}
+      {/* Your data (GDPR Art.15/17): export everything, or delete the account. (The verification +
+          responsible-gaming controls were removed by owner decision — kept the data rights only.) */}
       <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'withdraw' ? '' : 'hidden'}`} style={{ animationDelay: '.16s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.verifyRG')}</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-          <label className="block">
-            <span className="field-label">{t('wallet.dob')}</span>
-            <input type="date" value={dob} onChange={(e) => setDob(e.target.value)}
-              className="field" />
-          </label>
-          <label className="block">
-            <span className="field-label">{t('wallet.country')}</span>
-            <input maxLength={2} value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} placeholder="AL"
-              className="field uppercase" />
-          </label>
-          <button onClick={() => void onSaveProfile()} disabled={savingProfile} className="btn btn-gold">{savingProfile ? t('wallet.sending') : t('common.save')}</button>
-        </div>
-        <div className="flex flex-wrap gap-3 items-end pt-1">
-          <label className="block">
-            <span className="field-label">{t('wallet.selfExcludeDays')}</span>
-            <input type="number" min="1" value={exclDays} onChange={(e) => setExclDays(e.target.value)}
-              className="field w-28" />
-          </label>
-          <button onClick={() => void onSelfExclude()} disabled={excluding} className="btn btn-danger w-full sm:w-auto">
-            {excluding ? t('wallet.sending') : t('wallet.selfExclude')}
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.yourData')}</h2>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => void onExportData()} disabled={exporting} className="btn btn-ghost btn-sm">
+            {exporting ? t('wallet.exporting') : t('wallet.exportData')}
+          </button>
+          <button onClick={() => void onDeleteAccount()} disabled={deleting} className="btn btn-danger btn-sm">
+            {deleting ? t('wallet.sending') : t('wallet.deleteAccount')}
           </button>
         </div>
-        {profile?.selfExcludedUntil && profile.selfExcludedUntil > Date.now() && (
-          <p className="text-xs text-red-300">{t('wallet.selfExcludedUntil', { date: new Date(profile.selfExcludedUntil).toLocaleDateString() })}</p>
-        )}
-
-        <RgLimitsControls />
-
-        {/* GDPR data export (Art.15/20): the player downloads all their data. */}
-        <div className="pt-2 mt-1 border-t border-white/10 space-y-2">
-          <div className="field-label">{t('wallet.yourData')}</div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => void onExportData()} disabled={exporting} className="btn btn-ghost btn-sm">
-              {exporting ? t('wallet.exporting') : t('wallet.exportData')}
-            </button>
-            <button onClick={() => void onDeleteAccount()} disabled={deleting} className="btn btn-danger btn-sm">
-              {deleting ? t('wallet.sending') : t('wallet.deleteAccount')}
-            </button>
-          </div>
-          <p className="text-[11px] text-muted/70">{t('wallet.exportHint')}</p>
-        </div>
+        <p className="text-[11px] text-muted/70">{t('wallet.exportHint')}</p>
       </section>
 
       {/* History */}
@@ -541,103 +479,3 @@ export function WalletView() {
   );
 }
 
-/** Responsible-gaming: warn when the player is at/over 80% of a daily limit they set.
- *  Self-contained — fetches its own status; renders nothing if no limit is near. */
-function RgStatusBanner() {
-  const t = useT();
-  const [st, setSt] = useState<{ dailyDepositLimitCents: number | null; dailyLossLimitCents: number | null; depositUsedTodayCents: number; lossTodayCents: number } | null>(null);
-  useEffect(() => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    void accountApi.rgStatus(token).then((r) => setSt(r.status)).catch(() => {});
-  }, []);
-  if (!st) return null;
-  const warnings: string[] = [];
-  if (st.dailyDepositLimitCents && st.depositUsedTodayCents / st.dailyDepositLimitCents >= 0.8) {
-    warnings.push(t('wallet.rgNearDeposit', { used: dollars(st.depositUsedTodayCents), limit: dollars(st.dailyDepositLimitCents) }));
-  }
-  if (st.dailyLossLimitCents && st.lossTodayCents / st.dailyLossLimitCents >= 0.8) {
-    warnings.push(t('wallet.rgNearLoss', { used: dollars(st.lossTodayCents), limit: dollars(st.dailyLossLimitCents) }));
-  }
-  if (warnings.length === 0) return null;
-  return (
-    <section role="status" className="panel p-3 border border-amber-500/40 bg-amber-700/10 animate-rise">
-      <div className="text-sm text-amber-200 font-display font-semibold mb-1">⚠️ {t('wallet.rgNearTitle')}</div>
-      {warnings.map((w, i) => <p key={i} className="text-xs text-amber-100/90">{w}</p>)}
-    </section>
-  );
-}
-
-/** Self-service responsible-gaming daily caps (deposit + loss). Fetches/saves via
- *  the account API; empty/0 clears a limit. */
-function RgLimitsControls() {
-  const t = useT();
-  const { confirm, dialog } = useConfirm();
-  const [limits, setLimitsState] = useState<RgLimits | null>(null);
-  const [dep, setDep] = useState('');
-  const [loss, setLoss] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    void accountApi.getLimits(token).then(({ limits }) => {
-      setLimitsState(limits);
-      setDep(limits.dailyDepositLimitCents != null ? String(limits.dailyDepositLimitCents / 100) : '');
-      setLoss(limits.dailyLossLimitCents != null ? String(limits.dailyLossLimitCents / 100) : '');
-    }).catch(() => undefined);
-  }, []);
-
-  const toCents = (s: string): number | null => {
-    const c = Math.round(parseFloat(s || '0') * 100);
-    return Number.isFinite(c) && c > 0 ? c : null;
-  };
-  const save = async (patch: Partial<RgLimits>): Promise<boolean> => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token || busy) return false;
-    setBusy(true); setErr(null);
-    try { setLimitsState((await accountApi.setLimits(token, patch)).limits); return true; }
-    catch (e) { setErr(e instanceof ApiError ? e.message : t('err.limitSaveFailed')); return false; }
-    finally { setBusy(false); }
-  };
-  // RG limits are a safety control: confirm removal, and clear the field ONLY if the
-  // save actually succeeded (so a failed remove can't look like it worked).
-  const removeLimit = async (which: 'deposit' | 'loss') => {
-    if (!(await confirm({ title: t('wallet.removeLimitT'), message: t('wallet.removeLimitM'), confirmLabel: t('common.remove') }))) return;
-    const ok = await save(which === 'deposit' ? { dailyDepositLimitCents: null } : { dailyLossLimitCents: null });
-    if (ok) { if (which === 'deposit') setDep(''); else setLoss(''); }
-  };
-
-  return (
-    <div className="pt-2 mt-1 border-t border-white/10 space-y-2.5">
-      <div className="field-label">{t('wallet.dailyLimits')}</div>
-      <div className="flex flex-wrap gap-3 items-end">
-        <label className="block">
-          <span className="field-label">{t('wallet.depositMaxDay')}</span>
-          <input type="number" min="0" step="1" value={dep} onChange={(e) => setDep(e.target.value)} placeholder={t('wallet.noLimit')} className="field w-32" />
-        </label>
-        <button disabled={busy} onClick={() => void save({ dailyDepositLimitCents: toCents(dep) })} className="btn btn-gold">{t('common.save')}</button>
-        <button disabled={busy} onClick={() => void removeLimit('deposit')} className="btn btn-ghost">{t('common.remove')}</button>
-      </div>
-      <div className="flex flex-wrap gap-3 items-end">
-        <label className="block">
-          <span className="field-label">{t('wallet.lossMaxDay')}</span>
-          <input type="number" min="0" step="1" value={loss} onChange={(e) => setLoss(e.target.value)} placeholder={t('wallet.noLimit')} className="field w-32" />
-        </label>
-        <button disabled={busy} onClick={() => void save({ dailyLossLimitCents: toCents(loss) })} className="btn btn-gold">{t('common.save')}</button>
-        <button disabled={busy} onClick={() => void removeLimit('loss')} className="btn btn-ghost">{t('common.remove')}</button>
-      </div>
-      {limits && (
-        <p className="text-[11px] text-muted">
-          {t('wallet.limitsNow', {
-            dep: limits.dailyDepositLimitCents != null ? dollars(limits.dailyDepositLimitCents) : t('wallet.noLimit'),
-            loss: limits.dailyLossLimitCents != null ? dollars(limits.dailyLossLimitCents) : t('wallet.noLimit'),
-          })}
-        </p>
-      )}
-      {err && <p className="text-[11px] text-red-300">{err}</p>}
-      {dialog}
-    </div>
-  );
-}

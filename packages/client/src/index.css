@@ -808,7 +808,7 @@ select:focus-visible,
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;  /* anchor the canvas to the TOP so it grows DOWNWARD (not centered) */
   justify-content: center;
   /* Solid obsidian behind the whole table — so the letterbox bars + the area under the
      clipped hand are ONE clean dark, not a stark black with a grey/maroon strip from the
@@ -820,15 +820,15 @@ select:focus-visible,
    cqw/cqh inside. EVERY child positions itself absolutely by % of this box. */
 .tv-ls .tv-canvas {
   position: relative;
-  aspect-ratio: 1280 / 590;
-  /* svh (the STABLE small-viewport height) — NOT dvh. dvh shrinks/grows as the mobile
-     toolbar shows/hides, which continuously re-sized the canvas (and everything in it, sized
-     in cqw of the canvas) → the "shaking" on open. svh is fixed, so the table sits still.
-     The plain-vh lines are the fallback for browsers without svh. */
+  /* Width stays the contain-fit (aspect 1280/590) so the table never grows SIDEWAYS. Height is allowed
+     up to 20% TALLER than the aspect-fit (× 1.2) — capped at the screen height so the hand never clips —
+     so on devices with vertical letterbox the table opens downward into it (owner request).
+     svh (the STABLE small-viewport height) — NOT dvh — keeps the canvas from re-sizing as the mobile
+     toolbar shows/hides; the plain-vh lines are the fallback for browsers without svh. */
   width: min(100vw, calc(100vh * 1280 / 590));
-  height: min(100vh, calc(100vw * 590 / 1280));
+  height: min(100vh, calc(100vw * 590 / 1280 * 1.2));
   width: min(100vw, calc(100svh * 1280 / 590));
-  height: min(100svh, calc(100vw * 590 / 1280));
+  height: min(100svh, calc(100vw * 590 / 1280 * 1.2));
   container-type: size;
   overflow: visible;           /* raised cards / seat fans may peek past the edge */
 }
