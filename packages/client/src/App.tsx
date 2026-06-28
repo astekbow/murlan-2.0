@@ -76,18 +76,20 @@ function OfflineSplash({ onRetry }: { onRetry: () => void }) {
 }
 
 /** Lobby-area chrome: centered column with the global top bar on top. */
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, bare = false }: { children: ReactNode; bare?: boolean }) {
   // Safe-area insets (notch / Dynamic Island / home indicator) + room for the
   // mobile bottom nav live in the `.app-shell` class (index.css) so a media query
   // can drop the extra bottom space on desktop. The page content fades on each
   // lobby-view switch via ViewTransition (TopBar persists).
+  // `bare` hides the global TopBar — used by full-screen pages that have their OWN
+  // header + Back button (Wallet, Support) so they aren't cramped on short landscape phones.
   const view = useUiStore((s) => s.view);
   const t = useT();
   return (
     <div className="app-shell relative z-10 mx-auto w-full max-w-[1180px]">
       {/* Keyboard a11y: jump past the persistent TopBar nav straight to the page content (WCAG 2.4.1). */}
       <a href="#main-content" className="skip-link">{t('a11y.skipToMain')}</a>
-      <TopBar />
+      {!bare && <TopBar />}
       <main id="main-content" tabIndex={-1} className="outline-none"><ViewTransition viewKey={view}>{children}</ViewTransition></main>
     </div>
   );
@@ -229,13 +231,13 @@ export function App() {
   else if (spectating && room) body = <SpectateView room={room} />;
   else if (room && (room.status === 'inMatch' || room.status === 'finished')) body = <TableView room={room} />;
   else if (room) body = <Shell><RoomView room={room} /></Shell>;
-  else if (lobbyView === 'wallet') body = <Shell><WalletView /></Shell>;
+  else if (lobbyView === 'wallet') body = <Shell bare><WalletView /></Shell>;
   else if (lobbyView === 'admin' && user?.role === 'admin') body = <Shell><AdminView /></Shell>;
   else if (lobbyView === 'leaderboard') body = <Shell><LeaderboardView /></Shell>;
   else if (lobbyView === 'friends') body = <Shell><FriendsView /></Shell>;
   else if (lobbyView === 'shop') body = <Shell><ShopView /></Shell>;
   else if (lobbyView === 'rewards') body = <Shell><RewardsView /></Shell>;
-  else if (lobbyView === 'support') body = <Shell><SupportView /></Shell>;
+  else if (lobbyView === 'support') body = <Shell bare><SupportView /></Shell>;
   else if (lobbyView === 'vip') body = <Shell><VipView /></Shell>;
   else if (lobbyView === 'clubs') body = <Shell><ClubsView /></Shell>;
   else if (lobbyView === 'tournaments') body = <Shell><TournamentsView /></Shell>;
