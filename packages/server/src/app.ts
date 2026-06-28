@@ -142,6 +142,8 @@ export interface HttpDeps {
   isDraining?: () => boolean; // true during graceful shutdown → /ready returns 503
   telegramAdminBot?: TelegramAdminBot; // inbound Telegram admin bot (button taps / commands)
   telegramWebhookSecret?: string | null; // secret guarding POST /api/telegram/webhook
+  /** Admin → player message on all channels (in-app 🔔 + web-push) — e.g. an admin-panel ticket reply. */
+  messagePlayer?: (userId: string, title: string, body: string) => Promise<void> | void;
 }
 
 /** Constant-time string compare (length-independent) for secret/token checks. */
@@ -303,7 +305,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await rankedRoutes(app, { auth: deps.auth, ranked: deps.ranked });
   }
   if (deps.support) {
-    await supportRoutes(app, { auth: deps.auth, support: deps.support, audit: deps.adminAudit, onTicketCreated: (t) => { void deps.telegramAdminBot?.notifyNewTicket(t); } });
+    await supportRoutes(app, { auth: deps.auth, support: deps.support, audit: deps.adminAudit, onTicketCreated: (t) => { void deps.telegramAdminBot?.notifyNewTicket(t); }, notifyPlayer: deps.messagePlayer });
   }
   if (deps.vip) {
     await vipRoutes(app, { auth: deps.auth, vip: deps.vip, rewards: deps.rewards });
@@ -724,6 +726,17 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Web Push re-engagement. ConsolePushProvider LOGS nudges until VAPID keys are
   // configured for real browser delivery (see push/pushProvider.ts).
   const push = new PushService(pushSubsRepo, new ConsolePushProvider());
+
+  // Admin → player message (e.g. a support-ticket reply): deliver it on EVERY channel so it actually
+  // reaches the player — an in-app 🔔 (set once the gateway exists, below) AND a best-effort web-push.
+  // Used by the Telegram bot reply AND the admin-panel reply. `inAppNotify` is assigned after the gateway
+  // is constructed; this closure is only ever called later (at reply time), so it's safe.
+  let inAppNotify: ((userId: string, title: string, body: string) => void) | null = null;
+  const messagePlayer = (userId: string, title: string, body: string): Promise<void> => {
+    try { inAppNotify?.(userId, title, body); } catch { /* in-app notify is best-effort */ }
+    return push.notify(userId, { title, body, tag: 'admin-msg' }).then(() => {});
+  };
+
   const vip = new VipService(wallet);
   const clubs = new ClubService(clubsRepo, repo);
   // Tournaments: buy-in escrow + prize payout reuse the proven wallet money paths.
@@ -947,7 +960,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         };
       },
       listFlags: (minSeverity, limit) => antiCheat.listFlags({ minSeverity, limit }),
-      messagePlayer: (userId, title, body) => push.notify(userId, { title, body, tag: 'admin-msg' }).then(() => {}),
+      messagePlayer,
       liveState: async () => {
         const active = rooms.listActiveMatches();
         const byType = new Map<string, { count: number; potCents: number }>();
@@ -982,7 +995,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     });
   }
 
-  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, feed, dms, clubWars, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret });
+  const app = await buildHttpApp({ auth, config, users: repo, wallet, withdrawals, provider, intents, compliance, rg: responsibleGaming, vip, clubs, tournaments, chat, rooms, notifier, payout, tronDeposit, depositWallet, depositWatch, binanceFreeUsdtCents: binanceAccount ? () => binanceAccount.freeUsdtCents() : undefined, matches: matchesRepo, voidMatch, lobbyLive, kickUser, tournamentRunner, profiles, ranked, friends, feed, dms, clubWars, rewards, adminAudit: adminAuditRepo, games: gamesRepo, matchLog: matchLogRepo, support: supportRepo, antiCheat, push, dbPing, isDraining, telegramAdminBot, telegramWebhookSecret: config.telegramWebhookSecret, messagePlayer });
   await app.ready(); // ensures app.server exists before Socket.IO attaches
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
@@ -1047,6 +1060,8 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Now the gateway exists, point the admin match-void + kick-user routes at it.
   voidHolder.fn = (roomId, meta) => gateway.adminVoidMatch(roomId, meta);
   kickHolder.fn = (userId) => gateway.disconnectUser(userId);
+  // Wire the deferred in-app notifier (used by messagePlayer for support-ticket replies, etc.).
+  inAppNotify = (userId, title, body) => gateway.notifyInApp(userId, title, body);
   tournamentRunHolder.fn = (id) => void gateway.runTournamentMatches(id);
   lobbyLiveHolder.fn = () => gateway.lobbyLive(); // read-only lobby-liveliness snapshot
   // Force-logout (logout-all / password-reset / ban via revokeAllSessions) must also drop

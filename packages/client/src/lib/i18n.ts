@@ -676,6 +676,8 @@ const STRINGS: Record<string, Entry> = {
   'admin.support': { sq: 'TIKETAT E NDIHMËS', en: 'SUPPORT TICKETS' },
   'admin.noTickets': { sq: 'S’ka tiketa.', en: 'No tickets.' },
   'admin.resolveTicket': { sq: 'Zgjidh', en: 'Resolve' },
+  'admin.replyTicket': { sq: 'Përgjigju', en: 'Reply' },
+  'admin.replyPlaceholder': { sq: 'Shkruaj përgjigjen për lojtarin… (e sheh te tiketat e tij + njoftim)', en: 'Write a reply to the player… (shown in their tickets + notified)' },
   'admin.confirmResolveM': { sq: 'Ta shënosh këtë tiketë si të zgjidhur?', en: 'Mark this ticket as resolved?' },
   'admin.auditLog': { sq: 'GJURMA E AUDITIT', en: 'AUDIT LOG' },
   'admin.noAudit': { sq: 'S’ka asnjë veprim të regjistruar.', en: 'No recorded actions.' },

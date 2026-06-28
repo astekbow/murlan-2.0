@@ -483,6 +483,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set((s) => ({ dmRev: s.dmRev + 1 })); // refresh an open DM thread + unread badges
       useNotifications.getState().push(tg('notifs.dmFrom', { name: dto.fromUsername }), 'info', { view: 'friends' });
     });
+    // Admin → player message (e.g. a support-ticket reply): pop a 🔔 + deep-link to Support.
+    socket.on('notify:message', (dto) => {
+      useNotifications.getState().push(`💬 ${dto.title}`, 'info', { view: 'support' });
+    });
     // A finished match changed my stats → refresh an open Challenges/Rewards page.
     socket.on('reward:refresh', () => set((s) => ({ rewardRev: s.rewardRev + 1 })));
     // A finished match (anyone's) may have moved ranks → refresh an open Leaderboard.

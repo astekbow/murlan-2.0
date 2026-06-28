@@ -21,6 +21,8 @@ export interface SupportRoutesDeps {
   /** Best-effort owner alert (Telegram) when a player opens a ticket — must never throw
    *  or block the response. */
   onTicketCreated?: (ticket: SupportTicket) => void;
+  /** Deliver an admin reply to the player on all channels (in-app 🔔 + web-push). Best-effort. */
+  notifyPlayer?: (userId: string, title: string, body: string) => Promise<void> | void;
 }
 
 const createSchema = z.object({
@@ -78,6 +80,11 @@ export async function supportRoutes(app: FastifyInstance, deps: SupportRoutesDep
       targetUserId: existing.userId,
       detail: `ticket ${id} → ${parsed.data.status}${parsed.data.adminNote ? `: ${parsed.data.adminNote}` : ''}`,
     }).catch(() => undefined);
+    // If the admin wrote a reply, push it to the player (in-app 🔔 + web-push) so they actually see the
+    // answer — not just the saved adminNote in "My tickets". Best-effort; never blocks the response.
+    if (parsed.data.adminNote) {
+      try { void deps.notifyPlayer?.(existing.userId, `Përgjigje: ${existing.subject}`, parsed.data.adminNote); } catch { /* best-effort */ }
+    }
     return reply.send({ ticket });
   });
 }

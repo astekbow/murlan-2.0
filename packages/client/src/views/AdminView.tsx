@@ -366,6 +366,7 @@ export function AdminView() {
   const toggleW = (id: string) => setSelectedW((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [queryInput, setQueryInput] = useState(''); // local input; debounced into the store search
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({}); // per-ticket admin reply text
   const [auditLog, setAuditLog] = useState<AdminActionRecord[]>([]);
   const [reports, setReports] = useState<AdminChatReport[]>([]);
   const [revenue, setRevenue] = useState<RevenueBreakdown | null>(null);
@@ -400,6 +401,18 @@ export function AdminView() {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     await adminApi.resolveTicket(token, id, 'resolved');
+    loadDepth();
+  };
+
+  // Reply to a ticket: send the note as the resolution (the player sees it in "My tickets" + gets a 🔔
+  // in-app notification and a web-push). Empty reply falls back to a plain resolve.
+  const replyTicket = async (id: string) => {
+    const note = (replyDraft[id] ?? '').trim();
+    if (note.length < 2) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    await adminApi.resolveTicket(token, id, 'resolved', note);
+    setReplyDraft((d) => { const n = { ...d }; delete n[id]; return n; });
     loadDepth();
   };
 
@@ -669,7 +682,23 @@ export function AdminView() {
                   <p className="text-[11px] text-muted mt-1">{tk.category}{tk.matchId ? ` · ${tk.matchId}` : ''} · {new Date(tk.createdAt).toLocaleDateString()}</p>
                   <p className="text-sm text-txt mt-1.5 break-words">{tk.message}</p>
                   {tk.adminNote && <p className="text-xs text-gold-hi/80 mt-1">↳ {tk.adminNote}</p>}
-                  {tk.status === 'open' && <button onClick={() => void resolveTicket(tk.id)} className="btn btn-gold btn-sm mt-2">{t('admin.resolveTicket')}</button>}
+                  {tk.status === 'open' && (
+                    <div className="mt-2 space-y-1.5">
+                      <textarea
+                        value={replyDraft[tk.id] ?? ''}
+                        onChange={(e) => setReplyDraft((d) => ({ ...d, [tk.id]: e.target.value }))}
+                        maxLength={2000}
+                        rows={2}
+                        placeholder={t('admin.replyPlaceholder')}
+                        aria-label={t('admin.replyTicket')}
+                        className="field resize-none text-sm w-full"
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={() => void replyTicket(tk.id)} disabled={(replyDraft[tk.id] ?? '').trim().length < 2} className="btn btn-gold btn-sm">{t('admin.replyTicket')}</button>
+                        <button onClick={() => void resolveTicket(tk.id)} className="btn btn-ghost btn-sm">{t('admin.resolveTicket')}</button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

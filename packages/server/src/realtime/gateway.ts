@@ -335,6 +335,13 @@ export class GameGateway {
     void this.io.in(personalRoom(userId)).disconnectSockets(true);
   }
 
+  /** Pop an in-app 🔔 notification on a user's open client (best-effort — no-op if offline).
+   *  Used for admin → player messages such as a support-ticket reply, which otherwise only land as a
+   *  web-push (which most players, esp. iOS, never receive) + the saved adminNote in "My tickets". */
+  notifyInApp(userId: string, title: string, body: string): void {
+    this.io.to(personalRoom(userId)).emit('notify:message', { title, body });
+  }
+
   // ---------- Connection lifecycle -------------------------------------------
 
   private onConnection(socket: IOSocket): void {

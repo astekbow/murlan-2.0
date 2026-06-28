@@ -153,6 +153,7 @@ export interface ServerToClientEvents {
   'friend:request': (dto: { fromUsername: string }) => void; // someone sent you a friend request
   'social:refresh': () => void; // your friends list changed (answered/unfriended) — reload it
   'dm:new': (dto: { id: string; fromUserId: string; fromUsername: string; toUserId: string; text: string; createdAt: number }) => void; // a direct message arrived
+  'notify:message': (dto: { title: string; body: string }) => void; // admin → player message (e.g. a support-ticket reply) → pop a 🔔
   'clubwar:matchReady': (dto: { roomId: string; warId: string }) => void; // your Club War pairing room is up — auto-join
   'club:chat': (dto: ChatMessageDTO) => void; // a new message in your club channel
   // A finished match updated YOUR stats (XP/wins/streak) → reload your open
