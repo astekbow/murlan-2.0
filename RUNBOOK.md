@@ -118,9 +118,21 @@ drifting account/match, reconcile before resuming. **On `TreasuryUnderFunded`:**
 deposits → Binance and/or top up Binance USDT.
 
 ### Logs
-Structured JSON (pino) to stdout with header/token redaction; ephemeral (lost on
-container exit). To persist/search, ship the container's stdout to journald/Loki/ELK
-(e.g. a fluent-bit sidecar). `LOG_LEVEL` defaults to `info` in prod.
+Structured JSON (pino) to stdout with header/token redaction. `LOG_LEVEL` defaults to `info` in prod.
+On the host, each container keeps a rotated json-file ring (server + postgres: `50m × 5` ≈ 250 MB each;
+others smaller) — enough for recent forensics, but lost if the host dies.
+
+**Centralized/searchable logs (opt-in):** the `monitoring` profile now bundles **Loki + Promtail + Grafana**
+(alongside Prometheus/Alertmanager). Promtail tails every container's stdout via the Docker socket and ships
+it to Loki; Grafana (127.0.0.1:3000) gives both the **metrics** (Prometheus) and the **logs** (Loki) a UI:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile monitoring up -d
+# then: ssh -L 3000:127.0.0.1:3000 <host>  → open http://localhost:3000 (admin / $GRAFANA_ADMIN_PASSWORD)
+# query logs in LogQL, e.g.  {service="server"} |= "error"
+```
+All three bind to 127.0.0.1 only. Digest-pin the loki/promtail/grafana images before relying on them
+(see the `# TODO digest-pin` notes in `docker-compose.deploy.yml`). Loki stores on the same host disk
+(retention 7 days) — for true offsite durability, ship Loki's volume like the DB backup.
 
 ## 6. Common incidents
 

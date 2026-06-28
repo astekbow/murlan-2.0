@@ -207,9 +207,50 @@ services:
       - ./deploy/prometheus/alertmanager.tmpl.yml:/etc/alertmanager/alertmanager.tmpl.yml:ro
       - alertmanager_data:/alertmanager
 
+  # Centralized logs (audit 2026-06-28): promtail tails every container's stdout via the Docker socket
+  # and ships it to Loki; grafana gives both the metrics (Prometheus) AND the logs (Loki) a UI. All three
+  # are gated behind the SAME `monitoring` profile as prometheus/alertmanager (one `--profile monitoring`
+  # brings the whole observability stack up) and bound to 127.0.0.1 only — never public.
+  loki:
+    image: grafana/loki:2.9.8 # TODO digest-pin before enabling (audit L11): docker buildx imagetools inspect grafana/loki:2.9.8
+    profiles: ['monitoring']
+    restart: unless-stopped
+    ports: ['127.0.0.1:3100:3100'] # localhost only — the log store is never exposed publicly
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:2.9.8 # TODO digest-pin before enabling (audit L11)
+    profiles: ['monitoring']
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./deploy/loki/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro # docker SD: discover containers + read their logs
+    depends_on: ['loki']
+
+  grafana:
+    image: grafana/grafana:10.4.2 # TODO digest-pin before enabling (audit L11); LTS line
+    profiles: ['monitoring']
+    restart: unless-stopped
+    ports: ['127.0.0.1:3000:3000'] # localhost only — tunnel to it (ssh -L) to view dashboards
+    environment:
+      # Admin password is set from .env on first boot; default 'admin' forces a change at login otherwise.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro # auto-wires the Loki + Prometheus datasources
+      - grafana_data:/var/lib/grafana
+    depends_on: ['loki', 'prometheus']
+
 volumes:
   caddy_data:
   caddy_config:
   prometheus_data:
   alertmanager_data:
+  loki_data:
+  grafana_data:
   ios_certs: # synced Let's Encrypt cert for iOS .mobileconfig signing (profile: ios-signing)
