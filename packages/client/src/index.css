@@ -891,13 +891,13 @@ select:focus-visible,
 
 /* ---- Felt / table: lowered a touch (top 12%) vs the spec's 9% — it read as "too high". */
 .tv-ls .tvc-felt {
-  /* ~20% bigger than 56%×48% (→ 67%×57%), re-centred on the same point (h 50% / v ~37%)
-     so it grows outward without shifting. Top clears the 9% top bar; bottom (~66%) stays
-     just above the hand zone (top 65%). */
+  /* Felt grows DOWNWARD (owner request): same top (clears the 9% top bar) + same width (never wider),
+     but taller — bottom now ~78% so the green table extends further down BEHIND the hand cards (which
+     sit on top at z-20). Width stays 67% so it never grows sideways. */
   left: 16.5%;
   top: 8.5%;
   width: 67%;
-  height: 57%;
+  height: 69%;
   z-index: 1;
 }
 .tv-ls .tvc-felt .rail-outer { height: 100%; padding: 1.4cqh; border-radius: 18% / 30%; }
@@ -908,7 +908,7 @@ select:focus-visible,
 /* ---- Centre played pile: center cx 50% cy 38.5%, each card ≈ 8%w ----------- */
 .tv-ls .tvc-pile {
   left: 50%;
-  top: 39.5%;
+  top: 44%;            /* follow the taller felt's new centre (was 39.5%) so the played pile sits on it */
   transform: translate(-50%, -50%);
   z-index: 4;
   pointer-events: none;
