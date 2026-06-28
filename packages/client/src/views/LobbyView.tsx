@@ -318,7 +318,7 @@ export function LobbyView() {
         <div className="space-y-3">
           {/* Recent-winners ticker (display-only). */}
           <LobbyLiveStrip data={live2} />
-          <div className="grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
+          <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4 order-1 md:order-2">

@@ -72,7 +72,7 @@ export function TopBar() {
 
   return (
     <>
-    <header className="flex items-center justify-between gap-3 mb-5 animate-rise">
+    <header className="topbar flex items-center justify-between gap-3 mb-5 animate-rise">
       {/* Profile */}
       <button
         type="button"

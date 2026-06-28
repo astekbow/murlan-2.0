@@ -1260,6 +1260,22 @@ select:focus-visible,
   html.force-landscape .mode .mdesc { font-size: 10.5px; margin-top: 1px; }
   html.force-landscape .mode .mcta { margin-top: 6px; font-size: 11px; padding: 6px 16px; }
 
+  /* Lobby HOME HUB lays out its rails+grid with Tailwind md: breakpoints (viewport-width based), which
+     never fire under rotation (the viewport is physically ~390px portrait) → the narrow single-column
+     layout got rotated (wrong / sideways). Force the WIDE 3-column layout (left rail | cards | right
+     rail, rails vertical) so it matches the real physical-landscape rendering. */
+  html.force-landscape .lobby-hub { grid-template-columns: 64px 1fr 64px; }
+  html.force-landscape .lobby-hub > nav { flex-direction: column; }
+  html.force-landscape .lobby-hub > nav:first-of-type { order: 1; }  /* left rail  */
+  html.force-landscape .lobby-hub > .grid { order: 2; }              /* cards (middle) */
+  html.force-landscape .lobby-hub > nav:last-of-type { order: 3; }   /* right rail */
+
+  /* TopBar: the username + XP bar + session clock are `hidden sm:/md:` (viewport-width gated) so they
+     vanish under rotation. The rotated frame is wide → reveal them to match the real landscape TopBar. */
+  html.force-landscape .topbar .sm\:block { display: block; }
+  html.force-landscape .topbar .sm\:inline { display: inline; }
+  html.force-landscape .topbar .md\:inline { display: inline; }
+
   /* Modal compaction (mirror of the :349 block, minus its dvh max-height — capped to 92vw above). */
   html.force-landscape .modal-backdrop { padding-top: 6px; padding-bottom: 6px; }
   html.force-landscape .modal-backdrop > .panel-solid { padding: 0.7rem 1.1rem; }
