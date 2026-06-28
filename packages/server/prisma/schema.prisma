@@ -167,6 +167,8 @@ model User {
   foundedClubs         Club[]              @relation("ClubFounder")
   clubMembership       ClubMember?
   chatMessages         ChatMessage[]
+  dmsSent              DirectMessage[]     @relation("DmFrom")
+  dmsReceived          DirectMessage[]     @relation("DmTo")
   pushSubscriptions    PushSubscription[]
 
   // Hot-path indexes: XP leaderboard (topByXp, ORDER BY xp) + admin user listing (newest-first).
@@ -445,6 +447,12 @@ model DirectMessage {
   text         String
   readAt       DateTime?
   createdAt    DateTime  @default(now())
+
+  // FKs for referential integrity (parity with ChatMessage). In practice users are ANONYMIZED, not
+  // hard-deleted (GDPR retains the row), so DMs never actually orphan — this is defense-in-depth for any
+  // future hard-delete path. Added NOT VALID in migration 20260628010000 (can't fail on existing rows).
+  fromUser User @relation("DmFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("DmTo", fields: [toUserId], references: [id], onDelete: Cascade)
 
   @@index([fromUserId, toUserId, createdAt])
   @@index([toUserId, readAt])

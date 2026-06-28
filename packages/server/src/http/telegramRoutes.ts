@@ -26,7 +26,10 @@ function secretMatches(provided: string | undefined, expected: string): boolean 
 }
 
 export async function telegramRoutes(app: FastifyInstance, deps: TelegramRoutesDeps): Promise<void> {
-  app.post('/api/telegram/webhook', async (req, reply) => {
+  // Per-route cap (audit 2026-06-28): legit Telegram sends a handful of updates; this bounds a flood of
+  // forged/spoofed POSTs (each does a timing-safe secret compare + dispatch) so they can't tie up the
+  // event loop. 60/min/IP is generous for real traffic. The secret + owner-chat check remain the auth.
+  app.post('/api/telegram/webhook', { config: { rateLimit: { max: 60, timeWindow: '1 minute', keyGenerator: (req) => req.ip } } }, async (req, reply) => {
     const header = req.headers['x-telegram-bot-api-secret-token'];
     const provided = Array.isArray(header) ? header[0] : header;
     if (!secretMatches(provided, deps.webhookSecret)) {
