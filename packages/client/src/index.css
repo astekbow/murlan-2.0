@@ -1268,18 +1268,14 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
      never fire under rotation (the viewport is physically ~390px portrait) → the narrow single-column
      layout got rotated (wrong / sideways). Force the WIDE 3-column layout (left rail | cards | right
      rail, rails vertical) so it matches the real physical-landscape rendering. */
+  /* Replicate md: EXACTLY so the rotated lobby is IDENTICAL to the real-landscape lobby (same 3-col
+     rails|cards|rails, same gaps). NO rotation-only extras (centering / fill / min-height) — those made
+     the two DIVERGE (and overflowed). The only difference between portrait and landscape is the rotate. */
   html.force-landscape .lobby-hub { grid-template-columns: 64px 1fr 64px; }
-  html.force-landscape .lobby-hub > nav { flex-direction: column; justify-content: center; }
-  html.force-landscape .lobby-hub > nav:first-of-type { order: 1; }  /* left rail  */
-  html.force-landscape .lobby-hub > .grid { order: 2; }              /* cards (middle) */
-  html.force-landscape .lobby-hub > nav:last-of-type { order: 3; }   /* right rail */
-
-  /* CENTER the hub vertically in the frame so the spare space splits evenly above/below (balanced),
-     instead of a big single-sided gap. Cards keep their compact size — forcing them to GROW overflowed
-     the short rotated frame, so we do NOT stretch them. */
-  html.force-landscape .app-shell { display: flex; flex-direction: column; min-height: var(--app-w, 100dvw); }
-  html.force-landscape .lobby-root { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  html.force-landscape .lobby-home { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+  html.force-landscape .lobby-hub > nav { flex-direction: column; gap: 1.25rem; }  /* = md:flex-col + md:gap-5 */
+  html.force-landscape .lobby-hub > nav:first-of-type { order: 1; }       /* left rail  */
+  html.force-landscape .lobby-hub > .grid { order: 2; gap: 1rem; }        /* cards (middle), = sm:gap-4 */
+  html.force-landscape .lobby-hub > nav:last-of-type { order: 3; }        /* right rail */
 
   /* TopBar: the username + XP bar + session clock are `hidden sm:/md:` (viewport-width gated) so they
      vanish under rotation. The rotated frame is wide → reveal them to match the real landscape TopBar. */
