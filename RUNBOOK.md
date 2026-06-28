@@ -132,11 +132,33 @@ container exit). To persist/search, ship the container's stdout to journald/Loki
 | Server crash-loop on boot | Bad migration / DB unreachable | Check `docker compose logs server`; restore pre-deploy dump |
 | Site reachable on `:8080` from outside the host | (Should NOT happen) client is already bound `127.0.0.1:8080` in both compose files — reachable only on the host for local checks, never publicly | If it IS externally reachable, a compose override re-published the port: remove it so only Caddy (80/443) is public |
 
-## 7. Secrets
-Rotate if exposed: `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `PAYMENT_WEBHOOK_SECRET`
-(`openssl rand -hex 32`), `RESEND_API_KEY` (Resend dashboard), Binance/TronGrid/Telegram
-keys (their consoles). Update `.env` → `redeploy.sh`. The deposit wallet seed lives
-OFFLINE only — never on the server.
+## 7. Secrets — rotation playbook
+
+Anything ever pasted into chat / a screenshot / a public repo is **compromised** — rotate it. General
+flow for every secret: **change it at the source → update `.env` → `bash deploy/redeploy.sh`** (the server
+re-reads env on boot). Rotate in this priority order (money first):
+
+| Secret | Where to rotate | Blast radius / notes |
+|---|---|---|
+| **`BINANCE_API_KEY` / `BINANCE_API_SECRET`** | Binance console → **delete** the leaked key, create a new one. Restrict it to the payout perms only + **IP-allowlist** the server. | **MOST URGENT — moves real money.** A leaked key with withdraw rights can drain the payout float. |
+| `TRON_DEPOSIT_XPUB` (+ wallet **seed**) | The xpub alone can't spend (watch-only). **If the SEED leaked**: generate a NEW HD wallet offline → put the new xpub in `.env` → future deposits use new addresses; sweep old ones. | Seed = full control of deposit funds. Seed lives OFFLINE only, never on the server. |
+| `TELEGRAM_BOT_TOKEN` | BotFather → `/revoke` → new token. Then re-run `setWebhook` (see §5). | Leaked token = anyone can drive the admin bot. |
+| `TELEGRAM_WEBHOOK_SECRET` | `openssl rand -hex 32` → `.env`. Re-run `setWebhook` with the new `secret_token`. | Gate on inbound webhook updates; the bot is dead until setWebhook is redone. |
+| `RESEND_API_KEY` | Resend dashboard → revoke + new key. | Leaked = spoofed transactional email from your domain. |
+| `TRONGRID_API_KEY` | TronGrid console. | Leaked = your rate-quota abused; no fund access. |
+| `PAYMENT_WEBHOOK_SECRET` | `openssl rand -hex 32` → `.env` AND the NOWPayments dashboard (must match). | Mismatch → IPN deposits stop crediting until both sides agree. |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | `openssl rand -hex 32` each. | **Rotating logs EVERY user out** (all refresh tokens invalid). Do during a quiet window. |
+
+After rotating, run §9 (env sanity check) and watch `docker compose logs server` for a clean boot.
+
+### Load-balancer / proxy health check
+
+Point any LB or external proxy at **`GET /ready`**, not `/health`:
+
+- `/health` → always `{ok:true}` while the process is up (liveness only).
+- `/ready` → returns **503 during graceful drain** (deploy/shutdown). An LB that checks `/ready` stops
+  sending new traffic to a draining instance, so in-flight games finish cleanly. (The bundled Caddy fronts
+  a single instance so this matters most if you ever add an external LB.)
 
 ## 8. Scaling — RUN A SINGLE SERVER INSTANCE ONLY
 This stack is **single-instance by design**. Critical state lives IN-PROCESS, not in a
