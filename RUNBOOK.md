@@ -11,6 +11,23 @@ Incident-response + routine-ops guide for the single-host Docker deployment. Pai
 
 ## 1. Deploy / redeploy
 
+**Fast path (recommended) — pull CI-built images, no host build:**
+```bash
+cd ~/murlan-2.0 && bash deploy/pull-deploy.sh   # run AFTER GitHub Actions CI goes green on your push
+docker compose -f docker-compose.yml -f docker-compose.deploy.yml -f docker-compose.ghcr.yml logs server --tail 30
+```
+On every push to `main`, GitHub Actions builds + Trivy-scans the server & client images and pushes them to
+`ghcr.io/astekbow/murlan-{server,client}:latest`. `pull-deploy.sh` then just **pulls** them (seconds) and
+restarts — the small VPS never runs `npm ci` / `vite build` / `prisma generate` (those took ~28 min on this
+box). Same pre-deploy DB dump + verify; the server still runs `prisma migrate deploy` on boot.
+
+> **One-time setup:** after the FIRST CI run that pushes images, make both packages PUBLIC so the host
+> pulls without a login: GitHub → your avatar → **Packages** → `murlan-server` → *Package settings* →
+> **Change visibility → Public** (repeat for `murlan-client`). The repo's Actions also need package-write
+> (already set via `permissions: packages: write` in `ci.yml`). Rollback: pull a specific
+> `ghcr.io/astekbow/murlan-server:<sha>` tag instead of `latest`.
+
+**Fallback — build on the host** (if CI is down, or you changed a Dockerfile and want a local build):
 ```bash
 cd ~/murlan-2.0 && bash deploy/redeploy.sh
 docker compose logs server --tail 30   # confirm a clean boot

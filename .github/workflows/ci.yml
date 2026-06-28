@@ -91,14 +91,27 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: verify
+    permissions:
+      contents: read
+      packages: write # push the deploy images to GHCR (ghcr.io/<owner>/murlan-*)
     steps:
       - uses: actions/checkout@v4
-      # Build both images to catch Dockerfile drift (no push — wire registry creds
-      # + a deploy step when a target environment exists).
+
+      # Log in to GHCR only on a real push to main (never from a PR / fork — those just build + scan).
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build both images: the :ci tag is what Trivy scans; the GHCR tags are the SAME artifact that gets
+      # pushed below + pulled by the host (deploy/pull-deploy.sh) so the VPS never builds locally.
       - name: Build server image
-        run: docker build -f Dockerfile.server -t murlan-server:ci .
+        run: docker build -f Dockerfile.server -t murlan-server:ci -t ghcr.io/${{ github.repository_owner }}/murlan-server:latest -t ghcr.io/${{ github.repository_owner }}/murlan-server:${{ github.sha }} .
       - name: Build client image
-        run: docker build -f Dockerfile.client -t murlan-client:ci .
+        run: docker build -f Dockerfile.client -t murlan-client:ci -t ghcr.io/${{ github.repository_owner }}/murlan-client:latest -t ghcr.io/${{ github.repository_owner }}/murlan-client:${{ github.sha }} .
       # Scan the built images for OS/library CVEs. ignore-unfixed: only FIXABLE high/critical
       # block (an un-patched base-OS CVE shouldn't wedge deploys); a finding here means "rebuild
       # on a newer base / bump the dep", which is actionable.
@@ -116,3 +129,13 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+
+      # Only CLEAN (Trivy-passed) images reach the registry. `latest` = the deploy target the host pulls;
+      # the immutable `:<sha>` tag is a rollback point. Skipped on PRs (the `if` above gated the login).
+      - name: Push images to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/murlan-server:latest
+          docker push ghcr.io/${{ github.repository_owner }}/murlan-server:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository_owner }}/murlan-client:latest
+          docker push ghcr.io/${{ github.repository_owner }}/murlan-client:${{ github.sha }}

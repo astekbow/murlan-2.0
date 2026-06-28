@@ -1,0 +1,16 @@
+# Deploy from PRE-BUILT GHCR images (built + Trivy-scanned by .github/workflows/ci.yml on push to main)
+# instead of building on the host. The small VPS never runs npm ci / vite build / prisma generate again —
+# it just pulls (~seconds) and restarts. Layer this LAST, via deploy/pull-deploy.sh:
+#   docker compose -f docker-compose.yml -f docker-compose.deploy.yml -f docker-compose.ghcr.yml ...
+#
+# The images are PUBLIC GHCR packages (repo is public), so the host pulls them with NO docker login.
+# `pull_policy: always` + the script's explicit `pull` + `up --no-build` guarantee the host uses the
+# registry image and never falls back to a local build.
+services:
+  server:
+    image: ghcr.io/astekbow/murlan-server:latest
+    pull_policy: always
+
+  client:
+    image: ghcr.io/astekbow/murlan-client:latest
+    pull_policy: always
