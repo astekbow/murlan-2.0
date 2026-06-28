@@ -1099,7 +1099,7 @@ select:focus-visible,
    the login screen (which uses min-h-full + flex-center) so it doesn't sit small with a gap. Centering
    (not stretching) can't overflow. */
 @media (orientation: landscape) and (max-height: 560px) {
-  .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; min-height: 100dvh; }
+  .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; min-height: var(--app-h, 100dvh); }
   .lobby-root { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 }
 /* Short PORTRAIT phones: the 3.5rem bottom reservation (no bottom-nav consumes it) eats ~28% of a small
@@ -1229,13 +1229,15 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
     left: 0;
     box-sizing: border-box;
     background: #0b0a0e;
-    /* The app is INSTALLED (standalone) — no Safari toolbar — so 100dvh/100dvw are EXACT and equal the
-       full screen. (JS-measured visualViewport came out slightly SMALLER in standalone → a black strip +
-       left shift; dvh/dvw fill precisely.) Frame WIDTH = the viewport HEIGHT; frame HEIGHT = its WIDTH. */
-    width: 100dvh;
-    height: 100dvw;
+    /* Frame from JS-MEASURED screen px (--app-h = innerHeight, --app-w = innerWidth), re-measured on every
+       rotation. CSS dvh/dvw are the first-paint fallback only — they go STALE after a rotate on iOS (kept
+       the previous orientation's value → portrait shrank after portrait→landscape→portrait). innerWidth/
+       innerHeight + a resize re-read stay fresh. Frame WIDTH = screen HEIGHT; frame HEIGHT = screen WIDTH. */
+    width: var(--app-h, 100dvh);
+    height: var(--app-w, 100dvw);
     transform-origin: top left;
     transform: translateX(100dvw) rotate(90deg);
+    transform: translateX(var(--app-w, 100dvw)) rotate(90deg);
     /* Re-map safe-area insets for the 90° CW rotation: the portrait TOP notch lands on the content's
        LEFT edge and the home indicator (portrait bottom) on the content's RIGHT edge — pad those sides
        so nothing hides under the notch/indicator. border-box keeps the frame filling the whole screen. */
@@ -1243,10 +1245,10 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
     padding-right: env(safe-area-inset-bottom);
     overflow: hidden;
   }
-  /* The fixed-aspect table canvas tracks the frame: width = frame width (100dvh), height = frame height (100dvw). */
+  /* The fixed-aspect table canvas tracks the measured frame (--app-h = frame width, --app-w = frame height). */
   html.force-landscape .tv-ls .tv-canvas {
-    width: min(100dvh, calc(100dvw * 1280 / 590));
-    height: min(100dvw, calc(100dvh * 590 / 1280));
+    width: min(var(--app-h, 100dvh), calc(var(--app-w, 100dvw) * 1280 / 590));
+    height: min(var(--app-w, 100dvw), calc(var(--app-h, 100dvh) * 590 / 1280));
   }
   /* Overlays are fixed inset:0 → they fill the rotated #root frame. But dvh/dvw-based max-heights now
      refer to the physical viewport; cap modals to the frame HEIGHT (=100vw) so they don't overgrow. */
@@ -1306,7 +1308,7 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
     padding-bottom: calc(.6rem + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
-    min-height: 100dvw;
+    min-height: var(--app-w, 100dvw);  /* rotated frame HEIGHT = screen WIDTH (re-measured) */
   }
   html.force-landscape .lobby-root { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 

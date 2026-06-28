@@ -37,20 +37,20 @@ export function useForceLandscapeApp(): boolean {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    // Always-landscape: this hook only DECIDES orientation and toggles the `force-landscape` class.
-    // The rotated frame itself is sized in CSS with 100dvh/100dvw (index.css) — in the installed
-    // standalone app there's no Safari toolbar, so those are exact and fill the screen edge-to-edge.
-    // Self-correcting: portrait → rotate; already landscape (held sideways, or an OS/PWA lock took) →
-    // do nothing (the media query reports landscape, so no class).
+    // Always-landscape. We MEASURE the real screen with window.innerWidth/innerHeight (in the installed
+    // standalone app — no Safari toolbar — these are EXACT, full-screen) and publish them as CSS vars
+    // --app-w / --app-h, RE-MEASURED on every resize/orientationchange. This is the key fix for "after
+    // rotating to landscape and back, portrait shrinks": iOS does NOT reliably recompute CSS dvh/dvw on
+    // rotation (they keep the previous orientation's value), but innerWidth/innerHeight + a resize re-read
+    // are always fresh. Orientation decision uses matchMedia (reliable); dims use inner* (recomputed).
     const el = document.documentElement;
     let settleTimer = 0;
-    // Just decide orientation + toggle the class. The rotated FRAME is sized in CSS with 100dvh/100dvw,
-    // which (in the installed standalone app — no Safari toolbar) is exact and fills the screen. We do
-    // NOT feed JS-measured pixels anymore: visualViewport came out slightly small in standalone → gaps.
     const apply = () => {
-      const portraitMq = window.matchMedia('(orientation: portrait)');
-      el.classList.toggle('force-landscape', portraitMq.matches);
-      setPortrait(portraitMq.matches);
+      const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+      el.style.setProperty('--app-w', `${window.innerWidth}px`);  // real screen WIDTH
+      el.style.setProperty('--app-h', `${window.innerHeight}px`); // real screen HEIGHT
+      el.classList.toggle('force-landscape', isPortrait);
+      setPortrait(isPortrait);
     };
     // While the phone is physically rotating (portrait<->landscape), iOS animates the viewport AND we
     // flip the CSS frame — the combo makes entrance/transition animations replay and the app appear to
@@ -74,6 +74,8 @@ export function useForceLandscapeApp(): boolean {
       window.visualViewport?.removeEventListener('resize', apply);
       window.visualViewport?.removeEventListener('scroll', apply);
       el.classList.remove('force-landscape', 'rotating');
+      el.style.removeProperty('--app-w');
+      el.style.removeProperty('--app-h');
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);
