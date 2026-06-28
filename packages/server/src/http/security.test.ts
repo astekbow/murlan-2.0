@@ -1,5 +1,5 @@
 // ============================================================================
-// MURLAN — Security regression tests (SECURITY_AUDIT.md fixes)
+// MURLAN — Security regression tests (docs/audits/security/2026-06-23_redteam_55-agent.md fixes)
 // ----------------------------------------------------------------------------
 // Covers the behavioural security fixes: revocation-aware access tokens (#1/#9),
 // the withdraw account-state gate (#1), the RBAC promotion hole (#2), owner-demote

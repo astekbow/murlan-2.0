@@ -1,7 +1,8 @@
 # Crypto-Murlan — Operations Runbook
 
 Incident-response + routine-ops guide for the single-host Docker deployment. Pairs with
-`DEPLOYMENT.md` (first-time setup) and `AUDIT_REPORT_2026-06-14.md` (known gaps).
+`DEPLOYMENT.md` (first-time setup) and the current audits (`AUDIT_REPORT_2026-06-26.md` §8 +
+`SECURITY_REDTEAM.md`; archive in `docs/audits/`).
 
 > Host: single VPS, `~/murlan-2.0`. Stack (docker compose): `caddy` (TLS) → `client`
 > (nginx) → `server` (Fastify+Socket.IO) → `postgres` + `redis`, plus `db-backup`.

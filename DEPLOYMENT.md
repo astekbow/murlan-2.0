@@ -1,7 +1,8 @@
 # Murlan Online — Deployment & Operations Runbook
 
 Operational guide for running the real-money stack in production. Pairs with `README.md`
-(dev setup) and `AUDIT_REPORT.md` (security posture). **Read the Compliance note in the
+(dev setup) and the current audits — `AUDIT_REPORT_2026-06-26.md` (engineering) + `SECURITY_REDTEAM.md`
+(security); older snapshots are archived under `docs/audits/`. **Read the Compliance note in the
 README first — a license + KYC/AML are legal prerequisites for real-money operation.**
 
 > ⚠️ **PARTIALLY SUPERSEDED — the files are authoritative, not this prose.** The real production deploy
