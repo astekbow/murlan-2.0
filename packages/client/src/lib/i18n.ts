@@ -1288,7 +1288,8 @@ export function plural(baseKey: string, n: number, lang: Lang, vars?: TVars): st
 
 const STORAGE_KEY = 'murlan.lang.v1';
 function loadLang(): Lang {
-  try { return localStorage.getItem(STORAGE_KEY) === 'en' ? 'en' : 'sq'; } catch { return 'sq'; }
+  // English is the DEFAULT language; Albanian only if the user has explicitly chosen it.
+  try { return localStorage.getItem(STORAGE_KEY) === 'sq' ? 'sq' : 'en'; } catch { return 'en'; }
 }
 if (typeof document !== 'undefined') document.documentElement.lang = loadLang();
 
