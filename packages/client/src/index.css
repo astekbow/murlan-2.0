@@ -871,8 +871,12 @@ select:focus-visible,
 }
 /* Largohu — elegant glass pill (obsidian-&-gold), position unchanged. */
 .tv-ls .tvc-topbar .btn {
-  padding: 1.5cqh 3.2cqw !important;
-  font-size: 2.4cqw !important;
+  padding: 1cqh 2.3cqw !important;   /* smaller "Largohu" over the felt (owner request) */
+  font-size: 1.95cqw !important;
+  /* Defeat the touch 44px min-height floor (from .btn-sm) — the topbar is only ~9cqh tall, so the floor
+     was forcing the button bigger than the bar. Sized by the cqh padding instead. */
+  min-height: 0 !important;
+  line-height: 1.1 !important;
   border-radius: 9999px !important;
   background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
   border: 1px solid var(--hairline-gold) !important;
