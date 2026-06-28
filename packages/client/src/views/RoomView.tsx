@@ -2,6 +2,7 @@ import type { RoomStateDTO } from '@murlan/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { friendsApi, ApiError, type FriendEntry } from '../lib/api.ts';
+import { useWakeLock } from '../lib/useWakeLock.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
@@ -23,6 +24,7 @@ const CONTEXT: Record<RoomStateDTO['type'], string> = {
 export function RoomView({ room }: { room: RoomStateDTO }) {
   const { mySeat, setReady, leaveRoom } = useGameStore();
   const t = useT();
+  useWakeLock(true); // keep the screen awake in the waiting room too (not just at the table)
   const landscape = useLandscapePage();
   const meReady = mySeat !== null ? room.seats[mySeat]?.ready ?? false : false;
   // Occupancy is by username, not userId: a seat can be filled by a player whose id

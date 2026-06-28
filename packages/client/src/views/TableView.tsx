@@ -690,8 +690,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         result={matchResult ? (iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })) : null}
       />
 
-      {/* Portrait phone (`forced`) uses the SAME landscape canvas — the app is CSS-rotated 90° (see
-          useForceLandscapeApp), so no "rotate your phone" prompt is needed. */}
+      {/* The table is landscape-only: real landscape (`ls`) uses the canvas. A portrait phone is covered
+          by the App-level RotateOverlay ("rotate your phone"), so `forced` here just keeps the canvas
+          mounted behind it. */}
       {ls || forced ? canvasLayout : flowLayout}
 
       {/* Shuffle splash: ONLY at match start / between deals — never during the

@@ -37,53 +37,16 @@ export function useForceLandscapeApp(): boolean {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    // Always-landscape — sizing the rotated frame correctly on iOS needs a measurement that is BOTH
-    // full-screen AND fresh after a rotate. None of the obvious ones are both:
-    //   • CSS 100dvh/100dvw   → full-screen, but iOS leaves them STALE after a rotate (prev orientation).
-    //   • window.innerW/innerH → fresh, but EXCLUDE the safe-area insets → too small → everything shrank.
-    // So we measure a hidden PROBE: position:fixed; inset:0 + viewport-fit=cover = the FULL screen incl.
-    // safe areas, and offsetWidth/Height re-read FRESH every time. Published as --app-w/--app-h, consumed
-    // by the frame/app-shell/canvas in index.css. Re-measured on every resize/orientationchange.
-    const el = document.documentElement;
-    let settleTimer = 0;
-    const probe = document.createElement('div');
-    probe.setAttribute('aria-hidden', 'true');
-    probe.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;visibility:hidden;pointer-events:none;z-index:-1;';
-    document.body.appendChild(probe);
-    const apply = () => {
-      const w = probe.offsetWidth || window.innerWidth;
-      const h = probe.offsetHeight || window.innerHeight;
-      const isPortrait = h >= w;
-      el.style.setProperty('--app-w', `${w}px`);  // real full-screen WIDTH
-      el.style.setProperty('--app-h', `${h}px`);  // real full-screen HEIGHT
-      el.classList.toggle('force-landscape', isPortrait);
-      setPortrait(isPortrait);
-    };
-    // While the phone is physically rotating (portrait<->landscape), iOS animates the viewport AND we
-    // flip the CSS frame — the combo makes entrance/transition animations replay and the app appear to
-    // "spin". Add `rotating` to <html> across the turn so animations/transitions are killed (index.css);
-    // clear it once the orientation settles. Result: a clean cut, not a visible rotation effect.
-    const onRotate = () => {
-      el.classList.add('rotating');
-      apply();
-      window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => { el.classList.remove('rotating'); apply(); }, 500);
-    };
-    apply();
-    window.addEventListener('resize', apply);
-    window.addEventListener('orientationchange', onRotate);
-    window.visualViewport?.addEventListener('resize', apply);
-    window.visualViewport?.addEventListener('scroll', apply);
+    // Landscape-only via a "rotate your phone" prompt (the reliable approach — CSS auto-rotation fought
+    // iOS too much). We just DETECT portrait; App renders <RotateOverlay> over everything until the phone
+    // is turned. In real landscape the app renders natively (perfect). On Android the orientation lock
+    // above makes it real landscape, so the prompt never shows there.
+    const mq = window.matchMedia('(orientation: portrait)');
+    const update = () => setPortrait(mq.matches);
+    update();
+    mq.addEventListener('change', update);
     return () => {
-      window.clearTimeout(settleTimer);
-      window.removeEventListener('resize', apply);
-      window.removeEventListener('orientationchange', onRotate);
-      window.visualViewport?.removeEventListener('resize', apply);
-      window.visualViewport?.removeEventListener('scroll', apply);
-      el.classList.remove('force-landscape', 'rotating');
-      el.style.removeProperty('--app-w');
-      el.style.removeProperty('--app-h');
-      probe.remove();
+      mq.removeEventListener('change', update);
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);

@@ -21,6 +21,7 @@ import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
 import { useForceLandscapeApp } from './lib/useForceLandscapeApp.ts';
+import { RotateOverlay } from './components/ui/RotateOverlay.tsx';
 import { takePendingJoinCode, takePendingProfileId } from './lib/deepLink.ts';
 import { getResetToken, takeVerifyToken } from './lib/hashTokens.ts';
 import { ProfileModal } from './components/ui/ProfileModal.tsx';
@@ -101,7 +102,7 @@ export function App() {
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
   // Phones + tablets are LANDSCAPE-ONLY: held portrait, the whole app is blocked by the rotate
   // prompt (no portrait UI at all). Desktops/laptops are unaffected — they render normally.
-  useForceLandscapeApp(); // toggles the `force-landscape` class on <html> → CSS rotates the app on a portrait phone
+  const forceRotate = useForceLandscapeApp(); // true on a phone/tablet held PORTRAIT → show RotateOverlay
 
   // Shareable room invite (/join/<CODE>): once the player is authenticated AND the
   // socket is connected and they're not already in a room, consume the captured code
@@ -241,9 +242,9 @@ export function App() {
     <ErrorBoundary>
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
-      {/* Phones/tablets are landscape-only: instead of a "rotate your phone" prompt, the
-          `force-landscape` class (set by useForceLandscapeApp on a portrait phone) CSS-rotates the
-          whole app 90° so it's always horizontal. Desktops/laptops render normally. */}
+      {/* Phones/tablets are landscape-only: held PORTRAIT, this overlay blocks the whole app with a
+          "rotate your phone" prompt; turned landscape, the app renders natively. Desktops render normally. */}
+      {forceRotate && <RotateOverlay />}
       {status === 'authed' && <InviteBanner />}
       {status === 'authed' && <ClubInviteBanner />}
       {/* First-run welcome takes precedence; the install prompt waits until it's done. */}
