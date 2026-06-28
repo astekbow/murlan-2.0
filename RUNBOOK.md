@@ -186,6 +186,11 @@ So: scale UP (a bigger VPS), never OUT, until the room-ownership + caps are move
 Redis-backed shared store. `REDIS_URL` today only powers the Socket.IO adapter — it does
 **not** make the app horizontally safe. Keep exactly one `server` container.
 
+> **Note (audit 2026-06-28):** the money layer is *already* multi-instance-safe (idempotent `providerRef`
+> + `pg_advisory_xact_lock` on the deposit cap); what's not safe is the game layer (room/match state, timers,
+> fairness, matchmaking). The full evidence-based inventory + the ordered scale-out roadmap (linchpin = a
+> Redis-backed `RoomOwnership`) lives in [`docs/MULTI_INSTANCE.md`](docs/MULTI_INSTANCE.md).
+
 ## 9. Live env sanity check (run after every deploy)
 Confirm the container actually got the right config (a `.env` var only reaches it if it's
 mapped in `docker-compose.yml`):
