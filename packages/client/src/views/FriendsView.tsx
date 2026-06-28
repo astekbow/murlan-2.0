@@ -381,7 +381,7 @@ export function FriendsView() {
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 mb-2 pr-1">
           {dmMessages.length === 0 ? (
-            <p className="text-sm text-muted text-center py-8">{t('friends.dmEmpty')}</p>
+            <p role="status" className="text-sm text-muted text-center py-8">{t('friends.dmEmpty')}</p>
           ) : dmMessages.map((m) => {
             const mine = m.fromUserId !== dmWith.user.id;
             return (
@@ -441,8 +441,8 @@ export function FriendsView() {
             {loading ? (
               <div className="pg-ls-scroll pr-1"><SkeletonList count={5} /></div>
             ) : acceptedSorted.length === 0 ? (
-              <div className="pg-ls-scroll text-center py-6">
-                <div className="text-3xl mb-1 opacity-60">🫂</div>
+              <div role="status" className="pg-ls-scroll text-center py-6">
+                <div className="text-3xl mb-1 opacity-60" aria-hidden="true">🫂</div>
                 <p className="text-xs text-muted">{t('friends.empty')}</p>
               </div>
             ) : (
@@ -621,8 +621,8 @@ export function FriendsView() {
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.2s' }}>
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.friendsSection')} <span className="text-muted font-normal">({accepted.length})</span></h2>
             {accepted.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="text-4xl mb-2 opacity-60">🫂</div>
+              <div role="status" className="text-center py-8">
+                <div className="text-4xl mb-2 opacity-60" aria-hidden="true">🫂</div>
                 <p className="text-sm text-muted">{t('friends.empty')}</p>
                 <p className="text-xs text-muted/70 mt-1">{t('friends.emptyHint')}</p>
               </div>

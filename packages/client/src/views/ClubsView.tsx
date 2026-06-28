@@ -127,7 +127,7 @@ export function ClubsView() {
             <div className="pg-ls-left panel p-3">
               <h2 className="text-sm font-display font-semibold text-gold-hi mb-2">{t('clubs.clubs')}</h2>
               <ul className="pg-ls-scroll space-y-1.5 pr-1">
-                {list.length === 0 ? <p className="text-sm text-muted text-center py-6">{t('clubs.empty')}</p> : list.map((c) => (
+                {list.length === 0 ? <li role="status" className="text-sm text-muted text-center py-6 list-none">{t('clubs.empty')}</li> : list.map((c) => (
                   <li key={c.id} className="flex items-center gap-2 rounded-lg px-2.5 py-2 border border-white/10 bg-white/[.03]">
                     <span className="font-display font-semibold text-gold-hi text-sm shrink-0">[{c.tag}]</span>
                     <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{c.name}</span>
@@ -281,7 +281,7 @@ export function ClubsView() {
           <section className="panel p-5 animate-rise" style={{ animationDelay: '.1s' }}>
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('clubs.clubs')}</h2>
             {list.length === 0 ? (
-              <p className="text-sm text-muted text-center py-6">{t('clubs.empty')}</p>
+              <p role="status" className="text-sm text-muted text-center py-6">{t('clubs.empty')}</p>
             ) : (
               <ul className="space-y-2.5">
                 {list.map((c) => (
@@ -370,7 +370,7 @@ function ClubTournaments({ club }: { club: ClubDetailDTO }) {
       )}
 
       {items.length === 0 ? (
-        <p className="text-sm text-muted text-center py-6">{t('clubs.noTournaments')}</p>
+        <p role="status" className="text-sm text-muted text-center py-6">{t('clubs.noTournaments')}</p>
       ) : (
         <ul className="space-y-2.5">
           {items.map((tn) => {
@@ -455,7 +455,7 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
       <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('clubs.chatTitle')}</h2>
       <div ref={scrollRef} className="max-h-[40vh] overflow-y-auto space-y-2 pr-1">
         {messages.length === 0 ? (
-          <p className="text-sm text-muted text-center py-6">{t('clubs.chatEmpty')}</p>
+          <p role="status" className="text-sm text-muted text-center py-6">{t('clubs.chatEmpty')}</p>
         ) : messages.map((m: ChatMessageDTO) => (
           <div key={m.id} className="group flex items-start gap-2 rounded-xl px-3 py-2 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
             <div className="min-w-0 flex-1">

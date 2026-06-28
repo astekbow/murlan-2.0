@@ -176,9 +176,9 @@ export function LeaderboardView() {
               ) : status === 'error' ? (
                 <div className="text-center py-10"><p className="text-sm text-red-300">{error}</p></div>
               ) : tab === 'ranked' && !season ? (
-                <p className="text-sm text-muted text-center py-10">{t('lb.noSeason')}</p>
+                <p role="status" className="text-sm text-muted text-center py-10">{t('lb.noSeason')}</p>
               ) : ladderEmpty ? (
-                <p className="text-sm text-muted text-center py-10">{tab === 'global' ? t('lb.emptyGlobal') : t('lb.emptyRanked')}</p>
+                <p role="status" className="text-sm text-muted text-center py-10">{tab === 'global' ? t('lb.emptyGlobal') : t('lb.emptyRanked')}</p>
               ) : tab === 'global' ? (
                 <GlobalLadderList rows={rows} myId={myId} />
               ) : (
