@@ -262,6 +262,14 @@ select:focus-visible,
      ENABLED for accessibility/compliance; see the viewport meta — we fix the cause, not disable zoom.) */
   input, select, textarea { font-size: 16px; }
   .field-label { font-size: 12px; font-weight: 500; color: var(--muted-sm); letter-spacing: 0.2px; }
+  /* Skip-to-content link: off-screen until keyboard-focused, then pinned top-left (WCAG 2.4.1). */
+  .skip-link {
+    position: absolute; left: -9999px; top: 0; z-index: 1000;
+    padding: 0.5rem 0.9rem; border-radius: 0 0 8px 0;
+    background: var(--bg-1); color: var(--gold-hi);
+    border: 1px solid var(--gold); font-weight: 600; font-size: 14px;
+  }
+  .skip-link:focus { left: 0; outline: 2px solid var(--gold); outline-offset: 2px; }
   .field {
     /* 16px (not 14px) is REQUIRED everywhere: iOS Safari auto-zooms when you focus an
        input whose font-size is < 16px. The old 14px base only got bumped to 16px at

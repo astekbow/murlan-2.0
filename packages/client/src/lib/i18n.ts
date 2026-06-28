@@ -18,6 +18,7 @@ const STRINGS: Record<string, Entry> = {
   // Common
   'common.backToLobby': { sq: '← Kthehu te lobi', en: '← Back to lobby' },
   'common.save': { sq: 'Ruaj', en: 'Save' },
+  'a11y.skipToMain': { sq: 'Kalo te përmbajtja', en: 'Skip to content' },
   // Plural example pair for the plural() helper (one/other). Use plural('common.gamesN', n, lang).
   'common.gamesN.one': { sq: '{n} lojë', en: '{n} game' },
   'common.gamesN.other': { sq: '{n} lojëra', en: '{n} games' },

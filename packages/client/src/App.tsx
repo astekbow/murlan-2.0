@@ -82,10 +82,13 @@ function Shell({ children }: { children: ReactNode }) {
   // can drop the extra bottom space on desktop. The page content fades on each
   // lobby-view switch via ViewTransition (TopBar persists).
   const view = useUiStore((s) => s.view);
+  const t = useT();
   return (
     <div className="app-shell relative z-10 mx-auto w-full max-w-[1180px]">
+      {/* Keyboard a11y: jump past the persistent TopBar nav straight to the page content (WCAG 2.4.1). */}
+      <a href="#main-content" className="skip-link">{t('a11y.skipToMain')}</a>
       <TopBar />
-      <main><ViewTransition viewKey={view}>{children}</ViewTransition></main>
+      <main id="main-content" tabIndex={-1} className="outline-none"><ViewTransition viewKey={view}>{children}</ViewTransition></main>
     </div>
   );
 }
