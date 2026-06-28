@@ -1,6 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { dollars, parseDollarsToCents, txLabel } from './money.ts';
+import { useLangStore } from './i18n.ts';
 
 test('dollars formats integer cents', () => {
   assert.equal(dollars(0), '$0.00');
@@ -18,7 +19,12 @@ test('parseDollarsToCents rounds to integer cents and rejects invalid/negative',
 });
 
 test('txLabel maps known types and passes through unknown', () => {
+  // Pin the language so the test is deterministic regardless of the default (now English).
+  useLangStore.setState({ lang: 'sq' });
   assert.equal(txLabel('deposit'), 'Depozitë');
   assert.equal(txLabel('payout'), 'Fitim');
+  assert.equal(txLabel('weird'), 'weird'); // unknown type passes through untranslated
+  useLangStore.setState({ lang: 'en' });
+  assert.equal(txLabel('deposit'), 'Deposit');
   assert.equal(txLabel('weird'), 'weird');
 });
