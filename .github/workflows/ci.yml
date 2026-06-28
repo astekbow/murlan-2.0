@@ -76,14 +76,20 @@ jobs:
       - name: Dependency audit — dev tooling (advisory only)
         run: npm audit --audit-level=high || true
 
+      # Best-effort: the SBOM is a supply-chain ARTIFACT, not a correctness gate. `npm sbom` is finicky on a
+      # fresh CI tree (works locally) — it must never block the build/test gates above or the image push
+      # below. continue-on-error keeps the job green; the upload is skipped if the file wasn't produced.
       - name: Generate SBOM (CycloneDX)
         run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cdx.json
+        continue-on-error: true
 
       - name: Upload SBOM artifact
+        if: ${{ hashFiles('sbom.cdx.json') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
           path: sbom.cdx.json
+          if-no-files-found: ignore
 
       - name: Client production build
         run: npm run build --workspace @murlan/client
