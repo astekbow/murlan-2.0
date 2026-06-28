@@ -37,14 +37,22 @@ export function useForceLandscapeApp(): boolean {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
+    // Is the app INSTALLED (Home-Screen PWA / standalone)? There the manifest's `orientation: landscape`
+    // makes iOS (16.4+) / Android lock the whole app to landscape NATIVELY — so we must NOT also CSS-rotate
+    // (that's what caused the stretch/glitches). In a plain browser TAB there is no OS lock on iOS, so the
+    // CSS rotation stays as the only fallback. (Owner decision: rely on the native lock when installed.)
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.matchMedia('(display-mode: fullscreen)').matches ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true;
+
     const mq = window.matchMedia('(orientation: portrait)');
     const update = () => {
       const p = mq.matches;
       setPortrait(p);
-      // Whole-app fake-landscape (owner wants EVERYTHING horizontal): when a mobile device is held
-      // PORTRAIT and the OS lock didn't take (iOS), add `force-landscape` to <html> → CSS rotates the
-      // entire app 90° (index.css). On Android the lock makes it real landscape → not portrait → no class.
-      document.documentElement.classList.toggle('force-landscape', p);
+      // CSS fake-landscape ONLY in a browser tab held portrait. Installed → native manifest lock handles
+      // it (and when the OS locks, this media query already reports landscape, so p is false anyway).
+      document.documentElement.classList.toggle('force-landscape', p && !standalone);
     };
     update();
     mq.addEventListener('change', update);
