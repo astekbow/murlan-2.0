@@ -57,6 +57,8 @@ import { RematchCoordinator } from './rematchCoordinator.ts';
 import { BotDriver } from './botDriver.ts';
 import { TournamentMatchRegistry } from './tournamentMatchRegistry.ts';
 import { FairnessCoordinator } from './fairnessCoordinator.ts';
+import { RecentWinnersTicker, type RecentWinner } from './recentWinnersTicker.ts';
+import { MoveLogSequencer } from './moveLogSequencer.ts';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -121,14 +123,7 @@ const GHOST_FILL_MS = 12_000;
 // Purely cosmetic display state (a tiny in-memory ring); never read by any money/game path.
 const RECENT_WINNERS_MAX = 8;
 
-/** One entry in the cosmetic "recent winners" lobby ticker — the ALREADY-decided
- *  winner + their ALREADY-paid amount of a finished real-money match. Display-only:
- *  recorded as a read-only side effect after settlement, never an input to it. */
-export interface RecentWinner {
-  username: string;
-  amountCents: number;
-  at: number; // epoch ms — for ordering / staleness on the client
-}
+// `RecentWinner` (one cosmetic ticker entry) now lives in ./recentWinnersTicker.ts (imported above).
 
 /** Read-only lobby-liveliness snapshot served to the client (online count + the
  *  recent-winners ticker). Display-only; carries no money/game authority. */
@@ -179,10 +174,10 @@ export class GameGateway {
   private readonly isDraining: () => boolean;
   private readonly ownership: RoomOwnership | null;
   private readonly matchmaking: MatchmakingService | null;
-  // Per-match monotonic action counter (turn order for the move-log). Assigned
-  // synchronously so ordering is correct regardless of async write timing; the
-  // entry is dropped when the match finalizes.
-  private matchActionSeq = new Map<string, number>();
+  // Per-match monotonic action counter (turn order for the move-log). Assigned synchronously so ordering
+  // is correct regardless of async write timing; dropped when the match finalizes. Bookkeeping extracted
+  // to a unit-tested sequencer (audit 2026-06-28); recordAction below stays as a delegator.
+  private readonly moveSeq = new MoveLogSequencer();
   // Spectators per room (count only; identity not needed). Bounded by SPECTATOR_CAP. Bookkeeping
   // extracted to a unit-tested registry (audit M5); the spectate methods below stay as delegators.
   private readonly spectators = new SpectatorRegistry(SPECTATOR_CAP);
@@ -200,10 +195,10 @@ export class GameGateway {
   private ghostFillTimers = new Map<string, ReturnType<typeof setTimeout>>(); // free roomId -> pending auto-fill timer
   private readonly ghostFillMs: number;
   private finalizedMatches = new Set<string>(); // matchIds whose match:end has been emitted (exactly-once finalize)
-  // Cosmetic lobby ticker: a tiny ring of the last few real-money winners (newest first).
-  // Written ONLY as a read-only side effect AFTER settlement records the already-decided
-  // winner + already-paid amount; never read by, and never an input to, any money/game path.
-  private recentWinners: RecentWinner[] = [];
+  // Cosmetic lobby ticker: a tiny ring of the last few real-money winners (newest first). Written ONLY as
+  // a read-only side effect AFTER settlement; never read by, and never an input to, any money/game path.
+  // The bounded ring is extracted to a unit-tested ticker (audit 2026-06-28); the gateway still decides WHO.
+  private readonly recentWinners = new RecentWinnersTicker(RECENT_WINNERS_MAX);
   // Provably-fair seed state (live shuffle + committed server seed + client seeds) extracted to a
   // coordinator (audit M5); the crypto (generate/combine/createFairShuffle) + fair:commit/reveal emits
   // stay below — this is a thin, behavior-preserving STATE lift of a settlement-critical flow.
@@ -783,8 +778,7 @@ export class GameGateway {
     if (!this.matchLog || seat < 0) return;
     const matchId = this.rooms.matchIdOf(roomId);
     if (!matchId) return;
-    const seq = this.matchActionSeq.get(matchId) ?? 0;
-    this.matchActionSeq.set(matchId, seq + 1);
+    const seq = this.moveSeq.next(matchId);
     void this.matchLog.append({ matchId, seq, gameIndex: log.gameIndex, seat, type: log.type, cards: log.cards, at: Date.now() }).catch((e) => {
       // Swallowed by design (the replay/dispute trail must never block play), but COUNT+LOG it so a
       // chronic logging failure is visible instead of silently dropping the audit trail (audit I1).
@@ -1829,8 +1823,7 @@ export class GameGateway {
         .filter((s): s is NonNullable<typeof s> => !!s && !!s.userId && !isBot(s.userId) && !!s.username);
       if (humanWinners.length === 0) return;
       // Lobby ticker: the FIRST human winner (a 2v2 side is one row).
-      this.recentWinners.unshift({ username: humanWinners[0]!.username!, amountCents: payoutCents, at: now });
-      if (this.recentWinners.length > RECENT_WINNERS_MAX) this.recentWinners.length = RECENT_WINNERS_MAX;
+      this.recentWinners.add(humanWinners[0]!.username!, payoutCents, now);
       // Friend activity feed: record EVERY human winner so each one's friends see it.
       if (this.feed) for (const w of humanWinners) this.feed.recordWin(w.userId!, w.username!, payoutCents, now);
     } catch {
@@ -1844,7 +1837,7 @@ export class GameGateway {
   lobbyLive(): LobbyLiveSnapshot {
     return {
       online: this.presence?.online().length ?? 0,
-      recentWinners: this.recentWinners.slice(),
+      recentWinners: this.recentWinners.snapshot(),
     };
   }
 
@@ -1954,12 +1947,22 @@ export class GameGateway {
       const oldest = this.finalizedMatches.values().next().value;
       if (oldest !== undefined) this.finalizedMatches.delete(oldest);
     }
-    this.matchActionSeq.delete(key); // match over — drop its move-log seq counter
+    this.moveSeq.drop(key); // match over — drop its move-log seq counter
     this.rooms.markFinished(roomId); // idempotent (may already be 'finished')
     return true;
   }
 
   /** Settle the pot for a normally-finished match, then broadcast match:end. */
+  // DECOMPOSITION NOTE (audit 2026-06-28): this settlement cluster — claimFinalize + settleAndEmitMatchEnd
+  // + the recordMatchStats/recordRankedResult/recordAntiCheat/advanceTournament tail — is the EXACTLY-ONCE
+  // finalize + payout path and is DELIBERATELY left in the gateway. It is not a pure function of its args:
+  // it reads this.rooms live, mutates this.finalizedMatches, and the ORDERING is load-bearing —
+  // tournamentMeta/userAtSeat are captured BEFORE clearGoneSeats nulls a forfeited seat; match:end is
+  // emitted BEFORE revealFair and BEFORE advanceTournament; the settle-THROW branch intentionally leaves the
+  // row 'active' (no match:end) so the crash-recovery sweep refunds. The finalizedMatches Set is the only
+  // double-pay guard and is shared with the racing forfeit path. A naive extract risks double-pay / missed
+  // refund / bracket corruption, so it stays until a SettlementCoordinator can be done as a separately
+  // REVIEWED change (the cosmetic RecentWinnersTicker + MoveLogSequencer were the only safe lifts).
   private async settleAndEmitMatchEnd(
     roomId: string,
     winnerSide: number,
