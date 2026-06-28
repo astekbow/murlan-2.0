@@ -1213,11 +1213,15 @@ select:focus-visible,
    so the class is never added there.)
    ========================================================================== */
 @media (orientation: portrait) {
-  html.force-landscape, html.force-landscape body { overflow: hidden; height: 100%; }
+  /* Dark base so ANY safe-area gap (notch / home-indicator strip) reads as the app's felt, never a
+     white or black bar. */
+  html.force-landscape, html.force-landscape body { overflow: hidden; height: 100%; background: #0b0a0e; }
   html.force-landscape #root {
     position: fixed;
     top: 0;
     left: 0;
+    box-sizing: border-box;
+    background: #0b0a0e;
     /* DYNAMIC viewport units (dvh/dvw) so the rotated frame matches the VISIBLE area on iOS. With static
        vh/vw, Safari's address bar makes 100vh TALLER than what's on screen, so the rotated app looked
        zoomed/stretched when held portrait (but fine after a physical rotate, which gives the real
@@ -1230,6 +1234,11 @@ select:focus-visible,
     transform-origin: top left;
     transform: translateX(100vw) rotate(90deg);
     transform: translateX(100dvw) rotate(90deg);
+    /* Re-map safe-area insets for the 90° CW rotation: the portrait TOP notch lands on the content's
+       LEFT edge and the home indicator (portrait bottom) on the content's RIGHT edge — pad those sides
+       so nothing hides under the notch/indicator. border-box keeps the frame filling the whole screen. */
+    padding-left: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-bottom);
     overflow: hidden;
   }
   /* Inside the rotated frame, vw/svh STILL mean the physical (portrait) viewport, so the fixed-aspect
