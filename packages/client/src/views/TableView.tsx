@@ -225,13 +225,13 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // store changes — log appends, lobby pushes, toasts — don't re-render the felt.
   const {
     game, pileHistory, gameIndex, mySeat, myHand, selected, scoreboard, switchPrompt, switchPending, noSwapNotice, switchCards, matchResult, rematchOffer,
-    fairReveal, bubbles, handStandings, handReady, handHumans, spectators,
+    fairReveal, bubbles, handStandings, handReady, handHumans, spectators, spectatorNames,
     toggleCardSel, clearSelection, play, pass, giveSwitch, leaveRoom, dismissResult, rematch, continueHand,
   } = useGameStore(
     useShallow((s) => ({
       game: s.game, pileHistory: s.pileHistory, gameIndex: s.gameIndex, mySeat: s.mySeat, myHand: s.myHand, selected: s.selected,
       scoreboard: s.scoreboard, switchPrompt: s.switchPrompt, switchPending: s.switchPending, noSwapNotice: s.noSwapNotice, switchCards: s.switchCards, matchResult: s.matchResult, rematchOffer: s.rematchOffer,
-      fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans, spectators: s.spectators,
+      fairReveal: s.fairReveal, bubbles: s.bubbles, handStandings: s.handStandings, handReady: s.handReady, handHumans: s.handHumans, spectators: s.spectators, spectatorNames: s.spectatorNames,
       toggleCardSel: s.toggleCardSel, clearSelection: s.clearSelection, play: s.play, pass: s.pass,
       giveSwitch: s.giveSwitch, leaveRoom: s.leaveRoom, dismissResult: s.dismissResult, rematch: s.rematch, continueHand: s.continueHand,
     })),
@@ -465,15 +465,23 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Top-bar right group: spectators + turn timer + history/chat/emoji icons.
   const topRight = (
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      {spectators > 0 && (
-        <span
-          className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80"
-          title={t('table.spectators', { n: spectators })}
-          aria-label={t('table.spectators', { n: spectators })}
-        >
-          <span aria-hidden>👁</span>{spectators}
-        </span>
-      )}
+      {spectators > 0 && (() => {
+        // Title/aria reveal WHO's watching (hover / long-press / screen reader); the chip shows the count
+        // + the first watcher inline so players feel the audience without it cluttering the felt.
+        const watchers = spectatorNames.length
+          ? t('table.watchedBy', { names: spectatorNames.join(', ') + (spectators > spectatorNames.length ? ` +${spectators - spectatorNames.length}` : '') })
+          : t('table.spectators', { n: spectators });
+        return (
+          <span
+            className="inline-flex items-center gap-1 text-xs border border-gold-line/40 bg-black/25 rounded-full px-2 py-1 leading-none text-cream/80 max-w-[42vw] truncate"
+            title={watchers}
+            aria-label={watchers}
+          >
+            <span aria-hidden>👁</span>{spectators}
+            {spectatorNames[0] && <span className="hidden sm:inline text-cream/60 truncate">· {spectatorNames[0]}{spectators > 1 ? ` +${spectators - 1}` : ''}</span>}
+          </span>
+        );
+      })()}
       <TurnTimer deadline={game?.turnDeadline ?? null} />
       <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title={t('table.history')} aria-label={t('table.history')}>☰</button>
       <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title={t('table.chat')} aria-label={t('table.chat')}>💬</button>

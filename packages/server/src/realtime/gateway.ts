@@ -823,7 +823,7 @@ export class GameGateway {
     if (socket.data.spectating && socket.data.spectating !== roomId) this.removeSpectator(socket);
     if (socket.data.spectating !== roomId) {
       if (this.spectators.isFull(roomId)) return reply(ackError('spectators_full', 'Kuota e shikuesve është mbushur.'));
-      this.spectators.add(roomId);
+      this.spectators.add(roomId, socket.id, socket.data.username ?? '');
       socket.data.spectating = roomId;
       void socket.join(roomId);
       this.emitSpectatorCount(roomId);
@@ -832,9 +832,11 @@ export class GameGateway {
     this.pushSpectatorState(socket, roomId); // catch the watcher up to the live state
   }
 
-  /** Broadcast the room's live spectator count to everyone in it (players + watchers). */
+  /** Broadcast the room's live spectator count + who's watching to everyone in it (players + watchers).
+   *  The name list is capped so a packed room can't bloat the payload; the count is always exact. */
   private emitSpectatorCount(roomId: string): void {
-    this.io.to(roomId).emit('room:spectators', { count: this.spectators.count(roomId) });
+    const names = this.spectators.names(roomId).filter((n) => n).slice(0, 20);
+    this.io.to(roomId).emit('room:spectators', { count: this.spectators.count(roomId), names });
   }
 
   private onUnspectate(socket: IOSocket, ack: (res: Ack) => void): void {
@@ -872,7 +874,7 @@ export class GameGateway {
     if (!roomId) return;
     socket.data.spectating = null;
     void socket.leave(roomId);
-    this.spectators.remove(roomId);
+    this.spectators.remove(roomId, socket.id);
     if (this.rooms.getRoom(roomId)) this.emitSpectatorCount(roomId); // notify remaining watchers/players
   }
 

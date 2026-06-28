@@ -107,6 +107,14 @@ export function LeaderboardView() {
     ? rows.slice(0, 3).map((r) => ({ id: r.id, name: r.username, avatar: r.avatar, sub: `${r.xp} XP`, isMe: myId !== null && r.id === myId }))
     : ranked.slice(0, 3).map((r) => ({ id: r.userId, name: r.username, avatar: r.avatar, sub: `${r.rating}`, isMe: myId !== null && r.userId === myId }));
 
+  // "Copy my rank" — a shareable one-liner (rank + score + link) to drop in Discord/chat.
+  const copyRank = (rank: number, sub: string) => {
+    const text = t('lb.shareRank', { rank, sub });
+    void navigator.clipboard?.writeText(`${text} — ${location.origin}`)
+      .then(() => useGameStore.setState({ toast: t('lb.rankCopied'), toastKind: 'success' }))
+      .catch(() => useGameStore.setState({ toast: t('lb.rankCopyFailed'), toastKind: 'error' }));
+  };
+
   // ---- Landscape "console": top strip + podium/own-rank (LEFT) + full ladder (RIGHT).
   // Portaled to <body> so it escapes the ViewTransition transform that would trap fixed.
   if (landscape) {
@@ -144,6 +152,7 @@ export function LeaderboardView() {
                           <span className={`font-display font-bold text-base ${rankClass(myStanding.rank)}`} aria-label={t('lb.rankN', { n: myStanding.rank })}>{rankLabel(myStanding.rank)}</span>
                           <span className="text-xs text-txt truncate flex-1">{myStanding.name}</span>
                           <span className="font-display font-semibold text-gold-hi tabular-nums text-xs shrink-0">{myStanding.sub}</span>
+                          <button onClick={() => copyRank(myStanding.rank!, String(myStanding.sub ?? ''))} className="shrink-0 text-sm opacity-70 hover:opacity-100" aria-label={t('lb.copyRank')} title={t('lb.copyRank')}>📋</button>
                         </>
                       ) : (
                         <span className="text-xs text-muted">{t('lb.notInList')}</span>
@@ -245,6 +254,7 @@ export function LeaderboardView() {
                   <span className={`font-display font-bold text-lg ${rankClass(rank)}`} aria-label={t('lb.rankN', { n: rank })}>{rankLabel(rank)}</span>
                   <span className="text-sm text-txt truncate flex-1">{meG?.username ?? meR?.username}</span>
                   <span className="font-display font-semibold text-gold-hi tabular-nums shrink-0">{meG ? `${meG.xp} XP` : meR?.rating}</span>
+                  <button onClick={() => copyRank(rank!, meG ? `${meG.xp} XP` : String(meR?.rating ?? ''))} className="shrink-0 text-base opacity-70 hover:opacity-100" aria-label={t('lb.copyRank')} title={t('lb.copyRank')}>📋</button>
                 </>
               ) : (
                 <span className="text-sm text-muted">{t('lb.notInList')}</span>
