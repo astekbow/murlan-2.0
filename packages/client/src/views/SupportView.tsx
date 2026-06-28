@@ -88,6 +88,7 @@ export function SupportView() {
         <button type="button" role="tab" aria-selected={supportTab === 'tickets'} onClick={() => setSupportTab('tickets')} className={`seg-tab text-center ${supportTab === 'tickets' ? 'active' : ''}`}>{t('support.myTickets')}</button>
       </div>
 
+      <div className="support-body space-y-5">
       {/* New ticket */}
       {supportTab === 'new' && (
       <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.06s' }}>
@@ -156,6 +157,7 @@ export function SupportView() {
         )}
       </section>
       )}
+      </div>
     </div>
   );
 }

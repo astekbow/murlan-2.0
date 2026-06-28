@@ -248,6 +248,7 @@ export function WalletView() {
         ))}
       </div>
 
+      <div className="wallet-body space-y-5">
       {/* Fee-free USDT-TRC20 deposit: send to our address, then paste the TxID. */}
       {depAddr && (
         <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>
@@ -475,6 +476,7 @@ export function WalletView() {
           </ul>
         </section>
       )}
+      </div>
     </div>
   );
 }

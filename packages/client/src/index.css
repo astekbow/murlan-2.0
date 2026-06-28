@@ -1107,6 +1107,17 @@ select:focus-visible,
 /* Landscape phones — the WALLET and SUPPORT pages use a flat tab stack (no .pg-ls console), so compact
    them HARD so the active tab fits the short height with NO scroll. */
 @media (orientation: landscape) and (max-height: 600px) {
+  /* Pin the page chrome (balance/header + tabs) at a fixed height = the viewport, and scroll ONLY the
+     tab BODY internally. The PAGE itself never scrolls: short tabs (deposit / withdraw / new-ticket) fit
+     fully (no scroll at all); a long history / tickets list scrolls in place without moving the chrome. */
+  .wallet-page, .support-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100svh - 1.1rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+  .wallet-body, .support-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
   /* Wallet: shrink the balance hero, tighten the stack, lay the deposit body side-by-side (QR | notes),
      and cap the QR so deposit/withdraw/history each fit without scrolling. */
   .wallet-page > :not([hidden]) ~ :not([hidden]) { margin-top: 0.4rem; }
