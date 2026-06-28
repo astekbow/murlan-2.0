@@ -1268,21 +1268,18 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
      never fire under rotation (the viewport is physically ~390px portrait) → the narrow single-column
      layout got rotated (wrong / sideways). Force the WIDE 3-column layout (left rail | cards | right
      rail, rails vertical) so it matches the real physical-landscape rendering. */
-  html.force-landscape .lobby-hub { grid-template-columns: 64px 1fr 64px; align-items: stretch; }
-  html.force-landscape .lobby-hub > nav { flex-direction: column; }
+  html.force-landscape .lobby-hub { grid-template-columns: 64px 1fr 64px; }
+  html.force-landscape .lobby-hub > nav { flex-direction: column; justify-content: center; }
   html.force-landscape .lobby-hub > nav:first-of-type { order: 1; }  /* left rail  */
   html.force-landscape .lobby-hub > .grid { order: 2; }              /* cards (middle) */
   html.force-landscape .lobby-hub > nav:last-of-type { order: 3; }   /* right rail */
 
-  /* FILL the rotated frame: without this the hub is content-height (~248px) and floats in the ~390px
-     frame, leaving big top/bottom gaps (cards look tiny). Flex-chain the shell → home → hub → card grid
-     so the 2×2 cards GROW to fill the height, like the real wide layout (photo 2). */
+  /* CENTER the hub vertically in the frame so the spare space splits evenly above/below (balanced),
+     instead of a big single-sided gap. Cards keep their compact size — forcing them to GROW overflowed
+     the short rotated frame, so we do NOT stretch them. */
   html.force-landscape .app-shell { display: flex; flex-direction: column; min-height: var(--app-w, 100dvw); }
   html.force-landscape .lobby-root { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  html.force-landscape .lobby-home { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  html.force-landscape .lobby-home > .lobby-hub { flex: 1 1 auto; min-height: 0; }
-  html.force-landscape .lobby-hub > .grid { grid-auto-rows: 1fr; min-height: 0; }
-  html.force-landscape .lobby-hub > .grid > .mode { min-height: 0; }  /* drop the 124px floor → fill */
+  html.force-landscape .lobby-home { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 
   /* TopBar: the username + XP bar + session clock are `hidden sm:/md:` (viewport-width gated) so they
      vanish under rotation. The rotated frame is wide → reveal them to match the real landscape TopBar. */
