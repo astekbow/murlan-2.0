@@ -127,6 +127,21 @@ test('settle is idempotent (a second settle is a no-op)', async () => {
   assert.equal(await wallet.getBalance(ids[0]!), 1800); // not paid twice
 });
 
+test('concurrent double-settle pays the winner exactly once (race guard)', async () => {
+  // The real-world double-settle: two finalize events fire at once (e.g. a duplicate socket emit
+  // or a retry overlapping the original). The inFlight guard + status flip must let only ONE win.
+  const { wallet, money, ids } = await setup([1000, 1000]);
+  await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
+  const [a, b] = await Promise.all([
+    money.settle({ matchId: 'm1', winnerSeats: [0] }),
+    money.settle({ matchId: 'm1', winnerSeats: [0] }),
+  ]);
+  assert.equal([a, b].filter(Boolean).length, 1);       // exactly one settle did the work
+  assert.equal(await wallet.getBalance(ids[0]!), 1800);  // winner paid once, never twice
+  const rec = await wallet.reconcile();
+  assert.equal(rec.ok, true);                            // ledger still balances
+});
+
 test('refund returns every stake with no rake and reconciles', async () => {
   const { wallet, money, ids } = await setup([1000, 1000]);
   await money.escrow({ matchId: 'm1', type: '1v1', stakeCents: 1000, rakeBps: 1000, players: players(ids) });
