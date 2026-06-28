@@ -41,7 +41,7 @@ services:
     stop_grace_period: 60s   # let Postgres flush WAL + finish a backup dump cleanly
     mem_reservation: ${POSTGRES_MEM_RESERVATION:-160m}
     mem_limit: ${POSTGRES_MEM_LIMIT:-512m}
-    logging: { driver: json-file, options: { max-size: '10m', max-file: '5' } }
+    logging: { driver: json-file, options: { max-size: '50m', max-file: '5' } }  # bigger ring so a money incident stays traceable (audit 2026-06-28)
   redis:
     restart: unless-stopped
     mem_limit: ${REDIS_MEM_LIMIT:-96m}
@@ -50,11 +50,17 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s   # let in-flight matches drain (graceful SIGTERM) before kill
     mem_limit: ${SERVER_MEM_LIMIT:-384m}
+    # SINGLE-INSTANCE ONLY (audit 2026-06-28 #4): timers, rate-limits, room ownership and the deposit/
+    # auto-payout CAP serialization are all in-process. Running >1 replica corrupts live matches AND lets
+    # a player bypass caps by hitting two instances in parallel. This pins the default to 1; NEVER run
+    # `docker compose up --scale server=2`. (Compose V2 honors deploy.replicas; --scale would override it.)
+    deploy:
+      replicas: 1
     # NOTE: no `cpus` cap — Docker REFUSES to start a container whose `cpus` exceeds the
     # host CPU count (a 1-vCPU box rejected `cpus: 2` and the server wouldn't boot), and
     # CPU capping adds little next to mem_limit (the real ledger-corruption guard). If you
     # move to a multi-core box and want a cap, add `cpus: <n>` here (n <= host CPUs).
-    logging: { driver: json-file, options: { max-size: '20m', max-file: '5' } }
+    logging: { driver: json-file, options: { max-size: '50m', max-file: '5' } }  # bigger ring for incident forensics (audit 2026-06-28)
     # iOS .mobileconfig signing (→ "Verified", no "Unsigned" warning): the ios-cert-sync sidecar
     # (profile: ios-signing) copies Caddy's Let's Encrypt cert here, chowned to this container's `node`
     # uid. EMPTY unless you enable it — set the two env vars in .env to turn signing on (see below).
@@ -92,17 +98,16 @@ services:
       postgres:
         condition: service_healthy
 
-  # --- Offsite backup (OPT-IN: `--profile backup`) ----------------------------
+  # --- Offsite backup (DEFAULT-ON; no-ops until configured) --------------------
   # db-backup above writes to ./backups on the SAME host disk as the live DB, so a disk/VPS loss
-  # takes the real-money DB AND its only backups together (audit 2026-06-08 H5). This syncs
-  # ./backups → an rclone remote (S3 / Backblaze B2 / Drive / …) once a day. Setup on the HOST:
+  # takes the real-money DB AND its only backups together (audit 2026-06-08 H5 / 2026-06-28 #3). This syncs
+  # ./backups → an rclone remote (S3 / Backblaze B2 / Drive / …) once a day. It is now part of the DEFAULT
+  # stack so offsite DR is wired in — but it SAFELY NO-OPS (sleeps) until you configure it on the HOST:
   #   1) install + `rclone config` a remote (default config dir ./deploy/rclone, or set RCLONE_CONFIG_DIR)
-  #   2) set BACKUP_REMOTE=<remote:bucket> in .env
-  #   3) docker compose -f docker-compose.yml -f docker-compose.deploy.yml --profile backup up -d offsite-backup
-  # Off by default (profile-gated) → it never runs unless explicitly enabled; defaults below keep the
-  # normal stack parsing cleanly. Mirrors deploy/backup-offsite.sh (the manual/host-cron alternative).
+  #   2) set BACKUP_REMOTE=<remote:bucket> in .env  ← until this is set, the container just logs "skipping"
+  # ⚠️ OWNER ACTION: configure rclone + BACKUP_REMOTE before accepting more deposits — until then there is
+  # NO offsite copy of the money ledger. Mirrors deploy/backup-offsite.sh (the manual/host-cron alternative).
   offsite-backup:
-    profiles: ["backup"]
     image: rclone/rclone:1@sha256:623378ad0ff3ebd5cebf77720843c0e02edfe46e2d5b5ac6bed54c6371780dfb # pinned (audit L11)
     restart: unless-stopped
     environment:
