@@ -113,7 +113,7 @@ export function ClubsView() {
             <div className="pg-ls-right">
               <div className="pg-ls-tabs">
                 <button className={`pg-ls-tab ${tab === 'turne' ? 'on' : ''}`} onClick={() => setTab('turne')}>{t('clubs.tournaments')}</button>
-                <button className={`pg-ls-tab ${tab === 'luftë' ? 'on' : ''}`} onClick={() => setTab('luftë')}>⚔️</button>
+                <button className={`pg-ls-tab ${tab === 'luftë' ? 'on' : ''}`} onClick={() => setTab('luftë')} aria-label={t('clubs.warTab')}>⚔️ {t('clubs.warTab')}</button>
                 <button className={`pg-ls-tab ${tab === 'chat' ? 'on' : ''}`} onClick={() => setTab('chat')}>{t('clubs.chatTitle')}</button>
               </div>
               <div className="pg-ls-scroll">
@@ -154,7 +154,9 @@ export function ClubsView() {
               <section className="panel p-3 space-y-2">
                 <h2 className="text-sm font-display font-semibold text-gold-hi">{t('clubs.joinByCodeTitle')}</h2>
                 <div className="flex items-center gap-2">
-                  <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} maxLength={6} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={t('clubs.codePlaceholder')} className="field flex-1 tracking-[0.3em] font-mono uppercase" />
+                  <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} maxLength={6} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={t('clubs.codePlaceholder')}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !busy && codeInput.trim().length >= 4) { e.preventDefault(); void act(() => clubsApi.joinByCode(token()!, codeInput.trim())); } }}
+                    className="field flex-1 tracking-[0.3em] font-mono uppercase" />
                   <button disabled={busy || codeInput.trim().length < 4} onClick={() => void act(() => clubsApi.joinByCode(token()!, codeInput.trim()))} className="btn btn-ghost btn-sm shrink-0">{t('clubs.join')}</button>
                 </div>
               </section>
@@ -231,7 +233,7 @@ export function ClubsView() {
         <>
           <div className="seg grid grid-cols-3" role="tablist" aria-label={mine.name}>
             <button type="button" role="tab" aria-selected={tab === 'turne'} onClick={() => setTab('turne')} className={`seg-tab text-center ${tab === 'turne' ? 'active' : ''}`}>{t('clubs.tournaments')}</button>
-            <button type="button" role="tab" aria-selected={tab === 'luftë'} onClick={() => setTab('luftë')} className={`seg-tab text-center ${tab === 'luftë' ? 'active' : ''}`}>⚔️</button>
+            <button type="button" role="tab" aria-selected={tab === 'luftë'} onClick={() => setTab('luftë')} aria-label={t('clubs.warTab')} className={`seg-tab text-center ${tab === 'luftë' ? 'active' : ''}`}>⚔️ {t('clubs.warTab')}</button>
             <button type="button" role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')} className={`seg-tab text-center ${tab === 'chat' ? 'active' : ''}`}>{t('clubs.chatTitle')}</button>
           </div>
           {tab === 'turne' ? <ClubTournaments club={mine} /> : tab === 'luftë' ? <ClubWarPanel club={mine} /> : <ClubChat club={mine} />}

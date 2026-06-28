@@ -2,7 +2,7 @@
 // once at startup — with a close button and a "don't remind me again" that sticks
 // (localStorage). On Android/desktop Chrome it offers a one-tap install; on iOS it
 // shows the Share → Add to Home Screen hint. Never shown once installed.
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useCanInstall, isIos, isStandalone, promptInstall } from '../../lib/pwa.ts';
 import { useUiStore } from '../../store/uiStore.ts';
@@ -20,6 +20,17 @@ export function InstallModal() {
   const installOpen = useUiStore((s) => s.installOpen);
   const setInstallOpen = useUiStore((s) => s.setInstallOpen);
   const iosHint = isIos() && !isStandalone();
+  // Verify the iOS profile endpoint is actually serving (signing cert mounted, route up) so we can steer
+  // the user to the manual "Add to Home Screen" steps instead of a silent/blank download if it's down.
+  const [iosProfileOk, setIosProfileOk] = useState(true);
+  useEffect(() => {
+    if (!iosHint) return;
+    let alive = true;
+    fetch('/api/install/ios.mobileconfig', { method: 'HEAD' })
+      .then((r) => { if (alive) setIosProfileOk(r.ok); })
+      .catch(() => { if (alive) setIosProfileOk(false); });
+    return () => { alive = false; };
+  }, [iosHint]);
 
   // Already installed → nothing to offer. Otherwise show when force-opened from Settings, OR
   // (auto) the first time if not dismissed and there's an install path for this platform.
@@ -69,15 +80,22 @@ export function InstallModal() {
           // iOS: one-tap CONFIGURATION-PROFILE install (downloads → Settings → Install). Built by the
           // server for THIS origin. A collapsed manual "Add to Home Screen" stays as a fallback.
           <>
-            <a
-              href="/api/install/ios.mobileconfig"
-              className="btn btn-gold btn-lg btn-block mt-4"
-              onClick={() => sound.play('button')}
-            >
-              {t('install.iosProfileCta')}
-            </a>
-            <p className="text-[11px] text-muted/80 mt-2 leading-relaxed">{t('install.iosProfileHint')}</p>
-            <details className="mt-3">
+            {iosProfileOk ? (
+              <>
+                <a
+                  href="/api/install/ios.mobileconfig"
+                  className="btn btn-gold btn-lg btn-block mt-4"
+                  onClick={() => sound.play('button')}
+                >
+                  {t('install.iosProfileCta')}
+                </a>
+                <p className="text-[11px] text-muted/80 mt-2 leading-relaxed">{t('install.iosProfileHint')}</p>
+              </>
+            ) : (
+              // Profile endpoint unreachable (signing/route down) → don't dangle a dead button; steer to manual.
+              <p className="text-[12px] text-amber-300 mt-4 leading-relaxed bg-amber-500/10 border border-amber-400/40 rounded-lg px-3 py-2">{t('install.iosProfileUnavailable')}</p>
+            )}
+            <details className="mt-3" open={!iosProfileOk}>
               <summary className="text-xs text-muted cursor-pointer select-none">{t('install.iosManualToggle')}</summary>
               <ol className="mt-2.5 space-y-2.5 text-sm text-txt">
                 <li className="flex items-center gap-2.5">

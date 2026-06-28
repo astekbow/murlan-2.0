@@ -222,6 +222,8 @@ const STRINGS: Record<string, Entry> = {
   'wallet.addressDest': { sq: 'Adresa / destinacioni', en: 'Address / destination' },
   'wallet.addressPlaceholder': { sq: 'adresa jote USDT (TRC20)', en: 'your USDT (TRC20) address' },
   'wallet.networkWarn': { sq: 'Vendos VETËM një adresë USDT në rrjetin TRON (TRC20). Rrjeti i gabuar = lekë të humbur.', en: 'Use ONLY a USDT address on the TRON (TRC20) network. Wrong network = lost funds.' },
+  'wallet.networkWarnDeposit': { sq: 'Dërgo VETËM USDT në rrjetin TRON (TRC20) te kjo adresë. Monedhë/rrjet i gabuar = lekë të humbur.', en: 'Send ONLY USDT on the TRON (TRC20) network to this address. Wrong coin/network = lost funds.' },
+  'wallet.networkWarnWithdraw': { sq: 'Vendos VETËM një adresë USDT TRON (TRC20). Rrjeti i gabuar = lekë të humbur, pa kthim.', en: 'Enter ONLY a USDT TRON (TRC20) address. Wrong network = lost funds, no refund.' },
   'wallet.withdrawFeeNote': { sq: 'Tarifa e rrjetit (~1 USDT) zbritet nga shuma — të vijnë: shuma − ~1 USDT.', en: 'A network fee (~1 USDT) is deducted from the amount — you receive: amount − ~1 USDT.' },
   'wallet.youReceive': { sq: 'Të vijnë: {amount} (pas ~$1 tarifë rrjeti)', en: 'You will receive: {amount} (after ~$1 network fee)' },
   'wallet.withdrawBelowFee': { sq: 'Shuma është nën tarifën e rrjetit ({fee}). Fut një shumë më të madhe.', en: 'Amount is below the network fee ({fee}). Enter a larger amount.' },
@@ -235,6 +237,7 @@ const STRINGS: Record<string, Entry> = {
   'wallet.txidFallback': { sq: 'Po vonon? Verifikoje vetë me TxID-në', en: 'Taking too long? Verify manually with the TxID' },
   'wallet.yourAddress': { sq: 'Adresa jonë (TRC20)', en: 'Our address (TRC20)' },
   'wallet.txidLabel': { sq: 'TxID i transaksionit', en: 'Transaction TxID' },
+  'wallet.txidHint': { sq: '{n}/64 karaktere hex', en: '{n}/64 hex characters' },
   'wallet.txidPlaceholder': { sq: 'hash-i i transaksionit (64 karaktere)', en: 'transaction hash (64 chars)' },
   'wallet.verifying': { sq: 'Po verifikohet…', en: 'Verifying…' },
   'wallet.confirmDeposit': { sq: 'Konfirmo depozitën', en: 'Confirm deposit' },
@@ -480,6 +483,7 @@ const STRINGS: Record<string, Entry> = {
   'friends.amount': { sq: 'Shuma ($)', en: 'Amount ($)' },
   'friends.send': { sq: 'Dërgo', en: 'Send' },
   'friends.yourBalance': { sq: 'Balanca jote: {amount}', en: 'Your balance: {amount}' },
+  'friends.sendConfirmM': { sq: 'Të dërgosh {amount} te {name}? Kjo s’kthehet mbrapsht.', en: 'Send {amount} to {name}? This cannot be undone.' },
   'friends.sendSuccess': { sq: 'I dërgove {amount} {name}.', en: 'Sent {amount} to {name}.' },
   'friends.sendBadAmount': { sq: 'Shumë e pasaktë.', en: 'Invalid amount.' },
   'friends.sendInsufficient': { sq: 'S’ke aq lekë.', en: 'Insufficient balance.' },
@@ -863,6 +867,7 @@ const STRINGS: Record<string, Entry> = {
 
   // Club tournaments
   'clubs.tournaments': { sq: 'TURNETË E KLUBIT', en: 'CLUB TOURNAMENTS' },
+  'clubs.warTab': { sq: 'LUFTË', en: 'WAR' },
   'clubs.founderOpensTournaments': { sq: 'Si themelues, ti i hap turnet e klubit.', en: 'As the founder, you open the club tournaments.' },
   'clubs.onlyFounderOpens': { sq: 'Vetëm themeluesi i klubit mund të hapë turne.', en: 'Only the club founder can open tournaments.' },
   'clubs.createTournament': { sq: 'Krijo turne', en: 'Create tournament' },
@@ -938,6 +943,7 @@ const STRINGS: Record<string, Entry> = {
   'install.iosProfileCta': { sq: '⬇️ Instalo profilin (iPhone/iPad)', en: '⬇️ Install profile (iPhone/iPad)' },
   'install.iosProfileHint': { sq: 'Prek Lejo → hap Settings → «Profile Downloaded» → Install. (Hape në Safari.)', en: 'Tap Allow → open Settings → “Profile Downloaded” → Install. (Open in Safari.)' },
   'install.iosManualToggle': { sq: 'Ose shtoje manualisht', en: 'Or add it manually' },
+  'install.iosProfileUnavailable': { sq: 'Profili automatik s’është i disponueshëm tani — shtoje me hapat manualë më poshtë.', en: 'The auto-profile isn’t available right now — add it with the manual steps below.' },
   'install.openOnPhone': { sq: 'Hape aplikacionin në telefon (Android ose iPhone) që ta instalosh.', en: 'Open the app on your phone (Android or iPhone) to install it.' },
   // Login-page "get the app" buttons + per-platform install guide.
   'download.prompt': { sq: 'Shkarko aplikacionin', en: 'Get the app' },
@@ -971,6 +977,7 @@ const STRINGS: Record<string, Entry> = {
   'onb.tryPractice': { sq: 'Luaj një lojë praktike', en: 'Play a practice game' },
   'onb.starting': { sq: 'Po nis…', en: 'Starting…' },
   'onb.next': { sq: 'Vazhdo', en: 'Continue' },
+  'onb.back': { sq: 'Mbrapa', en: 'Back' },
   'onb.done': { sq: 'Fillo të luash', en: 'Start playing' },
   'onb.skip': { sq: 'Kalo', en: 'Skip' },
   'onb.viewRules': { sq: '📖 Shih rregullat e plota', en: '📖 See the full rules' },

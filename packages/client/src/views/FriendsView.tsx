@@ -92,6 +92,8 @@ export function FriendsView() {
       useGameStore.setState({ toast: t('friends.sendInsufficient'), toastKind: 'error' });
       return;
     }
+    // Final confirm before the IRREVERSIBLE transfer (parity with withdraw/other money actions).
+    if (!(await confirm({ title: t('friends.sendMoney'), message: t('friends.sendConfirmM', { amount: dollars(cents), name: sendTo.user.username }), confirmLabel: t('friends.sendMoney') }))) return;
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     setSending(true);

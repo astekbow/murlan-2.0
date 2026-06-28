@@ -23,12 +23,12 @@ const isLikelyTron = (a: string) => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(a.trim())
 /** Prominent, repeated "TRON-only / wrong network = lost funds" card. Crypto sends are
  *  irreversible, so this is a bordered badge at the top of deposit AND withdraw — not a
  *  muted footnote that's easy to skip. */
-function TronWarning() {
+function TronWarning({ mode }: { mode: 'deposit' | 'withdraw' }) {
   const t = useT();
   return (
     <div className="flex items-start gap-2 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2.5">
       <span aria-hidden className="text-base leading-none">⚠️</span>
-      <p className="text-[12px] font-medium text-amber-200 leading-snug">{t('wallet.networkWarn')}</p>
+      <p className="text-[12px] font-medium text-amber-200 leading-snug">{t(mode === 'deposit' ? 'wallet.networkWarnDeposit' : 'wallet.networkWarnWithdraw')}</p>
     </div>
   );
 }
@@ -282,7 +282,7 @@ export function WalletView() {
       {depAddr && (
         <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
-          <TronWarning />
+          <TronWarning mode="deposit" />
           <p className="text-sm text-muted dep-steps">{t('wallet.depositTrc20Steps')}</p>
           {/* In force-landscape the short frame can't stack QR + address + notes, so this body row goes
               side-by-side (QR | info) to use the WIDE frame; in portrait it stays stacked (space-y). */}
@@ -326,7 +326,11 @@ export function WalletView() {
                   <span className="field-label">{t('wallet.txidLabel')}</span>
                   <input value={txId} onChange={(e) => setTxId(e.target.value)} placeholder={t('wallet.txidPlaceholder')} aria-label={t('wallet.txidLabel')} className="field font-mono" />
                 </label>
-                <button onClick={() => void onSubmitTxid()} disabled={submittingTxid} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
+                {/* Live format hint: a TRON TxID is 64 hex chars — green when it looks right, amber until then. */}
+                <p className={`text-[11px] mt-1 ${txId.trim().length === 0 ? 'text-muted/70' : /^[0-9a-fA-F]{64}$/.test(txId.trim()) ? 'text-emerald-400' : 'text-amber-300'}`}>
+                  {t('wallet.txidHint', { n: txId.trim().length })}
+                </p>
+                <button onClick={() => void onSubmitTxid()} disabled={submittingTxid || txId.trim().length < 60} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
                   {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
                 </button>
               </details>
@@ -340,7 +344,7 @@ export function WalletView() {
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.withdraw')}</h2>
         {/* KYC removed (owner decision): no identity verification is required to
             withdraw. Large/uncapped requests still go to MANUAL operator review. */}
-        <TronWarning />
+        <TronWarning mode="withdraw" />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <label className="block">
             <span className="field-label">{t('wallet.amountUsd')}</span>
@@ -351,6 +355,7 @@ export function WalletView() {
             <span className="field-label">{t('wallet.addressDest')}</span>
             <div className="relative">
               <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder={t('wallet.addressPlaceholder')}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !withdrawing) { e.preventDefault(); void onWithdraw(); } }}
                 className="field pr-8" />
               {destination.trim().length > 0 && (
                 <span

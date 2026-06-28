@@ -63,6 +63,9 @@ export function OnboardingModal() {
               {t('onb.next')}
             </button>
           )}
+          {step > 0 && (
+            <button className="btn btn-ghost btn-block text-sm" onClick={() => { sound.play('button'); setStep((n) => Math.max(0, n - 1)); }}>{t('onb.back')}</button>
+          )}
           <button className="btn btn-ghost btn-block text-sm" onClick={() => useRulesStore.getState().setOpen(true)}>{t('onb.viewRules')}</button>
           <button className="btn btn-ghost btn-block text-sm" onClick={complete}>{t('onb.skip')}</button>
         </div>

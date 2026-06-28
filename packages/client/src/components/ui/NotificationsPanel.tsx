@@ -61,12 +61,15 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   // Trap Tab inside the open popover and restore focus to the bell on close.
   const panelRef = useFocusTrap<HTMLDivElement>(true);
 
-  // Opening the panel clears the unread badge; Escape closes it.
+  // Mark read when the panel CLOSES (not on mount) — the badge stays put while you read, then clears,
+  // instead of vanishing the instant you tap the bell. Escape closes it.
   useEffect(() => {
-    useNotifications.getState().markRead();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      useNotifications.getState().markRead();
+    };
   }, [onClose]);
 
   // Route to the deep-linked view (if any) and close the panel.
