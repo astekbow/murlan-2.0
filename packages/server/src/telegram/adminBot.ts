@@ -430,7 +430,7 @@ export class TelegramAdminBot {
   private async resolveTicket(id: string, ref: MessageRef): Promise<void> {
     if (!this.deps.support) { await this.editResolved(ref, 'Veprimi s’është aktiv.'); return; }
     const adminId = await this.deps.resolveAdminUserId();
-    if (!adminId) { await this.editResolved(ref, '⚠️ S’u gjet llogaria admin — veprimi u ndal.'); return; }
+    if (!adminId) { await this.editResolved(ref, '⚠️ S’u gjet llogaria admin (vendos ADMIN_EMAIL te .env) — veprimi u ndal.'); return; }
     const t = await this.deps.support.resolve(id, 'resolved', 'Zgjidhur nga admini (Telegram)', Date.now()).catch(() => null);
     if (!t) { await this.editResolved(ref, '⚠️ Bileta nuk u gjet.'); return; }
     await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${id} (telegram)` });
@@ -486,7 +486,7 @@ export class TelegramAdminBot {
       createdAt: Date.now(),
       run: async () => {
         const adminId = await this.deps.resolveAdminUserId();
-        if (!adminId) return '⚠️ S’u gjet llogaria admin — veprimi u ndal.';
+        if (!adminId) return '⚠️ S’u gjet llogaria admin (vendos ADMIN_EMAIL te .env) — veprimi u ndal.';
         // SAME governance as the panel (admin-6): per-call ceiling + per-admin 24h cap + no
         // self-credit — so the Telegram path is not a softer door than the HTTP route.
         const gov = await checkAdjustGovernance(this.deps.audit, adminId, u.id, delta, { dualControl: this.deps.adjustDualControl });
@@ -517,7 +517,7 @@ export class TelegramAdminBot {
       createdAt: Date.now(),
       run: async () => {
         const adminId = await this.deps.resolveAdminUserId();
-        if (!adminId) return '⚠️ S’u gjet llogaria admin — veprimi u ndal.';
+        if (!adminId) return '⚠️ S’u gjet llogaria admin (vendos ADMIN_EMAIL te .env) — veprimi u ndal.';
         const res = await voidMatch(roomId, { adminId, reason }).catch(() => ({ ok: false, reason: 'gabim' } as const));
         if (!res.ok) return `⚠️ Nuk u anulua (${escapeHtml(res.reason)}).`;
         await this.deps.audit.record({ adminId, action: 'match_void', detail: `${roomId} (telegram, refunded=${res.refunded}): ${reason}` });
@@ -853,7 +853,7 @@ export class TelegramAdminBot {
   private async submitTicketReply(ticketId: string, reply: string): Promise<void> {
     if (!this.deps.support) { await this.deps.bot.sendMessage('Veprimi s’është aktiv.'); return; }
     const adminId = await this.deps.resolveAdminUserId();
-    if (!adminId) { await this.deps.bot.sendMessage('⚠️ S’u gjet llogaria admin — veprimi u ndal.'); return; }
+    if (!adminId) { await this.deps.bot.sendMessage('⚠️ S’u gjet llogaria admin (vendos ADMIN_EMAIL te .env) — veprimi u ndal.'); return; }
     const t = await this.deps.support.resolve(ticketId, 'resolved', reply, Date.now()).catch(() => null);
     if (!t) { await this.deps.bot.sendMessage('⚠️ Bileta nuk u gjet (mund të jetë zgjidhur më parë).'); return; }
     // admin-5: do NOT silently swallow the audit write — a privileged action that

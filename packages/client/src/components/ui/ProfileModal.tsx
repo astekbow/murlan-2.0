@@ -93,8 +93,12 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
       const dataUrl = await imageToAvatarDataUrl(file, 64);
       if (dataUrl.length > 24_000) { setError(t('profile.avatarTooBig')); return; }
       await pickAvatar(dataUrl);
-    } catch {
-      setError(t('profile.avatarSaveFailed'));
+    } catch (e) {
+      const code = e instanceof Error ? e.message : '';
+      // A decode/format failure (e.g. an unreadable HEIC) gets a specific, actionable message.
+      setError(code === 'avatar_unsupported' || code === 'avatar_decode'
+        ? t('profile.avatarUnsupported')
+        : t('profile.avatarSaveFailed'));
     }
   }
 

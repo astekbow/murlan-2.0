@@ -925,6 +925,7 @@ const STRINGS: Record<string, Entry> = {
   'profile.chooseAvatar': { sq: 'ZGJIDH AVATARIN', en: 'CHOOSE AVATAR' },
   'profile.uploadAvatar': { sq: 'Ngarko foto', en: 'Upload photo' },
   'profile.avatarTooBig': { sq: 'Fotoja është shumë e madhe.', en: 'The photo is too large.' },
+  'profile.avatarUnsupported': { sq: 'S’u lexua dot kjo foto. Provo një foto JPG ose PNG.', en: 'Couldn’t read that image. Try a JPG or PNG photo.' },
   'rankedsearch.type1v1': { sq: '1 kundër 1', en: '1 vs 1' },
   'rankedsearch.type1v1v1': { sq: '1v1v1', en: '1v1v1' },
   'rankedsearch.type2v2': { sq: '2 kundër 2', en: '2 vs 2' },

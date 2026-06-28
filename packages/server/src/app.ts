@@ -838,13 +838,17 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // trail under the owner's admin userId (resolved once from ADMIN_EMAIL, cached).
   let telegramAdminBot: TelegramAdminBot | undefined;
   if (telegramBot && config.telegramWebhookSecret) {
-    let adminUserIdCache: string | null | undefined; // undefined = not yet resolved
+    // Resolve the owner's userId (for the audit trail) from ADMIN_EMAIL. Cache ONLY a SUCCESSFUL
+    // resolution — never cache null. Caching null would poison every future Telegram admin action after a
+    // single transient DB miss (the `.catch(() => null)` below) or a lookup that ran before the ADMIN_EMAIL
+    // user existed: the bot would then always answer "S'u gjet llogaria admin" until the next restart.
+    let adminUserIdCache: string | undefined; // set once a real id is found
     const resolveAdminUserId = async (): Promise<string | null> => {
-      if (adminUserIdCache !== undefined) return adminUserIdCache;
-      if (!config.adminEmail) return (adminUserIdCache = null);
+      if (adminUserIdCache) return adminUserIdCache;
+      if (!config.adminEmail) return null; // not configured — re-checked each call, never poisons the cache
       const u = await repo.findByEmail(config.adminEmail).catch(() => null);
-      adminUserIdCache = u?.id ?? null;
-      return adminUserIdCache;
+      if (u?.id) adminUserIdCache = u.id; // cache the hit; a miss/transient error simply retries next call
+      return u?.id ?? null;
     };
     telegramAdminBot = new TelegramAdminBot({
       bot: telegramBot,
