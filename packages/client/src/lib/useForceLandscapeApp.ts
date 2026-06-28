@@ -37,18 +37,25 @@ export function useForceLandscapeApp(): boolean {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    // Always-landscape. We MEASURE the real screen with window.innerWidth/innerHeight (in the installed
-    // standalone app — no Safari toolbar — these are EXACT, full-screen) and publish them as CSS vars
-    // --app-w / --app-h, RE-MEASURED on every resize/orientationchange. This is the key fix for "after
-    // rotating to landscape and back, portrait shrinks": iOS does NOT reliably recompute CSS dvh/dvw on
-    // rotation (they keep the previous orientation's value), but innerWidth/innerHeight + a resize re-read
-    // are always fresh. Orientation decision uses matchMedia (reliable); dims use inner* (recomputed).
+    // Always-landscape — sizing the rotated frame correctly on iOS needs a measurement that is BOTH
+    // full-screen AND fresh after a rotate. None of the obvious ones are both:
+    //   • CSS 100dvh/100dvw   → full-screen, but iOS leaves them STALE after a rotate (prev orientation).
+    //   • window.innerW/innerH → fresh, but EXCLUDE the safe-area insets → too small → everything shrank.
+    // So we measure a hidden PROBE: position:fixed; inset:0 + viewport-fit=cover = the FULL screen incl.
+    // safe areas, and offsetWidth/Height re-read FRESH every time. Published as --app-w/--app-h, consumed
+    // by the frame/app-shell/canvas in index.css. Re-measured on every resize/orientationchange.
     const el = document.documentElement;
     let settleTimer = 0;
+    const probe = document.createElement('div');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;visibility:hidden;pointer-events:none;z-index:-1;';
+    document.body.appendChild(probe);
     const apply = () => {
-      const isPortrait = window.matchMedia('(orientation: portrait)').matches;
-      el.style.setProperty('--app-w', `${window.innerWidth}px`);  // real screen WIDTH
-      el.style.setProperty('--app-h', `${window.innerHeight}px`); // real screen HEIGHT
+      const w = probe.offsetWidth || window.innerWidth;
+      const h = probe.offsetHeight || window.innerHeight;
+      const isPortrait = h >= w;
+      el.style.setProperty('--app-w', `${w}px`);  // real full-screen WIDTH
+      el.style.setProperty('--app-h', `${h}px`);  // real full-screen HEIGHT
       el.classList.toggle('force-landscape', isPortrait);
       setPortrait(isPortrait);
     };
@@ -76,6 +83,7 @@ export function useForceLandscapeApp(): boolean {
       el.classList.remove('force-landscape', 'rotating');
       el.style.removeProperty('--app-w');
       el.style.removeProperty('--app-h');
+      probe.remove();
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);
