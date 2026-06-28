@@ -143,15 +143,15 @@ export function App() {
     void bootstrap();
   }, [bootstrap]);
 
-  // Shareable provably-fair replay link (?replay=<matchId>). Opens the verifier
-  // for anyone — no sign-in required — then strips the param from the URL.
+  // Resume SPECTATING from a /watch/<roomId> deep-link or refresh, once authed + connected (mirrors the
+  // /join/<code> handler). Read-only → no leave-guard. The provably-fair REPLAY route (/replay/<id> and
+  // the legacy ?replay=<id> alias) is handled entirely by useUrlSync.
   useEffect(() => {
-    const r = new URLSearchParams(window.location.search).get('replay');
-    if (r) {
-      useUiStore.getState().openReplay(r);
-      clearQuery();
-    }
-  }, []);
+    if (status !== 'authed' || !connected) return;
+    if (useGameStore.getState().room || useGameStore.getState().spectating) return;
+    const m = /^\/watch\/(.+)$/.exec(window.location.pathname);
+    if (m) void useGameStore.getState().spectate(decodeURIComponent(m[1]));
+  }, [status, connected]);
 
   // Handle an email-verification link on load (independent of session). The token was
   // already captured from the fragment + stripped synchronously at module load, so we

@@ -56,8 +56,20 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
   const [hands, setHands] = useState<Record<number, Card[][]>>({});
   // Tabs + a per-game picker so each part fits the screen with no long scroll (the verdict + seeds on
   // one tab; the move-log on another, ONE game at a time instead of every game stacked).
-  const [replayTab, setReplayTab] = useState<'verify' | 'games'>('verify');
-  const [gameTab, setGameTab] = useState(0);
+  // Deep-linkable: `?g=<N>` (1-based) opens the games tab at game N — handy for support/disputes that
+  // need to point at a specific game. Kept in sync (replaceState) as the picker changes.
+  const gParam = new URLSearchParams(window.location.search).get('g');
+  const gInitial = Math.max(0, (parseInt(gParam ?? '1', 10) || 1) - 1);
+  const [replayTab, setReplayTab] = useState<'verify' | 'games'>(gParam != null ? 'games' : 'verify');
+  const [gameTab, setGameTab] = useState(gParam != null ? gInitial : 0);
+
+  // Reflect the current tab/game in the URL (?g=N on the games tab, removed on the verify tab).
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (replayTab === 'games') url.searchParams.set('g', String(gameTab + 1));
+    else url.searchParams.delete('g');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }, [replayTab, gameTab]);
 
   useEffect(() => {
     let alive = true;
