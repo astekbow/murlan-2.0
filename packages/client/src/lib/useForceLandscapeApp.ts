@@ -37,28 +37,42 @@ export function useForceLandscapeApp(): boolean {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    // Is the app INSTALLED (Home-Screen PWA / standalone)? There the manifest's `orientation: landscape`
-    // makes iOS (16.4+) / Android lock the whole app to landscape NATIVELY — so we must NOT also CSS-rotate
-    // (that's what caused the stretch/glitches). In a plain browser TAB there is no OS lock on iOS, so the
-    // CSS rotation stays as the only fallback. (Owner decision: rely on the native lock when installed.)
-    const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      window.matchMedia('(display-mode: fullscreen)').matches ||
-      (navigator as Navigator & { standalone?: boolean }).standalone === true;
-
-    const mq = window.matchMedia('(orientation: portrait)');
-    const update = () => {
-      const p = mq.matches;
-      setPortrait(p);
-      // CSS fake-landscape ONLY in a browser tab held portrait. Installed → native manifest lock handles
-      // it (and when the OS locks, this media query already reports landscape, so p is false anyway).
-      document.documentElement.classList.toggle('force-landscape', p && !standalone);
+    // DEFINITIVE always-landscape: don't trust CSS viewport units (vh/dvh) or media queries — they're
+    // unreliable on iOS (Safari's toolbar makes 100vh ≠ the visible area). Instead MEASURE the real
+    // visible pixels with visualViewport and drive an exact, pixel-sized rotated frame via CSS vars
+    // (--app-w / --app-h, consumed in index.css). ONE self-correcting path: if the measured viewport is
+    // portrait → rotate; if it's already landscape (held sideways, or an OS/PWA lock took) → do nothing.
+    // Works the same in a browser tab AND an installed PWA, on any iOS version. No stretch, no glitch.
+    const el = document.documentElement;
+    const apply = () => {
+      const vv = window.visualViewport;
+      const w = Math.round(vv?.width ?? window.innerWidth);
+      const h = Math.round(vv?.height ?? window.innerHeight);
+      const isPortrait = h > w;
+      setPortrait(isPortrait);
+      if (isPortrait) {
+        el.style.setProperty('--app-w', `${w}px`); // real visible WIDTH  (= rotated frame HEIGHT)
+        el.style.setProperty('--app-h', `${h}px`); // real visible HEIGHT (= rotated frame WIDTH)
+        el.classList.add('force-landscape');
+      } else {
+        el.classList.remove('force-landscape');
+        el.style.removeProperty('--app-w');
+        el.style.removeProperty('--app-h');
+      }
     };
-    update();
-    mq.addEventListener('change', update);
+    apply();
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+    window.visualViewport?.addEventListener('resize', apply);
+    window.visualViewport?.addEventListener('scroll', apply);
     return () => {
-      mq.removeEventListener('change', update);
-      document.documentElement.classList.remove('force-landscape');
+      window.removeEventListener('resize', apply);
+      window.removeEventListener('orientationchange', apply);
+      window.visualViewport?.removeEventListener('resize', apply);
+      window.visualViewport?.removeEventListener('scroll', apply);
+      el.classList.remove('force-landscape');
+      el.style.removeProperty('--app-w');
+      el.style.removeProperty('--app-h');
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);
