@@ -438,7 +438,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     <div className="flex items-center gap-2 min-w-0">
       <button
         onClick={() => { if (room.status === 'inMatch' && !matchResult) setConfirmLeave(true); else void leaveRoom(); }}
-        className="btn btn-ghost shrink-0"
+        className="btn btn-ghost btn-sm shrink-0"
       >
         {t('table.leaveArrow')}
       </button>

@@ -71,7 +71,7 @@ export function SupportView() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="support-page space-y-5">
       <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
 
       <section className="panel p-5 animate-rise flex items-center justify-between gap-4">

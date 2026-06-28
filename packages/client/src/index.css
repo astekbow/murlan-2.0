@@ -1099,6 +1099,33 @@ select:focus-visible,
 @media (orientation: landscape) and (max-height: 560px) {
   .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); }
 }
+
+/* Landscape phones — the WALLET and SUPPORT pages use a flat tab stack (no .pg-ls console), so compact
+   them HARD so the active tab fits the short height with NO scroll. */
+@media (orientation: landscape) and (max-height: 600px) {
+  /* Wallet: shrink the balance hero, tighten the stack, lay the deposit body side-by-side (QR | notes),
+     and cap the QR so deposit/withdraw/history each fit without scrolling. */
+  .wallet-page > :not([hidden]) ~ :not([hidden]) { margin-top: 0.4rem; }
+  .wallet-page > .panel-solid { padding: 0.5rem 0.9rem; }            /* balance hero */
+  .wallet-page > .panel-solid > h1 { margin-bottom: 0.25rem; }
+  .wallet-page .coin-anim { width: 22px !important; height: 22px !important; }
+  .wallet-page .text-5xl { font-size: 1.9rem; }                       /* balance figure */
+  .wallet-page .panel { padding: 0.55rem 0.8rem; }
+  .wallet-page .dep-steps { font-size: 0.72rem; }
+  .wallet-deposit-body { display: flex; gap: 12px; align-items: flex-start; }
+  .wallet-deposit-body > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
+  .wallet-deposit-qr { flex: 0 0 auto; }
+  .wallet-deposit-qr svg { width: 104px !important; height: 104px !important; }
+  .wallet-deposit-info { flex: 1 1 auto; min-width: 0; }
+
+  /* Support: compact the page + cap the new-ticket textarea so the form (and the tickets list) fit. */
+  .support-page > :not([hidden]) ~ :not([hidden]) { margin-top: 0.4rem; }
+  .support-page .panel { padding: 0.55rem 0.85rem; }
+  .support-page > section:first-of-type { padding: 0.4rem 0.85rem; }  /* page header */
+  .support-page h1 { font-size: 1.4rem; }
+  .support-ta { height: 56px; min-height: 56px; resize: none; }
+  .support-page .seg { margin-top: 0.3rem; }
+}
 /* Short PORTRAIT phones: the 3.5rem bottom reservation (no bottom-nav consumes it) eats ~28% of a small
    viewport and pushes tall pages into overflow. Trim it (keeping breathing room) so more fits w/o scroll. */
 @media (orientation: portrait) and (max-height: 740px) {
