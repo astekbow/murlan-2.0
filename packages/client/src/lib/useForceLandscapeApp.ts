@@ -44,6 +44,7 @@ export function useForceLandscapeApp(): boolean {
     // portrait → rotate; if it's already landscape (held sideways, or an OS/PWA lock took) → do nothing.
     // Works the same in a browser tab AND an installed PWA, on any iOS version. No stretch, no glitch.
     const el = document.documentElement;
+    let settleTimer = 0;
     const apply = () => {
       const vv = window.visualViewport;
       const w = Math.round(vv?.width ?? window.innerWidth);
@@ -60,17 +61,28 @@ export function useForceLandscapeApp(): boolean {
         el.style.removeProperty('--app-h');
       }
     };
+    // While the phone is physically rotating (portrait<->landscape), iOS animates the viewport AND we
+    // flip the CSS frame — the combo makes entrance/transition animations replay and the app appear to
+    // "spin". Add `rotating` to <html> across the turn so animations/transitions are killed (index.css);
+    // clear it once the orientation settles. Result: a clean cut, not a visible rotation effect.
+    const onRotate = () => {
+      el.classList.add('rotating');
+      apply();
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => { el.classList.remove('rotating'); apply(); }, 500);
+    };
     apply();
     window.addEventListener('resize', apply);
-    window.addEventListener('orientationchange', apply);
+    window.addEventListener('orientationchange', onRotate);
     window.visualViewport?.addEventListener('resize', apply);
     window.visualViewport?.addEventListener('scroll', apply);
     return () => {
+      window.clearTimeout(settleTimer);
       window.removeEventListener('resize', apply);
-      window.removeEventListener('orientationchange', apply);
+      window.removeEventListener('orientationchange', onRotate);
       window.visualViewport?.removeEventListener('resize', apply);
       window.visualViewport?.removeEventListener('scroll', apply);
-      el.classList.remove('force-landscape');
+      el.classList.remove('force-landscape', 'rotating');
       el.style.removeProperty('--app-w');
       el.style.removeProperty('--app-h');
       try { orientation?.unlock?.(); } catch { /* noop */ }

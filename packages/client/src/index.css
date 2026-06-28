@@ -1212,6 +1212,10 @@ select:focus-visible,
    viewport; desktops + real landscape are untouched. (On Android the OS lock makes it real landscape,
    so the class is never added there.)
    ========================================================================== */
+/* While the phone is physically rotating, freeze ALL animations/transitions so portrait<->landscape is a
+   clean cut instead of a visible spin/replay (toggled by useForceLandscapeApp for ~0.5s around the turn). */
+html.rotating, html.rotating * { animation: none !important; transition: none !important; }
+
 @media (orientation: portrait) {
   /* Dark base so ANY safe-area gap (notch / home-indicator strip) reads as the app's felt, never a
      white or black bar. */
