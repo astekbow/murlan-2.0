@@ -215,7 +215,7 @@ export function LobbyView() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="lobby-root space-y-4">
       {/* One <h1> per page: the open-rooms page gets its <h1> from <PageHeader> below,
           so the sr-only heading is only rendered on the home page (which has none). */}
       {!showRooms && <h1 className="sr-only">{t('lobby.srTitle')}</h1>}
@@ -315,7 +315,7 @@ export function LobbyView() {
         </div>
       ) : (
         /* ---- Home — four equal cards ---- */
-        <div className="space-y-3">
+        <div className="lobby-home space-y-3">
           {/* Recent-winners ticker (display-only). */}
           <LobbyLiveStrip data={live2} />
           <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
