@@ -464,7 +464,7 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
   const t = useT();
   const [tab, setTab] = useState<'play' | 'practice'>('play');
   const [type, setType] = useState<MatchType>('1v1');
-  const [stake, setStake] = useState('5');
+  const [stake, setStake] = useState('0');
   const [tier, setTier] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [busy, setBusy] = useState(false);
 
@@ -596,7 +596,7 @@ interface CreateProps {
 function CreateRoomModal({ onClose, onCreate }: CreateProps) {
   const t = useT();
   const [type, setType] = useState<MatchType>('1v1');
-  const [stake, setStake] = useState('5');
+  const [stake, setStake] = useState('0');
   const [team, setTeam] = useState<0 | 1>(0);
   const [priv, setPriv] = useState(false);
   const [busy, setBusy] = useState(false);
