@@ -37,29 +37,20 @@ export function useForceLandscapeApp(): boolean {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    // DEFINITIVE always-landscape: don't trust CSS viewport units (vh/dvh) or media queries — they're
-    // unreliable on iOS (Safari's toolbar makes 100vh ≠ the visible area). Instead MEASURE the real
-    // visible pixels with visualViewport and drive an exact, pixel-sized rotated frame via CSS vars
-    // (--app-w / --app-h, consumed in index.css). ONE self-correcting path: if the measured viewport is
-    // portrait → rotate; if it's already landscape (held sideways, or an OS/PWA lock took) → do nothing.
-    // Works the same in a browser tab AND an installed PWA, on any iOS version. No stretch, no glitch.
+    // Always-landscape: this hook only DECIDES orientation and toggles the `force-landscape` class.
+    // The rotated frame itself is sized in CSS with 100dvh/100dvw (index.css) — in the installed
+    // standalone app there's no Safari toolbar, so those are exact and fill the screen edge-to-edge.
+    // Self-correcting: portrait → rotate; already landscape (held sideways, or an OS/PWA lock took) →
+    // do nothing (the media query reports landscape, so no class).
     const el = document.documentElement;
     let settleTimer = 0;
+    // Just decide orientation + toggle the class. The rotated FRAME is sized in CSS with 100dvh/100dvw,
+    // which (in the installed standalone app — no Safari toolbar) is exact and fills the screen. We do
+    // NOT feed JS-measured pixels anymore: visualViewport came out slightly small in standalone → gaps.
     const apply = () => {
-      const vv = window.visualViewport;
-      const w = Math.round(vv?.width ?? window.innerWidth);
-      const h = Math.round(vv?.height ?? window.innerHeight);
-      const isPortrait = h > w;
-      setPortrait(isPortrait);
-      if (isPortrait) {
-        el.style.setProperty('--app-w', `${w}px`); // real visible WIDTH  (= rotated frame HEIGHT)
-        el.style.setProperty('--app-h', `${h}px`); // real visible HEIGHT (= rotated frame WIDTH)
-        el.classList.add('force-landscape');
-      } else {
-        el.classList.remove('force-landscape');
-        el.style.removeProperty('--app-w');
-        el.style.removeProperty('--app-h');
-      }
+      const portraitMq = window.matchMedia('(orientation: portrait)');
+      el.classList.toggle('force-landscape', portraitMq.matches);
+      setPortrait(portraitMq.matches);
     };
     // While the phone is physically rotating (portrait<->landscape), iOS animates the viewport AND we
     // flip the CSS frame — the combo makes entrance/transition animations replay and the app appear to
@@ -83,8 +74,6 @@ export function useForceLandscapeApp(): boolean {
       window.visualViewport?.removeEventListener('resize', apply);
       window.visualViewport?.removeEventListener('scroll', apply);
       el.classList.remove('force-landscape', 'rotating');
-      el.style.removeProperty('--app-w');
-      el.style.removeProperty('--app-h');
       try { orientation?.unlock?.(); } catch { /* noop */ }
     };
   }, [mobile]);

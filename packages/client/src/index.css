@@ -1226,15 +1226,13 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
     left: 0;
     box-sizing: border-box;
     background: #0b0a0e;
-    /* EXACT pixel frame from JS-measured visualViewport (--app-w/--app-h, set in useForceLandscapeApp).
-       This is the definitive fix: CSS vh/dvh are unreliable on iOS (Safari's toolbar makes 100vh ≠ the
-       visible area → stretch). Real measured pixels are exact. dvh is only the first-paint fallback until
-       the JS var is set. Frame WIDTH = the viewport's real HEIGHT; frame HEIGHT = its real WIDTH. */
-    width: var(--app-h, 100dvh);
-    height: var(--app-w, 100dvw);
+    /* The app is INSTALLED (standalone) — no Safari toolbar — so 100dvh/100dvw are EXACT and equal the
+       full screen. (JS-measured visualViewport came out slightly SMALLER in standalone → a black strip +
+       left shift; dvh/dvw fill precisely.) Frame WIDTH = the viewport HEIGHT; frame HEIGHT = its WIDTH. */
+    width: 100dvh;
+    height: 100dvw;
     transform-origin: top left;
     transform: translateX(100dvw) rotate(90deg);
-    transform: translateX(var(--app-w, 100dvw)) rotate(90deg);
     /* Re-map safe-area insets for the 90° CW rotation: the portrait TOP notch lands on the content's
        LEFT edge and the home indicator (portrait bottom) on the content's RIGHT edge — pad those sides
        so nothing hides under the notch/indicator. border-box keeps the frame filling the whole screen. */
@@ -1242,11 +1240,10 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
     padding-right: env(safe-area-inset-bottom);
     overflow: hidden;
   }
-  /* The fixed-aspect table canvas tracks the measured frame: width = frame width (--app-h), height =
-     frame height (--app-w). (dvh/dvw fallback only until the JS var lands.) */
+  /* The fixed-aspect table canvas tracks the frame: width = frame width (100dvh), height = frame height (100dvw). */
   html.force-landscape .tv-ls .tv-canvas {
-    width: min(var(--app-h, 100dvh), calc(var(--app-w, 100dvw) * 1280 / 590));
-    height: min(var(--app-w, 100dvw), calc(var(--app-h, 100dvh) * 590 / 1280));
+    width: min(100dvh, calc(100dvw * 1280 / 590));
+    height: min(100dvw, calc(100dvh * 590 / 1280));
   }
   /* Overlays are fixed inset:0 → they fill the rotated #root frame. But dvh/dvw-based max-heights now
      refer to the physical viewport; cap modals to the frame HEIGHT (=100vw) so they don't overgrow. */
