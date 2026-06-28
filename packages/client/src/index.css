@@ -1095,9 +1095,12 @@ select:focus-visible,
 @keyframes viewEnter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .view-enter { animation: viewEnter .22s ease both; }
 
-/* Landscape phones: reclaim a little vertical space in the shell. */
+/* Landscape phones: reclaim a little vertical space in the shell, and FILL + CENTER the lobby home like
+   the login screen (which uses min-h-full + flex-center) so it doesn't sit small with a gap. Centering
+   (not stretching) can't overflow. */
 @media (orientation: landscape) and (max-height: 560px) {
-  .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); }
+  .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; min-height: 100dvh; }
+  .lobby-root { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 }
 /* Short PORTRAIT phones: the 3.5rem bottom reservation (no bottom-nav consumes it) eats ~28% of a small
    viewport and pushes tall pages into overflow. Trim it (keeping breathing room) so more fits w/o scroll. */
@@ -1296,11 +1299,16 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
   html.force-landscape .match-result-panel > .mb-5 { margin-bottom: 0.45rem; }
   html.force-landscape .match-result-panel .btn-lg { padding-top: 0.5rem; padding-bottom: 0.5rem; }
 
-  /* App shell — reclaim vertical space (mirror of the :1099 landscape block). */
+  /* App shell — reclaim vertical space + FILL the frame so the lobby home can CENTER like the login
+     screen (mirror of the :1099 landscape block; min-height is the frame height = 100dvw under rotation). */
   html.force-landscape .app-shell {
     padding-top: calc(.4rem + env(safe-area-inset-top));
     padding-bottom: calc(.6rem + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvw;
   }
+  html.force-landscape .lobby-root { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 
   /* Wallet page (it uses tabs, not a .pg-ls console): compact the balance hero + tighten the stack, and
      lay the DEPOSIT body out side-by-side (QR | address+notes) so it uses the WIDE rotated frame and the
