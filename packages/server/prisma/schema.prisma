@@ -470,6 +470,13 @@ model ClubWar {
   winnerClubId   String?
   createdAt      DateTime @default(now())
 
+  // FKs so a war (which escrows prizePoolCents) can never dangle past a deleted club. RESTRICT: a club
+  // with war history can't be hard-deleted out from under it (mirrors clubs.founder + tournaments.clubId).
+  // The actual constraints are added NOT VALID in migration 20260628000000 so the change can't fail on a
+  // pre-existing orphan (audit 2026-06-28 #5).
+  clubA Club @relation("ClubWarA", fields: [clubAId], references: [id], onDelete: Restrict)
+  clubB Club @relation("ClubWarB", fields: [clubBId], references: [id], onDelete: Restrict)
+
   @@index([clubAId, createdAt])
   @@index([clubBId, createdAt])
   @@map("club_wars")
@@ -512,6 +519,8 @@ model Club {
 
   members     ClubMember[]
   tournaments Tournament[] // club-scoped tournaments; ON DELETE SET NULL degrades them to global
+  warsA       ClubWar[]    @relation("ClubWarA") // club wars where this club is side A (ON DELETE RESTRICT)
+  warsB       ClubWar[]    @relation("ClubWarB") // …side B
   // FK so a club always points at a real founder. Restrict: a user who founded a
   // club can't be hard-deleted out from under it (account-state ban is used instead).
   founder User         @relation("ClubFounder", fields: [founderId], references: [id], onDelete: Restrict)
