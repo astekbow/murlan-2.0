@@ -14,7 +14,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Crypto-Murlan" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!-- iOS "Add to Home Screen" icon. iOS caches the apple-touch-icon AGGRESSIVELY by URL, so when the
+         logo changed it kept serving the old cached /icon-192.png. Point it at a DEDICATED file + bump the
+         ?v= query whenever the logo changes, so iOS re-fetches (apple-touch-icon.png = a copy of the current
+         icon-192.png; regenerate both on a logo change). -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <!-- Browser-tab favicon = the brand logo (black ♠ + red, on a white tile so it stays
          visible on dark tab strips too). PNG so it renders crisply when downscaled to 16–32px. -->
     <link rel="icon" type="image/png" href="/favicon.png" />
