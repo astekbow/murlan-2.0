@@ -20,8 +20,10 @@ RUN npm ci
 
 FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runtime
 WORKDIR /app
-# openssl so Prisma detects the right engine at build AND runtime (see deps stage).
-RUN apk add --no-cache openssl
+# Patch OS packages to the latest alpine security fixes (the base digest is pinned for reproducibility but
+# ages between re-pins; `apk upgrade` closes FIXABLE CVEs the CI Trivy gate flags). Then openssl so Prisma
+# detects the right engine at build AND runtime (see deps stage).
+RUN apk upgrade --no-cache && apk add --no-cache openssl
 # PORT must match EXPOSE + the HEALTHCHECK below AND the docker-compose `PORT` env +
 # nginx upstream (all 3000). A mismatch would make Docker probe the wrong port and
 # falsely evict the container. (config.ts still defaults to 3100 for non-Docker dev.)
