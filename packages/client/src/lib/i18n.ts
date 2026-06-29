@@ -372,6 +372,8 @@ const STRINGS: Record<string, Entry> = {
   'room.offline': { sq: 'Offline', en: 'Offline' },
   'room.level': { sq: 'Niveli {n}', en: 'Level {n}' },
   'room.invite': { sq: 'Fto', en: 'Invite' },
+  'room.invited': { sq: 'U ftua', en: 'Invited' },
+  'room.inviteSent': { sq: '{name} u ftua', en: 'Invited {name}' },
   'room.gameStarting': { sq: 'Loja po fillon…', en: 'Game starting…' },
   'room.allReady': { sq: 'Të gjithë gati — ndeshja po fillon…', en: 'Everyone ready — the match is starting…' },
   'room.waitingReady': { sq: 'Po presim t’i bien gati të gjithë…', en: 'Waiting for everyone to ready up…' },

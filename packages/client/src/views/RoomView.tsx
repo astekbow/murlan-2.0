@@ -50,6 +50,18 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
 
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [friendsLoading, setFriendsLoading] = useState(true);
+  // Friends we've already invited → the button flips to "✓ Invited" so the tap has a clear reaction.
+  const [invited, setInvited] = useState<Set<string>>(new Set());
+
+  const doInvite = useCallback(async (userId: string, username: string) => {
+    if (invited.has(userId)) return;
+    sound.play('button');
+    const ok = await useGameStore.getState().inviteFriend(userId);
+    if (ok) {
+      setInvited((prev) => new Set(prev).add(userId));
+      useGameStore.setState({ toast: translate('room.inviteSent', useLangStore.getState().lang, { name: username }), toastKind: 'success' });
+    }
+  }, [invited]);
 
   const loadFriends = useCallback(async () => {
     const token = useAuthStore.getState().accessToken;
@@ -191,9 +203,13 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                 <div className="text-xs text-muted">{t('room.level', { n: f.user.level })}</div>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} className="btn btn-gold">
-                  {t('room.invite')}
-                </button>
+                {invited.has(f.user.id) ? (
+                  <span className="btn btn-ghost pointer-events-none text-emerald-300" aria-live="polite">✓ {t('room.invited')}</span>
+                ) : (
+                  <button onClick={() => void doInvite(f.user.id, f.user.username)} className="btn btn-gold">
+                    {t('room.invite')}
+                  </button>
+                )}
               </div>
             </li>
           ))}
@@ -282,9 +298,13 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                   />
                 </span>
                 <span className="font-display font-semibold text-xs text-txt truncate flex-1 min-w-0">{f.user.username}</span>
-                <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} className="btn btn-gold btn-sm shrink-0">
-                  {t('room.invite')}
-                </button>
+                {invited.has(f.user.id) ? (
+                  <span className="btn btn-ghost btn-sm shrink-0 pointer-events-none text-emerald-300" aria-live="polite">✓ {t('room.invited')}</span>
+                ) : (
+                  <button onClick={() => void doInvite(f.user.id, f.user.username)} className="btn btn-gold btn-sm shrink-0">
+                    {t('room.invite')}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
