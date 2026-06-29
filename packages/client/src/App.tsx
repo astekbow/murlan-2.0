@@ -21,6 +21,7 @@ import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
 import { useForceLandscapeApp } from './lib/useForceLandscapeApp.ts';
+import { useKeyboardInset } from './lib/useKeyboardInset.ts';
 import { RotateOverlay } from './components/ui/RotateOverlay.tsx';
 import { takePendingJoinCode, takePendingProfileId } from './lib/deepLink.ts';
 import { getResetToken, takeVerifyToken } from './lib/hashTokens.ts';
@@ -105,6 +106,7 @@ export function App() {
   const t = useT();
   const connected = useGameStore((s) => s.connected);
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
+  useKeyboardInset(); // keep the focused text field above the on-screen keyboard (iOS DM/chat composers etc.)
   // Phones + tablets are LANDSCAPE-ONLY: held portrait, the whole app is blocked by the rotate
   // prompt (no portrait UI at all). Desktops/laptops are unaffected — they render normally.
   const forceRotate = useForceLandscapeApp(); // true on a phone/tablet held PORTRAIT → show RotateOverlay

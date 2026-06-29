@@ -1367,3 +1367,25 @@ html.rotating, html.rotating * { animation: none !important; transition: none !i
   html.force-landscape .reset-card.space-y-4 > :not([hidden]) ~ :not([hidden]),
   html.force-landscape .reset-card .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
 }
+
+/* ============================================================================
+   KEYBOARD-AWARE — keep the focused field above the on-screen keyboard (iOS)
+   ----------------------------------------------------------------------------
+   useKeyboardInset (App) sets `--kb` (keyboard height) + the `kb-open` class from visualViewport. Shrink
+   overlays + the landscape scroll panes to the area ABOVE the keyboard so a centered modal — and its
+   bottom-anchored input (e.g. the DM-to-friend composer, club chat) — is never hidden behind the keyboard.
+   Scoped to :not(.force-landscape): the CSS-rotated frame has different geometry, so we don't touch it
+   here (the common case — real landscape / portrait — is what this fixes; rotated is left as-is).
+   ========================================================================== */
+html.kb-open:not(.force-landscape) .modal-backdrop { bottom: var(--kb, 0px); }
+/* Cap the dialog to the visible area above the keyboard (!important beats the inline maxHeight on the DM
+   dialog + the max-h-[88dvh] class on the shared Modal); its internal overflow-y-auto then scrolls. */
+html.kb-open:not(.force-landscape) .modal-backdrop > .panel-solid {
+  max-height: calc(100dvh - var(--kb, 0px) - 14px) !important;
+}
+/* Bottom-anchored inputs inside the landscape console (club chat etc.): give the scroll pane keyboard-high
+   bottom room + scroll-padding so the focused field scrolls clear of the keyboard. */
+html.kb-open:not(.force-landscape) .pg-ls-scroll {
+  padding-bottom: var(--kb, 0px);
+  scroll-padding-bottom: calc(var(--kb, 0px) + 12px);
+}
