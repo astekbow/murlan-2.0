@@ -71,15 +71,15 @@ export function SupportView() {
   };
 
   return (
-    <div className="support-page space-y-5">
+    <div className="support-page space-y-4">
       <button onClick={() => setView('lobby')} className="btn btn-ghost">{t('common.backToLobby')}</button>
 
-      <section className="panel p-5 animate-rise flex items-center justify-between gap-4">
+      <section className="panel p-4 animate-rise flex items-center justify-between gap-4">
         <div>
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">{t('support.eyebrow')}</div>
-          <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('support.title')}</h1>
+          <h1 className="gold-text font-display font-bold text-2xl tracking-wide leading-tight">{t('support.title')}</h1>
         </div>
-        <span className="text-4xl opacity-80" aria-hidden="true">🛟</span>
+        <span className="text-3xl opacity-80" aria-hidden="true">🛟</span>
       </section>
 
       {/* Tabs so the form and the list each fit the screen without scrolling. */}
@@ -88,7 +88,7 @@ export function SupportView() {
         <button type="button" role="tab" aria-selected={supportTab === 'tickets'} onClick={() => setSupportTab('tickets')} className={`seg-tab text-center ${supportTab === 'tickets' ? 'active' : ''}`}>{t('support.myTickets')}</button>
       </div>
 
-      <div className="support-body space-y-5">
+      <div className="support-body space-y-4">
       {/* New ticket */}
       {supportTab === 'new' && (
       <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.06s' }}>

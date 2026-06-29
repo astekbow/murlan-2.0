@@ -182,14 +182,14 @@ export function WalletView() {
   };
 
   return (
-    <div className="wallet-page space-y-5">
+    <div className="wallet-page space-y-4">
       {/* Back to lobby */}
       <button onClick={() => setView('lobby')} className="btn btn-ghost">
         {t('common.backToLobby')}
       </button>
 
       {/* Balance hero */}
-      <section className="panel-solid p-6 animate-rise text-center relative overflow-hidden">
+      <section className="panel-solid p-5 animate-rise text-center relative overflow-hidden">
         <h1 className="font-serif text-xs tracking-[0.4em] text-muted mb-2">{t('wallet.balance')}</h1>
         <div className="flex items-center justify-center gap-3">
           <span
@@ -204,7 +204,7 @@ export function WalletView() {
           {firstLoad ? (
             <span aria-hidden className="animate-pulse bg-white/10 rounded h-12 w-44" />
           ) : (
-            <CountUp valueCents={balanceCents} className="gold-text font-display font-bold text-5xl tracking-wide tabular-nums" />
+            <CountUp valueCents={balanceCents} className="gold-text font-display font-bold text-4xl leading-tight tracking-wide tabular-nums" />
           )}
         </div>
         {gain > 0 && (
@@ -248,7 +248,7 @@ export function WalletView() {
         ))}
       </div>
 
-      <div className="wallet-body space-y-5">
+      <div className="wallet-body space-y-4">
       {/* Fee-free USDT-TRC20 deposit: send to our address, then paste the TxID. */}
       {depAddr && (
         <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>

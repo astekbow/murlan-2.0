@@ -1112,43 +1112,12 @@ select:focus-visible,
   .app-shell { padding-top: calc(.4rem + env(safe-area-inset-top)); padding-bottom: calc(.6rem + env(safe-area-inset-bottom)); }
 }
 
-/* Landscape phones — the WALLET and SUPPORT pages render with the global TopBar HIDDEN (Shell `bare`),
-   so there's room to breathe. Keep the page chrome pinned and scroll only the tab body internally, but
-   with COMFORTABLE spacing (no longer crammed). */
-@media (orientation: landscape) and (max-height: 600px) {
-  /* Pin the page chrome (balance/header + tabs) at a fixed height = the viewport, and scroll ONLY the
-     tab BODY internally. The PAGE itself never scrolls: short tabs (deposit / withdraw / new-ticket) fit
-     fully (no scroll at all); a long history / tickets list scrolls in place without moving the chrome. */
-  .wallet-page, .support-page {
-    display: flex;
-    flex-direction: column;
-    height: calc(100svh - 1.1rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-    overflow: hidden;
-  }
-  .wallet-body, .support-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-
-  /* Wallet: a comfortable balance hero + a roomy side-by-side deposit body (QR | notes). */
-  .wallet-page > :not([hidden]) ~ :not([hidden]) { margin-top: 0.85rem; }
-  .wallet-page > .panel-solid { padding: 0.9rem 1.2rem; }            /* balance hero */
-  .wallet-page > .panel-solid > h1 { margin-bottom: 0.45rem; }
-  .wallet-page .coin-anim { width: 30px !important; height: 30px !important; }
-  .wallet-page .text-5xl { font-size: 2.6rem; }                       /* balance figure */
-  .wallet-page .panel { padding: 0.9rem 1.1rem; }
-  .wallet-page .dep-steps { font-size: 0.82rem; }
-  .wallet-deposit-body { display: flex; gap: 18px; align-items: flex-start; }
-  .wallet-deposit-body > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
-  .wallet-deposit-qr { flex: 0 0 auto; }
-  .wallet-deposit-qr svg { width: 150px !important; height: 150px !important; }
-  .wallet-deposit-info { flex: 1 1 auto; min-width: 0; }
-
-  /* Support: comfortable spacing + a usably-tall ticket textarea. */
-  .support-page > :not([hidden]) ~ :not([hidden]) { margin-top: 0.85rem; }
-  .support-page .panel { padding: 0.9rem 1.1rem; }
-  .support-page > section:first-of-type { padding: 0.8rem 1.1rem; }  /* page header */
-  .support-page h1 { font-size: 2rem; }
-  .support-ta { height: 88px; min-height: 88px; resize: none; }
-  .support-page .seg { margin-top: 0.6rem; }
-}
+/* Wallet & Support use the normal responsive layout at every size (clean defaults + natural scroll). The
+   old max-height:600 "pin chrome + internal scroll" hack was removed — it only matched short landscape
+   viewports (so it never applied on desktop/tablet) and its fixed height + overflow:hidden clipped the
+   gold balance figure. The deposit QR + notes just cap their width so they don't get oversized. */
+.wallet-deposit-qr svg { width: 140px !important; height: 140px !important; }
+.support-ta { min-height: 84px; }
 /* Short PORTRAIT phones: the 3.5rem bottom reservation (no bottom-nav consumes it) eats ~28% of a small
    viewport and pushes tall pages into overflow. Trim it (keeping breathing room) so more fits w/o scroll. */
 @media (orientation: portrait) and (max-height: 740px) {
