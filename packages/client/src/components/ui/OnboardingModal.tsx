@@ -31,7 +31,9 @@ export function OnboardingModal() {
     if (busy) return;
     setBusy(true);
     sound.play('button');
-    try { await useGameStore.getState().startPractice('1v1', 'easy'); } catch { /* fall through */ }
+    // Surface a failure (don't trap the user on a dead button — still finish the wizard, but tell them why).
+    try { await useGameStore.getState().startPractice('1v1', 'easy'); }
+    catch { useGameStore.setState({ toast: t('onb.practiceFailed'), toastKind: 'error' }); }
     complete();
   };
 

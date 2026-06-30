@@ -981,6 +981,7 @@ const STRINGS: Record<string, Entry> = {
   'install.close': { sq: 'Mbyll', en: 'Close' },
   // First-run onboarding wizard
   'onb.title': { sq: 'Mirë se erdhe', en: 'Welcome' },
+  'onb.practiceFailed': { sq: 'S’u nis dot loja provë. Provo nga lobi.', en: 'Couldn’t start the practice game. Try from the lobby.' },
   'onb.s1Title': { sq: 'Si luhet Murlani', en: 'How Murlan works' },
   'onb.s1Body': { sq: 'Qëllimi: hidhi i pari të gjitha letrat. Letra më e ulët e hap lojën; çdo lojtar ose e mund letrën në tryezë me një kombinim më të fortë, ose thotë “pas”.', en: 'The goal: be the first to shed all your cards. The lowest card opens; each player either beats the pile with a stronger combo or passes.' },
   'onb.s2Title': { sq: 'Provo kundër robotëve', en: 'Practice vs bots' },

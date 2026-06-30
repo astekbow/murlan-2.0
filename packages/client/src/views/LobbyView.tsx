@@ -265,7 +265,7 @@ export function LobbyView() {
                     <li
                       key={r.id}
                       className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold hover:translate-x-0.5 transition-all animate-rise"
-                      style={{ animationDelay: `${i * 0.05}s` }}
+                      style={{ animationDelay: `${Math.min(i, 6) * 0.05}s` }}
                     >
                       <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{t(TYPE_LABEL[r.type])}</div>
                       <div className="flex flex-wrap gap-4 text-sm text-muted flex-1">
@@ -299,7 +299,7 @@ export function LobbyView() {
                   <li
                     key={m.roomId}
                     className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold transition-all"
-                    style={{ animationDelay: `${i * 0.05}s` }}
+                    style={{ animationDelay: `${Math.min(i, 6) * 0.05}s` }}
                   >
                     <div className="font-display font-semibold tracking-wide sm:min-w-[110px]">{t(TYPE_LABEL[m.type])}</div>
                     <div className="flex-1 min-w-0 text-sm text-muted truncate">
