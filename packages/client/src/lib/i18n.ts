@@ -81,6 +81,7 @@ const STRINGS: Record<string, Entry> = {
   'nav.challenges': { sq: 'SFIDAT', en: 'CHALLENGES' },
   'nav.shop': { sq: 'DYQANI', en: 'SHOP' },
   'nav.vip': { sq: 'VIP', en: 'VIP' },
+  'nav.howToPlay': { sq: 'Si luhet', en: 'How to play' },
   'nav.support': { sq: 'NDIHMË', en: 'SUPPORT' },
   // Accessible names for the two icon rails flanking the lobby hero.
   'nav.railPrimary': { sq: 'Menuja kryesore', en: 'Primary menu' },
@@ -140,6 +141,7 @@ const STRINGS: Record<string, Entry> = {
   'lobby.liveMatches': { sq: 'NDESHJE LIVE', en: 'LIVE MATCHES' },
   'lobby.onlineCount': { sq: '{n} online', en: '{n} online' },
   'lobby.recentWinners': { sq: 'Fituesit e fundit', en: 'Recent winners' },
+  'lobby.claimToday': { sq: 'merr sot', en: 'claim today' },
   'lobby.winnerLine': { sq: '{name} fitoi {amount}', en: '{name} won {amount}' },
   'lobby.type1v1': { sq: '1 kundër 1', en: '1 vs 1' },
   'lobby.type1v1v1': { sq: '1v1v1', en: '1v1v1' },
