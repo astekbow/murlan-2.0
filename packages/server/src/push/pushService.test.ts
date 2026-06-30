@@ -33,6 +33,22 @@ test('notify delivers to every device a user has, and turn nudges carry a coales
   assert.ok(provider.sent.every((s) => s.endpoint !== 'https://push/ccc'));
 });
 
+test('friend-request + match-ready nudges carry their copy + coalescing tags', async () => {
+  const repo = new InMemoryPushSubscriptions();
+  const provider = new CapturingProvider();
+  const svc = new PushService(repo, provider);
+  await svc.subscribe('u1', sub('https://push/aaa'));
+
+  await svc.notifyFriendRequest('u1', 'Ardit');
+  await svc.notifyMatchReady('u1');
+
+  const fr = provider.sent.find((s) => s.payload.tag === 'murlan-friend-req');
+  const mr = provider.sent.find((s) => s.payload.tag === 'murlan-match-ready');
+  assert.ok(fr && fr.payload.body.includes('Ardit')); // sender name interpolated
+  assert.equal(fr!.payload.url, '/friends');
+  assert.ok(mr); // match-ready fired
+});
+
 test('a dead subscription (provider reports gone) is pruned', async () => {
   const repo = new InMemoryPushSubscriptions();
   const provider = new CapturingProvider();

@@ -239,6 +239,8 @@ export class GameGateway {
     // client can pop a 🔔 notification (best-effort — no-op if they're offline).
     this.friends?.setNotifier((targetUserId, fromUsername) => {
       this.io.to(personalRoom(targetUserId)).emit('friend:request', { fromUsername });
+      // Also web-push so a CLOSED/backgrounded app still gets the friend request (fire-and-forget).
+      void this.push?.notifyFriendRequest(targetUserId, fromUsername).catch(() => undefined);
     });
     // Tell a user their friends list changed (request answered / unfriended) so their open
     // Friends page reloads instantly instead of waiting up to 8s for the next poll.
@@ -1437,6 +1439,11 @@ export class GameGateway {
     }
     const state = this.roomStateWithCountdown(roomId);
     if (state) this.io.to(roomId).emit('match:start', state);
+    // Web-push each HUMAN seat that the table is ready (fire-and-forget) — nudges a player who tabbed away
+    // after readying up. Bots skipped. Isolated like notifyTurnIfAway so a push hiccup never touches play.
+    if (this.push) for (const s of this.rooms.getRoom(roomId)?.seats ?? []) {
+      if (s?.userId && !isBot(s.userId)) void this.push.notifyMatchReady(s.userId).catch(() => undefined);
+    }
     if (fair) {
       this.fairness.recordDeal(roomId, fair); // store for reveal + consume the pending seed (commit already emitted)
     }

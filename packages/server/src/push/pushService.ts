@@ -45,4 +45,24 @@ export class PushService {
       tag: 'murlan-turn', // coalesce: a newer turn nudge replaces the old one
     });
   }
+
+  /** "X sent you a friend request" — fired when a friend request lands (the recipient may be away). */
+  notifyFriendRequest(userId: string, fromUsername: string): Promise<number> {
+    return this.notify(userId, {
+      title: 'Kërkesë miqësie',
+      body: `${fromUsername} të dërgoi një kërkesë miqësie.`,
+      url: '/friends',
+      tag: 'murlan-friend-req',
+    });
+  }
+
+  /** "Your table is ready" — fired when a match starts, so a player who tabbed away after readying returns. */
+  notifyMatchReady(userId: string): Promise<number> {
+    return this.notify(userId, {
+      title: 'Loja filloi!',
+      body: 'Tavolina jote është gati — hyr tani.',
+      url: '/',
+      tag: 'murlan-match-ready',
+    });
+  }
 }
