@@ -19,5 +19,17 @@ export default defineConfig({
   // NO source maps in the production bundle: shipping them lets anyone open
   // DevTools → Sources and read the ENTIRE original TypeScript (engine rules,
   // comments, file structure). Off → only the minified/mangled bundle is visible.
-  build: { sourcemap: false },
+  build: {
+    sourcemap: false,
+    // Split node_modules into a long-lived `vendor` chunk so the big, rarely-changing dependency code
+    // (React, Zustand, qrcode, …) is cached across app deploys instead of re-shipped inside one ~400KB
+    // entry chunk every time the app code changes.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) return 'vendor';
+        },
+      },
+    },
+  },
 });

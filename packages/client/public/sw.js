@@ -26,6 +26,16 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return; // never intercept POST/webhooks/etc.
   const url = new URL(req.url);
+  // Google Fonts (cross-origin) cached cache-first so the premium type survives offline + a slow network,
+  // and the render-blocking CSS resolves instantly on repeat visits. Everything ELSE cross-origin is left alone.
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+    event.respondWith(
+      caches.match(req).then((cached) =>
+        cached || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; }),
+      ),
+    );
+    return;
+  }
   if (url.origin !== self.location.origin) return;                 // leave cross-origin alone
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/socket.io')) return; // never cache API/socket
 

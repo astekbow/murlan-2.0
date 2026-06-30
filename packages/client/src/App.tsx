@@ -91,7 +91,13 @@ function Shell({ children, bare = false }: { children: ReactNode; bare?: boolean
       {/* Keyboard a11y: jump past the persistent TopBar nav straight to the page content (WCAG 2.4.1). */}
       <a href="#main-content" className="skip-link">{t('a11y.skipToMain')}</a>
       {!bare && <TopBar />}
-      <main id="main-content" tabIndex={-1} className="outline-none"><ViewTransition viewKey={view}>{children}</ViewTransition></main>
+      {/* Inner Suspense so a lazy sub-view loads UNDER the persistent TopBar (only the main area shows the
+          loader) instead of the outer full-screen Splash flashing the whole shell away on first navigation. */}
+      <main id="main-content" tabIndex={-1} className="outline-none">
+        <Suspense fallback={<div className="flex items-center justify-center py-24"><span className="text-3xl opacity-60 animate-twinkle" aria-hidden>🎴</span></div>}>
+          <ViewTransition viewKey={view}>{children}</ViewTransition>
+        </Suspense>
+      </main>
     </div>
   );
 }
