@@ -609,7 +609,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   async leaveRoom() {
     const socket = get().socket;
     if (!socket) return;
-    await request<Ack>(socket, 'room:leave');
+    // Honor the server ack: only clear local room state once the server confirms the leave. Blindly
+    // clearing on failure would desync (the seat stays occupied server-side while the client thinks it left).
+    const res = await request<Ack>(socket, 'room:leave');
+    if (!res.ok) { set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' }); return; }
     set({ ...emptyRoomState });
     get().refreshLobby();
   },

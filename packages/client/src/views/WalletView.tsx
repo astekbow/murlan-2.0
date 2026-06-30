@@ -75,7 +75,9 @@ export function WalletView() {
   const onSubmitTxid = async () => {
     if (submittingTxid) return;
     const id = txId.trim();
-    if (id.length < 60) { useWalletStore.setState({ error: tr('wallet.errTxid') }); return; }
+    // A TRON (TRC-20) transaction hash is exactly 64 hex chars — validate the real shape so a malformed
+    // paste is caught here instead of a confusing backend reject.
+    if (!/^[0-9a-fA-F]{64}$/.test(id)) { useWalletStore.setState({ error: tr('wallet.errTxid') }); return; }
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     setSubmittingTxid(true);
@@ -118,6 +120,14 @@ export function WalletView() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // While the Deposit tab is open, poll the balance so an auto-credited deposit appears LIVE (the
+  // balance-increase effect above then celebrates it) — no manual refresh or TxID needed.
+  useEffect(() => {
+    if (walletTab !== 'deposit') return;
+    const id = setInterval(() => { void refresh(); }, 12_000);
+    return () => clearInterval(id);
+  }, [walletTab, refresh]);
 
   const onWithdraw = async () => {
     if (withdrawing) return;
@@ -301,7 +311,7 @@ export function WalletView() {
                 <p className={`text-[11px] mt-1 ${txId.trim().length === 0 ? 'text-muted/70' : /^[0-9a-fA-F]{64}$/.test(txId.trim()) ? 'text-emerald-400' : 'text-amber-300'}`}>
                   {t('wallet.txidHint', { n: txId.trim().length })}
                 </p>
-                <button onClick={() => void onSubmitTxid()} disabled={submittingTxid || txId.trim().length < 60} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
+                <button onClick={() => void onSubmitTxid()} disabled={submittingTxid || !/^[0-9a-fA-F]{64}$/.test(txId.trim())} className="btn btn-outline btn-sm mt-2 w-full sm:w-auto">
                   {submittingTxid ? t('wallet.verifying') : t('wallet.confirmDeposit')}
                 </button>
               </details>

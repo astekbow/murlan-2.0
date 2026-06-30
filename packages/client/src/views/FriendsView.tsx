@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useWalletStore } from '../store/walletStore.ts';
-import { dollars } from '../lib/money.ts';
+import { dollars, parseDollarsToCents } from '../lib/money.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
@@ -82,12 +82,13 @@ export function FriendsView() {
 
   const sendMoney = async () => {
     if (!sendTo || sending) return;
-    const usd = parseFloat(amount.replace(',', '.'));
-    if (!Number.isFinite(usd) || usd <= 0) {
+    // Centralized money parsing (parity with withdraw/deposit): accepts Albanian comma decimals, rejects
+    // NaN / negatives / junk → null.
+    const cents = parseDollarsToCents(amount.replace(',', '.'));
+    if (cents === null || cents <= 0) {
       useGameStore.setState({ toast: t('friends.sendBadAmount'), toastKind: 'error' });
       return;
     }
-    const cents = Math.round(usd * 100);
     if (cents > balanceCents) {
       useGameStore.setState({ toast: t('friends.sendInsufficient'), toastKind: 'error' });
       return;
@@ -321,7 +322,8 @@ export function FriendsView() {
   const duel = async (friend: FriendEntry) => {
     const gs = useGameStore.getState();
     const roomId = await gs.createRoom('1v1', 0, undefined, true);
-    if (roomId) await gs.inviteFriend(friend.user.id);
+    if (roomId) await gs.inviteFriend(friend.user.id); // only invite once the room actually exists + I'm seated
+    else useGameStore.setState({ toast: t('friends.duelFailed'), toastKind: 'error' }); // create failed → tell the user
   };
 
   // Shared send-money modal (also rendered inside the landscape portal so it overlays the console).

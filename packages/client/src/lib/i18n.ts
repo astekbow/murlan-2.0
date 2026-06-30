@@ -497,6 +497,7 @@ const STRINGS: Record<string, Entry> = {
   'friends.sendConfirmM': { sq: 'Të dërgosh {amount} te {name}? Kjo s’kthehet mbrapsht.', en: 'Send {amount} to {name}? This cannot be undone.' },
   'friends.sendSuccess': { sq: 'I dërgove {amount} {name}.', en: 'Sent {amount} to {name}.' },
   'friends.sendBadAmount': { sq: 'Shumë e pasaktë.', en: 'Invalid amount.' },
+  'friends.duelFailed': { sq: 'S’u krijua dot dhoma. Provo sërish.', en: 'Couldn’t create the room. Try again.' },
   'friends.sendInsufficient': { sq: 'S’ke aq lekë.', en: 'Insufficient balance.' },
   'friends.sendErr': { sq: 'S’u dërguan dot lekët.', en: 'The transfer failed.' },
   'friends.blocked': { sq: 'BLLOKUAR', en: 'BLOCKED' },
