@@ -142,6 +142,8 @@ const STRINGS: Record<string, Entry> = {
   'lobby.onlineCount': { sq: '{n} online', en: '{n} online' },
   'lobby.recentWinners': { sq: 'Fituesit e fundit', en: 'Recent winners' },
   'lobby.claimToday': { sq: 'merr sot', en: 'claim today' },
+  'lobby.friendsOnline': { sq: 'Miq online', en: 'Friends online' },
+  'lobby.duelFriend': { sq: 'Sfido {name} në 1v1 falas', en: 'Challenge {name} to a free 1v1' },
   'lobby.winnerLine': { sq: '{name} fitoi {amount}', en: '{name} won {amount}' },
   'lobby.type1v1': { sq: '1 kundër 1', en: '1 vs 1' },
   'lobby.type1v1v1': { sq: '1v1v1', en: '1v1v1' },

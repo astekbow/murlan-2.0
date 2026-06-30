@@ -5,8 +5,9 @@ import { useGameStore } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
-import { lobbyApi, rewardsApi, type LobbyLiveDTO } from '../lib/api.ts';
+import { lobbyApi, rewardsApi, friendsApi, type LobbyLiveDTO, type FriendEntry } from '../lib/api.ts';
 import { useRulesStore } from '../store/rulesStore.ts';
+import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
 import { Modal } from '../components/ui/Modal.tsx';
@@ -85,6 +86,47 @@ function LobbyLiveStrip({ data }: { data: LobbyLiveDTO | null }) {
           </span>
         </span>
       )}
+    </div>
+  );
+}
+
+/** Compact "friends online now" strip on the hub — tap a friend to challenge them to a free 1v1 duel. */
+function FriendsOnlineStrip() {
+  const t = useT();
+  const [online, setOnline] = useState<FriendEntry[]>([]);
+  useEffect(() => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    let alive = true;
+    const pull = () => { void friendsApi.list(token).then((r) => { if (alive) setOnline(r.friends.filter((f) => f.direction === 'friends' && f.online)); }).catch(() => {}); };
+    pull();
+    const id = window.setInterval(pull, 20_000);
+    return () => { alive = false; window.clearInterval(id); };
+  }, []);
+  if (online.length === 0) return null;
+  const duel = async (f: FriendEntry) => {
+    sound.play('button');
+    const gs = useGameStore.getState();
+    const roomId = await gs.createRoom('1v1', 0, undefined, true); // free private 1v1, then invite them
+    if (roomId) await gs.inviteFriend(f.user.id);
+    else useGameStore.setState({ toast: t('friends.duelFailed'), toastKind: 'error' });
+  };
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2 animate-rise">
+      <span className="shrink-0 font-serif text-[10px] tracking-[0.25em] text-muted uppercase">{t('lobby.friendsOnline')}</span>
+      {online.slice(0, 6).map((f) => (
+        <button
+          key={f.user.id}
+          type="button"
+          onClick={() => void duel(f)}
+          title={t('lobby.duelFriend', { name: f.user.username })}
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[.04] pl-1 pr-2.5 py-1 hover:border-gold transition-colors"
+        >
+          <AvatarFace id={f.user.avatar} size={22} className="text-base leading-none" />
+          <span className="text-xs font-display font-semibold text-txt truncate max-w-[80px]">{f.user.username}</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden />
+        </button>
+      ))}
     </div>
   );
 }
@@ -340,6 +382,8 @@ export function LobbyView() {
               </button>
             </div>
           )}
+          {/* Friends online now → one-tap free duel. */}
+          <FriendsOnlineStrip />
           {/* Recent-winners ticker (display-only). */}
           <LobbyLiveStrip data={live2} />
           <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
