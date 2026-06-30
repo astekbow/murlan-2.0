@@ -898,6 +898,11 @@ select:focus-visible,
   border-color: var(--gold) !important;
   box-shadow: 0 8px 20px -12px #000, 0 0 16px rgba(232, 200, 121, 0.2) !important;
 }
+/* Enlarge the TAP target of the over-felt topbar buttons (Largohu + history/chat/emote) WITHOUT changing
+   their small visual size — an invisible inset hit-area, so they clear the touch minimum (a11y) while
+   staying compact per the owner's request. The buttons are near the top edge, away from the hand. */
+.tv-ls .tvc-topbar .btn, .tv-ls .tvc-topbar .iconbtn { position: relative; }
+.tv-ls .tvc-topbar .btn::after, .tv-ls .tvc-topbar .iconbtn::after { content: ''; position: absolute; inset: -7px; }
 /* Score (T1/T2 → target): smaller so it stays compact up top and never reaches the felt. */
 .tv-ls .tvc-topbar .seat-cnt, .tv-ls .tvc-topbar .text-sm, .tv-ls .tvc-topbar .text-xs { font-size: 1.7cqw; }
 

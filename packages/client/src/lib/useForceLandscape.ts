@@ -20,7 +20,11 @@ export function useForceLandscape(): LandscapeState {
       | undefined;
     try { void orientation?.lock?.('landscape')?.catch(() => {}); } catch { /* unsupported (iOS) */ }
 
-    const realLandscape = window.matchMedia('(orientation: landscape) and (max-height: 560px)');
+    // Use the wide table layout for ANY landscape TOUCH device (phones AND iPads/large phones/foldables),
+    // not just short phones — the old `max-height:560px` ceiling dropped iPads + big phones to the legacy
+    // portrait flow. The `pointer: coarse` clause keeps DESKTOP (fine pointer) on its own layout untouched;
+    // the max-height:560 clause still catches a short landscape phone even if it doesn't report coarse.
+    const realLandscape = window.matchMedia('(orientation: landscape) and (max-height: 560px), (orientation: landscape) and (pointer: coarse)');
     // Portrait phone → force-rotate. NOTE: no `(pointer: coarse)` clause — some phones
     // and device emulators don't report it, which silently disabled the rotation.
     const phonePortrait = window.matchMedia('(orientation: portrait) and (max-width: 932px)');

@@ -7,6 +7,7 @@ import { useGameStore } from '../store/gameStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { useWalletStore } from '../store/walletStore.ts';
 import { dollars, parseDollarsToCents } from '../lib/money.ts';
+import { useModalBack } from '../lib/useModalBack.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
@@ -79,6 +80,9 @@ export function FriendsView() {
     if (!token) return;
     clubsApi.mine(token).then((r) => setInClub(!!r.club)).catch(() => setInClub(false));
   }, []);
+  // Android/browser Back closes the DM + send-money overlays (they're inline .modal-backdrop, not <Modal>).
+  useModalBack(!!dmWith, () => setDmWith(null));
+  useModalBack(!!sendTo, () => setSendTo(null));
 
   const sendMoney = async () => {
     if (!sendTo || sending) return;

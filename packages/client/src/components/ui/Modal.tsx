@@ -5,6 +5,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useFocusTrap } from './useFocusTrap.ts';
+import { useModalBack } from '../../lib/useModalBack.ts';
 import { haptics } from '../../lib/haptics.ts';
 import { useT } from '../../lib/i18n.ts';
 
@@ -18,6 +19,7 @@ interface ModalProps {
 export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) {
   const t = useT();
   const trapRef = useFocusTrap<HTMLDivElement>();
+  useModalBack(true, onClose); // Android/browser Back closes the modal instead of leaving the page (open while mounted)
   useEffect(() => {
     haptics.tap(); // a light buzz when any modal opens (no-op on desktop / reduced-motion)
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
