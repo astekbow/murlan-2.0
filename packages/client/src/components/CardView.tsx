@@ -10,16 +10,31 @@ interface CardViewProps {
   onClick?: () => void;
   dealDelayMs?: number;
   style?: CSSProperties;
+  /** Pure display — render a non-interactive, aria-hidden element. Used inside Hand, where the WRAPPING
+   *  element is the labelled toggle button, so the card itself must NOT be a second nested button. */
+  decorative?: boolean;
 }
 
 /** A single face-up playing card (cream face, gold ring when selected). */
-function CardViewImpl({ card, selected, small, big, onClick, dealDelayMs, style }: CardViewProps) {
+function CardViewImpl({ card, selected, small, big, onClick, dealDelayMs, style, decorative }: CardViewProps) {
   const red = isRed(card);
   const size = small ? 'sm' : big ? 'lg' : '';
   const mergedStyle: CSSProperties = {
     ...style,
     ...(dealDelayMs !== undefined ? { animation: 'cardfade .35s ease both', animationDelay: `${dealDelayMs}ms` } : {}),
   };
+  const cls = ['gcard', size, red ? 'red' : '', card.kind === 'joker' ? 'joker' : '', selected ? 'sel' : '', onClick && !decorative ? 'active:scale-95' : ''].join(' ');
+  const faces = (
+    <>
+      <span className="gc-r">{rankText(card)}</span>
+      <span className="gc-s">{suitSymbol(card)}</span>
+      <span className="gc-big">{suitSymbol(card)}</span>
+      <span className="gc-br">{rankText(card)}</span>
+    </>
+  );
+  if (decorative) {
+    return <div aria-hidden="true" style={mergedStyle} className={cls}>{faces}</div>;
+  }
   return (
     <button
       type="button"
@@ -28,12 +43,9 @@ function CardViewImpl({ card, selected, small, big, onClick, dealDelayMs, style 
       aria-pressed={selected}
       aria-label={`${rankText(card)} ${suitSymbol(card)}`}
       style={mergedStyle}
-      className={['gcard', size, red ? 'red' : '', card.kind === 'joker' ? 'joker' : '', selected ? 'sel' : '', onClick ? 'active:scale-95' : ''].join(' ')}
+      className={cls}
     >
-      <span className="gc-r">{rankText(card)}</span>
-      <span className="gc-s">{suitSymbol(card)}</span>
-      <span className="gc-big">{suitSymbol(card)}</span>
-      <span className="gc-br">{rankText(card)}</span>
+      {faces}
     </button>
   );
 }

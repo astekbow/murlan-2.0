@@ -76,7 +76,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     // a narrow card overlaps less, so the visible left sliver is wider and the FULL rank
     // (incl. "10") shows; the extra height keeps them looking big. Constant size (no
     // grow/shrink with count); the step (overlap) adapts so the fan never scrolls.
-    CARD_W = Math.min(w < 520 ? 86 : 102, Math.floor(w * 0.86));
+    CARD_W = Math.max(64, Math.min(w < 520 ? 86 : 102, Math.floor(w * 0.86))); // floor so cards (+ their tap area) never shrink unbounded on a narrow canvas
     const maxStep = Math.round(CARD_W * 0.86);
     step = n > 1 ? Math.min(maxStep, (w - CARD_W) / (n - 1)) : 0;
   } else {
@@ -189,7 +189,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
               onPointerUp={(e) => onUp(id, e)}
               onPointerCancel={() => setDrag(null)}
             >
-              <CardView card={card} big selected={isSel} style={{ width: CARD_W, height: CARD_H, pointerEvents: 'none' }} />
+              <CardView card={card} big selected={isSel} decorative style={{ width: CARD_W, height: CARD_H, pointerEvents: 'none' }} />
             </div>
           );
         })}

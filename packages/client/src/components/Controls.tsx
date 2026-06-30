@@ -52,7 +52,7 @@ export function Controls({ selectedCards, pile, isMyTurn, canPass, requireThreeS
 
   return (
     <div className="ctrl-wrap flex flex-col items-center gap-2.5 px-3 pb-4">
-      <div className={`ctrl-hint text-xs h-4 ${playable ? 'text-gold-hi' : 'text-muted'}`}>{hint}</div>
+      <div role="status" aria-live="polite" className={`ctrl-hint text-xs h-4 ${playable ? 'text-gold-hi' : 'text-muted'}`}>{hint}</div>
       <div className="ctrl-row flex gap-3 w-full max-w-sm">
         <button type="button" onClick={onClear} disabled={selectedCards.length === 0} className="ctrl-clear btn btn-ghost">
           {t('controls.clear')}
