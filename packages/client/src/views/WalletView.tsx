@@ -65,6 +65,8 @@ export function WalletView() {
   const [depAddr, setDepAddr] = useState<string | null>(null);
   const [txId, setTxId] = useState('');
   const [submittingTxid, setSubmittingTxid] = useState(false);
+  const [copied, setCopied] = useState(false); // deposit-address Copy button: flip to "Copied ✓" briefly
+  const [exportingTx, setExportingTx] = useState(false); // transaction-list export in flight
 
   useEffect(() => {
     const token = useAuthStore.getState().accessToken;
@@ -191,6 +193,37 @@ export function WalletView() {
     }
   };
 
+  // Filter predicate shared by the on-screen list AND the export so they always agree.
+  const matchesTxFilter = (x: { type: string }) =>
+    txFilter === 'all' || (txFilter === 'transfer' ? x.type === 'transfer_in' || x.type === 'transfer_out' : x.type === txFilter);
+
+  // Export the CURRENTLY-FILTERED transactions (the full set, not just the 30 shown) as a CSV — real-money
+  // users expect to audit their ledger. Reuses the GDPR-export Blob/anchor download pattern.
+  const onExportTx = () => {
+    const rows = transactions.filter(matchesTxFilter);
+    if (exportingTx || rows.length === 0) return;
+    setExportingTx(true);
+    try {
+      const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`; // CSV-escape (reason is free text)
+      const header = ['id', 'type', 'label', 'amountCents', 'amountUSD', 'currency', 'status', 'reason', 'matchId', 'createdAt'];
+      const lines = [header.join(',')];
+      for (const tx of rows) {
+        lines.push([tx.id, tx.type, txLabel(tx.type), tx.amountCents, dollars(tx.amountCents), tx.currency ?? '', tx.status ?? '', tx.reason ?? '', tx.matchId ?? '', new Date(tx.createdAt).toISOString()].map(esc).join(','));
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `murlan-transactions-${txFilter}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExportingTx(false);
+    }
+  };
+
   return (
     <div className="wallet-page space-y-4">
       {/* Back to lobby */}
@@ -279,7 +312,12 @@ export function WalletView() {
                 <span className="field-label">{t('wallet.yourAddress')}</span>
                 <div className="flex items-center gap-2">
                   <code className="field flex-1 font-mono text-xs break-all select-all">{depAddr}</code>
-                  <button onClick={() => void navigator.clipboard?.writeText(depAddr)} className="btn btn-ghost btn-sm shrink-0">{t('common.copy')}</button>
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(depAddr).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); }}
+                    className={`btn btn-ghost btn-sm shrink-0 ${copied ? 'text-emerald-300' : ''}`}
+                  >
+                    {copied ? t('wallet.copied') : t('common.copy')}
+                  </button>
                 </div>
               </div>
               {/* Auto-credit is the primary path now (unique per-player address). */}
@@ -379,7 +417,12 @@ export function WalletView() {
 
       {/* History */}
       <section className={`panel p-5 animate-rise ${walletTab === 'history' ? '' : 'hidden'}`} style={{ animationDelay: '.2s' }}>
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('wallet.txHistory')}</h2>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.txHistory')}</h2>
+          {transactions.some(matchesTxFilter) && (
+            <button onClick={onExportTx} disabled={exportingTx} className="btn btn-ghost btn-sm shrink-0">⬇ {t('wallet.exportCsv')}</button>
+          )}
+        </div>
         {/* Filter chips: narrow the ledger to one kind. */}
         <div className="flex flex-wrap gap-1.5 mb-3">
           {(['all', 'deposit', 'withdrawal', 'bet', 'payout', 'transfer'] as const).map((f) => (
@@ -406,8 +449,7 @@ export function WalletView() {
             ))}
           </ul>
         ) : (() => {
-          const shown = transactions.filter((x) => txFilter === 'all'
-            || (txFilter === 'transfer' ? x.type === 'transfer_in' || x.type === 'transfer_out' : x.type === txFilter)).slice(0, 30);
+          const shown = transactions.filter(matchesTxFilter).slice(0, 30);
           if (shown.length === 0) {
             return (
               <div className="text-center py-8">

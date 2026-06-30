@@ -288,6 +288,7 @@ const STRINGS: Record<string, Entry> = {
   'wallet.removeLimitM': { sq: 'Po heq një mbrojtje që të ndihmon të luash me mend. Je i sigurt?', en: 'You are removing a responsible-gaming safety control. Are you sure?' },
   'err.limitSaveFailed': { sq: 'S’u ruajt dot kufiri. Provo sërish.', en: 'Saving the limit failed. Please try again.' },
   'wallet.txHistory': { sq: 'HISTORIKU I TRANSAKSIONEVE', en: 'TRANSACTION HISTORY' },
+  'wallet.exportCsv': { sq: 'Eksporto CSV', en: 'Export CSV' },
   'wallet.txf.all': { sq: 'Të gjitha', en: 'All' },
   'wallet.txf.deposit': { sq: 'Depozita', en: 'Deposits' },
   'wallet.txf.withdrawal': { sq: 'Tërheqje', en: 'Withdrawals' },
