@@ -22,6 +22,9 @@ import { InMemoryAdminAudit, type AdminAuditRepository } from '../auth/adminAudi
 import { checkAdjustGovernance, MAX_ADJUST_CENTS } from '../money/adminAdjustPolicy.ts';
 import type { ChatService } from '../chat/chatService.ts';
 import type { PushService } from '../push/pushService.ts';
+import { type TournamentService, TournamentError } from '../tournament/tournamentService.ts';
+import type { ClubService } from '../social/clubService.ts';
+import type { ClubWarService } from '../social/clubWarService.ts';
 
 export interface AdminRoutesDeps {
   auth: AuthService;
@@ -39,6 +42,9 @@ export interface AdminRoutesDeps {
   audit?: AdminAuditRepository; // append-only admin action log (defaults to in-memory)
   chat?: ChatService; // chat-report triage + global mute
   push?: PushService; // web-push the user when their withdrawal is approved/rejected (best-effort)
+  tournaments?: TournamentService; // admin: delete a PAST (finished/cancelled) tournament
+  clubs?: ClubService;             // admin: close (disband) a club
+  clubWars?: ClubWarService;       // guard: block closing a club that still has a money-holding war
   // Voids an in-progress match (refund all stakes + end the room). Late-bound to
   // the realtime gateway (which owns rooms/sockets/money), absent in HTTP-only tests.
   voidMatch?: (roomId: string, meta: { adminId: string; reason: string }) =>
@@ -165,6 +171,60 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     await audit.record({ adminId: caller.userId, action: 'match_void', detail: `${roomId} (match ${result.matchId ?? '—'}, refunded=${result.refunded}): ${parsed.data.reason}` });
     return reply.send({ ok: true, matchId: result.matchId, refunded: result.refunded });
   });
+
+  // ----- Tournaments: list + DELETE a PAST (finished/cancelled) tournament ----
+  // Gated by void_matches (destructive admin game action). MONEY-SAFE: adminDelete refuses an
+  // active tournament (registering/running/awaiting_confirmation) — the admin must cancel it first
+  // (which refunds the escrowed buy-ins).
+  if (deps.tournaments) {
+    const tournaments = deps.tournaments;
+    app.get('/api/admin/tournaments', async (req, reply) => {
+      const caller = await canVoid(req, reply);
+      if (!caller) return;
+      const list = await tournaments.adminListAll();
+      return reply.send({ tournaments: list.map((t) => ({ id: t.id, name: t.name, status: t.status, clubId: t.clubId, players: t.playerIds.length, buyInCents: t.buyInCents, createdAt: t.createdAt })) });
+    });
+    app.delete('/api/admin/tournaments/:id', async (req, reply) => {
+      const caller = await canVoid(req, reply);
+      if (!caller) return;
+      const id = (req.params as { id: string }).id;
+      try {
+        await tournaments.adminDelete(id);
+      } catch (e) {
+        if (e instanceof TournamentError) return reply.code(409).send({ error: { code: e.code, message: e.message } });
+        throw e;
+      }
+      await audit.record({ adminId: caller.userId, action: 'tournament_delete', detail: id });
+      return reply.send({ ok: true });
+    });
+  }
+
+  // ----- Clubs: list + CLOSE (disband) a club --------------------------------
+  // Gated by void_matches. MONEY-SAFE: refuse while the club has an active club WAR
+  // (registering/running) or an active club TOURNAMENT — those hold escrowed buy-ins and must be
+  // resolved first, else disbanding the club would strand money.
+  if (deps.clubs) {
+    const clubs = deps.clubs;
+    app.get('/api/admin/clubs', async (req, reply) => {
+      const caller = await canVoid(req, reply);
+      if (!caller) return;
+      return reply.send({ clubs: await clubs.listClubs() });
+    });
+    app.delete('/api/admin/clubs/:id', async (req, reply) => {
+      const caller = await canVoid(req, reply);
+      if (!caller) return;
+      const id = (req.params as { id: string }).id;
+      const activeWar = deps.clubWars ? (await deps.clubWars.listForClub(id, 20)).some((w) => w.status === 'registering' || w.status === 'running') : false;
+      const activeTourn = deps.tournaments ? (await deps.tournaments.listByClub(id)).some((t) => t.status === 'registering' || t.status === 'running' || t.status === 'awaiting_confirmation') : false;
+      if (activeWar || activeTourn) {
+        return reply.code(409).send({ error: { code: 'club_busy', message: 'Klubi ka një luftë ose turne aktiv (me bast). Anuloji ato para se ta mbyllësh klubin.' } });
+      }
+      const ok = await clubs.adminClose(id);
+      if (!ok) return reply.code(404).send({ error: { code: 'not_found', message: 'Klubi nuk u gjet.' } });
+      await audit.record({ adminId: caller.userId, action: 'club_close', detail: id });
+      return reply.send({ ok: true });
+    });
+  }
 
   app.post('/api/admin/users/:id/adjust', async (req, reply) => {
     const caller = await canAdjust(req, reply);

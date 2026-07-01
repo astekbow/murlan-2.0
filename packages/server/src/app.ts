@@ -375,7 +375,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     if (deps.config.paymentWebhookIps.length > 0 && !deps.config.trustProxy) {
       app.log.warn('PAYMENT_WEBHOOK_IPS is set but TRUST_PROXY is not — behind a proxy req.ip is the proxy, so the webhook IP allowlist will NOT identify the real sender. Set TRUST_PROXY to the proxy hop(s).');
     }
-    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, push: deps.push, kickUser: deps.kickUser, adminEmail: deps.config.adminEmail, adjustDualControl: deps.config.adjustDualControl });
+    await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, push: deps.push, tournaments: deps.tournaments, clubs: deps.clubs, clubWars: deps.clubWars, kickUser: deps.kickUser, adminEmail: deps.config.adminEmail, adjustDualControl: deps.config.adjustDualControl });
   }
 
   // Inbound Telegram admin bot: only mounted when the bot + its webhook secret are

@@ -74,6 +74,9 @@ export interface TournamentRepository {
    *  escrowed buy-ins are still swept for stranded money — never excluded by list()'s filter. */
   listAll(): Promise<Tournament[]>;
   save(t: Tournament): Promise<void>;
+  /** Hard-delete a tournament row. Callers MUST ensure no escrow is stranded (admin delete only
+   *  acts on finished/cancelled tournaments — their money is already resolved). */
+  delete(id: string): Promise<void>;
 }
 
 export class TournamentError extends Error {
@@ -107,6 +110,8 @@ export class TournamentService {
   // repo already filters (clubId === null); the extra guard here keeps it true even if a
   // legacy repo returned everything.
   async list(): Promise<Tournament[]> { return (await this.repo.list()).filter((t) => t.clubId === null); }
+  /** Admin: EVERY tournament (global + club), for the admin panel's delete picker. */
+  async adminListAll(): Promise<Tournament[]> { return this.repo.listAll(); }
   /** A club's tournaments (membership-gated at the route). */
   async listByClub(clubId: string): Promise<Tournament[]> { return this.repo.listByClub(clubId); }
   async get(id: string): Promise<Tournament | null> { return this.repo.get(id); }
@@ -361,6 +366,24 @@ export class TournamentService {
   }
 
   /**
+   * Admin-delete a PAST tournament (finished or cancelled only). MONEY-SAFE: an active tournament
+   * (registering / running / awaiting_confirmation) still holds escrowed buy-ins, so deleting it
+   * would strand money — the admin must CANCEL it first (which refunds). Idempotent-ish: a missing
+   * row is treated as already gone.
+   */
+  async adminDelete(tournamentId: string): Promise<void> {
+    return this.withLock(tournamentId, async () => {
+      const t = await this.repo.get(tournamentId);
+      if (!t) return; // already gone
+      if (t.status !== 'finished' && t.status !== 'cancelled') {
+        throw new TournamentError('active', 'Anulo turneun i pari (mban ende bast/çmim) para se ta fshish.');
+      }
+      this.clearRecordedOutcomes(t.id);
+      await this.repo.delete(t.id);
+    });
+  }
+
+  /**
    * Safety net for stranded money (audit 2026-06-08, finding C4): tournaments are
    * advanced manually by an admin and have no realtime auto-run, so a forgotten /
    * disputed / crashed one can sit in 'registering', 'running', or 'awaiting_confirmation'
@@ -407,4 +430,5 @@ export class InMemoryTournamentRepository implements TournamentRepository {
   }
   async listAll(): Promise<Tournament[]> { return [...this.map.values()].map((t) => structuredClone(t)); }
   async save(t: Tournament): Promise<void> { this.map.set(t.id, structuredClone(this.norm(t))); }
+  async delete(id: string): Promise<void> { this.map.delete(id); }
 }

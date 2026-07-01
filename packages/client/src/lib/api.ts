@@ -588,7 +588,22 @@ export const adminApi = {
     request<{ ok: boolean }>(`/admin/users/${id}/mute`, { method: 'POST', token, body: { durationMs, reason } }),
   unmuteUser: (token: string, id: string) =>
     request<{ ok: boolean }>(`/admin/users/${id}/unmute`, { method: 'POST', token, body: {} }),
+  tournaments: (token: string) =>
+    request<{ tournaments: AdminTournament[] }>('/admin/tournaments', { token }),
+  deleteTournament: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/admin/tournaments/${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+  clubs: (token: string) =>
+    request<{ clubs: AdminClub[] }>('/admin/clubs', { token }),
+  closeClub: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/admin/clubs/${encodeURIComponent(id)}`, { method: 'DELETE', token }),
 };
+
+export interface AdminTournament {
+  id: string; name: string; status: string; clubId: string | null; players: number; buyInCents: number; createdAt: number;
+}
+export interface AdminClub {
+  id: string; name: string; tag: string; founderId: string; createdAt: number; memberCount: number;
+}
 
 // ----- Tournaments ---------------------------------------------------------
 export interface BracketMatchDTO { round: number; index: number; aUserId: string | null; bUserId: string | null; winnerId: string | null }

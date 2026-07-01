@@ -1305,6 +1305,9 @@ export class PrismaTournaments implements TournamentRepository {
       data: { status: t.status, playerIds: t.playerIds, bracket: t.bracket as unknown as Prisma.InputJsonValue, prizePoolCents: t.prizePoolCents, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId },
     });
   }
+  async delete(id: string): Promise<void> {
+    await this.db.tournament.delete({ where: { id } }).catch(() => undefined); // already gone → no-op
+  }
 }
 
 export function createPrismaStores(db: PrismaClient): PrismaStores {

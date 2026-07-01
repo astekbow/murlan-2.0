@@ -143,3 +143,14 @@ test('setPrivacy: founder-only; private mints a code, public keeps it; non-found
   const { clubs: c2, a: lone } = await setup();
   await assert.rejects(c2.setPrivacy(lone.id, true), (e) => e instanceof ClubError && e.code === 'not_in_club');
 });
+
+test('adminClose disbands a club (deletes it + drops all memberships); false when missing', async () => {
+  const { clubs, a, b } = await setup();
+  const club = await clubs.create(a.id, 'Murlan Masters', 'MUR');
+  await clubs.join(b.id, club.id);
+  assert.equal(await clubs.adminClose(club.id), true);
+  assert.equal(await clubs.byId(club.id), null);              // club gone
+  assert.equal(await clubs.getMyClub(a.id), null);            // founder's membership dropped
+  assert.equal(await clubs.getMyClub(b.id), null);            // member's membership dropped
+  assert.equal(await clubs.adminClose(club.id), false);       // already gone → false
+});

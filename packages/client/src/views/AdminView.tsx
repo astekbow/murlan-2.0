@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
 import { adminApi, rankedApi, ApiError } from '../lib/api.ts';
-import type { AdminUser, AdminMatch, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown, SeasonDTO } from '../lib/api.ts';
+import type { AdminUser, AdminMatch, SupportTicket, AdminActionRecord, Transaction, AdminAccountState, AdminChatReport, RevenueBreakdown, SeasonDTO, AdminTournament, AdminClub } from '../lib/api.ts';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useT } from '../lib/i18n.ts';
 
@@ -292,6 +292,86 @@ function StatCard({ label, value, accent, onClick }: { label: string; value: str
 
 // Ranked-season control: shows the active season + opens a new one. Starting a season
 // archives the current one and soft-resets every player's MMR, so it's confirmed (danger).
+/** Admin: delete PAST tournaments (finished/cancelled only) + close (disband) clubs. */
+function TournamentsClubsCard() {
+  const t = useT();
+  const { confirm, dialog } = useConfirm();
+  const [tournaments, setTournaments] = useState<AdminTournament[]>([]);
+  const [clubs, setClubs] = useState<AdminClub[]>([]);
+
+  const load = () => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    void adminApi.tournaments(token).then((r) => setTournaments(r.tournaments)).catch(() => {});
+    void adminApi.clubs(token).then((r) => setClubs(r.clubs)).catch(() => {});
+  };
+  useEffect(load, []);
+
+  const toast = (msg: string, kind: 'success' | 'error') => useGameStore.setState({ toast: msg, toastKind: kind });
+  const canDelete = (s: string) => s === 'finished' || s === 'cancelled';
+
+  const delTournament = async (id: string, name: string) => {
+    if (!(await confirm({ title: t('admin.tc.delTournament'), message: t('admin.tc.delTournamentM', { name }), danger: true }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    try { await adminApi.deleteTournament(token, id); toast(t('admin.tc.deleted'), 'success'); load(); }
+    catch (e) { toast(e instanceof ApiError ? e.message : t('admin.tc.failed'), 'error'); }
+  };
+  const closeClub = async (id: string, name: string) => {
+    if (!(await confirm({ title: t('admin.tc.closeClub'), message: t('admin.tc.closeClubM', { name }), danger: true }))) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    try { await adminApi.closeClub(token, id); toast(t('admin.tc.closed'), 'success'); load(); }
+    catch (e) { toast(e instanceof ApiError ? e.message : t('admin.tc.failed'), 'error'); }
+  };
+
+  return (
+    <section className="panel p-4 space-y-3">
+      {dialog}
+      <h3 className="font-display font-semibold text-gold-hi text-sm">{t('admin.tc.title')}</h3>
+
+      <div>
+        <div className="field-label mb-1">{t('admin.tc.tournaments')} · {tournaments.length}</div>
+        {tournaments.length === 0 ? (
+          <p className="text-xs text-muted/70">{t('admin.tc.noneT')}</p>
+        ) : (
+          <ul className="space-y-1 max-h-48 overflow-y-auto">
+            {tournaments.map((tr) => (
+              <li key={tr.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate min-w-0">{tr.name} <span className="text-muted text-[11px]">· {tr.status}{tr.clubId ? ' · klub' : ''}</span></span>
+                <button
+                  type="button"
+                  disabled={!canDelete(tr.status)}
+                  onClick={() => void delTournament(tr.id, tr.name)}
+                  title={canDelete(tr.status) ? undefined : t('admin.tc.mustCancel')}
+                  className="btn btn-ghost btn-sm shrink-0 text-red-300 disabled:opacity-30"
+                >🗑 {t('admin.tc.delete')}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <div className="field-label mb-1">{t('admin.tc.clubs')} · {clubs.length}</div>
+        {clubs.length === 0 ? (
+          <p className="text-xs text-muted/70">{t('admin.tc.noneC')}</p>
+        ) : (
+          <ul className="space-y-1 max-h-48 overflow-y-auto">
+            {clubs.map((cl) => (
+              <li key={cl.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate min-w-0">[{cl.tag}] {cl.name} <span className="text-muted text-[11px]">· {cl.memberCount} 👥</span></span>
+                <button type="button" onClick={() => void closeClub(cl.id, cl.name)} className="btn btn-ghost btn-sm shrink-0 text-red-300">✕ {t('admin.tc.close')}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p className="text-[11px] text-muted/70">{t('admin.tc.hint')}</p>
+    </section>
+  );
+}
+
 function RankedSeasonCard() {
   const t = useT();
   const { confirm, dialog } = useConfirm();
@@ -564,6 +644,9 @@ export function AdminView() {
 
           {/* Ranked season management (open/reset the competitive ladder). */}
           <RankedSeasonCard />
+
+          {/* Delete past tournaments + close (disband) clubs. */}
+          <TournamentsClubsCard />
         </div>
       )}
 

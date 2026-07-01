@@ -102,6 +102,15 @@ export class ClubService {
     return c ? { id: c.id, name: c.name, tag: c.tag } : null;
   }
 
+  /** Admin: disband a club (delete it + ALL its memberships). Pure social delete — the CALLER
+   *  (admin route) MUST first ensure the club holds no escrowed money (no active club war /
+   *  club tournament). Returns false if the club didn't exist. */
+  async adminClose(clubId: string): Promise<boolean> {
+    if (!(await this.clubs.getClub(clubId))) return false;
+    await this.clubs.deleteClub(clubId);
+    return true;
+  }
+
   async create(userId: string, name: string, tag: string, priv = false): Promise<ClubDetailDTO> {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const trimmed = name.trim();

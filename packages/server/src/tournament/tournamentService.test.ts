@@ -328,3 +328,15 @@ test('result reconciliation: the trusted autoFinalize (engine) path is NOT block
   assert.equal(done.status, 'finished');
   assert.equal(done.winnerId, 'a');
 });
+
+test('adminDelete REFUSES an active tournament (would strand escrow) but deletes a cancelled one', async () => {
+  const { s, repo } = svc();
+  const t = await s.create('Cup', 1000, 4);
+  await s.register(t.id, 'a'); // 'registering' — holds an escrowed buy-in
+  await assert.rejects(s.adminDelete(t.id), (e: unknown) => e instanceof TournamentError && e.code === 'active');
+  assert.ok(await repo.get(t.id), 'still present after the refused delete');
+  await s.cancel(t.id); // refunds → 'cancelled'
+  await s.adminDelete(t.id);
+  assert.equal(await repo.get(t.id), null); // now deleted
+  await s.adminDelete(t.id); // idempotent: deleting a missing tournament is a no-op
+});
