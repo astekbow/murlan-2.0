@@ -14,7 +14,7 @@
 // the registry with Redis (documented follow-up).
 // ============================================================================
 
-const DEFAULT_WATCH_MS = 30 * 60 * 1000; // watch an address for 30 min after the deposit screen is opened
+const DEFAULT_WATCH_MS = 120 * 60 * 1000; // watch an address for 2h after the deposit screen is opened (money #4; override via DEPOSIT_WATCH_MINUTES)
 
 /** Tracks which player addresses to actively poll. Populated when a player opens the
  *  deposit screen (GET /deposit/address); entries expire after `ttlMs`. */

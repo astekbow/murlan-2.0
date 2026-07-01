@@ -50,6 +50,12 @@ const schema = z.object({
   AUTO_WITHDRAW_MAX_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = withdrawals ≤ this from KYC-verified users are flagged "auto-eligible" (fast-track)
   DAILY_AUTO_WITHDRAW_CAP_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = no daily cap; >0 = once a user's 24h withdrawals exceed this, further ones go MANUAL (anti-drain/AML)
   SWEEP_ALERT_CENTS: z.coerce.number().int().nonnegative().default(0), // 0 = OFF; >0 = Telegram "time to sweep" alert once the on-chain deposit-address USDT total reaches this (e.g. 10000 = $100)
+  // money: how long (minutes) the auto-credit poller watches a player's deposit address after they
+  // open the deposit screen. A transfer arriving AFTER this window isn't auto-credited (still
+  // recoverable via the manual TxID paste). Was a hard-coded 30 min; default 120 (2h) is more
+  // forgiving for a player who opens the screen then sends later. Idle cost stays proportional to
+  // recent depositors, not total users.
+  DEPOSIT_WATCH_MINUTES: z.coerce.number().int().positive().max(1440).default(120),
   AUTO_WITHDRAW_CURRENCY: z.string().default('usdttrc20'), // payout coin/network for auto-payouts
   BINANCE_API_KEY: z.string().optional(),             // Binance withdraw API — auto-payout rail when set (with secret)
   BINANCE_API_SECRET: z.string().optional(),          // Binance API secret (HMAC-SHA256 request signing)
@@ -79,6 +85,11 @@ const schema = z.object({
   // default (the owner is a solo admin; mandatory dual-control would lock them out). The
   // per-call ceiling + per-admin rolling-24h cap + no-self-credit ALWAYS apply regardless.
   ADJUST_DUAL_CONTROL: z.string().optional(),
+  // money-2: only the SINGLE payout-leader instance auto-pays crypto withdrawals. The anti-drain
+  // budgets + serialization are in-process, so on >1 replica a non-leader must NOT auto-pay (it
+  // routes everything to manual) or two replicas could each auto-pay past the shared cap. Default
+  // TRUE (single-instance deploy = the leader); set PAYOUT_LEADER=false on every EXTRA replica.
+  PAYOUT_LEADER: z.string().optional(),
   // money-4/6: per-user rolling-24h cap on P2P transfers OUT (cents). Default $1,000/day as a
   // baseline AML guardrail (audit M1 — default-capped, not default-open). Set 0 to disable, or a
   // higher value to loosen. >0 turns on the DB/ledger-enforced rail (sum of transfer_out in 24h).
@@ -143,6 +154,7 @@ export interface AppConfig {
   rakeBps: number;
   tournamentDualControl: boolean; // require a 2nd distinct admin to confirm a champion payout
   adjustDualControl: boolean; // admin-6: require a 2nd admin to confirm a manual balance adjust (OFF by default)
+  payoutLeader: boolean; // money-2: this instance is THE auto-payout leader (default true); false on extra replicas
   dailyTransferCapCents: number; // money-4/6: per-user 24h P2P transfer-out cap (0 = unlimited)
   globalAutoWithdrawCapCents: number; // money-7: global 24h auto-payout budget (0 = off)
   destAutoWithdrawCapCents: number; // money-7: per-destination-address 24h auto-payout cap (0 = off)
@@ -169,6 +181,7 @@ export interface AppConfig {
   autoWithdrawMaxCents: number; // 0 = off; semi-auto fast-track threshold for KYC-verified players
   dailyAutoWithdrawCapCents: number; // 0 = off; per-user 24h auto-payout cap (excess → manual)
   sweepAlertCents: number; // 0 = off; >0 = "time to sweep" Telegram alert at this on-chain deposit total
+  depositWatchMs: number; // how long the auto-credit poller watches a deposit address (from DEPOSIT_WATCH_MINUTES)
   autoWithdrawCurrency: string; // payout coin/network (e.g. 'usdttrc20')
   binanceApiKey: string | null;
   binanceApiSecret: string | null;
@@ -311,6 +324,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rakeBps: parsed.RAKE_BPS,
     tournamentDualControl: isTrue(parsed.TOURNAMENT_DUAL_CONTROL),
     adjustDualControl: isTrue(parsed.ADJUST_DUAL_CONTROL),
+    payoutLeader: parsed.PAYOUT_LEADER === undefined ? true : isTrue(parsed.PAYOUT_LEADER),
     dailyTransferCapCents: parsed.DAILY_TRANSFER_CAP_CENTS,
     globalAutoWithdrawCapCents: parsed.GLOBAL_AUTO_WITHDRAW_CAP_CENTS,
     destAutoWithdrawCapCents: parsed.DEST_AUTO_WITHDRAW_CAP_CENTS,
@@ -341,6 +355,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     autoWithdrawMaxCents: parsed.AUTO_WITHDRAW_MAX_CENTS,
     dailyAutoWithdrawCapCents: parsed.DAILY_AUTO_WITHDRAW_CAP_CENTS,
     sweepAlertCents: parsed.SWEEP_ALERT_CENTS,
+    depositWatchMs: parsed.DEPOSIT_WATCH_MINUTES * 60 * 1000,
     autoWithdrawCurrency: parsed.AUTO_WITHDRAW_CURRENCY,
     binanceApiKey: parsed.BINANCE_API_KEY || null,
     binanceApiSecret: parsed.BINANCE_API_SECRET || null,

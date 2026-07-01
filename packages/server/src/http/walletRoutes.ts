@@ -40,6 +40,7 @@ export interface WalletRoutesDeps {
   friends?: FriendsService; // player-to-player balance transfers are allowed only between friends
   notifier?: Notifier; // ops alert (Telegram) on a new withdrawal request
   payout?: PayoutProvider; // auto crypto payout for small KYC-verified withdrawals
+  payoutLeader?: boolean; // money-2: only the leader instance auto-pays (default true); others → manual
   autoWithdrawMaxCents?: number; // 0/undefined = off; semi-auto fast-track threshold
   dailyAutoWithdrawCapCents?: number; // 0/undefined = off; per-user 24h auto-payout cap
   dailyTransferCapCents?: number; // money-4/6: 0/undefined = UNLIMITED; >0 = per-user 24h transfer-out cap
@@ -315,7 +316,11 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         //   • globalTodayCents  — ALL users' auto-paid in 24h (global budget),
         //   • destTodayCents    — auto-paid to THIS destination in 24h (per-destination cap),
         //   • recentTransferInCents — P2P received in 24h (received funds → manual review).
-        const autoCouldFire = (deps.autoWithdrawMaxCents ?? 0) > 0 && !!deps.payout && deps.payout.name !== 'null';
+        // money-2: only the payout LEADER auto-pays. On a non-leader replica (PAYOUT_LEADER=false)
+        // isLeader is false → no auto-send + no cap reads → every withdrawal routes to MANUAL, so two
+        // replicas can't each auto-pay past the in-process shared budget.
+        const isLeader = deps.payoutLeader !== false;
+        const autoCouldFire = isLeader && (deps.autoWithdrawMaxCents ?? 0) > 0 && !!deps.payout && deps.payout.name !== 'null';
         // FAIL CLOSED (money-1): each cap read defaults to +Infinity on error, so a transient DB
         // blip makes the cap look EXCEEDED → the auto-drain guard forces MANUAL review instead of
         // treating the budget as fully available (the old `() => 0` fail-OPEN). Only reached when
@@ -332,7 +337,7 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         // sending so a concurrent reject can't double-pay, and refunds ONLY on a definite
         // failure (duplicate/ambiguous are left paid). No provider → sendAuto is null → the
         // row stays pending for the operator (Approve sends it on-chain via payoutNow).
-        const realPayout = deps.payout && deps.payout.name !== 'null' ? deps.payout : null;
+        const realPayout = isLeader && deps.payout && deps.payout.name !== 'null' ? deps.payout : null;
         const outcome = await processWithdrawal(
           { id: rec.id, amountCents: rec.amountCents, destination: rec.destination },
           { username: u?.username ?? caller.userId, kycStatus: comp?.kycStatus ?? null, priorTodayCents, globalTodayCents, destTodayCents, recentTransferInCents },

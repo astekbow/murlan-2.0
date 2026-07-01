@@ -356,7 +356,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     await walletRoutes(app, {
       auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, friends: deps.friends,
       provider: deps.provider, intents: deps.intents, compliance: deps.compliance, rg: deps.rg,
-      notifier: deps.notifier, payout: deps.payout, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
+      notifier: deps.notifier, payout: deps.payout, payoutLeader: deps.config.payoutLeader, autoWithdrawMaxCents: deps.config.autoWithdrawMaxCents,
       dailyAutoWithdrawCapCents: deps.config.dailyAutoWithdrawCapCents,
       dailyTransferCapCents: deps.config.dailyTransferCapCents, // money-4/6 (0 = unlimited)
       globalAutoWithdrawCapCents: deps.config.globalAutoWithdrawCapCents, // money-7 (0 = off)
@@ -618,7 +618,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // Auto-credit: players who open the deposit screen are "watched" so the poller
   // (below) credits their on-chain transfers WITHOUT a manual TxID. Only meaningful
   // with unique per-player addresses (the xpub) + the poller enabled.
-  const depositWatch = new DepositWatchRegistry();
+  const depositWatch = new DepositWatchRegistry(config.depositWatchMs); // money #4: configurable watch window (default 2h)
   if (depositWallet) {
     // eslint-disable-next-line no-console
     console.warn('[deposit] UNIQUE per-player USDT-TRC20 deposit addresses ENABLED (watch-only xpub; no private keys on the server).');
@@ -1062,6 +1062,14 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     app.log.warn(
       'REDIS_URL set: Socket.IO broadcasts are shared, but timers/rate-limit/presence/matchmaking remain PER-INSTANCE. Run a SINGLE replica, or enforce sticky-by-room routing at the load balancer (DEPLOYMENT.md §7) — multiple replicas without it WILL corrupt live matches.',
     );
+    // money-2: the auto-payout anti-drain budget is in-process, so EXACTLY ONE replica may be the
+    // payout leader. If this multi-instance deploy leaves every replica as leader, two could each
+    // auto-pay past the shared cap.
+    if (config.payoutLeader) {
+      app.log.warn(
+        'REDIS_URL set AND PAYOUT_LEADER is true on this instance: set PAYOUT_LEADER=false on every EXTRA replica so only ONE auto-pays crypto withdrawals (the anti-drain budget is per-instance).',
+      );
+    }
   }
 
   // The gateway registers all socket handlers on construction.
