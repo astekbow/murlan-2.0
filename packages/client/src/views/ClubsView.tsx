@@ -231,10 +231,10 @@ export function ClubsView() {
           at a time instead of stacking all three → no long scroll. */}
       {mine && (
         <>
-          <div className="seg grid grid-cols-3" role="tablist" aria-label={mine.name}>
-            <button type="button" role="tab" aria-selected={tab === 'turne'} onClick={() => setTab('turne')} className={`seg-tab text-center ${tab === 'turne' ? 'active' : ''}`}>{t('clubs.tournaments')}</button>
-            <button type="button" role="tab" aria-selected={tab === 'luftë'} onClick={() => setTab('luftë')} aria-label={t('clubs.warTab')} className={`seg-tab text-center ${tab === 'luftë' ? 'active' : ''}`}>⚔️ {t('clubs.warTab')}</button>
-            <button type="button" role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')} className={`seg-tab text-center ${tab === 'chat' ? 'active' : ''}`}>{t('clubs.chatTitle')}</button>
+          <div className="seg grid grid-cols-3" role="group" aria-label={mine.name}>
+            <button type="button" aria-pressed={tab === 'turne'} onClick={() => setTab('turne')} className={`seg-tab text-center ${tab === 'turne' ? 'active' : ''}`}>{t('clubs.tournaments')}</button>
+            <button type="button" aria-pressed={tab === 'luftë'} onClick={() => setTab('luftë')} aria-label={t('clubs.warTab')} className={`seg-tab text-center ${tab === 'luftë' ? 'active' : ''}`}>⚔️ {t('clubs.warTab')}</button>
+            <button type="button" aria-pressed={tab === 'chat'} onClick={() => setTab('chat')} className={`seg-tab text-center ${tab === 'chat' ? 'active' : ''}`}>{t('clubs.chatTitle')}</button>
           </div>
           {tab === 'turne' ? <ClubTournaments club={mine} /> : tab === 'luftë' ? <ClubWarPanel club={mine} /> : <ClubChat club={mine} />}
         </>

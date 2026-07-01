@@ -25,9 +25,9 @@ export function RulesModal() {
   return (
     <Modal title={t('rules.title')} onClose={() => setOpen(false)}>
       <div className="space-y-4">
-        <div className="seg grid grid-cols-2" role="tablist" aria-label={t('rules.title')}>
-          <button type="button" role="tab" aria-selected={tab === 'basics'} onClick={() => setTab('basics')} className={`seg-tab text-center ${tab === 'basics' ? 'active' : ''}`}>{t('rules.tabBasics')}</button>
-          <button type="button" role="tab" aria-selected={tab === 'play'} onClick={() => setTab('play')} className={`seg-tab text-center ${tab === 'play' ? 'active' : ''}`}>{t('rules.tabPlay')}</button>
+        <div className="seg grid grid-cols-2" role="group" aria-label={t('rules.title')}>
+          <button type="button" aria-pressed={tab === 'basics'} onClick={() => setTab('basics')} className={`seg-tab text-center ${tab === 'basics' ? 'active' : ''}`}>{t('rules.tabBasics')}</button>
+          <button type="button" aria-pressed={tab === 'play'} onClick={() => setTab('play')} className={`seg-tab text-center ${tab === 'play' ? 'active' : ''}`}>{t('rules.tabPlay')}</button>
         </div>
         {tab === 'basics' ? (
           <>

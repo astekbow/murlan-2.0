@@ -83,9 +83,9 @@ export function SupportView() {
       </section>
 
       {/* Tabs so the form and the list each fit the screen without scrolling. */}
-      <div className="seg grid grid-cols-2" role="tablist" aria-label={t('support.title')}>
-        <button type="button" role="tab" aria-selected={supportTab === 'new'} onClick={() => setSupportTab('new')} className={`seg-tab text-center ${supportTab === 'new' ? 'active' : ''}`}>{t('support.openTicket')}</button>
-        <button type="button" role="tab" aria-selected={supportTab === 'tickets'} onClick={() => setSupportTab('tickets')} className={`seg-tab text-center ${supportTab === 'tickets' ? 'active' : ''}`}>{t('support.myTickets')}</button>
+      <div className="seg grid grid-cols-2" role="group" aria-label={t('support.title')}>
+        <button type="button" aria-pressed={supportTab === 'new'} onClick={() => setSupportTab('new')} className={`seg-tab text-center ${supportTab === 'new' ? 'active' : ''}`}>{t('support.openTicket')}</button>
+        <button type="button" aria-pressed={supportTab === 'tickets'} onClick={() => setSupportTab('tickets')} className={`seg-tab text-center ${supportTab === 'tickets' ? 'active' : ''}`}>{t('support.myTickets')}</button>
       </div>
 
       <div className="support-body space-y-4">

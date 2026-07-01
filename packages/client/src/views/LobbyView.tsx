@@ -474,9 +474,9 @@ function RankedModal({ onClose, onFind }: RankedProps) {
 function TypePicker({ value, onChange }: { value: MatchType; onChange: (t: MatchType) => void }) {
   const t = useT();
   return (
-    <div className="seg w-full grid grid-cols-3" role="tablist">
+    <div className="seg w-full grid grid-cols-3" role="group">
       {TYPES.map((mt) => (
-        <button key={mt} type="button" role="tab" aria-selected={value === mt} className={`seg-tab text-center ${value === mt ? 'active' : ''}`} onClick={() => onChange(mt)}>
+        <button key={mt} type="button" aria-pressed={value === mt} className={`seg-tab text-center ${value === mt ? 'active' : ''}`} onClick={() => onChange(mt)}>
           {t(TYPE_LABEL[mt])}
         </button>
       ))}

@@ -283,9 +283,9 @@ export function ShopView() {
           </section>
           {/* Category tabs (one list at a time → fits the screen) + sort toggle. */}
           <div className="flex items-center gap-2">
-            <div className="seg grid grid-cols-2 flex-1" role="tablist" aria-label={t('shop.title')}>
+            <div className="seg grid grid-cols-2 flex-1" role="group" aria-label={t('shop.title')}>
               {GROUPS.map((g) => (
-                <button key={g.type} type="button" role="tab" aria-selected={shopCat === g.type} onClick={() => setShopCat(g.type)} className={`seg-tab text-center ${shopCat === g.type ? 'active' : ''}`}>
+                <button key={g.type} type="button" aria-pressed={shopCat === g.type} onClick={() => setShopCat(g.type)} className={`seg-tab text-center ${shopCat === g.type ? 'active' : ''}`}>
                   <span className="mr-1" aria-hidden>{g.icon}</span>{g.title}
                 </button>
               ))}

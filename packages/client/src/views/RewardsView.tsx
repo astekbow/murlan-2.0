@@ -309,9 +309,9 @@ export function RewardsView() {
       ) : (
         <>
           {/* Tabs so each part fits the screen without scroll. */}
-          <div className="seg grid grid-cols-3" role="tablist" aria-label={t('rewards.title')}>
+          <div className="seg grid grid-cols-3" role="group" aria-label={t('rewards.title')}>
             {(['daily', 'quests', 'challenges'] as const).map((tab) => (
-              <button key={tab} type="button" role="tab" aria-selected={rewardsTab === tab} onClick={() => setRewardsTab(tab)} className={`seg-tab text-center ${rewardsTab === tab ? 'active' : ''}`}>
+              <button key={tab} type="button" aria-pressed={rewardsTab === tab} onClick={() => setRewardsTab(tab)} className={`seg-tab text-center ${rewardsTab === tab ? 'active' : ''}`}>
                 {t(`rewards.tab.${tab}`)}
               </button>
             ))}

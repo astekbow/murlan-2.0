@@ -147,9 +147,9 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
         <>
           {/* Tabs: the fairness verdict + seeds on one tab, the move-log on another — each fits
               the screen instead of one long scrolling page. */}
-          <div className="seg grid grid-cols-2" role="tablist" aria-label={t('replay.title')}>
-            <button type="button" role="tab" aria-selected={replayTab === 'verify'} onClick={() => setReplayTab('verify')} className={`seg-tab text-center ${replayTab === 'verify' ? 'active' : ''}`}>{t('replay.tab.verify')}</button>
-            <button type="button" role="tab" aria-selected={replayTab === 'games'} onClick={() => setReplayTab('games')} className={`seg-tab text-center ${replayTab === 'games' ? 'active' : ''}`}>{t('replay.tab.games')}</button>
+          <div className="seg grid grid-cols-2" role="group" aria-label={t('replay.title')}>
+            <button type="button" aria-pressed={replayTab === 'verify'} onClick={() => setReplayTab('verify')} className={`seg-tab text-center ${replayTab === 'verify' ? 'active' : ''}`}>{t('replay.tab.verify')}</button>
+            <button type="button" aria-pressed={replayTab === 'games'} onClick={() => setReplayTab('games')} className={`seg-tab text-center ${replayTab === 'games' ? 'active' : ''}`}>{t('replay.tab.games')}</button>
           </div>
 
           {/* Verification verdict */}
@@ -200,9 +200,9 @@ export function ReplayView({ matchId, onClose }: { matchId: string; onClose: () 
               return (
                 <div className="space-y-3">
                   {gameIndices.length > 1 && (
-                    <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t('replay.moves')}>
+                    <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('replay.moves')}>
                       {gameIndices.map((g) => (
-                        <button key={g} type="button" role="tab" aria-selected={gi === g} onClick={() => setGameTab(g)} className={`btn btn-sm ${gi === g ? 'btn-gold' : 'btn-ghost'}`}>{g + 1}</button>
+                        <button key={g} type="button" aria-pressed={gi === g} onClick={() => setGameTab(g)} className={`btn btn-sm ${gi === g ? 'btn-gold' : 'btn-ghost'}`}>{g + 1}</button>
                       ))}
                     </div>
                   )}

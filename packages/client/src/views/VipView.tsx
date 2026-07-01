@@ -204,9 +204,9 @@ export function VipView() {
       ) : (
         <>
           {/* Tabs so each part fits the screen without scroll. */}
-          <div className="seg grid grid-cols-2" role="tablist" aria-label="VIP">
-            <button type="button" role="tab" aria-selected={vipTab === 'status'} onClick={() => setVipTab('status')} className={`seg-tab text-center ${vipTab === 'status' ? 'active' : ''}`}>{t('vip.tabStatus')}</button>
-            <button type="button" role="tab" aria-selected={vipTab === 'tiers'} onClick={() => setVipTab('tiers')} className={`seg-tab text-center ${vipTab === 'tiers' ? 'active' : ''}`}>{t('vip.tiersTitle')}</button>
+          <div className="seg grid grid-cols-2" role="group" aria-label="VIP">
+            <button type="button" aria-pressed={vipTab === 'status'} onClick={() => setVipTab('status')} className={`seg-tab text-center ${vipTab === 'status' ? 'active' : ''}`}>{t('vip.tabStatus')}</button>
+            <button type="button" aria-pressed={vipTab === 'tiers'} onClick={() => setVipTab('tiers')} className={`seg-tab text-center ${vipTab === 'tiers' ? 'active' : ''}`}>{t('vip.tiersTitle')}</button>
           </div>
           {vipTab === 'status' && vip && (
             <section className="panel p-5 animate-rise space-y-3" style={{ animationDelay: '.05s' }}>
