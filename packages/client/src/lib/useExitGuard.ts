@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { hasOpenModalBack } from './useModalBack.ts';
 
 /**
  * While `active` (the player is in a room / at the table), ABSORB the browser/Android
@@ -19,6 +20,11 @@ export function useExitGuard(active: boolean, onBack: () => void): void {
     // Seed one sentinel entry so the FIRST back press has something to consume.
     window.history.pushState({ exitGuard: true }, '', window.location.href);
     const onPop = () => {
+      // mobile-1: if a modal is open, THIS Back press is closing the modal (useModalBack owns it).
+      // Stand down — don't also re-trap + fire the leave-table prompt (the double-consumer bug that
+      // bounced players out of a live game on Android). Our own sentinel is still on the stack, so
+      // the NEXT back (with no modal open) re-arms the guard normally.
+      if (hasOpenModalBack()) return;
       // Still in the room when back fired → re-trap (never let it exit) + notify App.
       window.history.pushState({ exitGuard: true }, '', window.location.href);
       cb.current();

@@ -1308,8 +1308,16 @@ export function plural(baseKey: string, n: number, lang: Lang, vars?: TVars): st
 
 const STORAGE_KEY = 'murlan.lang.v1';
 function loadLang(): Lang {
-  // English is the DEFAULT language; Albanian only if the user has explicitly chosen it.
-  try { return localStorage.getItem(STORAGE_KEY) === 'sq' ? 'sq' : 'en'; } catch { return 'en'; }
+  // Albanian-FIRST product (cro/ux): default to sq. Respect an explicit prior choice, and fall
+  // back to en only when the browser's primary language is English.
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === 'sq' || stored === 'en') return stored;
+  } catch { /* ignore */ }
+  try {
+    if ((navigator.language || '').toLowerCase().startsWith('en')) return 'en';
+  } catch { /* ignore */ }
+  return 'sq';
 }
 if (typeof document !== 'undefined') document.documentElement.lang = loadLang();
 

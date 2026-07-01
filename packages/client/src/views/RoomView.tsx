@@ -22,7 +22,10 @@ const CONTEXT: Record<RoomStateDTO['type'], string> = {
 };
 
 export function RoomView({ room }: { room: RoomStateDTO }) {
-  const { mySeat, setReady, leaveRoom } = useGameStore();
+  // perf-4: per-field selectors, not a whole-store subscription (avoid re-rendering on unrelated updates).
+  const mySeat = useGameStore((s) => s.mySeat);
+  const setReady = useGameStore((s) => s.setReady);
+  const leaveRoom = useGameStore((s) => s.leaveRoom);
   const t = useT();
   useWakeLock(true); // keep the screen awake in the waiting room too (not just at the table)
   const landscape = useLandscapePage();

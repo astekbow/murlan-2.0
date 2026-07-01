@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { ToastKind } from '../store/gameStore.ts';
+import { useT } from '../lib/i18n.ts';
 
 interface ToastProps {
   message: string | null;
@@ -16,6 +17,7 @@ const KIND_CLASS: Record<ToastKind, string> = {
 /** Transient error/success/info banner. Errors linger longer (they carry actionable
  *  info like "insufficient balance") and everything is tap-to-dismiss. */
 export function Toast({ message, kind = 'error', onDismiss }: ToastProps) {
+  const t = useT();
   useEffect(() => {
     if (!message) return;
     // Errors need time to read; success/info can clear faster.
@@ -36,6 +38,7 @@ export function Toast({ message, kind = 'error', onDismiss }: ToastProps) {
           <button
             type="button"
             onClick={onDismiss}
+            aria-label={t('common.close')}
             className={`flex items-center gap-2 rounded-lg ${KIND_CLASS[kind]} px-4 py-2 text-sm font-medium shadow-lg animate-pop text-left`}
           >
             <span>{message}</span>

@@ -60,7 +60,7 @@ export function InstallModal() {
         <button
           type="button"
           onClick={() => dismiss(false)}
-          className="absolute top-3 right-3 w-9 h-9 grid place-items-center rounded-full hover:bg-white/10 text-muted text-lg"
+          className="absolute top-2 right-2 w-11 h-11 grid place-items-center rounded-full hover:bg-white/10 text-muted text-lg"
           aria-label={t('install.close')}
         >
           ✕

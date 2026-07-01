@@ -28,6 +28,10 @@
          never used), Oswald 600/700 (buttons/labels — 500 unused), Outfit 300–700 (body + Tailwind
          font-weight utilities). display=swap renders text immediately with the fallback then swaps (no
          FOIT); the preload hint prioritizes the font CSS without an inline script (CSP-safe). -->
+    <!-- perf: warm DNS/TLS to the font hosts so the render-blocking CSS + font files resolve faster
+         — cuts an RTT off first paint, no inline script (CSP-safe). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="preload"
       as="style"

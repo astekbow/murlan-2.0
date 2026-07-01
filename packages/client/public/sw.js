@@ -10,7 +10,7 @@
 //     on every deploy, so a cached copy can never be stale).
 // ============================================================================
 
-const CACHE = 'murlan-shell-v1';
+const CACHE = 'murlan-shell-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -49,15 +49,30 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for hashed static assets / the manifest / the icon.
-  const cacheable = url.pathname.startsWith('/assets/') || url.pathname.endsWith('.svg') || url.pathname.endsWith('.webmanifest');
-  if (!cacheable) return;
-  event.respondWith(
-    caches.match(req).then((cached) =>
-      cached ||
-      fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; }),
-    ),
-  );
+  // /assets/* are content-hashed → immutable → cache-first (a cached copy can never be stale).
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(req).then((cached) =>
+        cached ||
+        fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; }),
+      ),
+    );
+    return;
+  }
+  // Stable-named assets (the manifest / an .svg) — STALE-WHILE-REVALIDATE so a changed manifest or
+  // logo updates on the next load instead of being pinned forever by a static cache name (sw-1):
+  // serve the cached copy instantly, then refresh the cache in the background from the network.
+  if (url.pathname.endsWith('.svg') || url.pathname.endsWith('.webmanifest')) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        const fresh = fetch(req)
+          .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; })
+          .catch(() => cached);
+        return cached || fresh;
+      }),
+    );
+    return;
+  }
 });
 
 // ---- Web Push re-engagement (turn / match / reward nudges) -----------------

@@ -130,7 +130,16 @@ function FriendsOnlineStrip() {
 }
 
 export function LobbyView() {
-  const { lobby, live, createRoom, joinRoom, joinByCode, refreshLobby, findRanked, spectate } = useGameStore();
+  // perf-4: select each field (state + stable actions) instead of subscribing to the WHOLE game
+  // store — so an unrelated store update doesn't re-render the entire lobby.
+  const lobby = useGameStore((s) => s.lobby);
+  const live = useGameStore((s) => s.live);
+  const createRoom = useGameStore((s) => s.createRoom);
+  const joinRoom = useGameStore((s) => s.joinRoom);
+  const joinByCode = useGameStore((s) => s.joinByCode);
+  const refreshLobby = useGameStore((s) => s.refreshLobby);
+  const findRanked = useGameStore((s) => s.findRanked);
+  const spectate = useGameStore((s) => s.spectate);
   const balanceCents = useAuthStore((s) => s.user?.balanceCents ?? 0);
   const setView = useUiStore((s) => s.setView);
   const t = useT();

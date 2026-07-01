@@ -429,7 +429,9 @@ export function WalletView() {
             <button
               key={f}
               onClick={() => setTxFilter(f)}
-              className={`text-xs rounded-full px-2.5 py-1 border ${txFilter === f ? 'border-gold bg-gold/[.12] text-gold-hi' : 'border-white/10 text-muted'}`}
+              // ux-a11y: keep the pill visually compact but give it a 44px-tall invisible tap area
+              // (WCAG 2.5.5) via the ::after overlay — no layout change.
+              className={`relative text-xs rounded-full px-2.5 py-1 border after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-[''] ${txFilter === f ? 'border-gold bg-gold/[.12] text-gold-hi' : 'border-white/10 text-muted'}`}
             >
               {t(`wallet.txf.${f}`)}
             </button>
