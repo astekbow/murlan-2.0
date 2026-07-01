@@ -41,6 +41,9 @@ const schema = z.object({
   RESEND_API_KEY: z.string().optional(),       // set to send real reset/verification emails via Resend
   EMAIL_FROM: z.string().optional(),           // sender, e.g. "Murlan <noreply@yourdomain.com>"
   ADMIN_EMAIL: z.string().optional(),          // this account is auto-promoted to admin on boot
+  VAPID_PUBLIC_KEY: z.string().optional(),     // Web Push public key (safe to expose) — `npx web-push generate-vapid-keys`
+  VAPID_PRIVATE_KEY: z.string().optional(),    // Web Push private key — SECRET, server-only; enables real delivery
+  VAPID_SUBJECT: z.string().optional(),        // VAPID contact: a mailto: or https URL (defaults to the admin mail)
   TELEGRAM_BOT_TOKEN: z.string().optional(),   // set BOTH token + chat id → ops alerts (e.g. new withdrawal) to Telegram
   TELEGRAM_CHAT_ID: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(), // set → the admin bot is active: Telegram updates POST to /api/telegram/webhook (verified by this secret)
@@ -156,6 +159,9 @@ export interface AppConfig {
   metricsToken: string | null;             // bearer token guarding GET /metrics (null = private-IP-only)
   resendApiKey: string | null;
   emailFrom: string;
+  vapidPublicKey: string | null;
+  vapidPrivateKey: string | null;
+  vapidSubject: string;
   adminEmail: string | null;
   telegramBotToken: string | null;
   telegramChatId: string | null;
@@ -326,6 +332,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     resendApiKey: parsed.RESEND_API_KEY || null,
     emailFrom: parsed.EMAIL_FROM || 'Murlan <onboarding@resend.dev>',
     adminEmail: parsed.ADMIN_EMAIL ? parsed.ADMIN_EMAIL.trim().toLowerCase() : null,
+    vapidPublicKey: parsed.VAPID_PUBLIC_KEY || null,
+    vapidPrivateKey: parsed.VAPID_PRIVATE_KEY || null,
+    vapidSubject: parsed.VAPID_SUBJECT || (parsed.ADMIN_EMAIL ? `mailto:${parsed.ADMIN_EMAIL.trim()}` : 'mailto:admin@cryptomurlan.com'),
     telegramBotToken: parsed.TELEGRAM_BOT_TOKEN || null,
     telegramChatId: parsed.TELEGRAM_CHAT_ID || null,
     telegramWebhookSecret: parsed.TELEGRAM_WEBHOOK_SECRET || null,

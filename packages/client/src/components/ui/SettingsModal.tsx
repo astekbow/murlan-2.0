@@ -1,12 +1,16 @@
+import { useEffect, useState } from 'react';
 import { Modal } from './Modal.tsx';
 import { useSettingsStore } from '../../store/settingsStore.ts';
 import { useSessionStore, useSessionMinutes, formatSessionDuration } from '../../store/sessionStore.ts';
 import { useRulesStore } from '../../store/rulesStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
+import { useAuthStore } from '../../store/authStore.ts';
+import { useNotifications } from '../../store/notificationsStore.ts';
 import { isStandalone } from '../../lib/pwa.ts';
 import { useWalletStore } from '../../store/walletStore.ts';
 import { dollars } from '../../lib/money.ts';
 import { sound } from '../../lib/sound.ts';
+import { pushSupported, enablePush, disablePush, isPushEnabled } from '../../lib/push.ts';
 import { useT, useLangStore, type Lang } from '../../lib/i18n.ts';
 
 /** Audio settings: mute, master volume, and ambient music — persisted per device. */
@@ -22,6 +26,41 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const startBal = useSessionStore((s) => s.startBalanceCents);
   const curBal = useWalletStore((s) => s.balanceCents);
   const delta = startBal != null ? curBal - startBal : null;
+
+  // Push notifications opt-in (per device). Only shown where the browser supports it.
+  const canPush = pushSupported();
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    if (canPush) void isPushEnabled().then(setPushOn);
+  }, [canPush]);
+  const togglePush = async (on: boolean) => {
+    if (pushBusy) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setPushBusy(true);
+    sound.play('button');
+    try {
+      if (on) {
+        const res = await enablePush(token);
+        if (res === 'enabled') {
+          setPushOn(true);
+          useNotifications.getState().push(t('settings.notifOn'), 'info');
+        } else {
+          setPushOn(false);
+          const msg = res === 'denied' ? t('settings.notifDenied')
+            : res === 'unsupported' ? t('settings.notifUnsupported')
+            : t('settings.notifUnavailable');
+          useNotifications.getState().push(msg, 'error');
+        }
+      } else {
+        await disablePush(token);
+        setPushOn(false);
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   return (
     <Modal title={t('settings.title')} onClose={onClose}>
@@ -85,6 +124,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <Row label={t('settings.music')}>
           <Toggle on={musicOn} onChange={(on) => { setMusicOn(on); sound.play('button'); }} labels={['Off', 'On']} />
         </Row>
+
+        {/* Push notifications (per device) — turn / match / friend-request nudges when you're away. */}
+        {canPush && (
+          <div>
+            <Row label={t('settings.notifications')}>
+              <Toggle on={pushOn} onChange={(on) => void togglePush(on)} labels={['Off', 'On']} />
+            </Row>
+            <p className="text-[11px] text-muted/80 mt-1">{t('settings.notificationsHint')}</p>
+          </div>
+        )}
 
         {/* Session recap (responsible-gaming nudge): time + games + net balance change. */}
         <div>

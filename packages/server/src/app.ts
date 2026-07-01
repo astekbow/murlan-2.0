@@ -86,7 +86,7 @@ import { InMemorySuspicion, type SuspicionRepository } from './antiCheat/suspici
 import { AntiCheatService } from './antiCheat/antiCheatService.ts';
 import { InMemoryPushSubscriptions, type PushSubscriptionRepository } from './push/pushRepository.ts';
 import { PushService } from './push/pushService.ts';
-import { ConsolePushProvider } from './push/pushProvider.ts';
+import { ConsolePushProvider, createWebPushProvider, type PushProvider } from './push/pushProvider.ts';
 import { VipService } from './vip/vipService.ts';
 import { vipRoutes } from './http/vipRoutes.ts';
 import { clubWarRoutes } from './http/clubWarRoutes.ts';
@@ -294,6 +294,11 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     loginRateLimit: { max: 8, timeWindow: '5 minutes' },
   });
   await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push, wallet: deps.wallet, withdrawals: deps.withdrawals });
+
+  // Public: the VAPID *public* key (safe to expose by design). The client reads it at
+  // RUNTIME to subscribe — images are CI-built, so the key can't be a build-time env.
+  // `null` when push isn't configured → the client silently no-ops the opt-in.
+  app.get('/api/push/vapid-public-key', async () => ({ key: deps.config.vapidPublicKey ?? null }));
 
   if (deps.profiles && deps.friends) {
     await socialRoutes(app, { auth: deps.auth, profiles: deps.profiles, friends: deps.friends, feed: deps.feed, dms: deps.dms });
@@ -723,9 +728,23 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   const compliance = new ComplianceService(config.compliance);
   const responsibleGaming = new ResponsibleGamingService(repo, wallet);
   const antiCheat = new AntiCheatService(matchLogRepo, repo, suspicionRepo);
-  // Web Push re-engagement. ConsolePushProvider LOGS nudges until VAPID keys are
-  // configured for real browser delivery (see push/pushProvider.ts).
-  const push = new PushService(pushSubsRepo, new ConsolePushProvider());
+  // Web Push re-engagement. With VAPID keys configured we deliver for REAL via the
+  // `web-push` library; otherwise ConsolePushProvider just LOGS the nudge (see
+  // push/pushProvider.ts). A bad key set falls back to console rather than crashing boot.
+  let pushProvider: PushProvider = new ConsolePushProvider();
+  if (config.vapidPublicKey && config.vapidPrivateKey) {
+    try {
+      pushProvider = await createWebPushProvider({
+        publicKey: config.vapidPublicKey,
+        privateKey: config.vapidPrivateKey,
+        subject: config.vapidSubject,
+      });
+      console.info('[push] real Web Push enabled (VAPID configured)');
+    } catch (err) {
+      console.error('[push] failed to init web-push — falling back to console provider:', err);
+    }
+  }
+  const push = new PushService(pushSubsRepo, pushProvider);
 
   // Admin → player message (e.g. a support-ticket reply): deliver it on EVERY channel so it actually
   // reaches the player — an in-app 🔔 (set once the gateway exists, below) AND a best-effort web-push.

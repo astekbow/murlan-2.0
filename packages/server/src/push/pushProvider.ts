@@ -39,3 +39,36 @@ export class ConsolePushProvider implements PushProvider {
     return { ok: true };
   }
 }
+
+/**
+ * REAL browser delivery via the `web-push` library + self-generated VAPID keys.
+ * Built lazily (dynamic import) so the dependency only loads when keys are actually
+ * configured — dev/tests keep ConsolePushProvider with zero extra runtime cost.
+ * The SW (`public/sw.js`) already renders the JSON payload we send here.
+ */
+export async function createWebPushProvider(opts: {
+  publicKey: string;
+  privateKey: string;
+  subject: string;
+}): Promise<PushProvider> {
+  const webpush = (await import('web-push')).default;
+  webpush.setVapidDetails(opts.subject, opts.publicKey, opts.privateKey);
+  return {
+    name: 'web-push',
+    async send(sub: WebPushSubscription, payload: PushPayload): Promise<{ ok: boolean; gone?: boolean }> {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          JSON.stringify({ title: payload.title, body: payload.body, url: payload.url ?? '/', tag: payload.tag }),
+          { TTL: 60 * 30 }, // 30 min — a stale turn nudge is useless; let it expire rather than pile up
+        );
+        return { ok: true };
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode;
+        // 404 (unknown) / 410 (gone) → the browser dropped the subscription; prune it.
+        if (status === 404 || status === 410) return { ok: false, gone: true };
+        return { ok: false };
+      }
+    },
+  };
+}

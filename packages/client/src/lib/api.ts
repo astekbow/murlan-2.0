@@ -397,6 +397,8 @@ export const accountApi = {
     request<{ ok: boolean }>('/account/push-subscription', { method: 'POST', token, body: sub }),
   unsubscribePush: (token: string, endpoint: string) =>
     request<{ ok: boolean }>('/account/push-subscription', { method: 'DELETE', token, body: { endpoint } }),
+  /** The server's VAPID *public* key (safe to expose) — read at runtime to subscribe. `null` = push off. */
+  vapidPublicKey: () => request<{ key: string | null }>('/push/vapid-public-key'),
   /** GDPR Art.15/20: the full bundle of the caller's own data (profile + transactions
    *  + withdrawals + RG settings), for a self-service download. */
   exportData: (token: string) =>
