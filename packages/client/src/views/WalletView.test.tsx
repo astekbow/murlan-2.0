@@ -65,3 +65,30 @@ test('WalletView renders and gates a withdrawal behind a confirmation dialog', a
   fireEvent.click(reqButtons[reqButtons.length - 1]!);
   await waitFor(() => expect(h.withdraw).toHaveBeenCalledWith(500, 'TXYZ1234567890abcdefghijklmnopqrs'));
 });
+
+test('WalletView gates the deposit TxID button until a valid 64-hex hash is entered', async () => {
+  const { WalletView } = await import('./WalletView.tsx');
+  render(<WalletView />);
+  // The deposit section (with the TxID fallback in a <details>) renders after the address loads.
+  const txInput = await screen.findByLabelText('Transaction TxID') as HTMLInputElement;
+  const confirmBtn = screen.getByRole('button', { name: 'Confirm deposit', hidden: true }) as HTMLButtonElement;
+  expect(confirmBtn.disabled).toBe(true); // empty → disabled
+
+  fireEvent.change(txInput, { target: { value: 'not-a-valid-hash' } });
+  expect(confirmBtn.disabled).toBe(true); // malformed → still disabled (no confusing backend reject)
+
+  fireEvent.change(txInput, { target: { value: 'a'.repeat(64) } });
+  expect(confirmBtn.disabled).toBe(false); // 64 hex chars → enabled
+});
+
+test('WalletView surfaces a store error in an assertive alert banner', async () => {
+  h.state.error = 'Deposit failed';
+  try {
+    const { WalletView } = await import('./WalletView.tsx');
+    render(<WalletView />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Deposit failed');
+  } finally {
+    h.state.error = null;
+  }
+});
