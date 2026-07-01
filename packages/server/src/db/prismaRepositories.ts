@@ -238,6 +238,12 @@ export class PrismaUserRepository implements UserRepository {
     return (await this.db.user.findMany({ orderBy: { createdAt: 'desc' }, take: 5000 })).map(toUser);
   }
 
+  async sumBalancesByRole(role: string): Promise<number> {
+    // perf-2: SUM in the DB over ALL matching rows — no 5000-row truncation, no JS scan.
+    const agg = await this.db.user.aggregate({ where: { role: role as UserRole }, _sum: { balanceCents: true } });
+    return agg._sum?.balanceCents ?? 0;
+  }
+
   async applyMatchResult(id: string, r: { won: boolean; potCents: number; xpGain: number }): Promise<User | null> {
     // Cosmetic stats. gamesPlayed/wins/xp are atomic {increment}s, but currentStreak/biggestPotCents
     // are read-modify-write — two concurrent match-ends for the same user could lose a streak bump or
@@ -520,6 +526,18 @@ export class PrismaLedger implements LedgerRepository {
       _sum: { amountCents: true },
     });
     return agg._sum.amountCents ?? 0;
+  }
+  async sumsByUser(): Promise<Map<string, number>> {
+    // db-1/perf-1: a single SQL GROUP BY instead of loading the whole ledger into JS for reconcile.
+    const rows = await this.db.transaction.groupBy({ by: ['userId'], _sum: { amountCents: true } });
+    return new Map(rows.map((r) => [r.userId, r._sum.amountCents ?? 0]));
+  }
+  async sumsByMatch(): Promise<Map<string, number>> {
+    // db-1/perf-1: GROUP BY matchId in the DB (rows with a matchId only).
+    const rows = await this.db.transaction.groupBy({ by: ['matchId'], where: { matchId: { not: null } }, _sum: { amountCents: true } });
+    const m = new Map<string, number>();
+    for (const r of rows) if (r.matchId != null) m.set(r.matchId, r._sum.amountCents ?? 0);
+    return m;
   }
 }
 
@@ -1202,10 +1220,15 @@ export class PrismaUnitOfWork implements UnitOfWork {
         audit: new PrismaAdminAudit(tx as unknown as PrismaClient),
         // deposit-cap fix: a per-user transaction-scoped advisory lock so concurrent
         // capped deposits serialize across instances (auto-released at commit/rollback).
+        // db-3: hashtextextended(text, 0) → int8 (64-bit) key, not hashtext's int4 (32-bit),
+        // so two distinct users' deposit keys are astronomically unlikely to collide.
         advisoryXactLock: async (key: string) => {
-          await (tx as unknown as PrismaClient).$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          await (tx as unknown as PrismaClient).$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
         },
       }),
+      // db-2: the money settle loop can pay many winners; Prisma's default 5s timeout against a
+      // connection_limit=1 pooler is too tight and would abort a legitimate multi-winner settle.
+      { maxWait: 10_000, timeout: 20_000 },
     );
   }
 }

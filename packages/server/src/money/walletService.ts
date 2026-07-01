@@ -454,14 +454,25 @@ export class WalletService {
 
   /** Verify every real user's stored balance equals the sum of their ledger rows. */
   async reconcile(): Promise<{ ok: boolean; mismatches: Array<{ userId: string; balanceCents: number; ledgerSum: number }> }> {
-    const all = await this.ledger.all();
-    const sums = new Map<string, number>();
-    for (const tx of all) sums.set(tx.userId, (sums.get(tx.userId) ?? 0) + tx.amountCents);
+    // db-1/perf-1: prefer a single SQL GROUP BY over loading the ENTIRE ledger into JS, and
+    // batch-load the balances for exactly the users with ledger rows (one query) instead of an
+    // N+1 getBalance() per user. Falls back to the whole-ledger scan when the aggregate is absent.
+    const sums = this.ledger.sumsByUser
+      ? await this.ledger.sumsByUser()
+      : (() => {
+          const m = new Map<string, number>();
+          return this.ledger.all().then((all) => { for (const tx of all) m.set(tx.userId, (m.get(tx.userId) ?? 0) + tx.amountCents); return m; });
+        })();
+    const sumMap = await sums;
+
+    const userIds = [...sumMap.keys()].filter((id) => id !== HOUSE_ACCOUNT_ID);
+    const balances = new Map<string, number>();
+    for (const u of await this.users.findManyByIds(userIds)) balances.set(u.id, u.balanceCents);
 
     const mismatches: Array<{ userId: string; balanceCents: number; ledgerSum: number }> = [];
-    for (const [userId, ledgerSum] of sums) {
-      if (userId === HOUSE_ACCOUNT_ID) continue; // house is ledger-only
-      const balanceCents = await this.getBalance(userId);
+    for (const userId of userIds) {
+      const ledgerSum = sumMap.get(userId) ?? 0;
+      const balanceCents = balances.get(userId) ?? 0; // a ledger userId with no user row → treat as 0
       if (balanceCents !== ledgerSum) mismatches.push({ userId, balanceCents, ledgerSum });
     }
     return { ok: mismatches.length === 0, mismatches };
@@ -473,6 +484,8 @@ export class WalletService {
    * sum for a closed match means the rake/payout split lost or minted money.
    */
   async matchLedgerSums(): Promise<Map<string, number>> {
+    // db-1/perf-1: DB GROUP BY when available, else the whole-ledger JS scan.
+    if (this.ledger.sumsByMatch) return this.ledger.sumsByMatch();
     const all = await this.ledger.all();
     const sums = new Map<string, number>();
     for (const tx of all) {

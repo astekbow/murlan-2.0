@@ -182,6 +182,9 @@ export interface UserRepository {
   setAccountState(id: string, patch: AccountStatePatch): Promise<User | null>;
   /** All users (admin listing). Production impl should paginate. */
   list(): Promise<User[]>;
+  /** OPTIONAL DB aggregate (perf-2): SUM(balanceCents) for a role, computed in the DB instead
+   *  of loading every user into JS (the treasury liability check). Falls back to list() + reduce. */
+  sumBalancesByRole?(role: string): Promise<number>;
   /** Apply a finished match to a player's cosmetic stats/XP. */
   applyMatchResult(id: string, r: MatchStatUpdate): Promise<User | null>;
   /** Set the cosmetic avatar id. */
@@ -390,6 +393,12 @@ export class InMemoryUserRepository implements UserRepository {
 
   async list(): Promise<User[]> {
     return [...this.byId.values()].map((u) => ({ ...u }));
+  }
+
+  async sumBalancesByRole(role: string): Promise<number> {
+    let s = 0;
+    for (const u of this.byId.values()) if (u.role === role) s += u.balanceCents;
+    return s;
   }
 
   async applyMatchResult(id: string, r: MatchStatUpdate): Promise<User | null> {

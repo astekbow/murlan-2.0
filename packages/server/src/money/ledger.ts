@@ -84,6 +84,18 @@ export interface LedgerRepository {
    * ledger. When unimplemented, callers fall back to listByUser() + the pure summations.
    */
   sumByUserTypesSince?(userId: string, types: TransactionType[], sinceMs: number): Promise<number>;
+  /**
+   * OPTIONAL DB aggregate (db-1 / perf-1): the signed sum of amountCents GROUPED BY userId,
+   * for the reconcile invariant, computed with a single SQL GROUP BY instead of loading the
+   * entire ledger into JS. When unimplemented, callers fall back to summing all().
+   */
+  sumsByUser?(): Promise<Map<string, number>>;
+  /**
+   * OPTIONAL DB aggregate (db-1 / perf-1): the signed sum of amountCents GROUPED BY matchId
+   * (rows with a matchId only), for the per-match conservation check. When unimplemented,
+   * callers fall back to summing all().
+   */
+  sumsByMatch?(): Promise<Map<string, number>>;
 }
 
 /** Bounded, keyset-paginated read options for a user's ledger (display lists only). */
@@ -161,5 +173,15 @@ export class InMemoryLedger implements LedgerRepository {
     return this.rows
       .filter((r) => r.userId === userId && set.has(r.type) && r.createdAt >= sinceMs)
       .reduce((s, r) => s + r.amountCents, 0); // signed
+  }
+  async sumsByUser(): Promise<Map<string, number>> {
+    const m = new Map<string, number>();
+    for (const r of this.rows) m.set(r.userId, (m.get(r.userId) ?? 0) + r.amountCents);
+    return m;
+  }
+  async sumsByMatch(): Promise<Map<string, number>> {
+    const m = new Map<string, number>();
+    for (const r of this.rows) if (r.matchId) m.set(r.matchId, (m.get(r.matchId) ?? 0) + r.amountCents);
+    return m;
   }
 }

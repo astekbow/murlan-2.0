@@ -1193,7 +1193,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         if (binanceAccount) {
           const binCents = await binanceAccount.freeUsdtCents();
           if (binCents != null) {
-            const liabilities = (await auth.listUsers()).filter((u) => u.role === 'user').reduce((s, u) => s + u.balanceCents, 0);
+            const liabilities = await auth.sumUserLiabilitiesCents(); // perf-2: DB SUM, no whole-table load / 5000-row truncation
             const buffer = treasuryBufferCents(binCents, liabilities);
             treasuryBufferGauge.set(buffer);
             if (buffer < 0 && notifier.name !== 'null' && now - lastTreasuryAlert > TREASURY_ALERT_THROTTLE_MS) {

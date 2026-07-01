@@ -542,6 +542,13 @@ export class AuthService {
     return (await this.users.list()).map((u) => u.depositAddress).filter((a): a is string => !!a);
   }
 
+  /** perf-2: total player liabilities (SUM of role='user' balances). Uses the DB aggregate when
+   *  available (no whole-table load, no 5000-row truncation); falls back to list() + reduce. */
+  async sumUserLiabilitiesCents(): Promise<number> {
+    if (this.users.sumBalancesByRole) return this.users.sumBalancesByRole('user');
+    return (await this.users.list()).filter((u) => u.role === 'user').reduce((s, u) => s + u.balanceCents, 0);
+  }
+
   /** Set a user's platform role (admin promote/demote). Returns the updated user. */
   async setRole(userId: string, role: UserRole): Promise<PublicUser | null> {
     await this.users.setRole(userId, role);
