@@ -462,15 +462,20 @@ export interface CreateServerOptions {
   userRepository?: UserRepository; // inject Prisma repo in production
 }
 
-export async function createGameServer(opts: CreateServerOptions = {}): Promise<GameServer> {
-  const config = opts.config ?? loadConfig();
-  const tokens = new TokenService({
-    accessSecret: config.accessSecret,
-    refreshSecret: config.refreshSecret,
-    accessTtl: config.accessTtl,
-    refreshTtl: config.refreshTtl,
-  });
+interface StoreBundle {
+  repo: UserRepository; ledger: LedgerRepository; matchesRepo: MatchesRepository;
+  withdrawalsRepo: WithdrawalRepository; intentsRepo: DepositIntentRepository; friendsRepo: FriendsRepository;
+  refreshTokensRepo: RefreshTokenRepository; adminAuditRepo: AdminAuditRepository; gamesRepo: GamesRepository;
+  matchLogRepo: MatchActionsRepository; supportRepo: SupportRepository; suspicionRepo: SuspicionRepository;
+  pushSubsRepo: PushSubscriptionRepository; chatRepo: ChatRepository; dmsRepo: DmRepository;
+  clubWarsRepo: ClubWarRepository; clubsRepo: ClubRepository; tournamentsRepo: TournamentRepository;
+  seasonsRepo: SeasonRepository; verificationTokensRepo: VerificationTokenRepository;
+  uow: UnitOfWork | undefined; dbPing: (() => Promise<boolean>) | undefined;
+}
 
+/** Build the persistence layer: Prisma/Postgres when DATABASE_URL is set, else in-memory (fail-closed in
+ *  prod). Extracted from createGameServer (arch-4) so the composition root reads as orchestration. */
+async function buildStores(config: AppConfig, opts: CreateServerOptions): Promise<StoreBundle> {
   // Persistence: Postgres/Prisma when DATABASE_URL is set, else in-memory.
   // The Prisma module is dynamically imported so the in-memory path never
   // loads @prisma/client. All five stores share the same interface contract.
@@ -569,6 +574,22 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     seasonsRepo = new InMemorySeasonRepository();
     verificationTokensRepo = new InMemoryVerificationTokens();
   }
+  return { repo, ledger, matchesRepo, withdrawalsRepo, intentsRepo, friendsRepo, refreshTokensRepo, adminAuditRepo, gamesRepo, matchLogRepo, supportRepo, suspicionRepo, pushSubsRepo, chatRepo, dmsRepo, clubWarsRepo, clubsRepo, tournamentsRepo, seasonsRepo, verificationTokensRepo, uow, dbPing };
+}
+
+export async function createGameServer(opts: CreateServerOptions = {}): Promise<GameServer> {
+  const config = opts.config ?? loadConfig();
+  const tokens = new TokenService({
+    accessSecret: config.accessSecret,
+    refreshSecret: config.refreshSecret,
+    accessTtl: config.accessTtl,
+    refreshTtl: config.refreshTtl,
+  });
+
+  // Persistence layer (Prisma/Postgres or in-memory) — built in buildStores() (arch-4).
+  const {
+    repo, ledger, matchesRepo, withdrawalsRepo, intentsRepo, friendsRepo, refreshTokensRepo, adminAuditRepo, gamesRepo, matchLogRepo, supportRepo, suspicionRepo, pushSubsRepo, chatRepo, dmsRepo, clubWarsRepo, clubsRepo, tournamentsRepo, seasonsRepo, verificationTokensRepo, uow, dbPing,
+  } = await buildStores(config, opts);
 
   // Provider stubs (mock payment, console email) must NEVER ship to production
   // silently: a stub can't move real money or deliver verification/reset links.
