@@ -40,7 +40,7 @@ export function CookieNotice() {
     >
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="leading-snug text-ivory/90">{t('consent.text')}</p>
-        <button type="button" onClick={accept} className="btn-gold shrink-0 whitespace-nowrap px-4 py-1.5">
+        <button type="button" onClick={accept} className="btn btn-gold shrink-0 whitespace-nowrap px-4 py-1.5">
           {t('consent.accept')}
         </button>
       </div>
