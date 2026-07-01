@@ -1,0 +1,16 @@
+# Trivy ignore list — TRIAGED, TIME-BOXED CVE exceptions only.
+#
+# The CI image scan (.github/workflows/ci.yml → "Scan … (Trivy)") BLOCKS the GHCR push on any
+# FIXABLE HIGH/CRITICAL CVE. This file is the ONLY escape hatch: a specific, understood
+# vulnerability that cannot be cleared yet (e.g. a base-image fix hasn't landed upstream) is
+# listed here so it doesn't wedge deploys — while every NEW/unknown finding still fails the gate.
+#
+# Rules:
+#   • one CVE id per line, each with a comment: what it is, why it's safe-to-defer, and an EXPIRY date.
+#   • re-triage on every base-image re-pin; delete anything that no longer appears in the scan.
+#   • never add a blanket wildcard.
+#
+# Format:
+#   CVE-XXXX-YYYYY  # <why deferred> — expires YYYY-MM-DD
+#
+# (empty = the gate is fully strict; add an id only after you've read the Trivy log and triaged it.)

@@ -112,34 +112,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # Build both images: the :ci tag is what Trivy scans; the GHCR tags are the SAME artifact that gets
       # pushed below + pulled by the host (deploy/pull-deploy.sh) so the VPS never builds locally.
+      # buildx + a GitHub Actions layer cache (devops-4) so npm ci + vite build aren't re-run from scratch
+      # on every push; --load imports the image into the daemon so Trivy can scan it and docker push ships it.
       - name: Build server image
-        run: docker build -f Dockerfile.server -t murlan-server:ci -t ghcr.io/${{ github.repository_owner }}/murlan-server:latest -t ghcr.io/${{ github.repository_owner }}/murlan-server:${{ github.sha }} .
+        run: docker buildx build -f Dockerfile.server --load --cache-from type=gha,scope=server --cache-to type=gha,mode=max,scope=server -t murlan-server:ci -t ghcr.io/${{ github.repository_owner }}/murlan-server:latest -t ghcr.io/${{ github.repository_owner }}/murlan-server:${{ github.sha }} .
       - name: Build client image
-        run: docker build -f Dockerfile.client -t murlan-client:ci -t ghcr.io/${{ github.repository_owner }}/murlan-client:latest -t ghcr.io/${{ github.repository_owner }}/murlan-client:${{ github.sha }} .
-      # Scan the built images for OS/library CVEs (HIGH/CRITICAL, fixable only). REPORT-ONLY for now
-      # (exit-code 0): the findings already exist in the image that the on-VPS build ships UNSCANNED, so
-      # gating the GHCR push on them is stricter than production reality and would wedge all deploys. The
-      # table still prints to the log — read it, patch the base/dep, then flip exit-code back to '1'.
-      # TODO(security): restore exit-code '1' once the flagged HIGH/CRITICAL is patched.
+        run: docker buildx build -f Dockerfile.client --load --cache-from type=gha,scope=client --cache-to type=gha,mode=max,scope=client -t murlan-client:ci -t ghcr.io/${{ github.repository_owner }}/murlan-client:latest -t ghcr.io/${{ github.repository_owner }}/murlan-client:${{ github.sha }} .
+      # Scan the built images for FIXABLE HIGH/CRITICAL CVEs and BLOCK the push on any (devops-1 — restored
+      # from the temporary report-only state). A single pre-existing base CVE that can't be cleared yet is
+      # triaged into `.trivyignore` (with a note + expiry) instead of disabling the whole gate, so a NEW
+      # vulnerability can never ship unnoticed.
       - name: Scan server image (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 — pinned to an immutable commit (audit L12), was @master
         with:
           image-ref: murlan-server:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '0'
+          trivyignores: .trivyignore
+          exit-code: '1'
       - name: Scan client image (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 — pinned to an immutable commit (audit L12), was @master
         with:
           image-ref: murlan-client:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '0'
+          trivyignores: .trivyignore
+          exit-code: '1'
 
-      # Only CLEAN (Trivy-passed) images reach the registry. `latest` = the deploy target the host pulls;
-      # the immutable `:<sha>` tag is a rollback point. Skipped on PRs (the `if` above gated the login).
+      # Only CLEAN (Trivy-passed) images reach the registry — the scan above fails the job on any
+      # un-triaged HIGH/CRITICAL. `latest` = the deploy target the host pulls; the immutable `:<sha>`
+      # tag is a rollback point. Skipped on PRs (the `if` above gated the login).
       - name: Push images to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |

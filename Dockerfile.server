@@ -23,6 +23,9 @@ WORKDIR /app
 # Patch OS packages to the latest alpine security fixes (the base digest is pinned for reproducibility but
 # ages between re-pins; `apk upgrade` closes FIXABLE CVEs the CI Trivy gate flags). Then openssl so Prisma
 # detects the right engine at build AND runtime (see deps stage).
+# devops-3 trade-off (deliberate): `apk upgrade` makes the layer non-reproducible across time, but for a
+# RUNTIME image we choose CVE-currency over byte-reproducibility. The proper long-term fix is to re-pin the
+# base digest to a freshly-patched node:22-alpine on a schedule and drop this line — until then, keep it.
 RUN apk upgrade --no-cache && apk add --no-cache openssl
 # PORT must match EXPOSE + the HEALTHCHECK below AND the docker-compose `PORT` env +
 # nginx upstream (all 3000). A mismatch would make Docker probe the wrong port and
