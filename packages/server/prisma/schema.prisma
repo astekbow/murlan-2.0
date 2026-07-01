@@ -289,7 +289,7 @@ model Transaction {
 
 model Match {
   id         String      @id
-  type       String // '1v1' | '1v1v1' | '2v2'
+  type       String // '1v1' | '1v1v1' | '2v2' — DB CHECK matches_type_check (migration 20260701000000)
   stakeCents Int
   rakeBps    Int
   potCents   Int
@@ -352,7 +352,7 @@ model GameAction {
   seq       Int // monotonic within the match (turn order)
   gameIndex Int
   seat      Int
-  type      String // 'play' | 'pass' | 'switch' | 'forfeit' (free-text; no enum/migration)
+  type      String // 'play' | 'pass' | 'switch' | 'forfeit' — DB CHECK game_actions_type_check (migration 20260701000000)
   cards     Json? // played cards / given card; null for a pass / forfeit
   createdAt DateTime @default(now())
 
@@ -367,7 +367,7 @@ model GameAction {
 model SupportTicket {
   id         String        @id @default(cuid())
   userId     String
-  category   String // 'match' | 'payment' | 'account' | 'other'
+  category   String // 'match' | 'payment' | 'account' | 'other' — DB CHECK support_tickets_category_check (migration 20260701000000)
   subject    String
   message    String
   status     SupportStatus @default(open)
@@ -540,7 +540,7 @@ model Club {
 model ClubMember {
   userId   String   @id // one club per user
   clubId   String
-  role     String // 'founder' | 'member'
+  role     String // 'founder' | 'member' — DB CHECK club_members_role_check (migration 20260701000000)
   joinedAt DateTime @default(now())
 
   club Club @relation(fields: [clubId], references: [id])
@@ -580,7 +580,7 @@ model Withdrawal {
 
 model DepositIntent {
   providerRef String   @id
-  userId      String
+  userId      String // FK → users(id) ON DELETE CASCADE (migration 20260701000000; Prisma-invisible NOT VALID FK)
   amountCents Int
   currency    String   @default("USD")
   createdAt   DateTime @default(now())
