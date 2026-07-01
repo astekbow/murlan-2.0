@@ -534,7 +534,7 @@ function ChallengeRow({ challenge, busy, index, onClaim }: ChallengeRowProps) {
       </div>
 
       <div className="flex items-center gap-3 mt-2.5">
-        <div className="xpbar flex-1" style={{ width: 'auto' }} role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={goal}>
+        <div className="xpbar flex-1" style={{ width: 'auto' }} role="progressbar" aria-label={t('rewards.achProgressLabel', { title })} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={goal}>
           <i style={{ width: `${pct}%` }} />
         </div>
         <span className="text-xs font-display font-semibold tracking-wide text-muted whitespace-nowrap">

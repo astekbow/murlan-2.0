@@ -127,7 +127,7 @@ export function ClubsView() {
             <div className="pg-ls-left panel p-3">
               <h2 className="text-sm font-display font-semibold text-gold-hi mb-2">{t('clubs.clubs')}</h2>
               <ul className="pg-ls-scroll space-y-1.5 pr-1">
-                {list.length === 0 ? <li role="status" className="text-sm text-muted text-center py-6 list-none">{t('clubs.empty')}</li> : list.map((c) => (
+                {list.length === 0 ? <li className="text-sm text-muted text-center py-6 list-none"><span role="status">{t('clubs.empty')}</span></li> : list.map((c) => (
                   <li key={c.id} className="flex items-center gap-2 rounded-lg px-2.5 py-2 border border-white/10 bg-white/[.03]">
                     <span className="font-display font-semibold text-gold-hi text-sm shrink-0">[{c.tag}]</span>
                     <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{c.name}</span>
