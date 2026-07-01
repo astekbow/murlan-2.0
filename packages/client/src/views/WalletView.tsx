@@ -275,14 +275,15 @@ export function WalletView() {
         </button>
       )}
 
-      {/* Tabs: only the active one renders → each fits the screen without scrolling. */}
-      <div className="seg grid grid-cols-3" role="tablist" aria-label={t('wallet.title')}>
+      {/* Segmented selector: only the active section renders. Modelled as a group of toggle buttons
+          (aria-pressed) rather than an incomplete tablist — each "tab" swaps several panels, so a real
+          role=tab/tabpanel pairing doesn't map cleanly (ux-a11y). */}
+      <div className="seg grid grid-cols-3" role="group" aria-label={t('wallet.title')}>
         {(['deposit', 'withdraw', 'history'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
-            role="tab"
-            aria-selected={walletTab === tab}
+            aria-pressed={walletTab === tab}
             onClick={() => setWalletTab(tab)}
             className={`seg-tab text-center ${walletTab === tab ? 'active' : ''}`}
           >
