@@ -12,6 +12,12 @@
 import { log } from '../logger.ts';
 import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import type {
+  User as DbUser, Transaction as DbTransaction, Withdrawal as DbWithdrawal, Season as DbSeason,
+  UserSeason as DbUserSeason, SupportTicket as DbSupportTicket, DirectMessage as DbDirectMessage,
+  Club as DbClub, ClubMember as DbClubMember, Friendship as DbFriendship,
+  Match as DbMatch, ClubWar as DbClubWar, Tournament as DbTournament,
+} from '@prisma/client';
 import { type User, type NewUser, type UserRepository, type ComplianceUpdate, type KycStatus, type RewardsPatch, type AccountStatePatch, type UserRole, DuplicateUserError } from '../auth/userRepository.ts';
 import { levelInfo } from '../profile/level.ts';
 import {
@@ -50,14 +56,17 @@ const msOrNull = (d: Date | null): number | null => (d ? d.getTime() : null);
 /** Coerce a Prisma Json anchor column into a typed PeriodAnchor (or null). Defensive
  *  against a malformed/legacy value — a bad shape reads as null (period rolls over,
  *  baseline re-snapshots to current; no crash). */
-function toAnchor(v: any): { period: string; games: number; wins: number } | null {
-  if (v && typeof v === 'object' && typeof v.period === 'string' && typeof v.games === 'number' && typeof v.wins === 'number') {
-    return { period: v.period, games: v.games, wins: v.wins };
+function toAnchor(v: unknown): { period: string; games: number; wins: number } | null {
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    if (typeof o.period === 'string' && typeof o.games === 'number' && typeof o.wins === 'number') {
+      return { period: o.period, games: o.games, wins: o.wins };
+    }
   }
   return null;
 }
 
-function toUser(row: any): User {
+function toUser(row: DbUser): User {
   return {
     id: row.id,
     username: row.username,
@@ -118,10 +127,10 @@ export class PrismaUserRepository implements UserRepository {
         },
       });
       return toUser(row);
-    } catch (e: any) {
+    } catch (e) {
       // Map a unique-constraint race to the typed error callers translate to 409.
-      if (e?.code === 'P2002') {
-        const target = String(e?.meta?.target ?? '');
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const target = String(e.meta?.target ?? '');
         throw new DuplicateUserError(target.includes('email') ? 'email' : 'username');
       }
       throw e;
@@ -382,7 +391,7 @@ export class PrismaUserRepository implements UserRepository {
   }
 }
 
-function toFriendship(row: any): Friendship {
+function toFriendship(row: DbFriendship): Friendship {
   return { id: row.id, requesterId: row.requesterId, addresseeId: row.addresseeId, status: row.status, createdAt: ms(row.createdAt) };
 }
 
@@ -430,7 +439,7 @@ export class PrismaFriends implements FriendsRepository {
   }
 }
 
-function toTx(row: any): Transaction {
+function toTx(row: DbTransaction): Transaction {
   return {
     id: row.id,
     userId: row.userId,
@@ -463,9 +472,9 @@ export class PrismaLedger implements LedgerRepository {
         },
       });
       return toTx(row);
-    } catch (e: any) {
+    } catch (e) {
       // Unique constraint on providerRef → idempotency collision.
-      if (e?.code === 'P2002' && tx.providerRef) throw new DuplicateProviderRefError(tx.providerRef);
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002' && tx.providerRef) throw new DuplicateProviderRefError(tx.providerRef);
       throw e;
     }
   }
@@ -539,7 +548,7 @@ export class PrismaLedger implements LedgerRepository {
   }
 }
 
-function toMatch(row: any): MatchRecord {
+function toMatch(row: DbMatch & { players?: Array<{ seat: number; userId: string }> }): MatchRecord {
   return {
     id: row.id,
     type: row.type as MatchType,
@@ -550,7 +559,7 @@ function toMatch(row: any): MatchRecord {
     // winnerSeats is informational and not used by settle/refund logic (those key
     // off status); only the representative winnerSide is persisted.
     winnerSeats: null,
-    players: (row.players ?? []).map((p: any) => ({ seat: p.seat, userId: p.userId })),
+    players: (row.players ?? []).map((p) => ({ seat: p.seat, userId: p.userId })),
     createdAt: ms(row.createdAt),
     endedAt: msOrNull(row.endedAt),
   };
@@ -597,7 +606,7 @@ export class PrismaMatchesRepository implements MatchesRepository {
   }
 }
 
-function toWithdrawal(row: any): WithdrawalRecord {
+function toWithdrawal(row: DbWithdrawal): WithdrawalRecord {
   return {
     id: row.id,
     userId: row.userId,
@@ -734,7 +743,7 @@ export class PrismaAdminAudit implements AdminAuditRepository {
   }
   async list(limit = 200): Promise<AdminActionRecord[]> {
     const rows = await this.db.adminAction.findMany({ orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
-    return rows.map((row: any) => ({
+    return rows.map((row) => ({
       id: row.id,
       adminId: row.adminId,
       action: row.action as AdminActionType,
@@ -772,7 +781,7 @@ export class PrismaGames implements GamesRepository {
   }
   async listByMatch(matchId: string): Promise<GameRecord[]> {
     const rows = await this.db.game.findMany({ where: { matchId }, orderBy: { index: 'asc' } });
-    return rows.map((row: any) => ({
+    return rows.map((row) => ({
       matchId: row.matchId,
       index: row.index,
       serverSeed: row.serverSeed ?? '',
@@ -811,7 +820,7 @@ export class PrismaVerificationTokens implements VerificationTokenRepository {
   }
 }
 
-function toSeason(row: any): Season {
+function toSeason(row: DbSeason): Season {
   return {
     id: row.id,
     number: row.number,
@@ -823,7 +832,7 @@ function toSeason(row: any): Season {
   };
 }
 
-function toUserSeason(row: any): UserSeason {
+function toUserSeason(row: DbUserSeason): UserSeason {
   return {
     userId: row.userId,
     seasonId: row.seasonId,
@@ -892,14 +901,14 @@ export class PrismaMatchActions implements MatchActionsRepository {
     await this.db.gameAction.createMany({
       data: [{
         matchId: a.matchId, seq: a.seq, gameIndex: a.gameIndex, seat: a.seat,
-        type: a.type, cards: (a.cards ?? undefined) as any, createdAt: new Date(a.at),
+        type: a.type, cards: (a.cards ?? undefined) as Prisma.InputJsonValue, createdAt: new Date(a.at),
       }],
       skipDuplicates: true,
     });
   }
   async listByMatch(matchId: string): Promise<MatchActionRecord[]> {
     const rows = await this.db.gameAction.findMany({ where: { matchId }, orderBy: { seq: 'asc' } });
-    return rows.map((row: any) => ({
+    return rows.map((row) => ({
       matchId: row.matchId,
       seq: row.seq,
       gameIndex: row.gameIndex,
@@ -915,7 +924,7 @@ export class PrismaMatchActions implements MatchActionsRepository {
   }
 }
 
-function toTicket(row: any): SupportTicket {
+function toTicket(row: DbSupportTicket): SupportTicket {
   return {
     id: row.id,
     userId: row.userId,
@@ -969,7 +978,7 @@ export class PrismaSuspicion implements SuspicionRepository {
       orderBy: { createdAt: 'desc' },
       take: Math.max(0, opts.limit ?? 200),
     });
-    return rows.map((row: any) => ({
+    return rows.map((row) => ({
       id: row.id, userId: row.userId, type: row.type, severity: row.severity,
       detail: row.detail, matchId: row.matchId ?? null, reviewed: row.reviewed, createdAt: ms(row.createdAt),
     }));
@@ -993,7 +1002,7 @@ export class PrismaPushSubscriptions implements PushSubscriptionRepository {
   }
   async listByUser(userId: string): Promise<PushSubscriptionRecord[]> {
     const rows = await this.db.pushSubscription.findMany({ where: { userId } });
-    return rows.map((r: any) => ({ id: r.id, userId: r.userId, endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth, createdAt: ms(r.createdAt) }));
+    return rows.map((r) => ({ id: r.id, userId: r.userId, endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth, createdAt: ms(r.createdAt) }));
   }
 }
 
@@ -1011,18 +1020,18 @@ export class PrismaChat implements ChatRepository {
   async getMessages(ids: string[]): Promise<ChatMessageRecord[]> {
     if (ids.length === 0) return [];
     const rows = await this.db.chatMessage.findMany({ where: { id: { in: ids } } });
-    return rows.map((row: any) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));
+    return rows.map((row) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));
   }
   async listByClub(clubId: string, limit: number): Promise<ChatMessageRecord[]> {
     const rows = await this.db.chatMessage.findMany({ where: { clubId }, orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
-    return rows.reverse().map((row: any) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));
+    return rows.reverse().map((row) => ({ id: row.id, clubId: row.clubId, userId: row.userId, username: row.username, text: row.text, createdAt: ms(row.createdAt) }));
   }
   async addReport(r: { messageId: string; clubId: string; reporterId: string; reason: string }): Promise<void> {
     await this.db.chatReport.create({ data: r });
   }
   async listReports(limit: number): Promise<ChatReportRecord[]> {
     const rows = await this.db.chatReport.findMany({ orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
-    return rows.map((row: any) => ({ id: row.id, messageId: row.messageId, clubId: row.clubId, reporterId: row.reporterId, reason: row.reason, reviewed: row.reviewed, createdAt: ms(row.createdAt) }));
+    return rows.map((row) => ({ id: row.id, messageId: row.messageId, clubId: row.clubId, reporterId: row.reporterId, reason: row.reason, reviewed: row.reviewed, createdAt: ms(row.createdAt) }));
   }
   async setMute(userId: string, until: number, by: string, reason: string): Promise<void> {
     await this.db.userMute.upsert({
@@ -1040,7 +1049,7 @@ export class PrismaChat implements ChatRepository {
   }
 }
 
-function toDm(row: any): DirectMessageRecord {
+function toDm(row: DbDirectMessage): DirectMessageRecord {
   return { id: row.id, fromUserId: row.fromUserId, fromUsername: row.fromUsername, toUserId: row.toUserId, text: row.text, createdAt: ms(row.createdAt), readAt: msOrNull(row.readAt) };
 }
 
@@ -1069,7 +1078,7 @@ export class PrismaDms implements DmRepository {
 
 export class PrismaClubWars implements ClubWarRepository {
   constructor(private readonly db: PrismaClient) {}
-  private map(row: any): ClubWar {
+  private map(row: DbClubWar): ClubWar {
     return {
       id: row.id, clubAId: row.clubAId, clubBId: row.clubBId, status: row.status as ClubWarStatus,
       stakeCents: row.stakeCents, rakeBps: row.rakeBps, size: row.size,
@@ -1081,7 +1090,7 @@ export class PrismaClubWars implements ClubWarRepository {
   async create(w: ClubWar): Promise<ClubWar> {
     await this.db.clubWar.create({ data: {
       id: w.id, clubAId: w.clubAId, clubBId: w.clubBId, status: w.status, stakeCents: w.stakeCents, rakeBps: w.rakeBps,
-      size: w.size, rosterA: w.rosterA, rosterB: w.rosterB, pairings: w.pairings as any, scoreA: w.scoreA, scoreB: w.scoreB,
+      size: w.size, rosterA: w.rosterA, rosterB: w.rosterB, pairings: w.pairings as unknown as Prisma.InputJsonValue, scoreA: w.scoreA, scoreB: w.scoreB,
       prizePoolCents: w.prizePoolCents, winnerClubId: w.winnerClubId,
     } });
     return w;
@@ -1092,24 +1101,24 @@ export class PrismaClubWars implements ClubWarRepository {
   }
   async save(w: ClubWar): Promise<void> {
     await this.db.clubWar.update({ where: { id: w.id }, data: {
-      status: w.status, rosterA: w.rosterA, rosterB: w.rosterB, pairings: w.pairings as any,
+      status: w.status, rosterA: w.rosterA, rosterB: w.rosterB, pairings: w.pairings as unknown as Prisma.InputJsonValue,
       scoreA: w.scoreA, scoreB: w.scoreB, prizePoolCents: w.prizePoolCents, winnerClubId: w.winnerClubId,
     } });
   }
   async listForClub(clubId: string, limit: number): Promise<ClubWar[]> {
     const rows = await this.db.clubWar.findMany({ where: { OR: [{ clubAId: clubId }, { clubBId: clubId }] }, orderBy: { createdAt: 'desc' }, take: Math.max(0, limit) });
-    return rows.map((r: any) => this.map(r));
+    return rows.map((r) => this.map(r));
   }
   async listActive(): Promise<ClubWar[]> {
     const rows = await this.db.clubWar.findMany({ where: { status: { in: ['registering', 'running'] } } });
-    return rows.map((r: any) => this.map(r));
+    return rows.map((r) => this.map(r));
   }
 }
 
-function toClub(row: any): Club {
+function toClub(row: DbClub): Club {
   return { id: row.id, name: row.name, tag: row.tag, founderId: row.founderId, createdAt: ms(row.createdAt), private: !!row.private, joinCode: row.joinCode ?? null };
 }
-function toMember(row: any): ClubMember {
+function toMember(row: DbClubMember): ClubMember {
   return { userId: row.userId, clubId: row.clubId, role: row.role as ClubRole, joinedAt: ms(row.joinedAt) };
 }
 
@@ -1123,8 +1132,8 @@ export class PrismaClubs implements ClubRepository {
         data: { name: c.name, tag: c.tag.toUpperCase(), founderId: c.founderId, private: isPrivate, joinCode: isPrivate ? genClubCode() : null, members: { create: { userId: c.founderId, role: 'founder' } } },
       });
       return toClub(row);
-    } catch (e: any) {
-      if (e?.code === 'P2002') throw new DuplicateClubTagError();
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw new DuplicateClubTagError();
       throw e;
     }
   }
@@ -1149,7 +1158,7 @@ export class PrismaClubs implements ClubRepository {
       take: Math.max(0, limit),
       include: { _count: { select: { members: true } } },
     });
-    return rows.map((r: any) => ({ ...toClub(r), memberCount: r._count.members }));
+    return rows.map((r) => ({ ...toClub(r), memberCount: r._count.members }));
   }
   async deleteClub(id: string): Promise<void> {
     await this.db.clubMember.deleteMany({ where: { clubId: id } });
@@ -1257,10 +1266,10 @@ export interface PrismaStores {
 
 export class PrismaTournaments implements TournamentRepository {
   constructor(private readonly db: PrismaClient) {}
-  private map(row: any): Tournament {
+  private map(row: DbTournament): Tournament {
     return {
       id: row.id, name: row.name, buyInCents: row.buyInCents, capacity: row.capacity,
-      status: row.status, playerIds: parseStringArray(row.playerIds, 'tournament.playerIds'), bracket: parseBracket(row.bracket),
+      status: row.status as Tournament['status'], playerIds: parseStringArray(row.playerIds, 'tournament.playerIds'), bracket: parseBracket(row.bracket),
       prizePoolCents: row.prizePoolCents, rakeBps: row.rakeBps, winnerId: row.winnerId ?? null,
       pendingWinnerId: row.pendingWinnerId ?? null, reportedByAdminId: row.reportedByAdminId ?? null,
       clubId: row.clubId ?? null,
@@ -1269,7 +1278,7 @@ export class PrismaTournaments implements TournamentRepository {
   }
   async create(t: Tournament): Promise<void> {
     await this.db.tournament.create({
-      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId, clubId: t.clubId },
+      data: { id: t.id, name: t.name, buyInCents: t.buyInCents, capacity: t.capacity, status: t.status, playerIds: t.playerIds, bracket: t.bracket as unknown as Prisma.InputJsonValue, prizePoolCents: t.prizePoolCents, rakeBps: t.rakeBps, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId, clubId: t.clubId },
     });
   }
   async get(id: string): Promise<Tournament | null> {
@@ -1279,21 +1288,21 @@ export class PrismaTournaments implements TournamentRepository {
   // GLOBAL only (clubId null) — club tournaments are listed via listByClub, never leaked here.
   async list(): Promise<Tournament[]> {
     const rows = await this.db.tournament.findMany({ where: { clubId: null }, orderBy: { createdAt: 'desc' }, take: 50 });
-    return rows.map((r: any) => this.map(r));
+    return rows.map((r) => this.map(r));
   }
   async listByClub(clubId: string): Promise<Tournament[]> {
     const rows = await this.db.tournament.findMany({ where: { clubId }, orderBy: { createdAt: 'desc' }, take: 50 });
-    return rows.map((r: any) => this.map(r));
+    return rows.map((r) => this.map(r));
   }
   // EVERY tournament (global + club) — for sweepStale's stranded-money safety net.
   async listAll(): Promise<Tournament[]> {
     const rows = await this.db.tournament.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
-    return rows.map((r: any) => this.map(r));
+    return rows.map((r) => this.map(r));
   }
   async save(t: Tournament): Promise<void> {
     await this.db.tournament.update({
       where: { id: t.id },
-      data: { status: t.status, playerIds: t.playerIds, bracket: t.bracket as any, prizePoolCents: t.prizePoolCents, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId },
+      data: { status: t.status, playerIds: t.playerIds, bracket: t.bracket as unknown as Prisma.InputJsonValue, prizePoolCents: t.prizePoolCents, winnerId: t.winnerId, pendingWinnerId: t.pendingWinnerId, reportedByAdminId: t.reportedByAdminId },
     });
   }
 }
