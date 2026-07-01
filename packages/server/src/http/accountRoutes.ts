@@ -13,6 +13,7 @@ import { requireAuth } from './authRoutes.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
 import type { ResponsibleGamingService } from '../compliance/responsibleGaming.ts';
 import type { PushService } from '../push/pushService.ts';
+import { isSafePushEndpoint } from '../push/pushProvider.ts';
 import type { WalletService } from '../money/walletService.ts';
 import type { WithdrawalRecord } from '../money/withdrawals.ts';
 
@@ -32,7 +33,8 @@ const profileSchema = z.object({
 const selfExcludeSchema = z.object({ days: z.number().int().positive().max(3650) });
 // Browser PushSubscription.toJSON() shape: { endpoint, keys: { p256dh, auth } }.
 const pushSubSchema = z.object({
-  endpoint: z.string().url().max(2000),
+  // SSRF guard (websec/SSRF): the server later POSTs to this endpoint — only https to a public host.
+  endpoint: z.string().url().max(2000).refine(isSafePushEndpoint, 'Endpoint njoftimi i pavlefshëm.'),
   keys: z.object({ p256dh: z.string().min(1).max(500), auth: z.string().min(1).max(500) }),
 });
 const pushUnsubSchema = z.object({ endpoint: z.string().url().max(2000) });

@@ -15,6 +15,29 @@ export interface WebPushSubscription {
   auth: string;   // client auth secret
 }
 
+/**
+ * SSRF guard (websec/SSRF): a push `endpoint` is an attacker-influenceable URL the SERVER later
+ * POSTs to (web-push). Only accept https to a PUBLIC host, so a subscribe can't coerce a
+ * server-side request to loopback / link-local (incl. cloud metadata 169.254.169.254) / RFC1918
+ * internal hosts. A denylist (not a strict allowlist) so legitimate/future push services still work.
+ */
+export function isSafePushEndpoint(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || !host.includes('.')) return false;
+  // Literal IPv4 → block loopback / this-net / link-local / RFC1918 private ranges.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    const p = host.split('.').map(Number);
+    const [a, b] = [p[0] ?? 0, p[1] ?? 0];
+    if (a === 127 || a === 0 || a === 10 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return false;
+  }
+  // Bracketed IPv6 loopback (::1) / link-local (fe80::) / unique-local (fc00::/7 → fc,fd).
+  if (host === '[::1]' || host.startsWith('[fe80') || host.startsWith('[fc') || host.startsWith('[fd')) return false;
+  return true;
+}
+
 /** A notification payload (kept small — sent through the push service). */
 export interface PushPayload {
   title: string;

@@ -92,13 +92,17 @@ export class TokenService {
   verifyRefresh(token: string): RefreshClaims {
     const decoded = jwt.verify(token, this.cfg.refreshSecret, this.verifyOpts()) as jwt.JwtPayload;
     if (decoded.type !== 'refresh' || typeof decoded.sub !== 'string') throw new Error('invalid refresh token');
+    // auth: a refresh token MUST carry a numeric `ver` (the revocation gate), like verifyAccess.
+    // Don't silently default a missing `ver` to 0 — a pre-`ver` legacy token is rejected → forces
+    // a fresh login once. (issueRefresh/issuePair both set a numeric ver, so those are unaffected.)
+    if (typeof decoded.ver !== 'number') throw new Error('invalid refresh token');
     return {
       sub: decoded.sub,
       username: String(decoded.username ?? ''),
       type: 'refresh',
       jti: typeof decoded.jti === 'string' ? decoded.jti : '',
       family: typeof decoded.family === 'string' ? decoded.family : '',
-      ver: typeof decoded.ver === 'number' ? decoded.ver : 0,
+      ver: decoded.ver,
     };
   }
 

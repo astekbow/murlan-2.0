@@ -203,11 +203,20 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   });
 
   await app.register(cookie);
-  // Security headers (HSTS in prod, frameguard, noSniff, referrer policy). CSP is
-  // left off here because the SPA is served separately (Vite/static host owns it);
-  // enable a CSP at that layer for the client origin.
+  // Security headers (HSTS in prod, frameguard, noSniff, referrer policy). The SPA is served
+  // by nginx/Vite (that layer owns the page CSP), so THIS origin only ever returns JSON — a
+  // lock-everything-down CSP is therefore safe here and closes the "CSP disabled" finding
+  // (websec/CSP): a JSON API loads no sub-resources and must never be framed or form-posted.
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        'default-src': ["'none'"],
+        'frame-ancestors': ["'none'"],
+        'base-uri': ["'none'"],
+        'form-action': ["'none'"],
+      },
+    },
     hsts: deps.config.isProd ? { maxAge: 15552000, includeSubDomains: true } : false,
   });
   await app.register(cors, { origin: deps.config.clientOrigin, credentials: true });
@@ -359,6 +368,12 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       webhookIps: deps.config.paymentWebhookIps,
       webhookSignatureHeader: deps.provider.signatureHeader,
     });
+    // websec/webhook-ip: the payment-webhook source-IP allowlist compares req.ip, which is only
+    // the REAL client when trustProxy is configured for the exact proxy hops. If the allowlist is
+    // set but trustProxy is off, req.ip is the proxy's address → the allowlist silently can't match.
+    if (deps.config.paymentWebhookIps.length > 0 && !deps.config.trustProxy) {
+      app.log.warn('PAYMENT_WEBHOOK_IPS is set but TRUST_PROXY is not — behind a proxy req.ip is the proxy, so the webhook IP allowlist will NOT identify the real sender. Set TRUST_PROXY to the proxy hop(s).');
+    }
     await adminRoutes(app, { auth: deps.auth, wallet: deps.wallet, withdrawals: deps.withdrawals, payout: deps.payout, binanceFreeUsdtCents: deps.binanceFreeUsdtCents, depositAddressBalanceCents: deps.tronDeposit ? (a) => deps.tronDeposit!.usdtBalanceCents(a) : undefined, rooms: deps.rooms, matches: deps.matches, voidMatch: deps.voidMatch, audit: deps.adminAudit, chat: deps.chat, push: deps.push, kickUser: deps.kickUser, adminEmail: deps.config.adminEmail, adjustDualControl: deps.config.adjustDualControl });
   }
 

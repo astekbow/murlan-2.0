@@ -63,6 +63,14 @@ import { MoveLogSequencer } from './moveLogSequencer.ts';
 type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
+/** Best-effort real client IP from a socket handshake: the LAST X-Forwarded-For hop (appended by
+ *  our own nginx via $proxy_add_x_forwarded_for) when present, else the immediate peer address. */
+function clientIpFromHandshake(socket: IOSocket): string {
+  const xff = socket.handshake.headers['x-forwarded-for'];
+  const chain = (Array.isArray(xff) ? xff.join(',') : xff ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return chain.length ? chain[chain.length - 1]! : (socket.handshake.address || 'unknown');
+}
+
 export interface GatewayOptions {
   turnMs?: number;       // per-turn timer; default 30s
   countdownMs?: number;  // ready-check countdown before a match starts; default 3s
@@ -283,7 +291,12 @@ export class GameGateway {
         const { userId, username, ver } = this.auth.verifyAccess(token);
         // Connection-rate guard: cap (re)connects per (userId + client IP) so a connect
         // flood can't hammer the DB or churn sockets. Verified-token only (no anon flood).
-        const ip = socket.handshake.address || 'unknown';
+        // socket.handshake.address is the immediate peer (our nginx in prod → constant for
+        // everyone); prefer the LAST X-Forwarded-For hop, which our own proxy appends
+        // ($proxy_add_x_forwarded_for), so the guard buckets per real client. The key already
+        // includes the authenticated userId, so this only sharpens granularity — it can't be
+        // used to evade the per-user cap.
+        const ip = clientIpFromHandshake(socket);
         if (!this.allowHandshake(`${userId}|${ip}`)) return next(new Error('rate_limited'));
         // Revocation-aware account-state gate: reject when the token's tokenVersion is
         // stale (force-logout / ban / reset / logout-all bumped it — socket-1/auth-2) OR
