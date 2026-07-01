@@ -10,7 +10,7 @@
     ".": "./src/engine.ts"
   },
   "scripts": {
-    "test": "tsx src/engine.test.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   }
 }

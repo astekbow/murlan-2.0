@@ -152,6 +152,20 @@ test('refund returns every stake with no rake and reconciles', async () => {
   assert.equal(rec.ok, true);
 });
 
+test('reconcile DETECTS a balance/ledger mismatch (the invariant the periodic sweep alerts on)', async () => {
+  // The happy path (reconcile ok) is covered above; this exercises the FAILURE path the 5-min
+  // sweep uses to page. Introduce drift: a ledger row whose balance change was never applied
+  // (simulates a lost/half-applied write) → the stored balance no longer equals the ledger sum.
+  const { wallet, ids, ledger } = await setup([1000]);
+  await ledger.append({ userId: ids[0]!, type: 'deposit', amountCents: 500 }); // +500 in the ledger, balance untouched
+  const rec = await wallet.reconcile();
+  assert.equal(rec.ok, false);
+  assert.equal(rec.mismatches.length, 1);
+  assert.equal(rec.mismatches[0]!.userId, ids[0]);
+  assert.equal(rec.mismatches[0]!.ledgerSum, 1500);
+  assert.equal(rec.mismatches[0]!.balanceCents, 1000);
+});
+
 test('free match (zero stake) escrows and settles without touching balances', async () => {
   const { wallet, money, ids } = await setup([0, 0]);
   const res = await money.escrow({ matchId: 'm0', type: '1v1', stakeCents: 0, rakeBps: 1000, players: players(ids) });
