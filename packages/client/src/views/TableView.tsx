@@ -15,7 +15,6 @@ import { useWakeLock } from '../lib/useWakeLock.ts';
 import { dollars } from '../lib/money.ts';
 import { wentOutSeat } from '../lib/finish.ts';
 import { Hand } from '../components/Hand.tsx';
-import { PlayLog } from '../components/PlayLog.tsx';
 import { Pile } from '../components/Pile.tsx';
 import { CardView } from '../components/CardView.tsx';
 import { SeatBadge } from '../components/SeatBadge.tsx';
@@ -69,33 +68,6 @@ function SpeechBubble({ b }: { b: Bubble }) {
   return (
     <div className="absolute left-1/2 -translate-x-1/2 -top-9 z-20 animate-pop max-w-[150px] truncate rounded-xl px-2.5 py-1 panel-solid shadow-lg">
       {b.kind === 'emote' ? <span className="text-xl leading-none">{b.text}</span> : <span className="text-sm text-txt">{b.text}</span>}
-    </div>
-  );
-}
-
-/** In-game history panel (behind the ☰ button). Subscribes to `log` ITSELF so
- *  the frequent log appends only re-render this panel when it's open — never the
- *  whole table (which uses a log-free selector). */
-function LogPanel({ onClose }: { onClose: () => void }) {
-  const log = useGameStore((s) => s.log);
-  const t = useT();
-  const trapRef = useFocusTrap<HTMLDivElement>();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div className="modal-backdrop !z-[58]" onClick={onClose} role="dialog" aria-modal="true" aria-label={t('table.gameHistory')}>
-      <div ref={trapRef} tabIndex={-1} className="panel-solid w-full max-w-sm p-5 animate-pop outline-none" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">{t('table.history')}</h3>
-          <button className="iconbtn" onClick={onClose} aria-label={t('common.close')}>✕</button>
-        </div>
-        <div className="max-h-[60vh] overflow-y-auto">
-          <PlayLog entries={log} />
-        </div>
-      </div>
     </div>
   );
 }
@@ -240,7 +212,6 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const t = useT();
   const [chatKind, setChatKind] = useState<'emote' | 'chat' | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [logOpen, setLogOpen] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const bubbleFor = (seat: number) => bubbles.filter((b) => b.seat === seat).slice(-1)[0];
 
@@ -483,7 +454,6 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         );
       })()}
       <TurnTimer deadline={game?.turnDeadline ?? null} />
-      <button className="iconbtn" onClick={() => { sound.play('button'); setLogOpen(true); }} title={t('table.history')} aria-label={t('table.history')}>☰</button>
       <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('chat'); }} title={t('table.chat')} aria-label={t('table.chat')}>💬</button>
       <button className="iconbtn" onClick={() => { sound.play('button'); setChatKind('emote'); }} title={t('table.emote')} aria-label={t('table.emote')}>😊</button>
     </div>
@@ -921,7 +891,6 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {/* Emote / quick-chat popover + tapped-seat profile + history */}
       {chatKind && <EmoteChat kind={chatKind} onClose={() => setChatKind(null)} />}
       {profileId && <ProfileModal userId={profileId} onClose={() => setProfileId(null)} />}
-      {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
 
       {/* Confirm before forfeiting a live match (real money is at stake) */}
       {confirmLeave && (

@@ -17,6 +17,7 @@ import { ReconnectOverlay } from './components/ui/ReconnectOverlay.tsx';
 import { InstallModal } from './components/ui/InstallModal.tsx';
 import { OnboardingModal } from './components/ui/OnboardingModal.tsx';
 import { RulesModal } from './components/ui/RulesModal.tsx';
+import { DailyStreakModal } from './components/ui/DailyStreakModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
@@ -263,6 +264,7 @@ export function App() {
       {/* First-run welcome takes precedence; the install prompt waits until it's done. */}
       {status === 'authed' && !room && !spectating && !onboarded && <OnboardingModal />}
       {status === 'authed' && !room && !spectating && onboarded && <InstallModal />}
+      {status === 'authed' && !room && !spectating && onboarded && <DailyStreakModal />}
       {status === 'authed' && <RulesModal />}
       {status === 'authed' && <RankedSearchOverlay />}
       {status === 'authed' && <ReconnectOverlay />}

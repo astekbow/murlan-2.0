@@ -5,8 +5,7 @@ import { useGameStore } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
-import { lobbyApi, rewardsApi, friendsApi, type LobbyLiveDTO, type FriendEntry } from '../lib/api.ts';
-import { useRulesStore } from '../store/rulesStore.ts';
+import { lobbyApi, friendsApi, type LobbyLiveDTO, type FriendEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
@@ -24,7 +23,7 @@ const TYPE_LABEL: Record<MatchType, string> = {
 };
 const TYPES: MatchType[] = ['1v1', '1v1v1', '2v2'];
 
-interface RailItem { icon: string; labelKey: string; badge: string | null; to: LobbyViewName | null; action?: () => void }
+interface RailItem { icon: string; labelKey: string; badge: string | null; to: LobbyViewName | null }
 // Split into two rails — 3 on the left, 3 on the right of the hero (desktop).
 // Support lives in the ⚙ settings menu now (not the rail).
 const RAIL_LEFT: RailItem[] = [
@@ -36,7 +35,6 @@ const RAIL_RIGHT: RailItem[] = [
   { icon: '🎯', labelKey: 'nav.challenges', badge: null, to: 'rewards' },
   { icon: '🛍️', labelKey: 'nav.shop', badge: null, to: 'shop' },
   { icon: '♛', labelKey: 'nav.vip', badge: null, to: 'vip' },
-  { icon: '📖', labelKey: 'nav.howToPlay', badge: null, to: null, action: () => useRulesStore.getState().setOpen(true) },
 ];
 
 /** A vertical rail of nav icons (one on each side of the hero on desktop; wraps
@@ -52,7 +50,7 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
           key={r.labelKey}
           className="rail-item"
           aria-current={r.to && r.to === view ? 'page' : undefined}
-          onClick={() => { sound.play('button'); haptics.tap(); if (r.to) setView(r.to); r.action?.(); }}
+          onClick={() => { sound.play('button'); haptics.tap(); if (r.to) setView(r.to); }}
         >
           <span className="rail-ic">
             {r.icon}
@@ -179,16 +177,6 @@ export function LobbyView() {
     const id = window.setInterval(pull, 15_000);
     return () => { alive = false; window.clearInterval(id); };
   }, []);
-
-  // Daily login/play STREAK surfaced on the hub (the backend already tracks it; RewardsView shows it too).
-  // One-shot fetch; refetched when a finished match bumps rewardRev. Best-effort — never blocks the lobby.
-  const rewardRev = useGameStore((s) => s.rewardRev);
-  const [daily, setDaily] = useState<{ streak: number; canClaim: boolean } | null>(null);
-  useEffect(() => {
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    void rewardsApi.status(token).then((r) => setDaily(r.status.daily)).catch(() => {});
-  }, [rewardRev]);
 
   // ---- Landscape "console" (phone held flat): a fixed-height frame that fits with
   // NO page scroll. Because the full-screen portal COVERS the global <TopBar>, the
@@ -370,18 +358,6 @@ export function LobbyView() {
       ) : (
         /* ---- Home — four equal cards ---- */
         <div className="lobby-home space-y-3">
-          {/* Daily streak — a tap opens Rewards (where it can be claimed). Only shown once a streak exists. */}
-          {daily && daily.streak > 0 && (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                onClick={() => { sound.play('button'); setView('rewards'); }}
-                className={`tag ${daily.canClaim ? 'tag-live' : 'tag-open'} text-sm`}
-              >
-                🔥 {t('rewards.streakDays', { n: daily.streak })}{daily.canClaim ? ` · ${t('lobby.claimToday')}` : ''}
-              </button>
-            </div>
-          )}
           {/* Friends online now → one-tap free duel. */}
           <FriendsOnlineStrip />
           {/* Recent-winners ticker (display-only). */}
