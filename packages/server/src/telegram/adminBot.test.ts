@@ -519,3 +519,25 @@ test('a message-less callback from a stranger is still rejected', async () => {
   assert.equal(calls.sent.length, 0);
   assert.match(calls.answers.at(-1)!.text ?? '', /paautorizuar/);
 });
+
+test('/tournament delete + /club list + /club close call the callbacks', async () => {
+  const tDelete: string[] = [];
+  const cClose: string[] = [];
+  const { deps, calls } = makeDeps({
+    tournamentDelete: async (id: string) => { tDelete.push(id); return { ok: true as const }; },
+    clubList: async () => [{ id: 'cl1', name: 'Masters', tag: 'MUR', memberCount: 3 }],
+    clubClose: async (id: string) => { cClose.push(id); return { ok: true as const }; },
+  } as Partial<AdminBotDeps>);
+  const bot = new TelegramAdminBot(deps);
+
+  await bot.handleUpdate({ message: { message_id: 1, chat: { id: CHAT }, from: { id: CHAT }, text: '/tournament delete trn9' } });
+  assert.deepEqual(tDelete, ['trn9']);
+  assert.ok(calls.sent.some((m) => /u fshi/.test(m.text)), 'tournament-deleted message');
+
+  await bot.handleUpdate({ message: { message_id: 2, chat: { id: CHAT }, from: { id: CHAT }, text: '/club list' } });
+  assert.ok(calls.sent.some((m) => /MUR/.test(m.text)), 'club list shows the tag');
+
+  await bot.handleUpdate({ message: { message_id: 3, chat: { id: CHAT }, from: { id: CHAT }, text: '/club close cl1' } });
+  assert.deepEqual(cClose, ['cl1']);
+  assert.ok(calls.sent.some((m) => /u mbyll/.test(m.text)), 'club-closed message');
+});

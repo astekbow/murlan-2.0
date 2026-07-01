@@ -970,6 +970,24 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           return { ok: false, reason: e instanceof TournamentError ? e.message : 'gabim' };
         }
       },
+      tournamentList: async () => (await tournaments.adminListAll()).map((t) => ({ id: t.id, name: t.name, status: t.status, clubId: t.clubId })),
+      tournamentDelete: async (id) => {
+        try {
+          await tournaments.adminDelete(id);
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, reason: e instanceof TournamentError ? e.message : 'gabim' };
+        }
+      },
+      clubList: async () => (await clubs.listClubs()).map((c) => ({ id: c.id, name: c.name, tag: c.tag, memberCount: c.memberCount })),
+      clubClose: async (id) => {
+        // Money-safety: refuse while the club has an active war or club tournament (escrowed buy-ins).
+        const activeWar = (await clubWars.listForClub(id, 20).catch(() => [])).some((w) => w.status === 'registering' || w.status === 'running');
+        const activeTourn = (await tournaments.listByClub(id).catch(() => [])).some((t) => t.status === 'registering' || t.status === 'running' || t.status === 'awaiting_confirmation');
+        if (activeWar || activeTourn) return { ok: false, reason: 'klubi ka luftë/turne aktiv (para në escrow)' };
+        const ok = await clubs.adminClose(id);
+        return ok ? { ok: true } : { ok: false, reason: 'nuk u gjet' };
+      },
       // ---- Tier-2: risk view / anti-cheat / player messaging / live / health ----
       userRisk: async (userId, anchorMs) => {
         const [u, txs, wds] = await Promise.all([

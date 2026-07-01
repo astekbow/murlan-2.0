@@ -181,6 +181,14 @@ export interface AdminBotDeps {
   tournamentCreate?: (name: string, buyInCents: number, capacity: number) => Promise<{ ok: true; id: string; name: string } | { ok: false; reason: string }>;
   /** Cancel + refund a tournament. */
   tournamentCancel?: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /** List every tournament (global + club) for the delete picker. */
+  tournamentList?: () => Promise<Array<{ id: string; name: string; status: string; clubId: string | null }>>;
+  /** Delete a PAST (finished/cancelled) tournament — refuses an active one (would strand escrow). */
+  tournamentDelete?: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /** List clubs (id, name, tag, member count). */
+  clubList?: () => Promise<Array<{ id: string; name: string; tag: string; memberCount: number }>>;
+  /** Close (disband) a club — refuses if it holds a money-active war/tournament. */
+  clubClose?: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 
   // ---- Tier-2 power-ups — all optional ----
   /** Risk snapshot for a user (shown via the [👤 Rreziku] button before approving). */
@@ -307,6 +315,8 @@ export class TelegramAdminBot {
         return void (await this.stageVoid(arg));
       case '/tournament':
         return void (await this.handleTournament(arg));
+      case '/club':
+        return void (await this.handleClub(arg));
       case '/flags':
         return void (await this.sendFlags());
       case '/live':
@@ -334,7 +344,8 @@ export class TelegramAdminBot {
     if (this.deps.digest) lines.push('/digest — përmbledhja e 24 orëve');
     if (this.deps.adminAdjust) lines.push('/credit &lt;user&gt; &lt;shuma&gt; &lt;arsye&gt; · /debit … — rregullim bilanci (me konfirmim)');
     if (this.deps.voidMatch) lines.push('/void &lt;roomId&gt; &lt;arsye&gt; — anulo + rikthe një ndeshje (me konfirmim)');
-    if (this.deps.tournamentCreate) lines.push('/tournament new &lt;buyin&gt; &lt;cap&gt; · /tournament cancel &lt;id&gt;');
+    if (this.deps.tournamentCreate) lines.push('/tournament new &lt;buyin&gt; &lt;cap&gt; · list · cancel &lt;id&gt; · delete &lt;id&gt;');
+    if (this.deps.clubList || this.deps.clubClose) lines.push('/club list · /club close &lt;id&gt; — mbyll (shpërndaj) një klub');
     if (this.deps.listFlags) lines.push('/flags — sinjale anti-cheat (koluzion/bot)');
     if (this.deps.liveState) lines.push('/live — ndeshjet aktive + lekët në lojë tani');
     if (this.deps.health) lines.push('/health — a është gjithçka në rregull');
@@ -563,7 +574,45 @@ export class TelegramAdminBot {
       if (adminId) await this.deps.audit.record({ adminId, action: 'tournament_cancel', detail: `${id} (telegram)` });
       return void (await this.deps.bot.sendMessage(`✅ <b>Turneu u anulua</b> · buy-in-et u rikthyen · <code>${escapeHtml(id)}</code>`));
     }
-    await this.deps.bot.sendMessage('Përdorimi: <code>/tournament new buyin cap</code> ose <code>/tournament cancel id</code>');
+    if (sub === 'list') {
+      const all = this.deps.tournamentList ? await this.deps.tournamentList().catch(() => []) : [];
+      if (all.length === 0) return void (await this.deps.bot.sendMessage('Asnjë turne.'));
+      const lines = all.slice(0, 30).map((t) => `• <code>${escapeHtml(t.id)}</code> · ${escapeHtml(t.name)} · ${escapeHtml(t.status)}${t.clubId ? ' · klub' : ''}`);
+      return void (await this.deps.bot.sendMessage(`<b>Turne (${all.length})</b>\n${lines.join('\n')}`));
+    }
+    if (sub === 'delete') {
+      const id = parts[1];
+      if (!this.deps.tournamentDelete) return void (await this.deps.bot.sendMessage('Fshirja s’është aktive.'));
+      if (!id) return void (await this.deps.bot.sendMessage('Përdorimi: <code>/tournament delete id</code> (vetëm turne të përfunduar/anuluar).'));
+      const res = await this.deps.tournamentDelete(id).catch(() => ({ ok: false, reason: 'gabim' } as const));
+      if (!res.ok) return void (await this.deps.bot.sendMessage(`⚠️ Nuk u fshi (${escapeHtml(res.reason)}). Turnet aktive duhen anuluar i pari.`));
+      const adminId = await this.deps.resolveAdminUserId();
+      if (adminId) await this.deps.audit.record({ adminId, action: 'tournament_delete', detail: `${id} (telegram)` });
+      return void (await this.deps.bot.sendMessage(`🗑 <b>Turneu u fshi</b> · <code>${escapeHtml(id)}</code>`));
+    }
+    await this.deps.bot.sendMessage('Përdorimi: <code>/tournament new buyin cap</code> · <code>/tournament list</code> · <code>/tournament cancel id</code> · <code>/tournament delete id</code>');
+  }
+
+  private async handleClub(arg: string): Promise<void> {
+    const parts = arg.split(/\s+/).filter(Boolean);
+    const sub = (parts[0] ?? '').toLowerCase();
+    if (sub === 'list' || sub === '') {
+      const all = this.deps.clubList ? await this.deps.clubList().catch(() => []) : [];
+      if (all.length === 0) return void (await this.deps.bot.sendMessage('Asnjë klub.'));
+      const lines = all.slice(0, 30).map((c) => `• <code>${escapeHtml(c.id)}</code> · [${escapeHtml(c.tag)}] ${escapeHtml(c.name)} · ${c.memberCount} 👥`);
+      return void (await this.deps.bot.sendMessage(`<b>Klube (${all.length})</b>\n${lines.join('\n')}\n\nMbyll me: <code>/club close id</code>`));
+    }
+    if (sub === 'close') {
+      const id = parts[1];
+      if (!this.deps.clubClose) return void (await this.deps.bot.sendMessage('Mbyllja s’është aktive.'));
+      if (!id) return void (await this.deps.bot.sendMessage('Përdorimi: <code>/club close id</code>'));
+      const res = await this.deps.clubClose(id).catch(() => ({ ok: false, reason: 'gabim' } as const));
+      if (!res.ok) return void (await this.deps.bot.sendMessage(`⚠️ Nuk u mbyll (${escapeHtml(res.reason)}). Klube me luftë/turne aktiv duhen zgjidhur i pari.`));
+      const adminId = await this.deps.resolveAdminUserId();
+      if (adminId) await this.deps.audit.record({ adminId, action: 'club_close', detail: `${id} (telegram)` });
+      return void (await this.deps.bot.sendMessage(`✕ <b>Klubi u mbyll</b> · anëtarët u larguan · <code>${escapeHtml(id)}</code>`));
+    }
+    await this.deps.bot.sendMessage('Përdorimi: <code>/club list</code> ose <code>/club close id</code>');
   }
 
   /** Accumulated house rake from the LEDGER (money-23) — getBalance(house) is always 0. */
