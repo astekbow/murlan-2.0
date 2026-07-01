@@ -8,6 +8,7 @@
 // hard-coded URL, works on prod/staging alike. Public (no auth): it carries no secrets.
 // ============================================================================
 
+import { log } from '../logger.ts';
 import type { FastifyInstance } from 'fastify';
 import { execFileSync } from 'node:child_process';
 import { WEBCLIP_ICON_B64 } from './iosWebClipIcon.ts';
@@ -43,7 +44,7 @@ function signProfile(plist: string): Buffer | null {
   } catch (e) {
     // The env vars ARE set but signing FAILED (no openssl, or an unreadable/bad cert). Don't fail
     // silently — otherwise the profile serves 'Unsigned' forever with no clue why. Log it loudly.
-    console.error(
+    log.error(
       '[install] iOS .mobileconfig signing FAILED — serving UNSIGNED. Verify IOS_PROFILE_SIGN_CERT/KEY ' +
         'point at a readable, publicly-trusted (Let\'s Encrypt) fullchain+key and that openssl is installed.',
       e,

@@ -8,6 +8,8 @@
 // a real provider (e.g. the `web-push` library) injected in production.
 // ============================================================================
 
+import { log } from '../logger.ts';
+
 /** A browser Push subscription (the shape the PushManager hands the client). */
 export interface WebPushSubscription {
   endpoint: string;
@@ -57,8 +59,7 @@ export interface PushProvider {
 export class ConsolePushProvider implements PushProvider {
   readonly name = 'console';
   async send(sub: WebPushSubscription, payload: PushPayload): Promise<{ ok: boolean }> {
-    // eslint-disable-next-line no-console
-    console.info(`[push:console] → ${sub.endpoint.slice(0, 40)}… "${payload.title}": ${payload.body}`);
+    log.info(`[push:console] → ${sub.endpoint.slice(0, 40)}… "${payload.title}": ${payload.body}`);
     return { ok: true };
   }
 }

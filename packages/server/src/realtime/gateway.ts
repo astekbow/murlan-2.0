@@ -13,6 +13,7 @@
 //     socket — never a broadcast of hidden cards.
 // ============================================================================
 
+import { log as logger } from '../logger.ts';
 import type { Server, Socket } from 'socket.io';
 import { singlePower, type Card } from '@murlan/engine';
 import type {
@@ -523,7 +524,7 @@ export class GameGateway {
       this.broadcastLobby();
       this.armGhostFill(res.roomId); // free public lobby → auto-fill with players if no humans join
     } catch (e) {
-      console.error('[gateway] onCreate failed', e);
+      logger.error('[gateway] onCreate failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }
@@ -557,7 +558,7 @@ export class GameGateway {
       this.broadcastLobby();
       this.maybeStartCountdown(roomId);
     } catch (e) {
-      console.error('[gateway] onJoinByCode failed', e);
+      logger.error('[gateway] onJoinByCode failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }
@@ -590,7 +591,7 @@ export class GameGateway {
       this.broadcastLobby();
       this.maybeStartCountdown(payload.roomId);
     } catch (e) {
-      console.error('[gateway] onJoin failed', e);
+      logger.error('[gateway] onJoin failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }
@@ -634,7 +635,7 @@ export class GameGateway {
       if (wasBotRoom) this.teardownBotRoom(roomId);
       reply({ ok: true });
     } catch (e) {
-      console.error('[gateway] onLeave teardown failed:', e);
+      logger.error('[gateway] onLeave teardown failed:', e);
       reply({ ok: true }); // the socket is already out of the room — report success
     }
   }
@@ -723,7 +724,7 @@ export class GameGateway {
       const res = this.rooms.play(socket.data.userId, payload.cards);
       this.afterAction(res, reply, socket, 'game:play', { gameIndex, type: 'play', cards: payload.cards });
     } catch (e) {
-      console.error('[gateway] onPlay failed', e);
+      logger.error('[gateway] onPlay failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }
@@ -735,7 +736,7 @@ export class GameGateway {
       const res = this.rooms.pass(socket.data.userId);
       this.afterAction(res, reply, socket, 'game:pass', { gameIndex, type: 'pass', cards: null });
     } catch (e) {
-      console.error('[gateway] onPass failed', e);
+      logger.error('[gateway] onPass failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }
@@ -750,7 +751,7 @@ export class GameGateway {
       const res = this.rooms.switchGive(socket.data.userId, payload.card);
       this.afterAction(res, reply, socket, 'game:switchGive', { gameIndex, type: 'switch', cards: [payload.card] });
     } catch (e) {
-      console.error('[gateway] onSwitchGive failed', e);
+      logger.error('[gateway] onSwitchGive failed', e);
       reply(ackError('server_error', 'Gabim i brendshëm.'));
     }
   }
@@ -764,7 +765,7 @@ export class GameGateway {
   ): void {
     if (!res.ok) {
       // Server-authoritative rejection: log the illegal/impossible move (spec §9).
-      console.warn('[anti-cheat] rejected move', { event, userId: socket.data.userId, roomId: socket.data.roomId, reason: res.reason, code: res.code });
+      logger.warn('[anti-cheat] rejected move', { event, userId: socket.data.userId, roomId: socket.data.roomId, reason: res.reason, code: res.code });
       // Forward the specific rejection CODE (client localizes it); 'illegal' is the
       // generic fallback. The Albanian `reason` stays as the message fallback.
       return ack(ackError(res.code ?? 'illegal', res.reason ?? 'Lëvizje e palejuar.'));
@@ -799,7 +800,7 @@ export class GameGateway {
       // Swallowed by design (the replay/dispute trail must never block play), but COUNT+LOG it so a
       // chronic logging failure is visible instead of silently dropping the audit trail (audit I1).
       auditWriteFailures.inc({ kind: 'matchlog' });
-      console.error('[gateway] matchLog.append failed', { matchId, seq, seat }, e);
+      logger.error('[gateway] matchLog.append failed', { matchId, seq, seat }, e);
     });
   }
 
@@ -1172,7 +1173,7 @@ export class GameGateway {
     if (!res.ok) {
       // decideBotMove only yields legal moves; this is a defensive recovery so a
       // rejected bot move can never stall the match.
-      console.warn('[bot] move rejected, recovering', { roomId, seat, reason: res.reason });
+      logger.warn('[bot] move rejected, recovering', { roomId, seat, reason: res.reason });
       const fb = this.rooms.pass(botUserId);
       if (fb.ok && fb.roomId) this.applyBotResult(fb.roomId, seat, snap.gameIndex, 'pass', null, fb);
       return;
@@ -1289,7 +1290,7 @@ export class GameGateway {
     } catch (err) {
       // Surface the root cause server-side — a swallowed exception here was the
       // reason a staked match silently failed to start (see start_failed).
-      console.error(`[beginMatch] failed to start match in ${roomId}:`, err);
+      logger.error(`[beginMatch] failed to start match in ${roomId}:`, err);
       // Never strand players "ready" or strand an escrowed pot on an unexpected
       // error — refund any escrow, unready players, and report.
       const matchId = this.rooms.matchIdOf(roomId);
@@ -1297,7 +1298,7 @@ export class GameGateway {
         // The match failed to start; this emergency refund failing means a pot may be STRANDED
         // (the periodic orphan sweep is the backstop). Count+log so it's not silently lost (audit I1).
         auditWriteFailures.inc({ kind: 'emergency_refund' });
-        console.error('[beginMatch] emergency refund failed — possible stranded pot', { roomId, matchId }, e);
+        logger.error('[beginMatch] emergency refund failed — possible stranded pot', { roomId, matchId }, e);
       });
       const room = this.rooms.getRoom(roomId);
       if (room && room.status !== 'inMatch') {
@@ -1414,7 +1415,7 @@ export class GameGateway {
         // No untrusted entropy arrived after the commit — the deal becomes a pure
         // function of the (already-committed, hence reproducible) serverSeed.
         // The official client always contributes; flag this anomaly.
-        console.warn('[fair] staked match dealt with no post-commit client entropy', { roomId });
+        logger.warn('[fair] staked match dealt with no post-commit client entropy', { roomId });
       }
       // Deterministic fallback (derived from the fixed serverSeed) when no client
       // contributed — never a fresh random the server could itself grind.
@@ -1436,7 +1437,7 @@ export class GameGateway {
           if (this.games && !room.practice) {
             void this.games
               .recordGame({ matchId: matchIdForFair, index, serverSeed: fair!.serverSeed, serverSeedHash: fair!.serverSeedHash, clientSeed: fair!.clientSeed, nonce: index })
-              .catch((err) => console.error('[fair] failed to persist game seeds', err));
+              .catch((err) => logger.error('[fair] failed to persist game seeds', err));
           }
           return hands;
         }
@@ -1942,7 +1943,7 @@ export class GameGateway {
       // Swallowed so analysis can never block a match end, but COUNT+LOG it — a chronic failure here
       // means suspicion/collusion records are silently NOT being written for staked tables (audit I1).
       auditWriteFailures.inc({ kind: 'anticheat' });
-      console.error('[gateway] antiCheat.analyzeMatch failed', { matchId, seats: seats.length }, e);
+      logger.error('[gateway] antiCheat.analyzeMatch failed', { matchId, seats: seats.length }, e);
     });
   }
 
@@ -2003,8 +2004,7 @@ export class GameGateway {
           await this.money.refund(matchId);
         } catch (err) {
           settlementFailures.inc();
-          // eslint-disable-next-line no-console
-          console.error(`[settlement] all-gone REFUND FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
+          logger.error(`[settlement] all-gone REFUND FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
           this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
           this.clearBotTimer(roomId);
           this.rooms.clearGoneSeats(roomId);
@@ -2039,8 +2039,7 @@ export class GameGateway {
           // makes this practically unreachable, but if that invariant ever breaks, do NOT emit a
           // second match:end with a null payout as if it were a legitimate result — the owning
           // path already emitted (or will). Log + cleanup + bail defensively.
-          // eslint-disable-next-line no-console
-          console.warn(`[settlement] settle() returned null for match ${matchId} (room ${roomId}) — already resolved or in-flight; skipping duplicate match:end`);
+          logger.warn(`[settlement] settle() returned null for match ${matchId} (room ${roomId}) — already resolved or in-flight; skipping duplicate match:end`);
           this.clearBotTimer(roomId);
           this.rooms.clearGoneSeats(roomId);
           this.broadcastLobby();
@@ -2052,8 +2051,7 @@ export class GameGateway {
         // the match row stays 'active', so the periodic crash-recovery sweep refunds
         // every stake. Players are told it's delayed, not lost; this never throws on.
         settlementFailures.inc();
-        // eslint-disable-next-line no-console
-        console.error(`[settlement] FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
+        logger.error(`[settlement] FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
         this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
         this.clearBotTimer(roomId);
         this.rooms.clearGoneSeats(roomId); // match is 'finished' — free abandoned seats (no in-memory leak)
@@ -2075,7 +2073,7 @@ export class GameGateway {
     const cw = this.rooms.clubWarMetaOf(roomId);
     if (cw && this.clubWars && winnerSeats.length > 0) {
       const warWinner = this.userAtSeat(roomId, winnerSeats[0]!);
-      if (warWinner) void this.clubWars.reportResult(cw.warId, cw.aUserId, cw.bUserId, warWinner).catch((err) => console.error(`[clubwar] reportResult failed for ${cw.warId}:`, err));
+      if (warWinner) void this.clubWars.reportResult(cw.warId, cw.aUserId, cw.bUserId, warWinner).catch((err) => logger.error(`[clubwar] reportResult failed for ${cw.warId}:`, err));
     }
     // Tournament matches never touch the ranked MMR ladder (they're their own bracket).
     const ratingDeltas = tourn ? [] : await this.recordRankedResult(roomId, winnerSeats);
@@ -2106,7 +2104,7 @@ export class GameGateway {
       // Publish the persisted seeds (revealed=true) so the durable audit endpoint
       // can serve them even to players who already disconnected.
       if (this.games && matchId) {
-        void this.games.revealMatch(matchId).catch((err) => console.error('[fair] failed to reveal persisted games', err));
+        void this.games.revealMatch(matchId).catch((err) => logger.error('[fair] failed to reveal persisted games', err));
       }
       this.fairness.clearShuffle(roomId);
     }
@@ -2255,7 +2253,7 @@ export class GameGateway {
       // sweepStale eventually refunds every buy-in, so the pool is never lost).
       const code = (err as { code?: string } | null)?.code ?? 'error';
       if (code !== 'already_decided' && code !== 'not_running') {
-        console.error(`[tournament] reportResult FAILED for ${tournamentId} r${round}#${index} — bracket frozen until the stale-sweep refunds:`, err);
+        logger.error(`[tournament] reportResult FAILED for ${tournamentId} r${round}#${index} — bracket frozen until the stale-sweep refunds:`, err);
       }
       return;
     }
@@ -2295,8 +2293,7 @@ export class GameGateway {
         // Refund threw → the match row stays 'active', so the crash-recovery sweep
         // refunds it. Surface it (PAGE counter) and tell players it's delayed, not lost.
         settlementFailures.inc();
-        // eslint-disable-next-line no-console
-        console.error(`[admin-void] refund FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
+        logger.error(`[admin-void] refund FAILED for match ${matchId} (room ${roomId}) — recovery sweep will refund:`, err);
         this.io.to(roomId).emit('error', { code: 'settlement_delayed', message: 'Shlyerja u vonua — fondet kthehen automatikisht. Na vjen keq.' });
         this.broadcastLobby();
         return { ok: true, matchId, refunded: false }; // the void DID proceed; refund follows via sweep
@@ -2393,7 +2390,7 @@ export class GameGateway {
     const g = snap.game;
     if (!g || g.turn !== seat) return; // bot already acted — nothing to rescue
 
-    console.warn('[bot] watchdog: seat stalled, forcing a move', { roomId, seat });
+    logger.warn('[bot] watchdog: seat stalled, forcing a move', { roomId, seat });
     this.driveBot(roomId, seat); // let the normal path retry (clears most transient stalls)
 
     // Still owed after the retry → force a guaranteed-legal action (mirrors onTurnTimeout).
@@ -2434,7 +2431,7 @@ export class GameGateway {
     this.idleStrikes.set(userId, strikes);
     if (strikes >= IDLE_FORFEIT_STRIKES) {
       this.idleStrikes.delete(userId);
-      void this.forfeitMatch(roomId, seat, 'idle').catch((err) => console.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
+      void this.forfeitMatch(roomId, seat, 'idle').catch((err) => logger.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
       return;
     }
 
@@ -2469,7 +2466,7 @@ export class GameGateway {
     this.idleStrikes.set(userId, strikes);
     if (strikes >= IDLE_FORFEIT_STRIKES) {
       this.idleStrikes.delete(userId);
-      void this.forfeitMatch(roomId, seat, 'idle').catch((err) => console.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
+      void this.forfeitMatch(roomId, seat, 'idle').catch((err) => logger.error(`[forfeit] failed for room ${roomId} seat ${seat}:`, err));
       return;
     }
 

@@ -6,6 +6,7 @@
 // Throws AuthError (code + Albanian message) on any user-facing failure.
 // ============================================================================
 
+import { log } from '../logger.ts';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { type UserRepository, type User, type UserRole, type ComplianceUpdate, type AccountStatePatch, DuplicateUserError } from './userRepository.ts';
@@ -412,8 +413,7 @@ export class AuthService {
         text: `Përshëndetje ${user.username},\n\nKonfirmo email-in tënd:\n${this.appUrl}/#verifyEmail=${raw}\n\nLidhja skadon për 24 orë.`,
       });
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[auth] verification email send failed:', err);
+      log.error('[auth] verification email send failed:', err);
     }
   }
 
@@ -451,8 +451,7 @@ export class AuthService {
       // query string (browser history / nginx logs / Referer to the API). See above.
       text: `Përshëndetje ${user.username},\n\nRivendos fjalëkalimin:\n${this.appUrl}/#resetPassword=${raw}\n\nLidhja skadon për 1 orë. Nëse nuk e kërkove ti, injoroje.`,
     }).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('[auth] password-reset email send failed:', err);
+      log.error('[auth] password-reset email send failed:', err);
     });
   }
 

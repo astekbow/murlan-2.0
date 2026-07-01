@@ -3,6 +3,8 @@
 // SMTP/API credentials are configured, ConsoleEmailProvider logs the message
 // (incl. the verification/reset link) so the flows are fully exercisable in dev.
 
+import { log } from '../logger.ts';
+
 export interface OutboundEmail {
   to: string;
   subject: string;
@@ -19,6 +21,6 @@ export interface EmailProvider {
 export class ConsoleEmailProvider implements EmailProvider {
   readonly name = 'console';
   async send(email: OutboundEmail): Promise<void> {
-    console.log(`[email] → ${email.to} | ${email.subject}\n${email.text}\n`);
+    log.info(`[email] → ${email.to} | ${email.subject}\n${email.text}\n`);
   }
 }

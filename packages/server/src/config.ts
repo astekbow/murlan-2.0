@@ -5,6 +5,7 @@
 // boots locally; in production (NODE_ENV=production) missing secrets throw.
 // ============================================================================
 
+import { log } from './logger.ts';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 
@@ -287,8 +288,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw new Error('CLIENT_ORIGIN must be an exact origin in production, not a wildcard (credentialed CORS with "*" is unsafe).');
     }
     if (!parsed.CLIENT_ORIGIN.startsWith('https://')) {
-      // eslint-disable-next-line no-console
-      console.warn(`⚠️  CLIENT_ORIGIN is not https:// in production (${parsed.CLIENT_ORIGIN}) — secure cookies + CORS expect your real HTTPS site origin. Set CLIENT_ORIGIN=https://yourdomain.`);
+      log.warn(`⚠️  CLIENT_ORIGIN is not https:// in production (${parsed.CLIENT_ORIGIN}) — secure cookies + CORS expect your real HTTPS site origin. Set CLIENT_ORIGIN=https://yourdomain.`);
     }
 
     // infra-6: /metrics must be token-gated in production. If METRICS_TOKEN is unset we
@@ -296,7 +296,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // (nobody knows the token) WITHOUT crashing a deploy that didn't set it. Set METRICS_TOKEN
     // explicitly to point a monitoring scraper at it. The loopback bind stays as defense-in-depth.
     if (!parsed.METRICS_TOKEN || parsed.METRICS_TOKEN.trim() === '') {
-      console.warn('[config] METRICS_TOKEN not set in production — /metrics is closed behind an auto-generated token; set METRICS_TOKEN to enable a monitoring scraper.');
+      log.warn('[config] METRICS_TOKEN not set in production — /metrics is closed behind an auto-generated token; set METRICS_TOKEN to enable a monitoring scraper.');
     }
 
     // infra-8: TRUST_PROXY=true trusts ANY upstream, letting a client forge X-Forwarded-For

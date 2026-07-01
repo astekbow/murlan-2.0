@@ -10,6 +10,7 @@
 // well-formed objects); this hardens the trust boundary on READ.
 // ============================================================================
 
+import { log } from '../logger.ts';
 import { z } from 'zod';
 import type { BracketMatch } from '../tournament/tournamentService.ts';
 import type { WarPairing } from '../social/clubWarRepository.ts';
@@ -35,7 +36,7 @@ const WarPairingsSchema = z.array(
 const StringArraySchema = z.array(z.string());
 
 function logBad(label: string, issues: unknown): void {
-  console.error(`[jsonValidators] malformed ${label} JSON in a DB row — degrading to [] (row needs cleanup)`, issues);
+  log.error(`[jsonValidators] malformed ${label} JSON in a DB row — degrading to [] (row needs cleanup)`, issues);
 }
 
 /** Validate a tournament bracket read from jsonb; [] (and a log) on malformed/legacy data. */

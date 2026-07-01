@@ -9,6 +9,7 @@
 // UserRepository without touching callers (see userRepository.ts).
 // ============================================================================
 
+import { log } from './logger.ts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import cookie from '@fastify/cookie';
@@ -505,8 +506,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // (e.g. still pointing at an external DB, or NODE_ENV=development in prod) is
     // visible in `docker compose logs server` without exec'ing into the container.
     const dbHost = (() => { try { return new URL(config.databaseUrl!).host; } catch { return 'unparseable'; } })();
-    // eslint-disable-next-line no-console
-    console.log(`[db] store=postgres host=${dbHost} env=${config.isProd ? 'production' : 'development'}`);
+    log.info(`[db] store=postgres host=${dbHost} env=${config.isProd ? 'production' : 'development'}`);
     dbPing = async () => {
       try {
         await prisma.$queryRaw`SELECT 1`;
@@ -546,8 +546,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       throw new Error('DATABASE_URL is required in production (the in-memory store loses all balances on restart). Set DATABASE_URL, or for a staging/demo deploy WITHOUT real money set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
     }
     if (config.isProd && !opts.userRepository) {
-      // eslint-disable-next-line no-console
-      console.warn('⚠️  [db] store=IN-MEMORY (ALLOW_STUB_PROVIDERS) — DATA WILL NOT PERSIST across restarts. NEVER use for real money.');
+      log.warn('⚠️  [db] store=IN-MEMORY (ALLOW_STUB_PROVIDERS) — DATA WILL NOT PERSIST across restarts. NEVER use for real money.');
     }
     repo = opts.userRepository ?? new InMemoryUserRepository();
     ledger = new InMemoryLedger();
@@ -603,8 +602,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     // an unbounded hot-wallet-drain surface. Not fatal (the owner may run it deliberately
     // small via AUTO_WITHDRAW_MAX_CENTS), but it must be a conscious choice.
     if (config.dailyAutoWithdrawCapCents === 0 && config.globalAutoWithdrawCapCents === 0 && config.destAutoWithdrawCapCents === 0) {
-      // eslint-disable-next-line no-console
-      console.warn('⚠️  AUTO-PAYOUT is ENABLED (AUTO_WITHDRAW_MAX_CENTS>0 + Binance keys) but NO 24h cap is set (DAILY_AUTO_WITHDRAW_CAP_CENTS / GLOBAL_AUTO_WITHDRAW_CAP_CENTS / DEST_AUTO_WITHDRAW_CAP_CENTS are all 0). The auto-pay rail is then bounded only by per-tx AUTO_WITHDRAW_MAX_CENTS — set at least one 24h cap to limit the hot-wallet-drain blast radius.');
+      log.warn('⚠️  AUTO-PAYOUT is ENABLED (AUTO_WITHDRAW_MAX_CENTS>0 + Binance keys) but NO 24h cap is set (DAILY_AUTO_WITHDRAW_CAP_CENTS / GLOBAL_AUTO_WITHDRAW_CAP_CENTS / DEST_AUTO_WITHDRAW_CAP_CENTS are all 0). The auto-pay rail is then bounded only by per-tx AUTO_WITHDRAW_MAX_CENTS — set at least one 24h cap to limit the hot-wallet-drain blast radius.');
     }
   }
   // Fee-free USDT-TRC20 deposits via on-chain TxID verify. PREFERRED: a watch-only
@@ -620,8 +618,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   // with unique per-player addresses (the xpub) + the poller enabled.
   const depositWatch = new DepositWatchRegistry(config.depositWatchMs); // money #4: configurable watch window (default 2h)
   if (depositWallet) {
-    // eslint-disable-next-line no-console
-    console.warn('[deposit] UNIQUE per-player USDT-TRC20 deposit addresses ENABLED (watch-only xpub; no private keys on the server).');
+    log.warn('[deposit] UNIQUE per-player USDT-TRC20 deposit addresses ENABLED (watch-only xpub; no private keys on the server).');
   } else if (config.tronDepositAddress) {
     // SECURITY (#3): a single shared deposit address is CLAIM-JACKABLE — anyone can
     // grab a victim's TxID off TronScan and credit it to themselves (verify binds to
@@ -631,8 +628,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     if (config.isProd && !config.allowStubProviders) {
       throw new Error('TRON_DEPOSIT_ADDRESS (a single SHARED deposit address) is claim-jackable and refused in production: set TRON_DEPOSIT_XPUB for UNIQUE per-player USDT-TRC20 addresses (generate it offline with tools/tron-xpub.mjs). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
     }
-    // eslint-disable-next-line no-console
-    console.warn('⚠️  [deposit] Using a SINGLE shared TRON deposit address (TRON_DEPOSIT_ADDRESS). This is claim-jackable — set TRON_DEPOSIT_XPUB for unique per-player addresses.');
+    log.warn('⚠️  [deposit] Using a SINGLE shared TRON deposit address (TRON_DEPOSIT_ADDRESS). This is claim-jackable — set TRON_DEPOSIT_XPUB for unique per-player addresses.');
   }
   // Unclaimed-deposit watcher: when deposits land in a Binance account AND we can
   // alert (Telegram), poll deposit history and ping the owner about USDT-TRC20
@@ -651,8 +647,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     ? new BinanceWithdrawReader({ apiKey: config.binanceApiKey, apiSecret: config.binanceApiSecret })
     : null;
   if (payout.name !== 'null') {
-    // eslint-disable-next-line no-console
-    console.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
+    log.warn(`[payout] AUTO crypto payout ENABLED via ${payout.name} (${config.autoWithdrawCurrency}, ≤ ${config.autoWithdrawMaxCents}¢). REAL money is sent automatically for small KYC-verified withdrawals.`);
   }
   // Deposit hosted-checkout/webhook flow. The PRIMARY deposit rail is now the
   // fee-free USDT-TRC20 TxID flow (`tronDeposit` above); this PaymentProvider is the
@@ -667,8 +662,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     if (email.name === 'console') throw new Error('A real EmailProvider must be configured in production (ConsoleEmailProvider is a stub — wire SMTP/SES/Postmark). For a staging/demo deploy WITHOUT real money, set ALLOW_STUB_PROVIDERS=staging-no-real-money.');
   }
   if (config.isProd && config.allowStubProviders && (!hasRealDepositRail || email.name === 'console')) {
-    // eslint-disable-next-line no-console
-    console.warn('⚠️  ALLOW_STUB_PROVIDERS=staging-no-real-money: running in production with STUB deposit/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Configure a real deposit rail + EmailProvider, then unset this flag before accepting deposits.');
+    log.warn('⚠️  ALLOW_STUB_PROVIDERS=staging-no-real-money: running in production with STUB deposit/email (mock deposits, emails printed to logs). This is a STAGING/DEMO mode — NOT safe for real money. Configure a real deposit rail + EmailProvider, then unset this flag before accepting deposits.');
   }
 
   // Email verification + password reset go through the EmailProvider above.
@@ -687,20 +681,17 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       if (!u) return;
       if (u.role !== 'admin') {
         await repo.setRole(u.id, 'admin');
-        // eslint-disable-next-line no-console
-        console.log(`[admin] promoted ${config.adminEmail} to admin`);
+        log.info(`[admin] promoted ${config.adminEmail} to admin`);
       }
       // Owner is a FULL admin by definition: reset any scoped permission list back to []
       // on boot (admin-3). A scoped admin must never be able to neuter the owner's powers
       // by stamping them a restrictive list — boot always restores them to full.
       if (Array.isArray(u.permissions) && u.permissions.length > 0) {
         await repo.setPermissions(u.id, []);
-        // eslint-disable-next-line no-console
-        console.log(`[admin] reset ${config.adminEmail} permissions to full (owner)`);
+        log.info(`[admin] reset ${config.adminEmail} permissions to full (owner)`);
       }
     }).catch((e) => {
-      // eslint-disable-next-line no-console
-      console.error('[admin] bootstrap promote failed:', e);
+      log.error('[admin] bootstrap promote failed:', e);
     });
   }
 
@@ -754,9 +745,9 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
         privateKey: config.vapidPrivateKey,
         subject: config.vapidSubject,
       });
-      console.info('[push] real Web Push enabled (VAPID configured)');
+      log.info('[push] real Web Push enabled (VAPID configured)');
     } catch (err) {
-      console.error('[push] failed to init web-push — falling back to console provider:', err);
+      log.error('[push] failed to init web-push — falling back to console provider:', err);
     }
   }
   const push = new PushService(pushSubsRepo, pushProvider);
@@ -1375,8 +1366,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
       })();
     }, config.depositPollMs);
     depositPollTimer.unref?.();
-    // eslint-disable-next-line no-console
-    console.warn(`[deposit] AUTO-CREDIT poller ENABLED (every ${Math.round(config.depositPollMs / 1000)}s for active depositors; manual TxID remains as fallback).`);
+    log.warn(`[deposit] AUTO-CREDIT poller ENABLED (every ${Math.round(config.depositPollMs / 1000)}s for active depositors; manual TxID remains as fallback).`);
   }
 
   const closeAll = async () => {

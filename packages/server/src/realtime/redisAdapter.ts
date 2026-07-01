@@ -2,6 +2,7 @@
 // server instances and shared pub/sub (spec §1, §7). Activated only when
 // REDIS_URL is configured; the app runs single-instance in-memory otherwise.
 
+import { log } from '../logger.ts';
 import type { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { Redis } from 'ioredis';
@@ -13,8 +14,8 @@ export async function attachRedisAdapter(io: Server, url: string): Promise<() =>
   // CRITICAL: ioredis clients are EventEmitters — an 'error' with NO listener re-throws
   // as an uncaught exception and kills the process (taking every live match with it).
   // A transient Redis blip must be logged, not fatal; ioredis reconnects on its own.
-  pub.on('error', (e) => console.error('[redis:pub] connection error:', e?.message ?? e));
-  sub.on('error', (e) => console.error('[redis:sub] connection error:', e?.message ?? e));
+  pub.on('error', (e) => log.error('[redis:pub] connection error:', e?.message ?? e));
+  sub.on('error', (e) => log.error('[redis:sub] connection error:', e?.message ?? e));
   io.adapter(createAdapter(pub, sub));
   return async () => {
     await pub.quit();

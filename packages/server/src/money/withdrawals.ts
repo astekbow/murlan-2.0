@@ -6,6 +6,7 @@
 // (funds refunded). Basic per-request limits are enforced.
 // ============================================================================
 
+import { log } from '../logger.ts';
 import { WalletService, InsufficientFundsError } from './walletService.ts';
 import type { UnitOfWork } from './unitOfWork.ts';
 import type { PayoutProvider, PayoutResult } from './payoutProvider.ts';
@@ -352,8 +353,7 @@ export class WithdrawalService {
       await this.repo.markReversed(id);
     } catch (err) {
       settlementFailures.inc();
-      // eslint-disable-next-line no-console
-      console.error(`[withdrawals] CRITICAL: auto-payout refund/reversal FAILED for withdrawal ${id} (${rec.amountCents}¢, user ${rec.userId}) — player may be short; row left 'completed' for manual reconcile.`, err);
+      log.error(`[withdrawals] CRITICAL: auto-payout refund/reversal FAILED for withdrawal ${id} (${rec.amountCents}¢, user ${rec.userId}) — player may be short; row left 'completed' for manual reconcile.`, err);
     }
     return { outcome: 'failed', error: r.error };
   }

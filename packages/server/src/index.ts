@@ -1,4 +1,5 @@
 // Entrypoint: boot the Murlan game server (HTTP + Socket.IO).
+import { log } from './logger.ts';
 import { createGameServer } from './app.ts';
 import { loadConfig } from './config.ts';
 
@@ -8,18 +9,17 @@ import { loadConfig } from './config.ts';
 // the source; this only stops one unhandled case from killing all in-flight games.
 // (Note: this does not mask startup failures — main().catch below still hard-exits those.)
 process.on('unhandledRejection', (reason) => {
-  console.error('[FATAL-GUARD] unhandledRejection:', reason);
+  log.error('[FATAL-GUARD] unhandledRejection:', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[FATAL-GUARD] uncaughtException:', err);
+  log.error('[FATAL-GUARD] uncaughtException:', err);
 });
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const server = await createGameServer({ config });
   await server.listen();
-  // eslint-disable-next-line no-console
-  console.log(`Murlan server listening on http://${config.host}:${config.port} (${config.nodeEnv})`);
+  log.info(`Murlan server listening on http://${config.host}:${config.port} (${config.nodeEnv})`);
 
   // Graceful drain on deploy/stop: stop accepting NEW matches (/ready → 503 so the
   // LB drains us), let in-flight matches finish within the grace, then refund any
@@ -29,12 +29,12 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`\n${signal} received — draining (grace ${config.abandonMs}ms), then shutting down.`);
+    log.info(`\n${signal} received — draining (grace ${config.abandonMs}ms), then shutting down.`);
     try {
       const refunded = await server.drain(config.abandonMs);
-      if (refunded) console.log(`drain: refunded ${refunded} in-flight match(es).`);
+      if (refunded) log.info(`drain: refunded ${refunded} in-flight match(es).`);
     } catch (err) {
-      console.error('drain failed, closing anyway:', err);
+      log.error('drain failed, closing anyway:', err);
       await server.close().catch(() => {});
     }
     process.exit(0);
@@ -44,6 +44,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('Fatal startup error:', err);
+  log.error('Fatal startup error:', err);
   process.exit(1);
 });

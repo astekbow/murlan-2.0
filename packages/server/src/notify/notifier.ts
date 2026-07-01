@@ -7,6 +7,8 @@
 // money flow (it's fired off the response path).
 // ============================================================================
 
+import { log } from '../logger.ts';
+
 /** A single inline-keyboard button: a label + the callback payload Telegram echoes
  *  back to the webhook when it's tapped (≤64 bytes per Telegram's limit). */
 export interface InlineButton {
@@ -63,12 +65,12 @@ export class TelegramNotifier implements Notifier {
         if (res.ok) return;
         // 4xx (bad token/chat id) won't fix on retry — log and stop; 5xx/429 may, so retry.
         if (res.status < 500 && res.status !== 429) {
-          console.error(`[notify] telegram sendMessage failed: HTTP ${res.status} (not retryable)`);
+          log.error(`[notify] telegram sendMessage failed: HTTP ${res.status} (not retryable)`);
           return;
         }
-        console.error(`[notify] telegram sendMessage HTTP ${res.status} (attempt ${attempt}/${ATTEMPTS})`);
+        log.error(`[notify] telegram sendMessage HTTP ${res.status} (attempt ${attempt}/${ATTEMPTS})`);
       } catch (err) {
-        console.error(`[notify] telegram send error (attempt ${attempt}/${ATTEMPTS}):`, err);
+        log.error(`[notify] telegram send error (attempt ${attempt}/${ATTEMPTS}):`, err);
       }
       if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, 500 * attempt)); // 0.5s, then 1s
     }

@@ -10,6 +10,7 @@
 // into a money flow — a Telegram hiccup must not break the app.
 // ============================================================================
 
+import { log } from '../logger.ts';
 import { type Notifier, type InlineButton, escapeHtml } from './notifier.ts';
 
 export { escapeHtml };
@@ -56,12 +57,12 @@ export class TelegramBot implements Notifier {
         }
         // 4xx (bad token/chat/markup) won't fix on retry — log + stop; 5xx/429 may retry.
         if (res.status < 500 && res.status !== 429) {
-          console.error(`[telegram] ${method} failed: HTTP ${res.status} (not retryable)`);
+          log.error(`[telegram] ${method} failed: HTTP ${res.status} (not retryable)`);
           return null;
         }
-        console.error(`[telegram] ${method} HTTP ${res.status} (attempt ${attempt}/${ATTEMPTS})`);
+        log.error(`[telegram] ${method} HTTP ${res.status} (attempt ${attempt}/${ATTEMPTS})`);
       } catch (err) {
-        console.error(`[telegram] ${method} error (attempt ${attempt}/${ATTEMPTS}):`, err);
+        log.error(`[telegram] ${method} error (attempt ${attempt}/${ATTEMPTS}):`, err);
       }
       if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, 500 * attempt));
     }
@@ -130,7 +131,7 @@ export class TelegramBot implements Notifier {
       allowed_updates: ['message', 'callback_query'],
       drop_pending_updates: false,
     });
-    if (res && !res.ok) console.error(`[telegram] setWebhook rejected: ${res.description ?? 'unknown'}`);
+    if (res && !res.ok) log.error(`[telegram] setWebhook rejected: ${res.description ?? 'unknown'}`);
     return !!res?.ok;
   }
 }

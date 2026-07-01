@@ -12,6 +12,7 @@
 // commands by extending the same dispatcher.
 // ============================================================================
 
+import { log } from '../logger.ts';
 import { WithdrawalError, type WithdrawalService, type WithdrawalRecord } from '../money/withdrawals.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
@@ -258,7 +259,7 @@ export class TelegramAdminBot {
       if (update.callback_query) return await this.handleCallback(update.callback_query);
       if (update.message?.text) return await this.handleMessage(update.message);
     } catch (err) {
-      console.error('[telegram-bot] handleUpdate error:', err);
+      log.error('[telegram-bot] handleUpdate error:', err);
     }
   }
 
@@ -861,8 +862,7 @@ export class TelegramAdminBot {
     try {
       await this.deps.audit.record({ adminId, action: 'support_resolve', targetUserId: t.userId, detail: `${ticketId} reply (telegram): ${reply}` });
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[telegram] support_resolve audit write FAILED (action applied, NOT audited):', err);
+      log.error('[telegram] support_resolve audit write FAILED (action applied, NOT audited):', err);
       await this.deps.bot.sendMessage('⚠️ Veprimi u krye, por SHËNIMI i auditit dështoi — kontrollo log-un.').catch(() => undefined);
     }
     let notified = '';
