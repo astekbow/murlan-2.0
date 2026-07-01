@@ -71,40 +71,82 @@ test('mustInclude (game-1 opening 3♠) is always respected', () => {
   }
 });
 
-test('hard leads its strongest single against a nearly-finished opponent', () => {
+test('medium/hard lead their strongest single against a nearly-finished opponent; easy leads cheapest', () => {
   const hand = [c('3', 'S'), c('5', 'S'), c('9', 'S')];
   const lead: BotView = { hand, pile: null, canPass: false, opponentCounts: [2] };
-  // Hard denies the easy take with its highest single; medium leads the cheapest.
-  assert.deepEqual(decideBotMove(lead, 'hard').action === 'play' && (decideBotMove(lead, 'hard') as { cards: Card[] }).cards, [c('9', 'S')]);
-  assert.deepEqual(decideBotMove(lead, 'medium').action === 'play' && (decideBotMove(lead, 'medium') as { cards: Card[] }).cards, [c('3', 'S')]);
+  for (const tier of ['medium', 'hard'] as const) {
+    const m = decideBotMove(lead, tier);
+    assert.deepEqual(m.action === 'play' && m.cards, [c('9', 'S')], `${tier} should deny with its strongest single`);
+  }
+  const easy = decideBotMove(lead, 'easy');
+  assert.deepEqual(easy.action === 'play' && easy.cards, [c('3', 'S')]); // easy just leads the cheapest
 });
 
-test('medium leads its weakest isolated card and does NOT fracture a pair', () => {
+test('easy leads its weakest isolated card and does NOT fracture a pair', () => {
   const hand = [c('3', 'S'), c('9', 'S'), c('9', 'H')]; // an isolated 3 + a pair of 9s
   const view: BotView = { hand, pile: null, canPass: false, opponentCounts: [6] };
-  const move = decideBotMove(view, 'medium');
-  assert.deepEqual(move, { action: 'play', cards: [c('3', 'S')] }); // throws the 3, keeps the pair
+  assert.deepEqual(decideBotMove(view, 'easy'), { action: 'play', cards: [c('3', 'S')] }); // throws the 3, keeps the pair
 });
 
-test('hard spends a trump to stop an opponent about to win; medium hoards it (and loses)', () => {
+test('medium/hard spend a trump to stop an opponent about to win; easy hoards it', () => {
   const hand = [c('4', 'S'), c('4', 'H'), c('4', 'D'), c('4', 'C'), c('7', 'S')]; // bomb + a low 7
   const view: BotView = { hand, pile: combo([c('K', 'S')]), canPass: true, opponentCounts: [1] };
   // Only the bomb beats a King; an opponent is one card from winning.
-  assert.deepEqual(decideBotMove(view, 'medium'), { action: 'pass' });        // naive: hoards the bomb
-  const hard = decideBotMove(view, 'hard');                                    // spends it to deny the win
-  assert.equal(hard.action, 'play');
-  if (hard.action === 'play') assert.equal(hard.cards.length, 4);              // the 4-card bomb
+  assert.deepEqual(decideBotMove(view, 'easy'), { action: 'pass' }); // beginner naively hoards the bomb
+  for (const tier of ['medium', 'hard'] as const) {
+    const m = decideBotMove(view, tier); // spends it to deny the win
+    assert.equal(m.action, 'play');
+    if (m.action === 'play') assert.equal(m.cards.length, 4); // the 4-card bomb
+  }
 });
 
-test('hard unloads a whole run when leading; medium just dribbles its lowest single', () => {
+test('medium/hard unload a whole run when leading; easy just dribbles its lowest single', () => {
   const hand = [c('4', 'S'), c('5', 'H'), c('6', 'D'), c('7', 'C'), c('8', 'S'), c('K', 'H')]; // a 4-8 kolor + a K
   const view: BotView = { hand, pile: null, canPass: false, opponentCounts: [9] };
-  const hard = decideBotMove(view, 'hard');
-  assert.equal(hard.action, 'play');
-  if (hard.action === 'play') assert.equal(hard.cards.length, 5); // sheds the whole 5-card run
-  const med = decideBotMove(view, 'medium');
-  assert.equal(med.action, 'play');
-  if (med.action === 'play') assert.equal(med.cards.length, 1); // throws a single
+  for (const tier of ['medium', 'hard'] as const) {
+    const m = decideBotMove(view, tier);
+    assert.equal(m.action === 'play' && m.cards.length, 5, `${tier} sheds the whole 5-card run`);
+  }
+  const easy = decideBotMove(view, 'easy');
+  assert.equal(easy.action === 'play' && easy.cards.length, 1); // easy throws a single
+});
+
+// ---- TEAM PLAY (2v2): every tier cooperates with its partner ----------------
+
+test('2v2 team: NEVER overtakes the partner — passes when the partner owns the pile (all tiers)', () => {
+  const hand = [c('A', 'S'), c('K', 'H')]; // could easily beat the 5, but the partner is winning it
+  const view: BotView = {
+    hand, pile: combo([c('5', 'S')]), canPass: true, opponentCounts: [4, 4, 4],
+    mySeat: 0, numPlayers: 4, pileOwner: 2, handCounts: [2, 5, 3, 5], partnerSeat: 2,
+  };
+  for (const tier of TIERS) {
+    assert.deepEqual(decideBotMove(view, tier), { action: 'pass' }, `${tier} overtook its own partner`);
+  }
+});
+
+test('2v2 team: sets a near-finished partner up — leads a LOW single when the partner has 1 card (all tiers)', () => {
+  const hand = [c('3', 'S'), c('K', 'H'), c('A', 'D')];
+  // Leading; partner (seat 2) is on their last card; the next opponent (seat 1) has plenty → safe to feed low.
+  const view: BotView = {
+    hand, pile: null, canPass: false, opponentCounts: [6, 1, 6],
+    mySeat: 0, numPlayers: 4, pileOwner: null, handCounts: [3, 6, 1, 6], partnerSeat: 2,
+  };
+  for (const tier of TIERS) {
+    const m = decideBotMove(view, tier);
+    assert.deepEqual(m.action === 'play' && m.cards, [c('3', 'S')], `${tier} should lead low to free the partner`);
+  }
+});
+
+test('2v2 team: withholds the low lead when the NEXT opponent is also about to finish (cunning guard)', () => {
+  const hand = [c('3', 'S'), c('9', 'H')];
+  // Partner (seat 2) has 1 card, BUT the next opponent (seat 1) ALSO has 1 → don't gift them the trick:
+  // Rule B is suppressed and the bot falls back to normal play (still legal; just not the forced low feed).
+  const view: BotView = {
+    hand, pile: null, canPass: false, opponentCounts: [1, 1, 6],
+    mySeat: 0, numPlayers: 4, pileOwner: null, handCounts: [2, 1, 1, 6], partnerSeat: 2,
+  };
+  const m = decideBotMove(view, 'easy');
+  assert.equal(m.action, 'play'); // a leader always plays; the guard just prevented the unconditional feed
 });
 
 test('hard uses card memory to lead a lock single (both jokers already played)', () => {

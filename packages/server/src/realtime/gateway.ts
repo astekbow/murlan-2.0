@@ -1153,6 +1153,9 @@ export class GameGateway {
     const mustInclude = opening && opening.kind === 'standard' && pub.pile == null
       ? hand.find((c) => c.kind === 'standard' && c.rank === opening.rank && c.suit === opening.suit)
       : undefined;
+    // TEAM PLAY (2v2): the bot's partner is the OTHER seat on its team (teams are set only for
+    // 2v2 in the match snapshot). undefined in solo games → the bot plays purely for itself.
+    const partnerSeat = snap.teams?.find((t) => t.includes(seat))?.find((s) => s !== seat);
     const move = decideBotMove(
       {
         hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
@@ -1166,6 +1169,7 @@ export class GameGateway {
         active: pub.active,
         handCounts: pub.handCounts,
         finishingOrder: pub.finishingOrder,
+        partnerSeat,
       },
       tier,
     );

@@ -58,6 +58,10 @@ export interface BotView {
   handCounts?: number[];
   /** Seats already finished this game, in finishing order. */
   finishingOrder?: number[];
+  /** TEAM PLAY (2v2): this bot's PARTNER seat, or undefined in solo games. When set, the bot
+   *  cooperates — it won't overtake the partner's winning card, and it sets a near-finished
+   *  partner up to go out. Applies to EVERY tier (team support outranks raw solo skill). */
+  partnerSeat?: number;
 }
 
 // SEQ value for straights: Ace is flexible (1 or 14), 2 is only low. Mirrors the
@@ -161,7 +165,6 @@ function playCost(c: Combo): number {
 }
 
 const goesOut = (c: Combo, handSize: number) => c.cards.length === handSize;
-const pick = <T>(arr: T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)]!;
 
 const rankOf = (c: Card): Rank | null => (c.kind === 'standard' ? c.rank : null);
 function countRank(hand: Card[], rank: Rank): number {
@@ -230,68 +233,32 @@ function lockSingle(plays: Combo[], hand: Card[], seen: Card[]): Combo | undefin
   return safe.reduce((a, b) => (singlePower(a.cards[0]!) < singlePower(b.cards[0]!) ? a : b));
 }
 
-/**
- * Choose a move for the given tier. A leader (canPass=false) always plays — when
- * leading there is always at least one legal play (any single). A responder may
- * pass. Pure: identical (view, tier, rng) ⇒ identical move.
- *
- * The three tiers are deliberately distinct:
- *   easy   — erratic + wasteful: misses guaranteed wins, dumps its best cards
- *            early, and passes when it shouldn't. Made to be beaten.
- *   medium — efficient: always takes a go-out, leads its weakest cards (without
- *            fracturing combos), responds with the cheapest winning play, and
- *            hoards bombs/flushes.
- *   hard   — medium + endgame awareness: denies a nearly-finished opponent an
- *            easy lead by leading its strongest single, and spends a trump to
- *            stop an opponent about to win rather than hoarding into a loss.
- */
-export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = Math.random): BotMove {
-  const plays = enumerateLegalPlays(view.hand, view.pile, view.mustInclude);
-  const canPass = view.canPass && view.pile !== null;
-  if (plays.length === 0) return { action: 'pass' }; // only reachable when responding
+/** Search budgets. MEDIUM runs the base look-ahead search; HARD searches DEEPER (more
+ *  determinizations + candidates) for stronger, lower-variance play. Bounded so a single
+ *  decision stays event-loop-safe (it runs inside the bot's think-delay). */
+const MEDIUM_BUDGET = { sims: 36, maxCandidates: 14 } as const;
+const HARD_BUDGET = { sims: 64, maxCandidates: 16 } as const;
 
-  // Medium/Hard never miss a guaranteed win (a play that empties the hand). Easy
-  // does — that's part of what makes it easy.
-  if (tier !== 'easy') {
-    const out = plays.find((c) => goesOut(c, view.hand.length));
-    if (out) return { action: 'play', cards: out.cards };
-  }
+/** EASY brain (levelled up to the old Medium): efficient "book" play — lead the weakest cards
+ *  without fracturing a group, respond with the cheapest winning non-trump, and hoard bombs/
+ *  flushes. Solid fundamentals, NO look-ahead. (A go-out is already taken by the caller.) */
+function efficientHeuristic(view: BotView, plays: Combo[], canPass: boolean): BotMove {
+  const sorted = [...plays].sort((a, b) => playCost(a) - playCost(b));
+  const cheapestNonTrump = sorted.find((c) => !isTrump(c));
+  if (!view.pile) return { action: 'play', cards: (bestLead(plays, view.hand) ?? sorted[0]!).cards };
+  if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };
+  if (canPass) return { action: 'pass' };
+  return { action: 'play', cards: sorted[0]!.cards };
+}
 
+/** Endgame-aware heuristic — the fallback for Medium/Hard when the rich public state the search
+ *  needs isn't present (e.g. unit tests). Card-counts, denies a near-finished opponent an easy
+ *  lead, and spends a trump to STOP an opponent about to win rather than hoarding into a loss. */
+function endgameHeuristic(view: BotView, plays: Combo[], canPass: boolean): BotMove {
   const sorted = [...plays].sort((a, b) => playCost(a) - playCost(b));
   const cheapestNonTrump = sorted.find((c) => !isTrump(c));
   const oppClose = view.opponentCounts.length > 0 && Math.min(...view.opponentCounts) <= 2;
-
-  // ----- EASY ---------------------------------------------------------------
-  if (tier === 'easy') {
-    if (canPass && rng() < 0.4) return { action: 'pass' };                       // passes when it shouldn't
-    if (rng() < 0.5) return { action: 'play', cards: pick(plays, rng).cards };   // random legal play
-    return { action: 'play', cards: sorted[sorted.length - 1]!.cards };          // or wastes its strongest
-  }
-
-  // ----- MEDIUM -------------------------------------------------------------
-  // Medium is intentionally the WEAKER brain (it hoards trumps rather than burning them to deny a
-  // win — that judgement is what makes HARD harder). All real fill bots play HARD (see gateway),
-  // which already spends a trump to stop a near-finished opponent (below + in the search rollouts).
-  if (tier === 'medium') {
-    if (!view.pile) return { action: 'play', cards: (bestLead(plays, view.hand) ?? sorted[0]!).cards };
-    if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };
-    if (canPass) return { action: 'pass' };               // only trumps beat it → hoard while responding
-    return { action: 'play', cards: sorted[0]!.cards };
-  }
-
-  // ----- HARD ----------------------------------------------------------------
-  // With full public state, THINK AHEAD: determinized Monte-Carlo search picks the
-  // move that finishes first across many sampled opponent hands. Falls back to the
-  // heuristic below when the rich context isn't available (e.g. in unit tests).
-  if (view.mySeat != null && view.numPlayers != null) {
-    const searched = chooseBestMove(view, rng);
-    if (searched) return searched;
-  }
-
-  // Heuristic Hard (fallback): unload in bulk, count cards, control the endgame.
   if (!view.pile) {
-    // Deny a nearly-finished opponent an easy take: lead the STRONGEST non-trump
-    // single so they can't cheaply grab the lead and go out.
     if (oppClose) {
       const singles = plays.filter((c) => c.type === 'single' && !isTrump(c));
       if (singles.length > 0) {
@@ -299,19 +266,77 @@ export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = 
         return { action: 'play', cards: strongest.cards };
       }
     }
-    // Late game: if card-counting shows we hold a single nobody left can out-rank,
-    // lead it to KEEP the lead — next turn is a free lead to dump on.
     if (view.seen && view.hand.length <= 8 && view.hand.length > 1) {
       const lock = lockSingle(plays, view.hand, view.seen);
       if (lock) return { action: 'play', cards: lock.cards };
     }
-    // Otherwise UNLOAD: shed as many cards as possible — runs/groups before singles.
     return { action: 'play', cards: bestUnload(plays, view.hand).cards };
   }
-  // Responding: win the trick as cheaply as possible to seize tempo.
   if (cheapestNonTrump) return { action: 'play', cards: cheapestNonTrump.cards };
-  // Only a trump beats the pile: spend it to stop an opponent about to win, else hoard.
   if (oppClose) return { action: 'play', cards: sorted[0]!.cards };
   if (canPass) return { action: 'pass' };
   return { action: 'play', cards: sorted[0]!.cards };
+}
+
+/**
+ * TEAM PLAY (2v2): cooperate with the partner. Returns a move when a team rule fires, else null
+ * (fall through to solo play). Owner spec:
+ *   A — never overtake the partner: if they're WINNING the current trick (own the pile), don't
+ *       beat their card — pass and let them keep it.
+ *   B — set up a near-finished partner: when LEADING and the partner is on their LAST card, lead a
+ *       LOW single so they can beat it and go out. Cunning guard: skip it if the opponent sitting
+ *       right after us is ALSO about to finish (don't gift THEM the trick).
+ * (A guaranteed go-out for THIS bot is taken by the caller first — finishing always helps the team.)
+ */
+function teamMove(view: BotView, plays: Combo[], canPass: boolean): BotMove | null {
+  if (view.partnerSeat == null || view.handCounts == null || view.mySeat == null || view.numPlayers == null) return null;
+  // Rule A — don't beat the partner.
+  if (view.pile != null && view.pileOwner === view.partnerSeat && canPass) {
+    return { action: 'pass' };
+  }
+  // Rule B — help the partner go out.
+  if (view.pile == null && (view.handCounts[view.partnerSeat] ?? 99) <= 1) {
+    const nextSeat = (view.mySeat + 1) % view.numPlayers;
+    const nextOppNearOut = nextSeat !== view.partnerSeat && (view.handCounts[nextSeat] ?? 99) <= 1;
+    if (!nextOppNearOut) {
+      const singles = plays.filter((c) => c.type === 'single' && !isTrump(c));
+      if (singles.length > 0) {
+        const lowest = singles.reduce((a, b) => (playCost(a) < playCost(b) ? a : b));
+        return { action: 'play', cards: lowest.cards };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Choose a move for the given tier. Each tier is one level stronger than before, and ALL tiers
+ * play as a TEAM in 2v2 (helping the partner OUTRANKS raw solo skill):
+ *   easy   — efficient "book" play (weakest leads, cheapest wins, hoards trumps); no look-ahead.
+ *   medium — look-ahead: determinized Monte-Carlo search (card counting + endgame control).
+ *   hard   — the SAME search, DEEPER (more determinizations + candidates) => stronger + steadier.
+ * A leader always plays; a responder may pass. Pure: identical (view, tier, rng) => identical move.
+ */
+export function decideBotMove(view: BotView, tier: BotTier, rng: () => number = Math.random): BotMove {
+  const plays = enumerateLegalPlays(view.hand, view.pile, view.mustInclude);
+  const canPass = view.canPass && view.pile !== null;
+  if (plays.length === 0) return { action: 'pass' }; // only reachable when responding
+
+  // A guaranteed go-out is always taken — finishing helps the bot AND (in 2v2) its team.
+  const out = plays.find((c) => goesOut(c, view.hand.length));
+  if (out) return { action: 'play', cards: out.cards };
+
+  // TEAM PLAY takes precedence over solo skill (every tier).
+  const team = teamMove(view, plays, canPass);
+  if (team) return team;
+
+  // ----- Solo skill by tier --------------------------------------------------
+  if (tier === 'easy') return efficientHeuristic(view, plays, canPass);
+
+  // Medium + Hard THINK AHEAD with the determinized Monte-Carlo search; Hard searches deeper.
+  if (view.mySeat != null && view.numPlayers != null) {
+    const searched = chooseBestMove(view, rng, tier === 'hard' ? HARD_BUDGET : MEDIUM_BUDGET);
+    if (searched) return searched;
+  }
+  return endgameHeuristic(view, plays, canPass);
 }
