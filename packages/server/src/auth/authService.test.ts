@@ -92,20 +92,24 @@ test('register: a taken-email registration still spends the password-hash time (
   const { auth } = makeService();
   await auth.register(valid);
 
-  // Time a fresh (successful) registration — dominated by the Argon2 hash.
-  const t0 = performance.now();
-  await auth.register({ username: 'fresh', email: 'fresh@example.com', password: 'supersecret1' });
-  const freshMs = performance.now() - t0;
+  const time = async (fn: () => Promise<unknown>): Promise<number> => {
+    const t = performance.now();
+    await fn();
+    return performance.now() - t;
+  };
+  const median = (xs: number[]): number => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
-  // Time a taken-email rejection. With the hash now run BEFORE the uniqueness check, it
-  // must take a comparable (non-trivial) fraction of the fresh time — not an instant return.
-  const t1 = performance.now();
-  await assert.rejects(auth.register({ ...valid, username: 'other2' }), (e: unknown) => e instanceof AuthError && e.code === 'email_taken');
-  const takenMs = performance.now() - t1;
-
-  // The taken path runs the hash too → it isn't a near-instant early return. Generous
-  // bound (≥ 25% of the fresh time) to avoid flakiness while still catching a fast-path.
-  assert.ok(takenMs >= freshMs * 0.25, `taken-email should run the hash (taken=${takenMs.toFixed(1)}ms vs fresh=${freshMs.toFixed(1)}ms)`);
+  // Sample BOTH paths several times and compare MEDIANS — robust to a single GC/scheduler spike
+  // on a loaded CI runner (the old single-run ratio was flaky). The taken path must still take a
+  // comparable, non-trivial fraction of the fresh time because it runs the hash BEFORE the
+  // uniqueness check (no near-instant early return → no timing oracle).
+  const fresh: number[] = [];
+  const taken: number[] = [];
+  for (let i = 0; i < 5; i += 1) {
+    fresh.push(await time(() => auth.register({ username: `fresh${i}`, email: `fresh${i}@example.com`, password: 'supersecret1' })));
+    taken.push(await time(() => assert.rejects(auth.register({ ...valid, username: `other${i}` }), (e: unknown) => e instanceof AuthError && e.code === 'email_taken')));
+  }
+  assert.ok(median(taken) >= median(fresh) * 0.25, `taken-email should run the hash (taken≈${median(taken).toFixed(1)}ms vs fresh≈${median(fresh).toFixed(1)}ms)`);
 });
 
 test('login succeeds with correct credentials and fails otherwise', async () => {
