@@ -112,6 +112,7 @@ interface Sim {
   owner: number | null;
   turn: number | null;
   order: number[]; // finishing order (seats), in finish sequence
+  coop: boolean;   // 2v2: seats cooperate in the rollout (a seat won't overtake its teammate's pile)
 }
 
 function removeCards(hand: Card[], cards: Card[]): Card[] {
@@ -214,9 +215,15 @@ function rolloutPlay(sim: Sim, seat: number): Card[] | null {
 }
 function rolloutStep(sim: Sim, seat: number): void {
   const hand = sim.hands[seat]!;
-  // Always go out if a single empties the hand or a group does (cheap check first).
+  // Always go out if a single empties the hand (cheap check first) — finishing helps the team too.
   if (hand.length === 1 && (sim.pile === null || (sim.pile.type === 'single' && singlePower(hand[0]!) > sim.pile.power!))) {
     applyPlay(sim, seat, identifyCombo(hand)!);
+    return;
+  }
+  // TEAM cooperation (2v2): don't overtake your TEAMMATE's winning pile — let them keep the trick.
+  // Teammate = (seat + 2) mod 4 under the default 0&2 / 1&3 pairing. Only fires while responding.
+  if (sim.coop && sim.pile !== null && sim.owner === (seat + 2) % sim.n) {
+    applyPass(sim, seat);
     return;
   }
   const cards = rolloutPlay(sim, seat);
@@ -227,14 +234,21 @@ function rolloutStep(sim: Sim, seat: number): void {
   applyPass(sim, seat); // can only happen while responding
 }
 
-/** Play `sim` to completion (or until `mySeat` finishes) and return mySeat's PLACE. */
-function playoutPlace(sim: Sim, mySeat: number): number {
+/**
+ * Play `sim` out and score the result for the searching bot's TEAM (lower = better):
+ *   solo → mySeat's finishing PLACE (1 = best).
+ *   2v2  → mySeat's place + the PARTNER's place, so the search maximises the whole team's
+ *          outcome (both partners finishing high), not just the bot's own placing.
+ * Runs until the whole team has finished (or the game ends), bounded by PLAYOUT_GUARD.
+ */
+function playoutScore(sim: Sim, mySeat: number, partnerSeat: number | null): number {
   let guard = 0;
-  while (sim.turn !== null && sim.active[mySeat] && guard++ < PLAYOUT_GUARD) {
+  const teamDone = () => !sim.active[mySeat] && (partnerSeat == null || !sim.active[partnerSeat]);
+  while (sim.turn !== null && !teamDone() && guard++ < PLAYOUT_GUARD) {
     rolloutStep(sim, sim.turn);
   }
-  const idx = sim.order.indexOf(mySeat);
-  return idx >= 0 ? idx + 1 : sim.n; // not finished ⇒ worst place
+  const place = (seat: number): number => { const idx = sim.order.indexOf(seat); return idx >= 0 ? idx + 1 : sim.n; };
+  return place(mySeat) + (partnerSeat != null ? place(partnerSeat) : 0); // not finished ⇒ worst place
 }
 
 // ---------- Determinization --------------------------------------------------
@@ -264,6 +278,8 @@ function determinize(view: BotView, pool: Card[], rng: () => number): Sim {
     owner: view.pileOwner ?? null,
     turn: view.mySeat ?? 0,
     order: [...(view.finishingOrder ?? [])],
+    // 2v2 (4 seats, default teams 0&2 / 1&3): model team cooperation in the rollout.
+    coop: n === 4 && view.partnerSeat != null,
   };
 }
 function boolFromSeats(seats: number[], n: number): boolean[] {
@@ -311,6 +327,7 @@ export function chooseBestMove(
 
   const pool = unseen(view);
   const sims = opts.sims ?? SIMS_PER_MOVE;
+  const partnerSeat = view.partnerSeat ?? null; // 2v2: score the whole team, not just this bot
   let best: Cand | null = null;
   let bestScore = Infinity;
   for (const cand of cands) {
@@ -319,7 +336,7 @@ export function chooseBestMove(
       const sim = determinize(view, pool, rng);
       if (cand.combo) applyPlay(sim, view.mySeat, cand.combo);
       else applyPass(sim, view.mySeat);
-      total += playoutPlace(sim, view.mySeat);
+      total += playoutScore(sim, view.mySeat, partnerSeat);
     }
     const avg = total / sims;
     if (avg < bestScore) { bestScore = avg; best = cand; }
@@ -327,4 +344,4 @@ export function chooseBestMove(
   return best ? best.move : null;
 }
 
-export const _searchInternals = { rootPlays, determinize, playoutPlace, unseen }; // for tests
+export const _searchInternals = { rootPlays, determinize, playoutScore, unseen }; // for tests
