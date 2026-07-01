@@ -34,10 +34,12 @@ npm install
 ## Develop
 
 ```bash
-# Terminal 1 — game server (http://localhost:3000)
+# Terminal 1 — game server (default http://localhost:3100; PORT overrides)
 npm run start --workspace @murlan/server      # or: npm run dev --workspace @murlan/server
 
-# Terminal 2 — web client (http://localhost:5173, proxies /api + /socket.io to :3000)
+# Terminal 2 — web client (http://localhost:5173). The Vite dev proxy targets MURLAN_API_PORT
+# (default 3000), so align them: run the client with MURLAN_API_PORT=3100 to match the server
+# default above, OR start the server with PORT=3000 to match the proxy default.
 npm run dev --workspace @murlan/client
 ```
 

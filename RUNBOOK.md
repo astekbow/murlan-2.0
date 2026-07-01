@@ -51,11 +51,14 @@ additive; there is no down-migration — restore from backup if one is destructi
 
 ## 3. Backups & restore
 - **Local:** `db-backup` service → `./backups/{daily,weekly,monthly}` (+ `predeploy/`).
-- **Offsite (SET THIS UP — not automatic yet):** the local dumps live on the SAME disk
-  as the Postgres volume, so one host/disk loss takes the ledger AND every backup. Wire
-  `deploy/backup-offsite.sh` to a cloud bucket: `apt install rclone` → `rclone config`
-  (e.g. Backblaze B2) → add a daily cron (`crontab -e`, e.g. `30 4 * * * /…/backup-offsite.sh`).
-  Confirm with `rclone ls <remote>:<bucket>` after the first run.
+- **Offsite (DEFAULT-ON service — no-ops until configured):** the local dumps live on the SAME
+  disk as the Postgres volume, so one host/disk loss takes the ledger AND every backup. The
+  `offsite-backup` service (in `docker-compose.deploy.yml`) already syncs `./backups` → an rclone
+  remote DAILY — but it SAFELY SKIPS until you configure it on the host:
+  1. `rclone config` a remote (config dir `./deploy/rclone`, or set `RCLONE_CONFIG_DIR`), e.g. Backblaze B2;
+  2. set `BACKUP_REMOTE=<remote:bucket>` in `.env` (until then the container just logs "skipping").
+  ⚠️ Do this BEFORE accepting more deposits — until then there is NO offsite copy of the money ledger.
+  Manual/host-cron alternative: `deploy/backup-offsite.sh`. Confirm with `rclone ls <remote>:<bucket>`.
 - **Restore:**
   ```bash
   gunzip -c backups/daily/<file>.sql.gz | docker compose exec -T postgres psql -U murlan -d murlan
