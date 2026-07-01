@@ -3,6 +3,15 @@
 // readable/testable and the gateway file shrinks. A first, safe step of the larger
 // gateway decomposition — these have ZERO coupling to gateway instance state.
 
+import type { BotTier } from '../bot/botDecision.ts';
+
+/** A random difficulty for ONE free-table fill bot, weighted toward the stronger brains so a
+ *  casual host meets VARIED opponents (not an all-hard wall): easy 20% · medium 40% · hard 40%. */
+export function pickFillTier(rng: () => number = Math.random): BotTier {
+  const r = rng();
+  return r < 0.2 ? 'easy' : r < 0.6 ? 'medium' : 'hard';
+}
+
 // ---- Channel names (Socket.IO rooms) --------------------------------------
 /** Per-user private channel (private hands, turn prompts, invites). */
 export function personalRoom(userId: string): string {

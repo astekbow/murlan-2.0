@@ -14,6 +14,17 @@ test('tiers: setTier/tier/hasTier with a hard default', () => {
   assert.equal(d.tier('r'), 'easy');
 });
 
+test('tiers: a per-SEAT override beats the room tier; teardown clears both', () => {
+  const d = new BotDriver();
+  d.setTier('r', 'medium');
+  d.setSeatTier('r', 1, 'easy');
+  assert.equal(d.tier('r', 1), 'easy');   // seat override wins (free-table mix)
+  assert.equal(d.tier('r', 0), 'medium'); // no override on this seat → room tier
+  assert.equal(d.tier('r'), 'medium');    // no seat given → room tier
+  d.teardown('r');
+  assert.equal(d.tier('r', 1), 'hard');   // cleared → strong default
+});
+
 test('scheduleMove: runs after the delay; cancelMove + reschedule cancel the prior timer', async () => {
   const d = new BotDriver();
   const ran: string[] = [];

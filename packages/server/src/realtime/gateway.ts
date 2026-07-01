@@ -51,7 +51,7 @@ import type { TournamentService } from '../tournament/tournamentService.ts';
 import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
 import { settlementFailures, socketConnections, settlementDuration, auditWriteFailures } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
-import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, botThinkDelay } from './gatewayHelpers.ts';
+import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, botThinkDelay, pickFillTier } from './gatewayHelpers.ts';
 import { HandshakeThrottle } from './handshakeThrottle.ts';
 import { SpectatorRegistry } from './spectatorRegistry.ts';
 import { RematchCoordinator } from './rematchCoordinator.ts';
@@ -1126,7 +1126,7 @@ export class GameGateway {
     if (!room?.match || room.status !== 'inMatch') return;
     const botUserId = this.userAtSeat(roomId, seat);
     if (!isBot(botUserId)) return;
-    const tier = this.botDriver.tier(roomId);
+    const tier = this.botDriver.tier(roomId, seat); // per-seat (free-table mix) → per-room → 'hard'
     const snap = room.match.snapshot();
 
     // Card-switch: the bot is the winner who must return a 3–10 card. Return the
@@ -1218,8 +1218,13 @@ export class GameGateway {
       if (!r.seats.some((s) => !s.userId)) return; // already full
       const host = human[0];
       this.rooms.markPractice(roomId); // no XP/ranked/stats/money vs fill-players (also stake is 0)
-      this.botDriver.setTier(roomId, 'hard'); // free-table ghosts play with the strong (search) brain
+      this.botDriver.setTier(roomId, 'hard'); // room default (marks it bot-driven); per-seat mix below
       if (!this.fillEmptySeatsWithBots(roomId, host?.username ?? null)) { this.teardownBotRoom(roomId); return; }
+      // Give EACH fill bot its own random difficulty (weighted easy 20 / medium 40 / hard 40) so a
+      // free table has VARIED opponents instead of an all-hard wall — the room stays practice/0-stake.
+      (this.rooms.getRoom(roomId)?.seats ?? []).forEach((s, seat) => {
+        if (s.userId && isBot(s.userId)) this.botDriver.setSeatTier(roomId, seat, pickFillTier());
+      });
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
     }, this.ghostFillMs));

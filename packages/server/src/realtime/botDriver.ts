@@ -20,11 +20,26 @@ export class BotDriver {
   private readonly seen = new Map<string, Card[]>(); // roomId → cards played this game (card-counting)
 
   // --- tiers (a tracked tier marks the room as bot-driven) ------------------
+  // Per-ROOM tier (practice = the player's chosen difficulty; ranked fill = hard). Plus an
+  // optional per-SEAT override so a single room can hold a MIX of difficulties (free-table fill
+  // gives each ghost its own level → varied opponents instead of an all-hard wall).
+  private readonly seatTiers = new Map<string, Map<number, BotTier>>(); // roomId → seat → tier
+
   setTier(roomId: string, tier: BotTier): void {
     this.tiers.set(roomId, tier);
   }
-  /** The room's bot difficulty; 'hard' (the strong brain) when untracked — matches prior default. */
-  tier(roomId: string): BotTier {
+  /** Override ONE seat's difficulty (used to mix tiers when filling a free table). */
+  setSeatTier(roomId: string, seat: number, tier: BotTier): void {
+    const m = this.seatTiers.get(roomId) ?? new Map<number, BotTier>();
+    m.set(seat, tier);
+    this.seatTiers.set(roomId, m);
+  }
+  /** A bot's difficulty: the seat override if set, else the room tier, else 'hard' (strong default). */
+  tier(roomId: string, seat?: number): BotTier {
+    if (seat != null) {
+      const s = this.seatTiers.get(roomId)?.get(seat);
+      if (s) return s;
+    }
     return this.tiers.get(roomId) ?? 'hard';
   }
   hasTier(roomId: string): boolean {
@@ -69,6 +84,7 @@ export class BotDriver {
   teardown(roomId: string): void {
     this.cancelMove(roomId);
     this.tiers.delete(roomId);
+    this.seatTiers.delete(roomId);
     this.seen.delete(roomId);
   }
 }
