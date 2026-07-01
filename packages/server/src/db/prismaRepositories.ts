@@ -245,25 +245,22 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async applyMatchResult(id: string, r: { won: boolean; potCents: number; xpGain: number }): Promise<User | null> {
-    // Cosmetic stats. gamesPlayed/wins/xp are atomic {increment}s, but currentStreak/biggestPotCents
-    // are read-modify-write — two concurrent match-ends for the same user could lose a streak bump or
-    // a biggestPot update (audit L5). Wrap the read+write in one $transaction so the RMW is atomic
-    // (this is OUTSIDE the wallet UnitOfWork — pure stats — so it adds no money-path coupling).
-    const row = await this.db.$transaction(async (tx) => {
-      const cur = await tx.user.findUnique({ where: { id } });
-      if (!cur) return null;
-      return tx.user.update({
-        where: { id },
-        data: {
-          gamesPlayed: { increment: 1 },
-          wins: { increment: r.won ? 1 : 0 },
-          xp: { increment: Math.max(0, Math.floor(r.xpGain)) },
-          currentStreak: r.won ? cur.currentStreak + 1 : 0,
-          biggestPotCents: Math.max(cur.biggestPotCents, r.potCents),
-        },
-      });
-    });
-    return row ? toUser(row) : null;
+    // Cosmetic stats. db-8/perf: do the whole read-modify-write ATOMICALLY in ONE UPDATE (CASE for
+    // the streak reset/bump, GREATEST for biggestPot) instead of an interactive $transaction — same
+    // race-safety (two concurrent match-ends can't lose a streak bump / biggestPot, audit L5) but
+    // without a 2nd interactive tx holding the single pooled connection across round-trips. Pure
+    // stats → no money-path coupling. Values are bound parameters (safe).
+    const affected = await this.db.$executeRaw`
+      UPDATE "users" SET
+        "gamesPlayed" = "gamesPlayed" + 1,
+        "wins" = "wins" + ${r.won ? 1 : 0},
+        "xp" = "xp" + ${Math.max(0, Math.floor(r.xpGain))},
+        "currentStreak" = CASE WHEN ${r.won} THEN "currentStreak" + 1 ELSE 0 END,
+        "biggestPotCents" = GREATEST("biggestPotCents", ${r.potCents})
+      WHERE "id" = ${id}`;
+    if (affected === 0) return null;
+    const cur = await this.db.user.findUnique({ where: { id } });
+    return cur ? toUser(cur) : null;
   }
 
   async setAvatar(id: string, avatar: string): Promise<User | null> {

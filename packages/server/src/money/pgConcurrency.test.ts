@@ -23,6 +23,12 @@ import { WalletService, HOUSE_ACCOUNT_ID } from './walletService.ts';
 import { MoneyService } from './moneyService.ts';
 
 const PG_URL = process.env.DATABASE_TEST_URL;
+// tests-5: in CI this suite MUST run — if DATABASE_TEST_URL were dropped it would silently self-skip
+// and CI would stay green with the concurrency guarantees unverified. So fail loudly under CI instead
+// of skipping; locally (no CI) it still self-skips when no throwaway DB is configured.
+if (process.env.CI && !PG_URL) {
+  throw new Error('DATABASE_TEST_URL is unset in CI — the Postgres concurrency suite would silently skip. Wire the postgres service + DATABASE_TEST_URL.');
+}
 const skip = PG_URL ? false : 'set DATABASE_TEST_URL (throwaway Postgres) to run';
 
 async function setup() {
