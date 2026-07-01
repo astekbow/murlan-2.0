@@ -297,6 +297,7 @@ export function WalletView() {
         <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.depositTrc20')}</h2>
           <TronWarning mode="deposit" />
+          <p className="text-[12px] text-emerald-300/90 font-medium">{t('wallet.depositReassure')}</p>
           <p className="text-sm text-muted dep-steps">{t('wallet.depositTrc20Steps')}</p>
           {/* In force-landscape the short frame can't stack QR + address + notes, so this body row goes
               side-by-side (QR | info) to use the WIDE frame; in portrait it stays stacked (space-y). */}

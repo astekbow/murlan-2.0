@@ -4,7 +4,7 @@ import { authApi } from '../lib/api.ts';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { isIos, isStandalone } from '../lib/pwa.ts';
 import { Modal } from '../components/ui/Modal.tsx';
-import { useT } from '../lib/i18n.ts';
+import { useT, useLangStore, type Lang } from '../lib/i18n.ts';
 
 export function AuthView() {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
@@ -16,6 +16,8 @@ export function AuthView() {
 
   const { status, error, login, register, clearError } = useAuthStore();
   const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const setLang = useLangStore((s) => s.setLang);
   const landscape = useLandscapePage();
   const loading = status === 'loading';
 
@@ -81,6 +83,21 @@ export function AuthView() {
           <h1 className={`gold-text font-display font-bold tracking-wide leading-none ${landscape ? 'text-3xl' : 'text-4xl'}`}>CRYPTO-MURLAN</h1>
           {/* Get the app — iPhone + Android buttons right under the title (no bottom-of-page scroll). */}
           {!isStandalone() && <AppDownload landscape={landscape} />}
+          {/* Language pill — a pre-login switch (the app defaults to Albanian). */}
+          <div className="mt-3 inline-flex rounded-full border border-gold/25 overflow-hidden text-xs" role="radiogroup" aria-label={t('settings.language')}>
+            {(['sq', 'en'] as Lang[]).map((l) => (
+              <button
+                key={l}
+                type="button"
+                role="radio"
+                aria-checked={lang === l}
+                onClick={() => setLang(l)}
+                className={`px-3 py-1 ${lang === l ? 'bg-gold/20 text-gold-hi' : 'text-muted'}`}
+              >
+                {l === 'sq' ? 'SQ' : 'EN'}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className={landscape ? 'space-y-3 min-w-0' : 'space-y-5'}>
