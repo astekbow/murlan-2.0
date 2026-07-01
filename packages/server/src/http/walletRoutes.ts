@@ -113,7 +113,13 @@ const withdrawChain = new Map<string, Promise<unknown>>();
 function serializeWithdraw<T>(userId: string, fn: () => Promise<T>): Promise<T> {
   const prev = withdrawChain.get(userId) ?? Promise.resolve();
   const next = prev.then(fn, fn); // run after the previous settles (success or failure)
-  withdrawChain.set(userId, next.catch(() => undefined)); // a rejection must not break the chain
+  const guarded = next.catch(() => undefined); // a rejection must not break the chain
+  withdrawChain.set(userId, guarded);
+  // correct-3: self-prune once this link settles IF it's still the tail — keeps the map to
+  // only users with an in-flight withdrawal instead of one entry per user who ever withdrew.
+  void guarded.then(() => {
+    if (withdrawChain.get(userId) === guarded) withdrawChain.delete(userId);
+  });
   return next;
 }
 
@@ -292,25 +298,33 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         const [u, comp, recent] = await Promise.all([
           auth.getUser(caller.userId).catch(() => null),
           auth.getComplianceProfile(caller.userId).catch(() => null),
-          withdrawals.listByUser(caller.userId).catch(() => []),
+          withdrawals.listByUser(caller.userId).catch(() => null),
         ]);
         // The user's other (non-rejected) withdrawals in the last 24h — for the daily
         // auto-payout cap. Excludes this one (the cap adds it). Earlier queued rows already exist.
+        // FAIL CLOSED (money-1): a read error → +Infinity so the daily cap is treated as exceeded
+        // → the withdrawal routes to MANUAL review rather than silently auto-paying past the cap.
         const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-        const priorTodayCents = recent
-          .filter((w) => w.id !== rec.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
-          .reduce((s, w) => s + w.amountCents, 0);
+        const priorTodayCents = recent === null
+          ? Number.POSITIVE_INFINITY
+          : recent
+              .filter((w) => w.id !== rec.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
+              .reduce((s, w) => s + w.amountCents, 0);
         // money-7 signals — computed only when auto-pay COULD fire (a real provider + threshold
         // on), so they add no reads on the manual-only path:
         //   • globalTodayCents  — ALL users' auto-paid in 24h (global budget),
         //   • destTodayCents    — auto-paid to THIS destination in 24h (per-destination cap),
         //   • recentTransferInCents — P2P received in 24h (received funds → manual review).
         const autoCouldFire = (deps.autoWithdrawMaxCents ?? 0) > 0 && !!deps.payout && deps.payout.name !== 'null';
+        // FAIL CLOSED (money-1): each cap read defaults to +Infinity on error, so a transient DB
+        // blip makes the cap look EXCEEDED → the auto-drain guard forces MANUAL review instead of
+        // treating the budget as fully available (the old `() => 0` fail-OPEN). Only reached when
+        // the matching cap is configured (>0); an off cap resolves to 0 and never hits the catch.
         const [globalTodayCents, destTodayCents, recentTransferInCents] = autoCouldFire
           ? await Promise.all([
-              (deps.globalAutoWithdrawCapCents ?? 0) > 0 ? withdrawals.autoPaidSince(dayAgo).catch(() => 0) : Promise.resolve(0),
-              (deps.destAutoWithdrawCapCents ?? 0) > 0 ? withdrawals.autoPaidSince(dayAgo, rec.destination).catch(() => 0) : Promise.resolve(0),
-              wallet.transferredInSince(caller.userId, dayAgo).catch(() => 0),
+              (deps.globalAutoWithdrawCapCents ?? 0) > 0 ? withdrawals.autoPaidSince(dayAgo).catch(() => Number.POSITIVE_INFINITY) : Promise.resolve(0),
+              (deps.destAutoWithdrawCapCents ?? 0) > 0 ? withdrawals.autoPaidSince(dayAgo, rec.destination).catch(() => Number.POSITIVE_INFINITY) : Promise.resolve(0),
+              wallet.transferredInSince(caller.userId, dayAgo).catch(() => Number.POSITIVE_INFINITY),
             ])
           : [0, 0, 0];
         // Auto-send only when a REAL payout provider is configured. The send is CLAIM-FIRST

@@ -14,7 +14,7 @@ import type { Transaction, TransactionType } from './../money/ledger.ts';
 const DAY_MS = 86_400_000;
 const dayIndex = (ms: number): number => Math.floor(ms / DAY_MS);
 /** Start of the UTC day containing `now` (ms) — the lower bound for "today" aggregates. */
-const startOfDayMs = (now: number): number => dayIndex(now) * DAY_MS;
+export const startOfDayMs = (now: number): number => dayIndex(now) * DAY_MS;
 
 /**
  * Total of deposits made on the same UTC day as `now`. `excludeRef` skips a row

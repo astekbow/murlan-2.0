@@ -11,7 +11,7 @@ import type { UserRepository } from '../auth/userRepository.ts';
 import type { LedgerRepository, Transaction, TransactionType, LedgerPageOpts } from './ledger.ts';
 import type { UnitOfWork, WalletTxContext } from './unitOfWork.ts';
 import type { AdminAuditRepository, NewAdminAction } from '../auth/adminAudit.ts';
-import { depositsToday } from '../compliance/responsibleGaming.ts';
+import { depositsToday, startOfDayMs } from '../compliance/responsibleGaming.ts';
 
 /** Synthetic account that accumulates the house rake (ledger-only, no balance). */
 export const HOUSE_ACCOUNT_ID = '__house__';
@@ -116,7 +116,13 @@ export class WalletService {
   private serializeDeposit<T>(userId: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.depositChain.get(userId) ?? Promise.resolve();
     const next = prev.then(fn, fn); // run after prev settles, success or failure
-    this.depositChain.set(userId, next.catch(() => undefined)); // a rejection must not break the chain
+    const guarded = next.catch(() => undefined); // a rejection must not break the chain
+    this.depositChain.set(userId, guarded);
+    // correct-3: self-prune once this link settles IF it's still the tail (nothing queued
+    // behind it) — bounds the map to only in-flight depositors instead of growing forever.
+    void guarded.then(() => {
+      if (this.depositChain.get(userId) === guarded) this.depositChain.delete(userId);
+    });
     return next;
   }
 
@@ -189,9 +195,21 @@ export class WalletService {
         // sum so a retried webhook (its row already present) isn't double-counted —
         // a legitimate replay still falls through to the idempotent return below.
         if (opts.depositCapCents != null) {
-          const used = depositsToday(await ledger.listByUser(userId), Date.now(), opts.providerRef);
-          if (used + amountCents > opts.depositCapCents) {
-            throw new DepositCapExceededError(userId, used, amountCents, opts.depositCapCents);
+          // correct-2: a retried webhook's row already exists → this is an idempotent replay;
+          // skip the cap entirely (appendIdempotent returns created=false below) so a duplicate
+          // is never falsely rejected. On a genuinely-new deposit the row isn't present yet, so
+          // the "today" sum naturally excludes it.
+          const existing = await ledger.findByProviderRef(opts.providerRef);
+          if (!existing) {
+            // Prefer the BOUNDED DB aggregate (today's deposits only) over loading the user's
+            // ENTIRE ledger into memory inside the money tx; fall back to the JS scan when the
+            // aggregate isn't implemented (in-memory repo).
+            const used = ledger.sumByUserTypesSince
+              ? await ledger.sumByUserTypesSince(userId, ['deposit'], startOfDayMs(Date.now()))
+              : depositsToday(await ledger.listByUser(userId), Date.now(), opts.providerRef);
+            if (used + amountCents > opts.depositCapCents) {
+              throw new DepositCapExceededError(userId, used, amountCents, opts.depositCapCents);
+            }
           }
         }
         const { transaction, created } = await ledger.appendIdempotent({

@@ -10,6 +10,7 @@ import { WalletService, InsufficientFundsError } from './walletService.ts';
 import type { UnitOfWork } from './unitOfWork.ts';
 import type { PayoutProvider, PayoutResult } from './payoutProvider.ts';
 import { isValidTronAddress } from './tronAddress.ts';
+import { settlementFailures } from '../metrics.ts';
 
 export type WithdrawalStatus = 'pending' | 'completed' | 'rejected';
 
@@ -338,10 +339,22 @@ export class WithdrawalService {
       return { outcome: 'ambiguous', error: r.error };
     }
     // DEFINITE failure → idempotent refund + reverse out of completed (player made whole).
-    await this.wallet.credit(rec.userId, rec.amountCents, {
-      type: 'admin_adjust', reason: 'rikthim: auto-pagesa dështoi', providerRef: `withdrawal_refund:${id}`,
-    }).catch(() => {});
-    await this.repo.markReversed(id).catch(() => {});
+    // correct-1: mark the row reversed ONLY AFTER the refund credit actually lands. The old
+    // code swallowed both steps (`.catch(() => {})`) and reversed unconditionally, so a failed
+    // refund silently left the player short with the row already "reversed" and NO reconciler
+    // backstop. Now: refund → markReversed in sequence; on any failure raise a metric + loud
+    // error and LEAVE the row 'completed' (the refund providerRef is unique/idempotent, so an
+    // operator re-run or a future reconcile can safely retry without double-crediting).
+    try {
+      await this.wallet.credit(rec.userId, rec.amountCents, {
+        type: 'admin_adjust', reason: 'rikthim: auto-pagesa dështoi', providerRef: `withdrawal_refund:${id}`,
+      });
+      await this.repo.markReversed(id);
+    } catch (err) {
+      settlementFailures.inc();
+      // eslint-disable-next-line no-console
+      console.error(`[withdrawals] CRITICAL: auto-payout refund/reversal FAILED for withdrawal ${id} (${rec.amountCents}¢, user ${rec.userId}) — player may be short; row left 'completed' for manual reconcile.`, err);
+    }
     return { outcome: 'failed', error: r.error };
   }
 

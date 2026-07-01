@@ -420,6 +420,7 @@ export class GameGateway {
     // If other sockets for this user remain, keep state untouched.
     if (this.socketCountFor(userId) > 0) return;
     this.limiter.release(userId); // no sockets left — free the rate bucket
+    this.joinCodeLimiter.release(userId); // free the join-by-code bucket too (was leaking a bucket per user)
     this.fairness.dropClientSeed(userId); // don't carry a stale seed into a future match
     this.matchmaking?.remove(userId); // stop trying to matchmake a user who's gone
     this.clearRankedBotTimer(userId); // last socket gone — cancel any pending vs-bot fallback
@@ -2017,7 +2018,21 @@ export class GameGateway {
         const endTimer = settlementDuration.startTimer();
         const settlement = await this.money.settle({ matchId, winnerSeats });
         endTimer();
-        if (settlement) payoutCents = settlement.payouts.reduce((a, p) => a + p.amountCents, 0);
+        if (settlement) {
+          payoutCents = settlement.payouts.reduce((a, p) => a + p.amountCents, 0);
+        } else {
+          // settle() returned null → the match was already settled/refunded (a concurrent path,
+          // a forfeit-refund, or a replay), or a settle/refund is in-flight. The finalize guard
+          // makes this practically unreachable, but if that invariant ever breaks, do NOT emit a
+          // second match:end with a null payout as if it were a legitimate result — the owning
+          // path already emitted (or will). Log + cleanup + bail defensively.
+          // eslint-disable-next-line no-console
+          console.warn(`[settlement] settle() returned null for match ${matchId} (room ${roomId}) — already resolved or in-flight; skipping duplicate match:end`);
+          this.clearBotTimer(roomId);
+          this.rooms.clearGoneSeats(roomId);
+          this.broadcastLobby();
+          return;
+        }
       } catch (err) {
         // Settlement threw AFTER finalize: the escrowed pot is unpaid. Surface it
         // LOUDLY (counter to PAGE on) and bail BEFORE emitting a normal match:end —
