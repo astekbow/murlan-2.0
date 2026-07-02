@@ -30,10 +30,12 @@ import {
 } from '@murlan/engine';
 import type { BotMove, BotView } from './botDecision.ts';
 
-// Tunables — sized from a benchmark to balance strength vs a synchronous event-loop
-// blip: ~24 sims × 14 candidates keeps a full 18-card decision around ~15-20ms, and
-// it runs inside the bot's think-delay. More sims ⇒ lower variance ⇒ stronger play,
-// with diminishing returns (the cheap rollout is the real ceiling).
+// Tunables — the DEFAULTS below; decideBotMove overrides per tier (medium 36×14,
+// hard 64×16). Measured cost of one full leading decision: medium ~35-40ms, hard
+// ~65-80ms of straight-line CPU. In production the search runs on a WORKER thread
+// (botWorkerPool.ts) so this burst never blocks the event loop; the sync fallback
+// path still pays it inline. More sims ⇒ lower variance ⇒ stronger play, with
+// diminishing returns (the cheap rollout policy is the real ceiling).
 const SIMS_PER_MOVE = 36;   // determinizations evaluated per candidate move (more ⇒ lower variance ⇒ fewer flukey picks)
 const MAX_CANDIDATES = 14;  // candidate moves actually simulated (prefiltered)
 const PLAYOUT_GUARD = 400;  // hard cap on rollout steps (safety against a stuck loop)

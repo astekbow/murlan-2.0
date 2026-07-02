@@ -48,7 +48,8 @@ import type { PushService } from '../push/pushService.ts';
 import type { ChatService } from '../chat/chatService.ts';
 import { sanitizeChat } from '../chat/chatService.ts';
 import type { TournamentService } from '../tournament/tournamentService.ts';
-import { decideBotMove, type BotTier } from '../bot/botDecision.ts';
+import { decideBotMove, type BotMove, type BotTier, type BotView } from '../bot/botDecision.ts';
+import { createDefaultBotPool, type BotWorkerPool } from '../bot/botWorkerPool.ts';
 import { settlementFailures, socketConnections, settlementDuration, auditWriteFailures } from '../metrics.ts';
 import type { RoomOwnership } from './roomOwnership.ts';
 import { personalRoom, clubRoom, LEADERBOARD_ROOM, isBot, BOT_PREFIX, pickGhostNames, botThinkDelay, pickFillTier } from './gatewayHelpers.ts';
@@ -99,6 +100,7 @@ export interface GatewayOptions {
   chat?: ChatService; // club chat (membership-gated, rate-limited, mute-aware)
   tournaments?: TournamentService; // runs tournament-bracket pairings as live matches (self-running)
   botDelayMs?: number; // practice-bot "thinking" delay (ms); injectable for deterministic tests
+  botPool?: BotWorkerPool | null; // worker-thread pool for bot AI (default: auto in prod, off when botDelayMs is pinned)
   ghostFillMs?: number; // free-lobby auto-fill delay (ms); injectable for deterministic tests
   rankedBotMs?: number; // ranked solo-queue → vs-BOT fallback delay (ms); default 20s; injectable for tests
   isDraining?: () => boolean; // graceful shutdown: reject NEW matches/queue joins while true
@@ -197,6 +199,15 @@ export class GameGateway {
   // timer, and card-counting memory) extracted to a unit-tested driver (audit M5); the bot DECISION +
   // PLAY logic (driveBot, formRankedVsBots) stays below — it reads the live room/match.
   private readonly botDriver = new BotDriver();
+  // Worker-thread pool for the CPU-heavy bot search (null ⇒ every decision is computed
+  // synchronously on the event loop, the original behavior). `undefined` = not resolved
+  // yet: the default pool is created LAZILY on the first bot decision, so the many tests
+  // (and tools) that build a gateway but never seat a bot never spawn worker threads.
+  private botPool: BotWorkerPool | null | undefined;
+  // roomId → count of in-flight ASYNC bot decisions. Only a hint for the watchdog so it
+  // never forces a fallback move while a pooled decision (with its own timeout + sync
+  // fallback) is still about to act. Entries self-clean when each decision settles.
+  private readonly botPending = new Map<string, number>();
   // Inter-hand pause gate: between hands the next deal is held briefly so players can
   // see the final play + the standings; it releases EARLY once every connected human
   // has tapped Continue, else on the timer. roomId -> { timer, who's-ready, release }.
@@ -270,6 +281,9 @@ export class GameGateway {
     this.chat = opts.chat ?? null;
     this.tournaments = opts.tournaments ?? null;
     this.botDelayMs = opts.botDelayMs ?? null;
+    // Explicit injection wins (tests exercise the async path with a pinned delay);
+    // `undefined` defers the decision to the first bot turn (see resolveBotPool).
+    this.botPool = opts.botPool;
     this.ghostFillMs = opts.ghostFillMs ?? GHOST_FILL_MS;
     this.rankedBotMs = opts.rankedBotMs ?? 20_000;
     this.isDraining = opts.isDraining ?? (() => false);
@@ -1156,33 +1170,76 @@ export class GameGateway {
     // TEAM PLAY (2v2): the bot's partner is the OTHER seat on its team (teams are set only for
     // 2v2 in the match snapshot). undefined in solo games → the bot plays purely for itself.
     const partnerSeat = snap.teams?.find((t) => t.includes(seat))?.find((s) => s !== seat);
-    const move = decideBotMove(
-      {
-        hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
-        opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude,
-        seen: this.botDriver.seenCards(roomId),
-        // Full public state so the Hard tier can run its look-ahead search.
-        mySeat: seat,
-        numPlayers: pub.handCounts.length,
-        pileOwner: pub.pileOwner,
-        passed: pub.passed,
-        active: pub.active,
-        handCounts: pub.handCounts,
-        finishingOrder: pub.finishingOrder,
-        partnerSeat,
-      },
-      tier,
-    );
+    const view: BotView = {
+      hand: [...hand], pile: pub.pile, canPass: pub.pile != null,
+      opponentCounts: pub.handCounts.filter((_, i) => i !== seat), mustInclude,
+      seen: this.botDriver.seenCards(roomId),
+      // Full public state so the Hard tier can run its look-ahead search.
+      mySeat: seat,
+      numPlayers: pub.handCounts.length,
+      pileOwner: pub.pileOwner,
+      passed: pub.passed,
+      active: pub.active,
+      handCounts: pub.handCounts,
+      finishingOrder: pub.finishingOrder,
+      partnerSeat,
+    };
+    // With a worker pool the CPU-heavy search runs on a spare core and the move is
+    // applied when it lands — after RE-VALIDATING the turn (applyDecidedBotMove),
+    // because the room may have moved on meanwhile (void/teardown/forfeit). Without
+    // a pool (tests, BOT_WORKERS=0, spawn failure) this is the original sync path.
+    const pool = this.resolveBotPool();
+    if (pool?.enabled) {
+      const gameIndex = snap.gameIndex;
+      this.botPending.set(roomId, (this.botPending.get(roomId) ?? 0) + 1);
+      void pool.decide(view, tier)
+        .catch(() => decideBotMove(view, tier)) // pool failed/timed out → same decision, main thread
+        .then((move) => this.applyDecidedBotMove(roomId, seat, gameIndex, move))
+        .catch((err: unknown) => logger.warn('[bot] async decision failed', { roomId, seat, error: err instanceof Error ? err.message : String(err) }))
+        .finally(() => {
+          const n = (this.botPending.get(roomId) ?? 1) - 1;
+          if (n > 0) this.botPending.set(roomId, n); else this.botPending.delete(roomId);
+        });
+      return;
+    }
+    this.applyDecidedBotMove(roomId, seat, snap.gameIndex, decideBotMove(view, tier));
+  }
+
+  /** Resolve the bot worker pool ONCE, on the first bot decision: an injected pool wins
+   *  (tests); a pinned botDelayMs without injection means a deterministic test → no pool
+   *  (the exact pre-pool synchronous semantics); production gets the auto-sized default.
+   *  Lazy so the many gateways built without bots never spawn worker threads. */
+  private resolveBotPool(): BotWorkerPool | null {
+    if (this.botPool === undefined) {
+      this.botPool = this.botDelayMs == null ? createDefaultBotPool() : null;
+    }
+    return this.botPool;
+  }
+
+  /** Apply a decided bot move IF the room is still on that exact turn. The decision may
+   *  have been computed asynchronously (worker pool), so everything is re-checked from
+   *  scratch: the match may have ended, the seat may have been forced by the watchdog,
+   *  a new hand may have dealt. On any mismatch the move is silently dropped — whatever
+   *  turn the game is actually on now already has its own scheduleBot/turn timer. */
+  private applyDecidedBotMove(roomId: string, seat: number, gameIndex: number, move: BotMove): void {
+    const room = this.rooms.getRoom(roomId);
+    if (!room?.match || room.status !== 'inMatch') return;
+    const botUserId = this.userAtSeat(roomId, seat);
+    if (!isBot(botUserId)) return;
+    const snap = room.match.snapshot();
+    if (snap.gameIndex !== gameIndex || snap.pendingSwitch) return; // a different hand by now
+    const pub = this.rooms.publicGameDTO(roomId, null);
+    if (!pub || pub.turn !== seat) return; // the turn moved on while we were thinking
     const res = move.action === 'play' ? this.rooms.play(botUserId, move.cards) : this.rooms.pass(botUserId);
     if (!res.ok) {
       // decideBotMove only yields legal moves; this is a defensive recovery so a
       // rejected bot move can never stall the match.
       logger.warn('[bot] move rejected, recovering', { roomId, seat, reason: res.reason });
       const fb = this.rooms.pass(botUserId);
-      if (fb.ok && fb.roomId) this.applyBotResult(fb.roomId, seat, snap.gameIndex, 'pass', null, fb);
+      if (fb.ok && fb.roomId) this.applyBotResult(fb.roomId, seat, gameIndex, 'pass', null, fb);
       return;
     }
-    this.applyBotResult(res.roomId ?? roomId, seat, snap.gameIndex, move.action === 'play' ? 'play' : 'pass', move.action === 'play' ? move.cards : null, res);
+    this.applyBotResult(res.roomId ?? roomId, seat, gameIndex, move.action === 'play' ? 'play' : 'pass', move.action === 'play' ? move.cards : null, res);
   }
 
   private applyBotResult(roomId: string, seat: number, gameIndex: number, type: MatchActionType, cards: Card[] | null, res: MatchActionResult & { roomId?: string }): void {
@@ -2401,6 +2458,11 @@ export class GameGateway {
 
     logger.warn('[bot] watchdog: seat stalled, forcing a move', { roomId, seat });
     this.driveBot(roomId, seat); // let the normal path retry (clears most transient stalls)
+
+    // An async (worker-pool) decision is now in flight: it will act on its own — apply,
+    // or fall back to a sync decision on timeout — so forcing a pass NOW would double-act
+    // on the same turn. The pool's timeout guarantees progress either way.
+    if (this.botPending.get(roomId)) return;
 
     // Still owed after the retry → force a guaranteed-legal action (mirrors onTurnTimeout).
     if (this.rooms.getRoom(roomId)?.status !== 'inMatch') return;
