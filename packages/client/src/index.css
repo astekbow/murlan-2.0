@@ -89,6 +89,13 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   scrollbar-gutter: stable;
+  /* Paint the ROOT canvas obsidian. html/body are height:100% = the INITIAL viewport;
+     on iOS the VISUAL viewport can momentarily be taller (browser chrome collapsing,
+     landscape home-indicator band, lobby↔table transitions). The exposed strip below
+     the body used to show the browser's default dark canvas — a PURE-BLACK bar at the
+     bottom that flickered in and out. Painting html the same base color makes any such
+     strip indistinguishable from the app background. */
+  background-color: var(--bg-0);
 }
 html,
 body {
@@ -97,6 +104,12 @@ body {
 
 body {
   margin: 0;
+  /* Cover the DYNAMIC viewport, not just the initial one: when iOS grows the visual
+     viewport (toolbar collapse / landscape) the gradient follows instead of leaving a
+     bare strip at the bottom (the flickering black bar). Plain 100% is the fallback
+     where dvh is unsupported — the html background above still hides the seam there. */
+  min-height: 100%;
+  min-height: 100dvh;
   /* Long usernames / chat / URLs can never blow out the layout horizontally. */
   overflow-wrap: break-word;
   font-family: 'Outfit', system-ui, 'Segoe UI', sans-serif;
