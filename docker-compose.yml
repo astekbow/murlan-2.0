@@ -126,6 +126,9 @@ services:
       TRON_DEPOSIT_XPUB: ${TRON_DEPOSIT_XPUB:-}
       TRON_DEPOSIT_ADDRESS: ${TRON_DEPOSIT_ADDRESS:-}
       TRONGRID_API_KEY: ${TRONGRID_API_KEY:-}
+      # Bot AI worker threads (empty = auto: cores-1 capped at 3; 0 = OFF — the kill
+      # switch that reverts every bot decision to the pre-pool synchronous path).
+      BOT_WORKERS: ${BOT_WORKERS:-}
     # Localhost only — the public entry point is the client (nginx) below, which
     # proxies /api + /socket.io to this service over the internal Docker network.
     # Don't expose the server directly (it would bypass nginx's headers + your TLS).
