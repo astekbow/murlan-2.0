@@ -30,8 +30,14 @@ export function useModalBack(open: boolean, onClose: () => void): void {
     return () => {
       openModalBackCount -= 1;
       window.removeEventListener('popstate', onPop);
-      // Closed by ✕/backdrop/Escape (not Back) → the sentinel is still on top; pop it to keep history clean.
-      if (!closedByBack) window.history.back();
+      // Closed by ✕/backdrop/Escape (not Back) → pop our sentinel to keep history clean — but ONLY
+      // while it is still the TOP entry. If something pushed after us, a blind back() pops THAT
+      // entry and fires a phantom Back at its consumer. Concretely: the Create-Room modal closes
+      // BECAUSE the room was created, but by then the table's exit guard has armed and pushed its
+      // own sentinel — popping it made the guard silently leave the just-created room ("the room
+      // closes within a second", 2026-07-03). An orphaned modal sentinel costs at most one absorbed
+      // Back press later; popping someone else's entry costs a live room.
+      if (!closedByBack && window.history.state?.__modal === true) window.history.back();
     };
   }, [open]);
 }
