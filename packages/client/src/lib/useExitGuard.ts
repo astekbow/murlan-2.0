@@ -19,12 +19,17 @@ export function useExitGuard(active: boolean, onBack: () => void): void {
     if (!active) return;
     // Seed one sentinel entry so the FIRST back press has something to consume.
     window.history.pushState({ exitGuard: true }, '', window.location.href);
-    const onPop = () => {
+    const onPop = (e: PopStateEvent) => {
       // mobile-1: if a modal is open, THIS Back press is closing the modal (useModalBack owns it).
       // Stand down — don't also re-trap + fire the leave-table prompt (the double-consumer bug that
       // bounced players out of a live game on Android). Our own sentinel is still on the stack, so
       // the NEXT back (with no modal open) re-arms the guard normally.
       if (hasOpenModalBack()) return;
+      // Landing ON one of our own sentinels means the popped entry sat ABOVE the trap — that's
+      // someone else's history hygiene (e.g. a modal's deferred compensating back()), NOT the
+      // user escaping. The trap is intact; stand down instead of firing a phantom leave prompt
+      // (or, in a waiting room, a silent leave — the "room closes within a second" bug).
+      if ((e.state as { exitGuard?: boolean } | null)?.exitGuard === true) return;
       // Still in the room when back fired → re-trap (never let it exit) + notify App.
       window.history.pushState({ exitGuard: true }, '', window.location.href);
       cb.current();

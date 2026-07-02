@@ -30,14 +30,22 @@ export function useModalBack(open: boolean, onClose: () => void): void {
     return () => {
       openModalBackCount -= 1;
       window.removeEventListener('popstate', onPop);
-      // Closed by ✕/backdrop/Escape (not Back) → pop our sentinel to keep history clean — but ONLY
-      // while it is still the TOP entry. If something pushed after us, a blind back() pops THAT
-      // entry and fires a phantom Back at its consumer. Concretely: the Create-Room modal closes
-      // BECAUSE the room was created, but by then the table's exit guard has armed and pushed its
-      // own sentinel — popping it made the guard silently leave the just-created room ("the room
-      // closes within a second", 2026-07-03). An orphaned modal sentinel costs at most one absorbed
-      // Back press later; popping someone else's entry costs a live room.
-      if (!closedByBack && window.history.state?.__modal === true) window.history.back();
+      // Closed by ✕/backdrop/Escape (not Back) → pop our sentinel to keep history clean — but
+      // DEFERRED and only while it is still the TOP entry. Two real-world races (2026-07-03):
+      //  • The modal closes BECAUSE a room was created (Create-Room / Practice / quick-play):
+      //    the table's exit guard arms around the same commit and pushes ITS sentinel. A blind
+      //    synchronous back() here is QUEUED before that push yet EXECUTES after it (history
+      //    traversal is async), so it ate the guard's entry and the guard read the resulting
+      //    popstate as a real Back press → it silently left the just-created room.
+      //  • A sibling modal can open in the same commit — popping would eat ITS sentinel.
+      // Deferring one macrotask lets the stack settle; then we compensate ONLY if our own
+      // sentinel is still on top and no other modal has taken over. An orphaned sentinel costs
+      // at most one absorbed Back press later; popping someone else's entry costs a live room.
+      if (!closedByBack) {
+        setTimeout(() => {
+          if (!hasOpenModalBack() && window.history.state?.__modal === true) window.history.back();
+        }, 0);
+      }
     };
   }, [open]);
 }
