@@ -296,21 +296,22 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
         // Store the TRIMMED address (validation above trims, but the raw value was being
         // persisted — a padded address would then fail the payout-time TRON re-validation).
         const rec = await withdrawals.request(caller.userId, parsed.data.amountCents, parsed.data.destination.trim());
-        const [u, comp, recent] = await Promise.all([
+        // The user's total non-rejected withdrawals in the last 24h — the per-user daily auto-payout
+        // cap input. Use the UNBOUNDED DB aggregate, NOT the 100-row display list: reusing listByUser
+        // here silently dropped in-window rows past 100, so >100 small withdrawals/24h bypassed the
+        // cap and auto-drained the balance (audit money, 2026-07-03). sumUserSince INCLUDES `rec`
+        // (just created), so subtract it — the cap adds amountCents back itself.
+        const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const [u, comp, priorTotalCents] = await Promise.all([
           auth.getUser(caller.userId).catch(() => null),
           auth.getComplianceProfile(caller.userId).catch(() => null),
-          withdrawals.listByUser(caller.userId).catch(() => null),
+          withdrawals.sumUserSince(caller.userId, dayAgo).catch(() => null),
         ]);
-        // The user's other (non-rejected) withdrawals in the last 24h — for the daily
-        // auto-payout cap. Excludes this one (the cap adds it). Earlier queued rows already exist.
         // FAIL CLOSED (money-1): a read error → +Infinity so the daily cap is treated as exceeded
         // → the withdrawal routes to MANUAL review rather than silently auto-paying past the cap.
-        const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-        const priorTodayCents = recent === null
+        const priorTodayCents = priorTotalCents === null
           ? Number.POSITIVE_INFINITY
-          : recent
-              .filter((w) => w.id !== rec.id && w.status !== 'rejected' && w.createdAt >= dayAgo)
-              .reduce((s, w) => s + w.amountCents, 0);
+          : Math.max(0, priorTotalCents - rec.amountCents);
         // money-7 signals — computed only when auto-pay COULD fire (a real provider + threshold
         // on), so they add no reads on the manual-only path:
         //   • globalTodayCents  — ALL users' auto-paid in 24h (global budget),

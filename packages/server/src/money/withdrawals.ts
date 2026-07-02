@@ -63,6 +63,11 @@ export interface WithdrawalRepository {
   /** Every COMPLETED withdrawal resolved at/after `sinceMs` — for the global + per-destination
    *  rolling-24h auto-payout caps (money-7). Single-instance aggregate (one replica). */
   listCompletedSince(sinceMs: number): Promise<WithdrawalRecord[]>;
+  /** UNBOUNDED sum of a user's non-rejected withdrawal amountCents created at/after `sinceMs` — the
+   *  input to the per-user daily auto-payout cap. MUST NOT reuse the 100-row display list
+   *  (listByUser), which silently drops in-window rows past 100 and lets the cap be bypassed by
+   *  many small withdrawals (audit money, 2026-07-03). DB-aggregated; single-instance. */
+  sumUserSince(userId: string, sinceMs: number): Promise<number>;
 }
 
 /** Default + max page size for a user's withdrawal history (dos-2 bound). */
@@ -124,6 +129,11 @@ export class InMemoryWithdrawals implements WithdrawalRepository {
   }
   async listCompletedSince(sinceMs: number): Promise<WithdrawalRecord[]> {
     return this.rows.filter((r) => r.status === 'completed' && (r.resolvedAt ?? r.createdAt) >= sinceMs).map((r) => ({ ...r }));
+  }
+  async sumUserSince(userId: string, sinceMs: number): Promise<number> {
+    return this.rows
+      .filter((r) => r.userId === userId && r.status !== 'rejected' && r.createdAt >= sinceMs)
+      .reduce((s, r) => s + r.amountCents, 0);
   }
 }
 
@@ -374,6 +384,11 @@ export class WithdrawalService {
     return rows
       .filter((w) => w.resolvedByAdminId === null && (destination === undefined || w.destination === destination))
       .reduce((s, w) => s + w.amountCents, 0);
+  }
+  /** UNBOUNDED sum of a user's non-rejected withdrawals since `sinceMs` — the per-user daily
+   *  auto-payout cap input. See the repo method: must NOT be derived from the 100-row display list. */
+  sumUserSince(userId: string, sinceMs: number): Promise<number> {
+    return this.repo.sumUserSince(userId, sinceMs);
   }
   find(id: string): Promise<WithdrawalRecord | null> {
     return this.repo.find(id);

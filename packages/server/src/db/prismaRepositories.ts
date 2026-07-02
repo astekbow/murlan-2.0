@@ -673,6 +673,15 @@ export class PrismaWithdrawals implements WithdrawalRepository {
   async listCompletedSince(sinceMs: number): Promise<WithdrawalRecord[]> {
     return (await this.db.withdrawal.findMany({ where: { status: 'completed', resolvedAt: { gte: new Date(sinceMs) } } })).map(toWithdrawal);
   }
+  async sumUserSince(userId: string, sinceMs: number): Promise<number> {
+    // DB SUM (unbounded) — must NOT reuse the 100-row listByUser display page, whose cap let the
+    // per-user daily auto-payout ceiling be bypassed by >100 small withdrawals/24h (audit money).
+    const agg = await this.db.withdrawal.aggregate({
+      _sum: { amountCents: true },
+      where: { userId, status: { not: 'rejected' }, createdAt: { gte: new Date(sinceMs) } },
+    });
+    return agg._sum.amountCents ?? 0;
+  }
 }
 
 export class PrismaDepositIntents implements DepositIntentRepository {

@@ -28,6 +28,31 @@ test('request holds funds and enforces limits', async () => {
   assert.equal(await wallet.getBalance(userId), 3000); // held
 });
 
+test('sumUserSince is UNBOUNDED — the per-user daily cap is not capped at 100 rows (audit money, 2026-07-03)', async () => {
+  // The bug: the daily auto-payout cap read withdrawals.listByUser (bounded to 100 rows), so
+  // past 100 in-window withdrawals the prior-total froze and small withdrawals bypassed the cap.
+  // sumUserSince must sum ALL non-rejected rows in the window, well beyond 100.
+  const users = new InMemoryUserRepository();
+  const ledger = new InMemoryLedger();
+  const wallet = new WalletService(users, ledger);
+  const u = await users.create({ username: 'many', email: 'm@x.com', passwordHash: 'h' });
+  await wallet.credit(u.id, 10_000_000, { type: 'deposit' });
+  const repo = new InMemoryWithdrawals();
+  const svc = new WithdrawalService(wallet, repo, { minCents: 500, maxCents: 1_000_000 });
+  for (let i = 0; i < 150; i++) await svc.request(u.id, 1000, `addr-${i}`); // 150 × $10 = $1,500
+
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const sum = await svc.sumUserSince(u.id, dayAgo);
+  assert.equal(sum, 150 * 1000, 'sums all 150 rows, not the newest 100');
+  // The display list is STILL bounded (dos-2) — proving the two paths are distinct.
+  assert.equal((await svc.listByUser(u.id)).length, 100, 'listByUser stays capped at 100');
+
+  // A rejected row must NOT count toward the cap.
+  const rec = await svc.request(u.id, 1000, 'addr-rej');
+  await svc.reject(rec.id);
+  assert.equal(await svc.sumUserSince(u.id, dayAgo), 150 * 1000, 'rejected withdrawals excluded');
+});
+
 test('approve transitions once; a second approve is rejected as not_pending', async () => {
   const { svc, userId } = await setup();
   const rec = await svc.request(userId, 2000, 'addr');

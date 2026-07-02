@@ -391,7 +391,11 @@ export class GameGateway {
       this.broadcastRoomState(existing.id);
     }
 
-    socket.on('lobby:list', (ack) => { if (typeof ack === 'function') ack(this.rooms.listLobby()); });
+    // Rate-gate like every other real-work handler: listLobby() is O(rooms) filter+map+serialize,
+    // and Socket.IO caps message SIZE not FREQUENCY, so without this a single socket could spin
+    // lobby:list unthrottled and hog the shared event loop (audit dos, 2026-07-03). The 40-burst/
+    // 20-per-sec per-user bucket is far above any legit lobby-poll cadence, so real clients never hit it.
+    socket.on('lobby:list', (ack) => { if (typeof ack === 'function' && this.limiter.allow(socket.data.userId)) ack(this.rooms.listLobby()); });
     socket.on('room:create', (payload, ack) => this.onCreate(socket, payload, ack));
     socket.on('room:join', (payload, ack) => this.onJoin(socket, payload, ack));
     socket.on('room:joinByCode', (payload, ack) => this.onJoinByCode(socket, payload, ack));
@@ -2091,8 +2095,14 @@ export class GameGateway {
       return;
     }
 
+    // Practice (vs-bots) never escrowed (line ~1436: `this.money && !room.practice`), so there is
+    // NO `matches` row for it. Calling money.settle for a practice room returns null (row not found),
+    // and the null-branch below treats that as "already settled" and BAILS without emitting match:end
+    // — which froze every completed practice match on the final board with no results screen (audit
+    // 2026-07-03). Skip settlement for practice and fall through to the normal payoutCents=null emit.
+    const isPractice = this.rooms.getRoom(roomId)?.practice ?? false;
     let payoutCents: number | null = null;
-    if (this.money && matchId) {
+    if (this.money && matchId && !isPractice) {
       try {
         const endTimer = settlementDuration.startTimer();
         const settlement = await this.money.settle({ matchId, winnerSeats });
