@@ -374,6 +374,7 @@ const STRINGS: Record<string, Entry> = {
   'room.seatsCount': { sq: '{filled}/{total} ulëse', en: '{filled}/{total} seats' },
   'room.youParen': { sq: '(ti)', en: '(you)' },
   'room.team': { sq: 'Ekipi {n}', en: 'Team {n}' },
+  'room.joinTeam': { sq: 'Bashkohu', en: 'Join' },
   'room.waiting': { sq: 'Po presim…', en: 'Waiting…' },
   'room.ready': { sq: 'Gati', en: 'Ready' },
   'room.notReady': { sq: 'S’jam gati', en: 'I’m not ready' },

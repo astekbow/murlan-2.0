@@ -156,6 +156,7 @@ interface GameStore {
   rematch: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   setReady: (ready: boolean) => Promise<void>;
+  switchTeam: (team: 0 | 1) => Promise<void>;
   toggleCardSel: (id: string) => void;
   clearSelection: () => void;
   play: () => Promise<void>;
@@ -621,6 +622,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = get().socket;
     if (!socket) return;
     const res = await request<Ack>(socket, 'room:ready', ready);
+    if (!res.ok) set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' });
+  },
+
+  async switchTeam(team) {
+    const socket = get().socket;
+    if (!socket) return;
+    const res = await request<Ack>(socket, 'room:switchTeam', team);
     if (!res.ok) set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' });
   },
 

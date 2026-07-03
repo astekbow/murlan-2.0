@@ -60,6 +60,8 @@ export interface ClientToServerEvents {
   'room:joinByCode': (payload: RoomJoinByCodePayload, ack: (res: Ack) => void) => void;
   'room:leave': (ack: (res: Ack) => void) => void;
   'room:ready': (ready: boolean, ack: (res: Ack) => void) => void;
+  // 2v2 only: pick your squad in the waiting room (move to a free seat of `team`).
+  'room:switchTeam': (team: 0 | 1, ack: (res: Ack) => void) => void;
   // Rematch: at match-end, a seated player opts in to replay the SAME room (same
   // opponents, seats/teams, stake). When every present player has opted in within the
   // offer window the room resets + a new match deals. Works for cash, practice and ranked

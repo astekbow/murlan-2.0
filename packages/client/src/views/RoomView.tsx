@@ -172,6 +172,59 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
     </section>
   );
 
+  // 2v2 SQUAD PICKER: two columns (Team 1 | Team 2) with their two slots each and a JOIN button on the
+  // team I'm not on (if it has an open slot) — so players arrange their own squads instead of being
+  // auto-split. Seats {0,2} = Team 1, {1,3} = Team 2 (mirrors the server's DEFAULT_TEAMS).
+  const TEAM_SLOTS = [[0, 2], [1, 3]] as const;
+  const myTeam = mySeat !== null ? room.seats[mySeat]?.team ?? null : null;
+  const teamsEl = (
+    <section className="panel p-4 animate-rise" style={{ animationDelay: '.08s' }}>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('room.players')}</h2>
+        <span className="text-xs text-muted">{t('room.seatsCount', { filled, total: room.seats.length })}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {([0, 1] as const).map((ti) => {
+          const slots = TEAM_SLOTS[ti];
+          const mine = myTeam === ti;
+          const hasFree = slots.some((idx) => room.seats[idx]?.username == null);
+          const color = ti === 0 ? 'var(--blue)' : 'var(--red)';
+          return (
+            <div key={ti} className={`rounded-xl border p-2.5 flex flex-col gap-2 ${mine ? 'border-gold/50 bg-gold/[.06]' : 'border-white/10 bg-white/[.02]'}`}>
+              <div className="font-display font-bold uppercase tracking-wider text-xs text-center" style={{ color }}>
+                {t('room.team', { n: ti + 1 })}
+              </div>
+              {slots.map((idx) => {
+                const s = room.seats[idx];
+                const meHere = idx === mySeat;
+                return (
+                  <div key={idx} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${meHere ? 'border-gold/40 bg-gold/[.05]' : 'border-white/10 bg-white/[.03]'}`}>
+                    <span className="pfp" style={{ width: 34, height: 34, borderColor: s?.username ? color : 'rgba(255,255,255,.12)', opacity: s?.username ? 1 : 0.4 }}>
+                      {s?.username ? (s.avatar ? <AvatarFace id={s.avatar} fill className="text-lg leading-none" /> : s.username.charAt(0).toUpperCase()) : '…'}
+                    </span>
+                    <span className="flex-1 min-w-0 truncate text-[13px] font-display">
+                      {s?.username ?? <span className="italic text-muted/60">{t('room.waiting')}</span>}
+                      {meHere && <span className="text-gold"> {t('room.youParen')}</span>}
+                    </span>
+                    {s?.username && s.ready && <span className="tag tag-open text-[10px] py-0 shrink-0">{t('room.ready')}</span>}
+                  </div>
+                );
+              })}
+              {!mine && hasFree && !counting && !meReady && (
+                <button
+                  onClick={() => { sound.play('button'); void useGameStore.getState().switchTeam(ti); }}
+                  className="btn btn-gold btn-sm btn-block mt-0.5"
+                >
+                  {t('room.joinTeam')}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+
   // Invite friends
   const inviteList = (
     <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
@@ -327,7 +380,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           </span>
         </div>
         <div className="flex-1 min-h-0 flex flex-col gap-2.5">
-          {lsSeats}
+          {room.type === '2v2' ? teamsEl : lsSeats}
           {/* Status + the ready CTA — the core action, always visible without scroll. */}
           <div className="shrink-0 text-center space-y-1.5">
             {counting ? (
@@ -361,7 +414,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
       <button onClick={() => void leaveRoom()} className="btn btn-ghost">{t('common.backToLobby')}</button>
       {headerCrest}
       {privateCode}
-      {seatsGrid}
+      {room.type === '2v2' ? teamsEl : seatsGrid}
       {inviteList}
       {readyCta}
     </div>

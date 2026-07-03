@@ -401,6 +401,7 @@ export class GameGateway {
     socket.on('room:joinByCode', (payload, ack) => this.onJoinByCode(socket, payload, ack));
     socket.on('room:leave', (ack) => void this.onLeave(socket, ack));
     socket.on('room:ready', (ready, ack) => this.onReady(socket, ready, ack));
+    socket.on('room:switchTeam', (team, ack) => this.onSwitchTeam(socket, team, ack));
     socket.on('room:rematch', (ack) => void this.onRematch(socket, ack));
     socket.on('game:play', (payload, ack) => this.onPlay(socket, payload, ack));
     socket.on('game:pass', (ack) => this.onPass(socket, ack));
@@ -726,6 +727,22 @@ export class GameGateway {
     if (roomId) {
       this.broadcastRoomState(roomId);
       this.maybeStartCountdown(roomId);
+    }
+  }
+
+  /** 2v2: a player picks their squad (Team 1 / Team 2) in the waiting room. */
+  private onSwitchTeam(socket: IOSocket, team: unknown, ack: (res: Ack) => void): void {
+    const reply = safeAck(ack);
+    if (!this.rateOk(socket, reply)) return;
+    if (team !== 0 && team !== 1) return reply(ackError('bad_request', 'Skuadër e pavlefshme.'));
+    const res = this.rooms.switchTeam(socket.data.userId, team);
+    if (!res.ok) return reply({ ok: false, error: res.error });
+    reply({ ok: true });
+    const roomId = socket.data.roomId;
+    if (roomId) {
+      socket.data.seat = this.rooms.seatOf(roomId, socket.data.userId); // moved seats → refresh the cache
+      this.broadcastRoomState(roomId);
+      this.maybeStartCountdown(roomId); // moving un-readies → cancels a running countdown
     }
   }
 

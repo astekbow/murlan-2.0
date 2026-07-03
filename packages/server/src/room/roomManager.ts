@@ -375,6 +375,35 @@ export class RoomManager {
     return okResult;
   }
 
+  /** 2v2 only: move a WAITING player to a free seat of `team` — the "join Team 1 / Team 2" flow so
+   *  players arrange their own squads instead of being auto-split. Frees their old seat + un-readies
+   *  them (the roster changed). No-op if already on that team; refused once the match started or if
+   *  the target team is full. */
+  switchTeam(userId: string, team: 0 | 1): ManagerResult {
+    const room = this.roomOf(userId);
+    if (!room) return err('no_room', 'Nuk je në një dhomë.');
+    if (room.type !== '2v2') return err('not_2v2', 'Skuadrat zgjidhen vetëm në 2v2.');
+    if (room.status === 'inMatch' || room.match) return err('in_match', 'Ndeshja ka filluar tashmë.');
+    const cur = room.seats.find((s) => s.userId === userId);
+    if (!cur) return err('no_seat', 'Nuk ke vend në dhomë.');
+    if (cur.team === team) return okResult; // already there
+    const targetIdx = TEAM_SEATS[team].find((i) => room.seats[i]!.userId === null);
+    if (targetIdx === undefined) return err('team_full', 'Skuadra është plot.');
+    const target = room.seats[targetIdx]!;
+    target.userId = cur.userId;
+    target.username = cur.username;
+    target.avatar = cur.avatar;
+    target.team = team;
+    target.ready = false;               // moving un-readies you (roster changed)
+    target.connected = cur.connected;
+    target.gone = false;
+    // Vacate the old seat.
+    cur.userId = null; cur.username = null; cur.avatar = null; cur.team = null;
+    cur.ready = false; cur.connected = false; cur.gone = false;
+    room.status = this.isFull(room.id) ? 'ready' : 'waiting';
+    return okResult;
+  }
+
   isFull(roomId: string): boolean {
     const room = this.rooms.get(roomId);
     return !!room && room.seats.every((s) => s.userId !== null);
