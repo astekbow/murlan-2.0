@@ -803,6 +803,10 @@ select:focus-visible,
   padding-bottom: calc(1rem + env(safe-area-inset-bottom));
   padding-left: max(0.75rem, env(safe-area-inset-left));
   padding-right: max(0.75rem, env(safe-area-inset-right));
+  /* Kill the accidental double-tap ZOOM on the fixed game table (players tap cards fast, and a
+     stray double-tap used to zoom the felt in with no easy way back). Taps still fire instantly.
+     Text screens (wallet/amounts/terms) keep pinch-zoom for accessibility — this is table-only. */
+  touch-action: manipulation;
 }
 
 /* ============================================================================

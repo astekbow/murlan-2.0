@@ -282,8 +282,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     socket.on('room:spectators', (dto) => set({ spectators: dto.count, spectatorNames: dto.names ?? [] }));
 
     socket.on('match:start', (room) => {
-      // A (re)match is starting → clear the previous match-over overlay + any rematch offer.
-      set((s) => ({ room, queue: null, matchResult: null, rematchOffer: null, log: appendLog(s.log, tg('log.matchStarted')) }));
+      // A (re)match is starting → clear the previous match-over overlay + any rematch offer, and
+      // RESET the scoreboard so a rematch shows 0/0 from game 1 instead of carrying the old match's
+      // points until the first hand ends (the server also re-broadcasts a fresh 0/0 board).
+      set((s) => ({ room, queue: null, matchResult: null, rematchOffer: null, scoreboard: null, log: appendLog(s.log, tg('log.matchStarted')) }));
     });
 
     // Rematch offer state for the just-finished room ("2/3 want a rematch").
@@ -341,6 +343,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         handStandings: { finishingOrder: dto.finishingOrder, scoreboard: dto.scoreboard, gameIndex: dto.gameIndex },
         handReady: [],
         handHumans: 0,
+        // Show the hand-ENDING play on the felt (the live game is null between hands, so this card
+        // was never broadcast) — so everyone sees the final card + who went out, not a stale board.
+        game: s.game && dto.lastPlay ? { ...s.game, pile: dto.lastPlay.combo, pileOwner: dto.lastPlay.seat } : s.game,
+        pileHistory: dto.lastPlay ? [] : s.pileHistory,
         log: appendLog(s.log, tg('log.gameEnded')),
       })),
     );

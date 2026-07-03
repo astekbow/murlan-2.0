@@ -1550,6 +1550,11 @@ export class GameGateway {
       this.fairness.recordDeal(roomId, fair); // store for reveal + consume the pending seed (commit already emitted)
     }
     this.startNewGameBroadcast(roomId); // arms the turn timer before broadcasting
+    // Broadcast the FRESH (all-zero) scoreboard at match start so game 1 shows 0/0 immediately —
+    // otherwise the board carried the PREVIOUS match's points (on a rematch) until the first hand
+    // ended, since scoreboards were only emitted on gameScored (owner bug 2026-07-04).
+    const sb0 = this.rooms.scoreboardDTO(roomId);
+    if (sb0) this.io.to(roomId).emit('match:scoreboard', sb0);
     this.broadcastLobby();
   }
 
@@ -1602,6 +1607,11 @@ export class GameGateway {
     // Run a reveal now, or queue it for after Continue while the standings pause is active.
     const reveal = (fn: () => void) => { if (gating) deferred.push(fn); else fn(); };
 
+    // The play that ENDED the hand (last finisher's card). The live game is nulled between hands,
+    // so this was never broadcast as a game:state — carry it in game:end so clients show it on the felt.
+    const lastPlayed = [...res.gameEvents].reverse().find((e) => e.kind === 'played');
+    const lastPlay = lastPlayed && lastPlayed.kind === 'played' ? { seat: lastPlayed.seat, combo: lastPlayed.combo } : null;
+
     for (const ev of res.matchEvents) {
       switch (ev.kind) {
         case 'gameScored': {
@@ -1611,6 +1621,7 @@ export class GameGateway {
             finishingOrder: ev.finishingOrder,
             points: ev.points,
             scoreboard: sb!,
+            lastPlay,
           });
           if (sb) this.io.to(roomId).emit('match:scoreboard', sb);
           break;
@@ -1679,7 +1690,7 @@ export class GameGateway {
       this.armInterHandGate(roomId, () => {
         for (const fn of deferred) fn();
         if (dealsNextHand) this.startNewGameBroadcast(roomId);
-        else { this.broadcastPublicState(roomId); this.armTurnTimer(roomId); }
+        else { this.armTurnTimer(roomId); this.broadcastPublicState(roomId); } // arm FIRST → fresh deadline in the broadcast
       });
     }
 
@@ -1690,8 +1701,12 @@ export class GameGateway {
     const room = this.rooms.getRoom(roomId);
     if (room && room.status === 'inMatch') {
       if (!gatedNextHand) {
-        this.broadcastPublicState(roomId);
+        // Arm the turn timer FIRST so the broadcast carries the FRESH deadline. Reversed, the
+        // state went out with the PREVIOUS turn's remaining time, so the next player's countdown
+        // continued from where the last one left off instead of restarting at the full turn (owner
+        // bug 2026-07-04) — mirrors startNewGameBroadcast's correct order.
         this.armTurnTimer(roomId);
+        this.broadcastPublicState(roomId);
       }
     } else {
       // Match ended normally: stop the turn timer and any pending forfeit timers

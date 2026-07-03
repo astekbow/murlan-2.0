@@ -138,6 +138,10 @@ export interface GameEndDTO {
   finishingOrder: Seat[];
   points: number[];      // per-seat for this game
   scoreboard: ScoreboardDTO;
+  // The hand-ENDING play (the card that emptied the last finisher's hand). The live game snapshot
+  // is null between hands, so this play was never broadcast as a game:state — clients show it on the
+  // felt during the standings pause so everyone SEES the final card + who went out.
+  lastPlay: { seat: Seat; combo: Combo } | null;
 }
 
 /**
