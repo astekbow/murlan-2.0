@@ -37,7 +37,7 @@ test('switchTeam refuses when the target team is full', () => {
   rm.joinRoom(u('D'), roomId!); // full: team0 = A,C ; team1 = B,D
   const res = rm.switchTeam('A', 1);
   assert.equal(res.ok, false);
-  if (!res.ok) assert.equal(res.error.code, 'team_full');
+  if (!res.ok) assert.equal(res.error?.code, 'team_full');
 });
 
 test('switchTeam refuses outside a 2v2 room', () => {
@@ -46,5 +46,5 @@ test('switchTeam refuses outside a 2v2 room', () => {
   rm.joinRoom(u('B'), roomId!);
   const res = rm.switchTeam('A', 1);
   assert.equal(res.ok, false);
-  if (!res.ok) assert.equal(res.error.code, 'not_2v2');
+  if (!res.ok) assert.equal(res.error?.code, 'not_2v2');
 });
