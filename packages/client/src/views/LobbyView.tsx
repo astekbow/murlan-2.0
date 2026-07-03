@@ -419,6 +419,7 @@ export function LobbyView() {
           onClose={() => setQuickOpen(false)}
           onJoin={joinRoom}
           onCreate={createRoom}
+          onPickTeam={(r) => setJoinTeamFor(r)}
           onRefresh={async () => {
             // Kick a lobby refresh and await the store landing the fresh list,
             // so quick-match matches against current data (not a stale prop).
@@ -512,8 +513,9 @@ interface QuickProps {
   onJoin: (id: string) => Promise<boolean>;
   onCreate: (type: MatchType, cents: number, team?: 0 | 1) => Promise<string | null>;
   onRefresh: () => Promise<ReturnType<typeof useGameStore.getState>['lobby']>;
+  onPickTeam: (room: LobbyRoomInfo) => void; // 2v2: choose a team before joining (same modal as Open Rooms)
 }
-function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
+function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh, onPickTeam }: QuickProps) {
   const t = useT();
   const [tab, setTab] = useState<'play' | 'practice'>('play');
   const [type, setType] = useState<MatchType>('1v1');
@@ -529,6 +531,10 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh }: QuickProps) {
     const lobby = await onRefresh();
     const cents = toCents(stake);
     const candidate = lobby.find((r) => r.type === type && r.stakeCents === cents && r.status === 'waiting' && r.seatsFilled < r.seatsTotal);
+    // 2v2: found a table → let the player pick their team first (same picker as Open Rooms),
+    // instead of auto-seating them. Creating a fresh table (no candidate) falls through to the
+    // in-room picker. Non-2v2 joins straight in.
+    if (candidate && candidate.type === '2v2') { onClose(); onPickTeam(candidate); return; }
     let ok = false;
     if (candidate) ok = await onJoin(candidate.id);
     // Fall through to creating our own table only if we didn't join one. Close the
