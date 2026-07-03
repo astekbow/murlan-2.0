@@ -422,6 +422,7 @@ const STRINGS: Record<string, Entry> = {
   'table.yourTurn': { sq: '● Radha jote!', en: '● Your turn!' },
   'table.shuffling': { sq: 'Po përzihen letrat…', en: 'Shuffling the cards…' },
   'table.standingsTitle': { sq: 'Renditja', en: 'Standings' },
+  'table.roundN': { sq: 'Raundi {n}', en: 'Round {n}' },
   'table.handDone': { sq: 'Dora {n} përfundoi', en: 'Hand {n} done' },
   'table.toTarget': { sq: 'deri në {n} pikë', en: 'to {n} pts' },
   'table.continue': { sq: 'Vazhdo', en: 'Continue' },

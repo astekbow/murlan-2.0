@@ -703,35 +703,71 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {showStandings && handStandings && !matchResult && !switching && (() => {
         const sb = handStandings.scoreboard;
         const handWinner = handStandings.finishingOrder[0];
-        const rows = sb.cumulative
-          .map((pts, seat) => ({ seat, pts, name: nameOf(seat), isMe: seat === mySeat, wonHand: seat === handWinner, team: room.seats[seat]?.team ?? null }))
-          .sort((a, b) => b.pts - a.pts);
         const iReady = mySeat != null && handReady.includes(mySeat);
+        const is2v2 = sb.type === '2v2' && !!sb.teamTotals;         // team-grouped board (owner request)
+        const myTeam = mySeat != null ? room.seats[mySeat]?.team ?? null : null;
+        const winTeam = handWinner != null ? room.seats[handWinner]?.team ?? null : null;
+        const continueBtn = (
+          <button autoFocus onClick={() => { sound.play('button'); continueHand(); }} disabled={iReady} className="btn btn-gold btn-block shrink-0 mt-3">
+            {iReady ? t('table.waitingOthers', { n: handReady.length, total: Math.max(handHumans, handReady.length) }) : t('table.continue')}
+          </button>
+        );
         return (
           <div className="modal-backdrop !z-[55]" role="dialog" aria-modal="true" aria-label={t('table.standingsTitle')}>
             {/* Flex column so the title + Continue button are always visible and the panel
-                stays CENTERED + scroll-free on a short landscape phone (≤4 player rows fit;
-                the list is the only thing that could ever shrink/scroll, never the button). */}
-            <div ref={standingsTrapRef} tabIndex={-1} className="panel-solid w-full max-w-sm max-h-[92dvh] flex flex-col overflow-hidden p-4 text-center animate-pop outline-none">
+                stays CENTERED + scroll-free on a short landscape phone. 2v2 widens to fit two team columns. */}
+            <div ref={standingsTrapRef} tabIndex={-1} className={`panel-solid w-full ${is2v2 ? 'max-w-md' : 'max-w-sm'} max-h-[92dvh] flex flex-col overflow-hidden p-4 text-center animate-pop outline-none`}>
               <div className="shrink-0">
                 <div className="text-2xl mb-0.5">🏁</div>
-                <h2 className="gold-text font-display font-bold tracking-wide text-lg leading-tight">{t('table.standingsTitle')}</h2>
+                <h2 className="gold-text font-display font-bold tracking-wide text-lg leading-tight">
+                  {is2v2 ? t('table.roundN', { n: handStandings.gameIndex + 1 }) : t('table.standingsTitle')}
+                </h2>
                 <p className="text-[11px] text-muted mb-2">{t('table.handDone', { n: handStandings.gameIndex + 1 })} · {t('table.toTarget', { n: sb.target })}</p>
               </div>
-              <ol className="text-left space-y-1 flex-1 min-h-0 overflow-y-auto no-scrollbar">
-                {rows.map((r, i) => (
-                  <li key={r.seat} className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
-                    <span className="w-5 text-sm font-display font-bold text-muted tabular-nums">{i + 1}</span>
-                    <span className={`flex-1 truncate text-sm ${r.isMe ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
-                      {r.name}{r.wonHand ? ' 🏆' : ''}{room.type === '2v2' && r.team != null ? ` · ${t('table.squad', { n: r.team + 1 })}` : ''}
-                    </span>
-                    <b className="text-gold-hi tabular-nums text-base">{r.pts}</b>
-                  </li>
-                ))}
-              </ol>
-              <button autoFocus onClick={() => { sound.play('button'); continueHand(); }} disabled={iReady} className="btn btn-gold btn-block shrink-0 mt-3">
-                {iReady ? t('table.waitingOthers', { n: handReady.length, total: Math.max(handHumans, handReady.length) }) : t('table.continue')}
-              </button>
+              {is2v2 ? (
+                // TEAM board: two columns (Skuadra 1 | Skuadra 2), each with its players' points
+                // and the team total; the round-winning team is badged, my team is highlighted.
+                <div className="grid grid-cols-2 gap-2.5 flex-1 min-h-0 overflow-y-auto no-scrollbar text-left">
+                  {([0, 1] as const).map((ti) => {
+                    const seats = room.seats.map((s, seat) => ({ s, seat })).filter((x) => x.s.team === ti);
+                    const mine = myTeam === ti;
+                    return (
+                      <div key={ti} className={`rounded-xl border p-2.5 flex flex-col ${mine ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
+                        <div className={`font-display font-bold uppercase tracking-wider text-xs mb-2 text-center ${winTeam === ti ? 'text-gold-hi' : 'text-muted'}`}>
+                          {t('table.squad', { n: ti + 1 })}{winTeam === ti ? ' 🏆' : ''}
+                        </div>
+                        <div className="space-y-1.5 flex-1">
+                          {seats.map(({ seat }) => (
+                            <div key={seat} className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 ${seat === mySeat ? 'bg-gold-line/10' : 'bg-white/[.03]'}`}>
+                              <span className={`truncate text-[13px] ${seat === mySeat ? 'text-gold-hi font-semibold' : 'text-txt'}`}>{nameOf(seat)}</span>
+                              <b className="tabular-nums text-sm text-txt">{sb.cumulative[seat] ?? 0}</b>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-white/10 text-center font-display font-bold text-2xl tabular-nums text-gold-hi">
+                          {sb.teamTotals![ti]}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <ol className="text-left space-y-1 flex-1 min-h-0 overflow-y-auto no-scrollbar">
+                  {sb.cumulative
+                    .map((pts, seat) => ({ seat, pts, name: nameOf(seat), isMe: seat === mySeat, wonHand: seat === handWinner }))
+                    .sort((a, b) => b.pts - a.pts)
+                    .map((r, i) => (
+                      <li key={r.seat} className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
+                        <span className="w-5 text-sm font-display font-bold text-muted tabular-nums">{i + 1}</span>
+                        <span className={`flex-1 truncate text-sm ${r.isMe ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
+                          {r.name}{r.wonHand ? ' 🏆' : ''}
+                        </span>
+                        <b className="text-gold-hi tabular-nums text-base">{r.pts}</b>
+                      </li>
+                    ))}
+                </ol>
+              )}
+              {continueBtn}
             </div>
           </div>
         );
