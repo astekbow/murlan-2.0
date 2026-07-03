@@ -8,7 +8,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { useUiStore } from '../store/uiStore.ts';
 import { selectedCards } from '../lib/selection.ts';
 import { cardKey, cardLabel } from '../lib/cards.ts';
-import { seatPosition, type SeatPosition } from '../lib/layout.ts';
+import { seatPosition, THROW_ORIGIN, type SeatPosition } from '../lib/layout.ts';
 import { sound } from '../lib/sound.ts';
 import { haptics } from '../lib/haptics.ts';
 import { useWakeLock } from '../lib/useWakeLock.ts';
@@ -486,10 +486,17 @@ export function TableView({ room }: { room: RoomStateDTO }) {
     );
   };
 
+  // Which direction the CURRENT play was thrown from → the pile animates the card flying in from
+  // that seat while spinning (disk toss). Bottom (=self) throws travel up from the hand; opponents
+  // come from their side. Recomputed each render from the live pileOwner.
+  const throwFrom = game?.pileOwner != null && mySeat !== null
+    ? THROW_ORIGIN[seatPosition(numPlayers, mySeat, game.pileOwner)]
+    : undefined;
+
   // Centre pile (pointer-events:none so it never steals taps from the hand below).
   const pileEl = hidePile ? null : (
     <div className={`absolute inset-0 grid place-items-center z-[3] pointer-events-none${finishFx ? ' finish-pop' : ''}`}>
-      <Pile pile={game?.pile ?? null} history={pileHistory} />
+      <Pile pile={game?.pile ?? null} history={pileHistory} fromDir={throwFrom} />
     </div>
   );
 
@@ -614,7 +621,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             steals a tap meant for the hand below; finish-pop on a go-out. */}
         {!hidePile && (
           <div className={`tvc-pile${finishFx ? ' finish-pop' : ''}`}>
-            <Pile pile={game?.pile ?? null} history={pileHistory} />
+            <Pile pile={game?.pile ?? null} history={pileHistory} fromDir={throwFrom} />
           </div>
         )}
 

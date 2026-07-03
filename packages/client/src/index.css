@@ -678,13 +678,16 @@ select:focus-visible,
    (the pile top layer no longer carries animate-pop), so it never stutters. Only the
    genuinely-new top layer (.is-new) animates; older layers keep their content key, so a new
    play never replays their entrance. Reduced-motion safe (universal rule neutralises it). */
-@keyframes cardplay {
-  0%   { opacity: 0; transform: perspective(800px) translateY(-16px) rotateY(-82deg) scale(1.05); }
+/* DISK THROW: the played card flies from the THROWER's direction (--fx/--fy, set per-play by the
+   seat that played it) into the centre of the felt while SPINNING like a tossed disk (--spin),
+   scaling up from small to full as it lands flat and face-up. Reads as a real throw across the
+   table instead of a card just materialising. Reduced-motion safe (the universal * rule zeroes it). */
+@keyframes cardthrow {
+  0%   { opacity: 0; transform: translate(var(--fx, 0px), var(--fy, 132px)) rotate(var(--spin, -300deg)) scale(0.62); }
   55%  { opacity: 1; }
-  100% { opacity: 1; transform: perspective(800px) translateY(0) rotateY(0deg) scale(1); }
+  100% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); }
 }
-/* 3D flip: the card spins in from edge-on (rotateY) and lands flat/face-up on the felt. */
-.pile-cards.is-new .gcard { animation: cardplay 0.32s cubic-bezier(0.2, 0.8, 0.3, 1) both; transform-origin: center center; }
+.pile-cards.is-new .gcard { animation: cardthrow 0.44s cubic-bezier(0.18, 0.72, 0.24, 1) both; transform-origin: center center; }
 .pile-cards.is-new .gcard:nth-child(2) { animation-delay: 0.05s; }
 .pile-cards.is-new .gcard:nth-child(3) { animation-delay: 0.1s; }
 .pile-cards.is-new .gcard:nth-child(4) { animation-delay: 0.15s; }

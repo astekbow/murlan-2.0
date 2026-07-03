@@ -18,6 +18,19 @@ export function seatPosition(numPlayers: number, mySeat: number, seat: number): 
   return (['bottom', 'left', 'top', 'right'] as const)[offset] ?? 'bottom';
 }
 
+/** Where a PLAYED card is thrown FROM (px offset from its final centred spot on the pile), by the
+ *  thrower's seat slot. The card flies from here to (0,0) while spinning like a disk (see
+ *  `cardthrow` in index.css). The local player (bottom) throws from further down — their hand is at
+ *  the screen edge — so their card visibly travels up into the centre. */
+export const THROW_ORIGIN: Record<SeatPosition, { x: number; y: number }> = {
+  bottom: { x: 0, y: 132 },
+  top: { x: 0, y: -104 },
+  left: { x: -132, y: 8 },
+  right: { x: 132, y: 8 },
+  'top-left': { x: -112, y: -72 },
+  'top-right': { x: 112, y: -72 },
+};
+
 /** Tailwind absolute-position classes for each seat slot on the felt. */
 export const POSITION_CLASSES: Record<SeatPosition, string> = {
   bottom: 'bottom-2 left-1/2 -translate-x-1/2',

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type CSSProperties } from 'react';
 import type { Combo } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
 import { cardKey, sortComboForDisplay } from '../lib/cards.ts';
@@ -7,8 +7,15 @@ import { useT } from '../lib/i18n.ts';
 /** The current trick in the centre of the table. Plays already beaten stay on the felt
  *  (`history`, oldest first) with the current play (`pile`) overlaid on top, so the table
  *  shows the whole trick instead of cards vanishing on every play. */
-function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[] }) {
+function PileImpl({ pile, history = [], fromDir }: { pile: Combo | null; history?: Combo[]; fromDir?: { x: number; y: number } }) {
   const t = useT();
+  // Disk-throw origin for the CURRENT play: the card flies from the thrower's direction into the
+  // centre while spinning (index.css `cardthrow`). Spin sign follows the side it comes from so it
+  // reads like a real toss; from dead-ahead (bottom/top) it just spins in.
+  const fx = fromDir?.x ?? 0;
+  const fy = fromDir?.y ?? 132;
+  const spinDeg = fx < 0 ? 320 : fx > 0 ? -320 : -300;
+  const throwStyle = { '--fx': `${fx}px`, '--fy': `${fy}px`, '--spin': `${spinDeg}deg` } as CSSProperties;
   // Oldest first → current last (rendered on top). Keep only the current play + the 2
   // previous ones; older plays drop off so the centre stays tidy.
   const layers = [...history, ...(pile ? [pile] : [])].slice(-3);
@@ -47,6 +54,8 @@ function PileImpl({ pile, history = [] }: { pile: Combo | null; history?: Combo[
               // inset to it, so a wider/narrower play drifted to the side before recentring.)
               className={`pile-cards${isTop ? ' is-new' : ''}`}
               style={{
+                // The disk-throw CSS vars go on the NEW top layer only; its cards inherit them.
+                ...(isTop ? throwStyle : {}),
                 gridArea: '1 / 1',
                 transform: `translate(${-back * 11}px, ${-back * 13}px)`,
                 opacity: isTop ? 1 : 0.5, // older plays just dimmed (no blur), as before
