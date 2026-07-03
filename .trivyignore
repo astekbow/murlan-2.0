@@ -14,3 +14,36 @@
 #   CVE-XXXX-YYYYY  # <why deferred> — expires YYYY-MM-DD
 #
 # (empty = the gate is fully strict; add an id only after you've read the Trivy log and triaged it.)
+#
+# ── Triaged 2026-07-03 (server image; client image scans clean) ──────────────────────────────
+# `npm audit` on our actual dependency tree = 0 vulnerabilities. Every id below lives in a
+# DEV-TOOLCHAIN binary that is shipped into the image only because the server runs its TypeScript
+# via `tsx` (which bundles esbuild) — none is reachable by an attacker against the running server.
+# The proper long-term fix is a COMPILED runtime image (tsc → dist, `npm ci --omit=dev`) that drops
+# the whole dev toolchain; until that's done + tested, defer these. Re-check each on the next base
+# re-pin — most clear when esbuild/tsx ship a build made with a newer Go, or npm bumps its bundles.
+#
+# (bare ids only — comments on their own lines above, to avoid any inline-parse ambiguity.)
+# EXPIRES 2026-10-03 — re-run the scan on the next base re-pin and delete anything that's gone.
+#
+# Go stdlib, compiled into esbuild's Go binary. esbuild ships in the image only because the server
+# runs its TypeScript via `tsx` (which bundles esbuild); esbuild runs at BOOT to transpile OUR OWN
+# trusted source and is NOT a network service — these net/crypto/parser CVEs are unreachable at runtime:
+CVE-2025-61726
+CVE-2025-61729
+CVE-2025-68121
+CVE-2026-25679
+CVE-2026-27145
+CVE-2026-32280
+CVE-2026-32281
+CVE-2026-32283
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39836
+CVE-2026-42499
+CVE-2026-42504
+# picomatch — glob lib pulled by build tools (chokidar/vite/tailwind), not on the request path:
+CVE-2026-33671
+# sigstore — npm's own install-time provenance verifier; runs during `npm install`, never at runtime:
+CVE-2026-48815
