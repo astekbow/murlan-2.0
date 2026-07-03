@@ -30,7 +30,7 @@ const schema = z.object({
   DATABASE_URL: z.string().optional(), // when set, use Prisma/Postgres instead of in-memory
   // Money knobs (used in Phase 6); kept here so config is the single source.
   RAKE_BPS: z.coerce.number().int().min(0).max(10_000).default(1_000), // 10.00%
-  TURN_MS: z.coerce.number().int().positive().default(30_000),
+  TURN_MS: z.coerce.number().int().positive().default(25_000), // per-turn max (owner: exactly 25s)
   COUNTDOWN_MS: z.coerce.number().int().nonnegative().default(3_000),
   HAND_PAUSE_MS: z.coerce.number().int().min(0).max(60_000).default(7_000), // inter-hand standings pause; 0 = deal next hand immediately
   ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit

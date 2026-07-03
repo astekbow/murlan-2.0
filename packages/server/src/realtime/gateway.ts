@@ -74,7 +74,7 @@ function clientIpFromHandshake(socket: IOSocket): string {
 }
 
 export interface GatewayOptions {
-  turnMs?: number;       // per-turn timer; default 30s
+  turnMs?: number;       // per-turn timer; default 25s
   countdownMs?: number;  // ready-check countdown before a match starts; default 3s
   rematchMs?: number;    // how long a rematch offer stays open for everyone to opt in; default 20s
   handPauseMs?: number;  // inter-hand standings pause before the next hand deals; default 0 (off — prod wires it via config); 0 = immediate
@@ -241,7 +241,7 @@ export class GameGateway {
     private readonly auth: AuthService,
     opts: GatewayOptions = {},
   ) {
-    this.turnMs = opts.turnMs ?? 30_000;
+    this.turnMs = opts.turnMs ?? 25_000;
     this.countdownMs = opts.countdownMs ?? 3_000;
     this.rematchMs = opts.rematchMs ?? 20_000;
     this.handPauseMs = opts.handPauseMs ?? 0; // off unless wired (prod sets it via config); keeps tests deterministic
