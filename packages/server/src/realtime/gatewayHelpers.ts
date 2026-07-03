@@ -49,22 +49,23 @@ export function pickGhostNames(count: number, exclude?: string | null): string[]
   }
   return pool.slice(0, Math.max(0, count));
 }
-/** Bot "thinking" delay before it acts, for a natural pace (ms). Kept for tests / fallback. */
-export const BOT_MIN_DELAY = 550;
-export const BOT_MAX_DELAY = 1100;
+/** Bot "thinking" pause bounds before it acts (ms). Owner spec (2026-07-03): a human-like pause
+ *  of 3–7 seconds, NEVER under 3s. These are the hard floor + ceiling; botThinkDelay lands between. */
+export const BOT_MIN_DELAY = 3000;
+export const BOT_MAX_DELAY = 7000;
 /**
- * Human-like "thinking" pause before a bot acts (ms). A flat 0.55–1.1s band felt robotic
- * (every move the same metronomic tempo). Instead: a reaction floor + time that grows with how
- * much there is to weigh (hand size), a touch more when LEADING (an open choice) than when just
- * beating the pile, natural jitter, and an occasional longer ponder so the rhythm isn't uniform.
- * Range ≈ 0.8–2.6s — clearly under the turn timeout, so timers/tests are unaffected.
+ * Human-like "thinking" pause before a bot acts (ms). Owner spec: random 3–7s, NEVER faster than 3s
+ * — so a bot never snaps a move out instantly and reads like a real opponent taking their time. The
+ * 3s FLOOR is guaranteed; on top of it we lean toward the longer end when there's genuinely more to
+ * weigh (a big hand, or LEADING a fresh trick = an open choice) and add natural jitter + an occasional
+ * longer ponder, so the tempo never feels metronomic. Clamped to the 7s ceiling — still well under
+ * the turn timeout, so timers are unaffected. `rng` is injectable for deterministic tests.
  */
-export function botThinkDelay(handSize: number, leading: boolean): number {
-  const base = 700;                                  // reaction floor (no more near-instant 550)
-  const perCard = Math.min(handSize, 14) * 45;       // more cards → more to consider (13 → ~585ms)
-  const leadBonus = leading ? 250 : 0;               // leading = a freer decision → deliberate a bit
-  const jitter = Math.floor(Math.random() * 500);    // 0–500ms natural variance
-  // ~12% of moves: a longer "thinking hard" pause so the pace never feels mechanical.
-  const ponder = Math.random() < 0.12 ? Math.floor(Math.random() * 900) : 0;
-  return Math.min(2600, base + perCard + leadBonus + jitter + ponder);
+export function botThinkDelay(handSize: number, leading: boolean, rng: () => number = Math.random): number {
+  const deliberation = Math.round((Math.min(handSize, 14) / 14) * 1400); // 0–1400ms: more cards, more to weigh
+  const leadBonus = leading ? 500 : 0;                                   // leading = a freer decision
+  const jitter = Math.floor(rng() * 1600);                              // 0–1600ms natural variance
+  const ponder = rng() < 0.15 ? Math.floor(rng() * 1500) : 0;          // ~15%: a longer "thinking hard" pause
+  // BOT_MIN_DELAY (3000) is the hard floor; the rest stacks on top and is capped at BOT_MAX_DELAY (7000).
+  return Math.min(BOT_MAX_DELAY, BOT_MIN_DELAY + deliberation + leadBonus + jitter + ponder);
 }

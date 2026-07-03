@@ -766,7 +766,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
           notice (no full-screen splash) so I can see the table while I wait. */}
       {switchPending && !switching && !matchResult && (
         <div className="fixed left-1/2 -translate-x-1/2 bottom-28 z-40 pointer-events-none" role="status" aria-live="polite">
-          <span className="inline-block panel-solid rounded-xl px-4 py-2 gold-text font-display font-semibold tracking-wide text-sm animate-pop">
+          <span className="inline-block panel-solid rounded-xl px-4 py-2 text-white font-display font-semibold tracking-wide text-sm animate-pop">
             {t('table.oppSwitching')}
           </span>
         </div>
