@@ -72,7 +72,11 @@ function UserRow({ user }: { user: AdminUser }) {
   const applyState = async (state: AdminAccountState) => {
     if (!(await confirm({ title: t('admin.accountState'), message: t('admin.confirmStateM', { state, user: user.username }), danger: state === 'banned' || state === 'suspended' }))) return;
     const token = useAuthStore.getState().accessToken;
-    if (token) { try { await adminApi.setAccountState(token, user.id, state); } catch { /* surfaced via toast elsewhere */ } }
+    if (!token) return;
+    // Feedback + refresh: these used to swallow errors silently (no toast, no refresh), so an admin
+    // could believe a ban took effect when it failed. Toast the outcome + reload the list (audit 2026-07-04).
+    try { await adminApi.setAccountState(token, user.id, state); useGameStore.setState({ toast: t('admin.actionDone'), toastKind: 'success' }); void useAdminStore.getState().refresh(); }
+    catch (e) { useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('admin.actionFailed'), toastKind: 'error' }); }
   };
   const loadTxns = async () => {
     const token = useAuthStore.getState().accessToken;
@@ -83,12 +87,16 @@ function UserRow({ user }: { user: AdminUser }) {
   const mute24h = async () => {
     if (!(await confirm({ title: t('admin.mute'), message: t('admin.confirmMuteM', { user: user.username }), danger: true }))) return;
     const token = useAuthStore.getState().accessToken;
-    if (token) { try { await adminApi.muteUser(token, user.id, 24 * 60 * 60 * 1000); } catch { /* surfaced elsewhere */ } }
+    if (!token) return;
+    try { await adminApi.muteUser(token, user.id, 24 * 60 * 60 * 1000); useGameStore.setState({ toast: t('admin.actionDone'), toastKind: 'success' }); void useAdminStore.getState().refresh(); }
+    catch (e) { useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('admin.actionFailed'), toastKind: 'error' }); }
   };
   const unmute = async () => {
     if (!(await confirm({ title: t('admin.unmute'), message: t('admin.confirmUnmuteM', { user: user.username }) }))) return;
     const token = useAuthStore.getState().accessToken;
-    if (token) { try { await adminApi.unmuteUser(token, user.id); } catch { /* surfaced elsewhere */ } }
+    if (!token) return;
+    try { await adminApi.unmuteUser(token, user.id); useGameStore.setState({ toast: t('admin.actionDone'), toastKind: 'success' }); void useAdminStore.getState().refresh(); }
+    catch (e) { useGameStore.setState({ toast: e instanceof ApiError ? e.message : t('admin.actionFailed'), toastKind: 'error' }); }
   };
 
   return (

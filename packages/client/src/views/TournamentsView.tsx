@@ -101,7 +101,7 @@ export function TournamentsView() {
           <span className="tag tag-open">{t(`tourn.status.${tn.status}`)}</span>
         </div>
 
-        {canRegister && <button disabled={busy} onClick={() => void act(() => tournamentsApi.register(tk()!, tn.id))} className="btn btn-gold btn-block">{t('tourn.register')} · {dollars(tn.buyInCents)}</button>}
+        {canRegister && <button disabled={busy} onClick={async () => { if (tn.buyInCents === 0 || await confirm({ title: t('tourn.register'), message: t('tourn.confirmRegisterM', { amount: dollars(tn.buyInCents) }), confirmLabel: t('tourn.register') })) void act(() => tournamentsApi.register(tk()!, tn.id)); }} className="btn btn-gold btn-block">{t('tourn.register')} · {dollars(tn.buyInCents)}</button>}
         {joined && tn.status === 'registering' && <p className="text-xs text-emerald-300 text-center">{t('tourn.registered')}</p>}
         {isAdmin && tn.status === 'registering' && <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.cancelRefund'), message: t('tourn.confirmCancelM'), danger: true, confirmLabel: t('tourn.cancelRefund') })) void act(() => tournamentsApi.cancel(tk()!, tn.id)); }} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>}
         {/* Dual-control: a parked champion awaits a SECOND admin's confirmation before payout. */}

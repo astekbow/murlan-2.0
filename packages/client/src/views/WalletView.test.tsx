@@ -53,7 +53,7 @@ test('WalletView renders and gates a withdrawal behind a confirmation dialog', a
 
   // Fill a valid destination (the amount defaults to 5); then request the withdrawal.
   fireEvent.change(screen.getByPlaceholderText('your USDT (TRC20) address'), {
-    target: { value: 'TXYZ1234567890abcdefghijklmnopqrs' },
+    target: { value: 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6' },
   });
   fireEvent.click(screen.getByText('Request withdrawal'));
 
@@ -63,7 +63,7 @@ test('WalletView renders and gates a withdrawal behind a confirmation dialog', a
   // Confirming forwards to the store's withdraw with the parsed amount + destination.
   const reqButtons = screen.getAllByText('Request withdrawal'); // trigger + dialog confirm
   fireEvent.click(reqButtons[reqButtons.length - 1]!);
-  await waitFor(() => expect(h.withdraw).toHaveBeenCalledWith(500, 'TXYZ1234567890abcdefghijklmnopqrs'));
+  await waitFor(() => expect(h.withdraw).toHaveBeenCalledWith(500, 'TUcsKWoZcF1mje96yMSG6NwzMvpJeo7pR6'));
 });
 
 test('WalletView gates the deposit TxID button until a valid 64-hex hash is entered', async () => {

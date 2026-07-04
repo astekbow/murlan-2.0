@@ -119,7 +119,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         ) : (
           <ul className="max-h-[60vh] overflow-y-auto no-scrollbar divide-y divide-white/[.06]">
             {items.map((n) => {
-              const showInviteActions = n.action === 'invite' && liveInvite != null;
+              // acceptInvite() joins the SINGLE live-invite slot (overwritten by the newest invite).
+              // Older invite rows would join the WRONG room, so only the NEWEST invite gets the actions.
+              const showInviteActions = n.action === 'invite' && liveInvite != null && n.id === items.find((x) => x.action === 'invite')?.id;
               const view = targetView(n);
               const routable = view != null;
               return (

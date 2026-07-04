@@ -399,7 +399,9 @@ export function WalletView() {
         )}
         {/* Honest payout timing so the player knows what to expect. */}
         <p className="text-[12px] text-muted">⏱ {t('wallet.withdrawTimeEstimate')}</p>
-        <button onClick={() => void onWithdraw()} disabled={withdrawing} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
+        {/* Gate on the SAME TRON shape check the ✗/✓ indicator shows — the button used to submit even
+            while the field showed ✗ invalid, producing a confusing server rejection. Mirrors the TxID submit. */}
+        <button onClick={() => void onWithdraw()} disabled={withdrawing || !isLikelyTron(destination)} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
       </section>
 
       {/* Your data (GDPR Art.15/17): export everything, or delete the account. (The verification +

@@ -96,8 +96,12 @@ export function ShopView() {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     const isXp = (item.costXp ?? 0) > 0;
-    // XP is hard-earned and non-refundable — confirm before spending it (money buys already gate on balance).
-    if (isXp && !(await confirm({ title: t('shop.confirmXpTitle'), message: t('shop.confirmXpBody', { xp: item.costXp ?? 0, name: item.name }) }))) return;
+    // Confirm any REAL-VALUE spend before it happens — XP (hard-earned, non-refundable) AND money
+    // (leaves the wallet). Money buys used to skip the confirm, so a single tap spent real balance.
+    if (!(await confirm(isXp
+      ? { title: t('shop.confirmXpTitle'), message: t('shop.confirmXpBody', { xp: item.costXp ?? 0, name: item.name }) }
+      : { title: t('shop.confirmBuyTitle'), message: t('shop.confirmBuyBody', { price: dollars(item.cost), name: item.name }) }
+    ))) return;
     setBusyId(item.id);
     try {
       // XP items spend earned XP (never the wallet) → the XP buy endpoint; money items → /shop/buy.

@@ -14,6 +14,19 @@ import { useT, translate, useLangStore } from '../lib/i18n.ts';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
 
+// Copy to clipboard and toast the REAL outcome — the old code toasted "copied ✓" unconditionally,
+// so in an in-app WebView / non-secure context (no navigator.clipboard) or when writeText rejects,
+// the user was told it copied when nothing was on the clipboard and couldn't share a paid private room.
+async function copyWithToast(text: string, okKey: string): Promise<void> {
+  try {
+    if (!navigator.clipboard) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(text);
+    useGameStore.setState({ toast: tr(okKey), toastKind: 'success' });
+  } catch {
+    useGameStore.setState({ toast: tr('common.copyFailed'), toastKind: 'error' });
+  }
+}
+
 // Maps the room type to a catalog key, resolved with t() at render time.
 const CONTEXT: Record<RoomStateDTO['type'], string> = {
   '1v1': 'room.ctxSolo',
@@ -110,7 +123,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
     <section className="panel p-4 text-center animate-rise" style={{ animationDelay: '.04s' }}>
       <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-1">{t('room.shareCode')}</div>
       <button
-        onClick={() => { void navigator.clipboard?.writeText(room.joinCode!).catch(() => {}); useGameStore.setState({ toast: tr('room.codeCopied'), toastKind: 'success' }); }}
+        onClick={() => void copyWithToast(room.joinCode!, 'room.codeCopied')}
         className="font-mono text-3xl tracking-[0.35em] gold-text font-bold"
         aria-label={tr('common.copyCode')}
       >
@@ -118,7 +131,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
       </button>
       <div className="mt-2">
         <button
-          onClick={() => { void navigator.clipboard?.writeText(roomInviteLink(room.joinCode!)).catch(() => {}); useGameStore.setState({ toast: tr('room.linkCopied'), toastKind: 'success' }); }}
+          onClick={() => void copyWithToast(roomInviteLink(room.joinCode!), 'room.linkCopied')}
           className="btn btn-ghost btn-sm"
         >
           {t('room.copyInviteLink')}
