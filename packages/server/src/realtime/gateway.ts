@@ -427,15 +427,7 @@ export class GameGateway {
     socket.on('auth', (token, ack) => void this.onReAuth(socket, token, ack));
 
     // ----- Social: in-room emotes / quick-chat + friend room invites ---------
-    socket.on('emote', (emote) => {
-      const userId = socket.data.userId;
-      if (!this.limiter.allow(userId) || typeof emote !== 'string' || !emote) return;
-      const room = this.rooms.roomOf(userId);
-      if (!room) return;
-      const seat = this.rooms.seatOf(room.id, userId);
-      if (seat < 0) return;
-      this.io.to(room.id).emit('emote', { seat, emote: emote.slice(0, 16) });
-    });
+    socket.on('emote', (emote) => void this.onEmote(socket, emote));
     socket.on('chat', (text) => void this.onGameChat(socket, text));
     socket.on('room:invite', (payload, ack) => void this.onInvite(socket, payload, ack));
     socket.on('club:invite', (payload, ack) => void this.onClubInvite(socket, payload, ack));
@@ -1480,6 +1472,26 @@ export class GameGateway {
           return;
         }
         escrowed = true;
+        // Re-validate the roster NOW, immediately after the escrow await (the ONLY suspension
+        // point between capturing `players` and startMatch — everything below is synchronous).
+        // During that DB round-trip a seat can be vacated by a disconnect and re-filled by a
+        // DIFFERENT lobby player: onDisconnect frees the seat and flips the room 'ready'→'waiting',
+        // which room:join then accepts. startMatch below checks only isFull, so without this the
+        // NEW occupant would play a STAKED match while UNescrowed, and the player we charged is no
+        // longer at the table — their stake is lost/paid to the wrong seat (fund-integrity race,
+        // audit 2026-07-05). If the live non-bot seats aren't EXACTLY who we escrowed, refund + abort.
+        const live = (this.rooms.getRoom(roomId)?.seats ?? [])
+          .map((s, seat) => ({ seat, userId: s.userId }))
+          .filter((p): p is { seat: number; userId: string } => p.userId !== null && !isBot(p.userId));
+        const rosterIntact =
+          live.length === players.length &&
+          players.every((p) => live.some((q) => q.seat === p.seat && q.userId === p.userId));
+        if (!rosterIntact || !this.rooms.allReady(roomId)) {
+          await this.money.refund(matchId);
+          for (const s of this.rooms.getRoom(roomId)?.seats ?? []) if (s.userId) this.rooms.setReady(s.userId, false);
+          this.broadcastRoomState(roomId);
+          return;
+        }
       }
     }
 
@@ -1498,15 +1510,27 @@ export class GameGateway {
         this.io.to(roomId).emit('fair:commit', { serverSeedHash: g.serverSeedHash });
       }
       const seeds = room.seats.map((s) => (s.userId ? this.fairness.clientSeed(s.userId) ?? '' : '')).filter(Boolean);
-      if (seeds.length === 0 && room.stakeCents > 0) {
-        // No untrusted entropy arrived after the commit — the deal becomes a pure
-        // function of the (already-committed, hence reproducible) serverSeed.
-        // The official client always contributes; flag this anomaly.
-        logger.warn('[fair] staked match dealt with no post-commit client entropy', { roomId });
+      let combined: string;
+      if (seeds.length > 0) {
+        // Normal path: mix every client seed. serverSeed was committed BEFORE these existed, so
+        // neither side can grind the deal.
+        combined = combineClientSeeds(seeds);
+      } else if (room.stakeCents > 0) {
+        // STAKED match with NO post-commit client entropy (the official client always sends one — this
+        // means a modified/absent client). Deriving the deal purely from serverSeed would make it a pure
+        // function of serverSeed alone, which the operator GENERATES — enabling an undetectable PRE-COMMIT
+        // grind (try serverSeeds until one deals a chosen seat strong cards, then commit its hash). So mix
+        // FRESH post-commit entropy: the pre-commit serverSeed choice can no longer determine the deal
+        // (audit 2026-07-05). The combined seed is persisted, so the deal stays fully verifiable from
+        // serverSeed + the revealed clientSeed. (True fairness still needs an honest client seed; this only
+        // hardens the anomalous no-seed fallback for money games.)
+        logger.warn('[fair] staked match dealt with no post-commit client entropy — mixing fresh server entropy', { roomId });
+        combined = sha256Hex(`${serverSeed}:${generateServerSeed().serverSeed}`);
+      } else {
+        // Free / practice match with no client seed: no money at stake → keep the deterministic,
+        // reproducible fallback (nothing to grind for).
+        combined = sha256Hex(`${serverSeed}:auto`);
       }
-      // Deterministic fallback (derived from the fixed serverSeed) when no client
-      // contributed — never a fresh random the server could itself grind.
-      const combined = seeds.length > 0 ? combineClientSeeds(seeds) : sha256Hex(`${serverSeed}:auto`);
       fair = createFairShuffle(numPlayers, combined, serverSeed);
     }
 
@@ -2748,6 +2772,23 @@ export class GameGateway {
     const clean = sanitizeChat(text);
     if (!clean) return;
     this.io.to(room.id).emit('chat', { seat, username: socket.data.username, text: clean });
+  }
+
+  /** In-table emote / preset quick-chat. Mirrors onGameChat's moderation controls, which the old
+   *  inline handler lacked: a globally shadow-muted user is silently dropped, and the payload runs
+   *  through the profanity/control-char sanitizer instead of a raw slice — else a muted user (or a
+   *  raw-socket client sending arbitrary text) bypasses BOTH controls on this channel (audit 2026-07-05). */
+  private async onEmote(socket: IOSocket, emote: unknown): Promise<void> {
+    const userId = socket.data.userId;
+    if (!this.limiter.allow(userId) || typeof emote !== 'string' || !emote) return;
+    const room = this.rooms.roomOf(userId);
+    if (!room) return;
+    const seat = this.rooms.seatOf(room.id, userId);
+    if (seat < 0) return;
+    if (this.chat && (await this.chat.isMuted(userId))) return; // shadow-mute (no broadcast)
+    const clean = sanitizeChat(emote.slice(0, 16)); // bound length first, then mask profanity
+    if (!clean) return;
+    this.io.to(room.id).emit('emote', { seat, emote: clean });
   }
 
   private async onClubMessage(socket: IOSocket, payload: { text: string } | undefined, ack: (res: Ack) => void): Promise<void> {

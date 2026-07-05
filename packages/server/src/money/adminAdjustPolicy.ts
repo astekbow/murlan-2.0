@@ -17,6 +17,24 @@
 
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
 
+/**
+ * Serialize each admin's adjust CRITICAL SECTION (the governance rolling-24h cap READ + the
+ * atomic adjust+audit WRITE) so N concurrent adjustments by the same admin can't all read the
+ * same stale pre-commit 24h total and blow past DAILY_ADJUST_CAP_CENTS (TOCTOU). Single-instance;
+ * per-admin promise-chain. EXPORTED and SHARED so the HTTP /adjust route AND the Telegram
+ * /credit-/debit path serialize on the SAME chain per admin — else the two doors could still race
+ * each other (audit 2026-07-05). Mirrors WalletService.serializeDeposit / walletRoutes.serializeWithdraw.
+ */
+const adjustChain = new Map<string, Promise<unknown>>();
+export function serializeAdjust<T>(adminId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = adjustChain.get(adminId) ?? Promise.resolve();
+  const next = prev.then(fn, fn); // run after the previous settles (success or failure)
+  const guarded = next.catch(() => undefined); // a rejection must not break the chain
+  adjustChain.set(adminId, guarded);
+  void guarded.then(() => { if (adjustChain.get(adminId) === guarded) adjustChain.delete(adminId); });
+  return next;
+}
+
 /** Per-call ceiling on a single manual adjustment (|deltaCents|). $5,000. */
 export const MAX_ADJUST_CENTS = 5_000_00;
 /** Per-admin rolling-24h cumulative ceiling on Σ|balance_adjust| (sum from the audit log). $20,000. */

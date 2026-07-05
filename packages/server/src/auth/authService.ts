@@ -25,6 +25,9 @@ import { ConsoleEmailProvider, type EmailProvider } from '../email/emailProvider
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // mirror the refresh JWT TTL
 const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000; // 1h
+// Sentinel user id for the password-reset timing decoy: a well-formed id that never matches a real
+// user, so invalidateUnconsumed(it) is a 0-row no-op used only to equalize the reset response time.
+const RESET_TIMING_DECOY_ID = '00000000-0000-0000-0000-000000000000';
 
 // Cap the length too: Argon2id over a megabyte-long password is a cheap CPU-exhaustion DoS.
 const passwordSchema = z.string().min(8, 'Fjalëkalimi duhet të ketë të paktën 8 karaktere.').max(128, 'Fjalëkalimi është shumë i gjatë.');
@@ -127,12 +130,12 @@ export class AuthService {
     this.onSessionsRevoked = fn;
   }
 
-  // Per-identifier (email) FAILED-login throttle (MONEY-7/WEB-2). Counts only failures
-  // in a fixed window; a correct password clears it, so a legit user is never locked by
-  // their own logins. Keyed by the submitted email — this defeats the proxy-IP rotation
-  // that bypasses the per-IP HTTP rate-limit (one account can't be hammered no matter how
-  // many IPs an attacker uses). Single-instance (in-memory), like the wallet/tournament
-  // locks; multi-instance would back this with Redis (documented follow-up).
+  // Per-identifier FAILED-login throttle (MONEY-7/WEB-2). Counts only failures in a fixed window;
+  // a correct password clears it, so a legit user is never locked by their own logins. Keyed by
+  // (email + source IP) — NOT email alone: an email-only key let anyone who knows a victim's email
+  // lock the victim out of fresh logins (account-lockout DoS, audit 2026-07-05). Binding the IP
+  // scopes a lock to the attacker's own source. Single-instance (in-memory), like the wallet/
+  // tournament locks; multi-instance would back this with Redis (documented follow-up).
   private readonly loginFailures = new Map<string, { count: number; lastFailureAt: number; lockedUntil: number }>();
   // ESCALATING lockout (anti-brute-force): once the failure cap is hit, each FURTHER failure
   // extends the lockout, doubling the penalty (base window × 2^breaches) up to a ceiling.
@@ -285,16 +288,23 @@ export class AuthService {
     return { user: toPublicUser(user), tokens: await this.issueSession(user) };
   }
 
-  async login(input: unknown): Promise<AuthResult> {
+  async login(input: unknown, ip?: string): Promise<AuthResult> {
     const parsed = loginSchema.safeParse(input);
     if (!parsed.success) {
       throw new AuthError('validation', parsed.error.issues[0]?.message ?? 'Të dhëna të pavlefshme.');
     }
     const { email, password } = parsed.data;
+    // Throttle key = email + SOURCE IP (audit 2026-07-05). Keying on email ALONE let a third party
+    // who merely KNOWS a victim's email lock them out of fresh logins for up to an hour by spraying
+    // wrong passwords (account-lockout DoS) — the lock hit the victim's own correct-password path too.
+    // Binding the IP means an attacker can only lock (email @ THEIR ip); the victim from their own IP
+    // is never affected. Per-source brute-force is still throttled here, and the per-IP HTTP login
+    // bucket + a fixed lookup/verify cost cover IP-rotation. (ip omitted in unit tests → email-only.)
+    const idKey = ip ? `${email}\n${ip}` : email;
 
     // Throttle BEFORE the lookup so behavior is identical whether or not the email
     // exists (no account enumeration) and a locked identifier costs no password hash.
-    if (this.loginThrottled(email)) {
+    if (this.loginThrottled(idKey)) {
       throw new AuthError('rate_limited', 'Shumë përpjekje hyrjeje. Prit pak para se të provosh sërish.');
     }
 
@@ -306,12 +316,12 @@ export class AuthService {
       ? await verifyPassword(user.passwordHash, password)
       : await this.dummyVerify(password);
     if (!user || !okPassword) {
-      this.recordLoginFailure(email); // count this miss toward the per-identifier cap
+      this.recordLoginFailure(idKey); // count this miss toward the per-(email,ip) cap
       throw new AuthError('bad_credentials', 'Email ose fjalëkalim i gabuar.');
     }
     // Correct credentials → clear the failure window (a real user is never locked out
     // by their own successful login).
-    this.loginFailures.delete(email);
+    this.loginFailures.delete(idKey);
     // Trust & safety: a banned / actively-suspended account cannot sign in — EXCEPT the
     // configured owner (admin-3), who can never be locked out of their own platform by a
     // stray ban (the admin routes also refuse banning the owner; this is the backstop).
@@ -358,7 +368,10 @@ export class AuthService {
     // ATOMIC rotation (auth-3): revoke ONLY if still active. If two requests present the
     // same stolen token concurrently, exactly ONE wins the conditional revoke; the loser
     // gets false and we treat it as detected REUSE → revoke the family (no two live
-    // sessions minted from one token, no find→revoke gap).
+    // sessions minted from one token, no find→revoke gap). This DELIBERATELY treats even a
+    // benign concurrent same-cookie double-submit as reuse (favouring theft detection over the
+    // rare UX cost of one re-login); the client single-flights refresh to avoid tripping it
+    // (audit 2026-07-05 — fix is client-side in api.ts, NOT a weakening of this invariant).
     const won = await this.refreshTokens.revokeIfActive(claims.jti);
     if (!won) {
       await this.refreshTokens.revokeFamily(record.family);
@@ -431,7 +444,15 @@ export class AuthService {
     const parsed = emailSchema.safeParse(email);
     if (!parsed.success) return;
     const user = await this.users.findByEmail(parsed.data);
-    if (!user) return; // do not reveal whether the email exists
+    if (!user) {
+      // Unknown email → still spend a matching awaited DB write before returning, so the response time
+      // doesn't betray whether the email exists (enumeration TIMING oracle, audit 2026-07-05). The
+      // existing-email branch below awaits invalidateUnconsumed; mirror it with a no-op updateMany
+      // against a sentinel id (matches 0 rows — no row, no FK, no side effect). The only residual delta
+      // is the real branch's single create() insert, which is well under network jitter.
+      await this.verificationTokens.invalidateUnconsumed(RESET_TIMING_DECOY_ID, 'password_reset', this.now()).catch(() => 0);
+      return;
+    }
     // Per-account mail-bomb cap (throttles fix): cap reset emails per email-address per
     // hour, defeating the per-IP HTTP limit via IP rotation. Silently skip when over —
     // the route still returns 200 (no enumeration).
@@ -625,10 +646,13 @@ export class AuthService {
   }
 
   /**
-   * Self-service DOB/country update with the age/geo immutability gate enforced
-   * HERE (service layer), not just at the route — so the control can't be bypassed
-   * by a future caller. Once KYC is verified, DOB/country are locked (a correction
-   * requires re-KYC). Returns whether a value actually changed (for auditing).
+   * Self-service DOB/country update with the age/geo immutability gate enforced HERE (service layer),
+   * not just at the route — so the control can't be bypassed by a future caller. DOB/country are
+   * IDENTITY fields for the age/geo gate: SET-ONCE — editable only while still unset, then locked.
+   * Previously they were locked ONLY after KYC 'verified', so with KYC disabled (the owner's setting)
+   * a player could freely swap country/DOB to dodge an age/geo block (audit 2026-07-05). Locking them
+   * once set closes that regardless of KYC; an admin can still correct a value via updateCompliance.
+   * Returns whether a value actually changed (for auditing).
    */
   async updateSelfProfile(
     userId: string,
@@ -639,7 +663,14 @@ export class AuthService {
     const nextCountry = patch.country?.toUpperCase();
     const changingDob = patch.dateOfBirth !== undefined && patch.dateOfBirth !== current.dateOfBirth;
     const changingCountry = nextCountry !== undefined && nextCountry !== (current.country ?? null);
-    if (current.kycStatus === 'verified' && (changingDob || changingCountry)) {
+    // Locked if: the field is already set (set-once), OR the account is KYC-verified. Only an ACTUAL
+    // change to an already-set field is blocked — re-submitting the same value is a no-op (changed=false).
+    const dobAlreadySet = current.dateOfBirth != null && current.dateOfBirth !== '';
+    const countryAlreadySet = current.country != null && current.country !== '';
+    if (
+      (changingDob && (dobAlreadySet || current.kycStatus === 'verified')) ||
+      (changingCountry && (countryAlreadySet || current.kycStatus === 'verified'))
+    ) {
       return { ok: false, code: 'kyc_locked' };
     }
     const user = await this.users.updateCompliance(userId, { dateOfBirth: patch.dateOfBirth, country: nextCountry });

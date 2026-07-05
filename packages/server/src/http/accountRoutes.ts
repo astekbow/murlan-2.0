@@ -94,11 +94,11 @@ export async function accountRoutes(app: FastifyInstance, deps: AccountRoutesDep
     const parsed = profileSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: 'validation', message: 'Të dhëna profili të pavlefshme.' } });
 
-    // The KYC immutability gate is enforced in the SERVICE layer (updateSelfProfile),
+    // The age/geo immutability gate is enforced in the SERVICE layer (updateSelfProfile),
     // not here — so it can't be bypassed by another caller.
     const res = await deps.auth.updateSelfProfile(caller.userId, { dateOfBirth: parsed.data.dateOfBirth, country: parsed.data.country });
     if (!res.ok) {
-      return reply.code(409).send({ error: { code: 'kyc_locked', message: 'Data e lindjes dhe vendi nuk ndryshohen pas verifikimit (KYC).' } });
+      return reply.code(409).send({ error: { code: 'kyc_locked', message: 'Data e lindjes dhe vendi vendosen vetëm një herë — për një ndryshim kontakto suportin.' } });
     }
     // Compliance data is audit-relevant: record self-service DOB/country changes
     // with the same rigor as admin changes (regulators expect a full trail).

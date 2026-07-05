@@ -390,6 +390,35 @@ test('updateSelfProfile: editable before KYC, LOCKED after verification (service
   assert.equal((r3 as { changed: boolean }).changed, false);
 });
 
+test('updateSelfProfile: DOB/country are SET-ONCE — locked after first set even WITHOUT KYC (age/geo dodge)', async () => {
+  const { auth, repo } = makeService();
+  await auth.register(valid);
+  const me = (await repo.findByEmail(valid.email))!;
+  assert.notEqual(me.kycStatus, 'verified'); // KYC is NOT required in this deployment
+
+  // First set (from unset) succeeds.
+  const r1 = await auth.updateSelfProfile(me.id, { dateOfBirth: '1990-05-01', country: 'al' });
+  assert.equal(r1.ok, true);
+  assert.equal((r1 as { changed: boolean }).changed, true);
+
+  // Now CHANGING either field is rejected — a player can't swap country to dodge a geo block, nor
+  // DOB to dodge the age gate, just because KYC is off (audit 2026-07-05 set-once immutability).
+  const changeCountry = await auth.updateSelfProfile(me.id, { country: 'gb' });
+  assert.deepEqual(changeCountry, { ok: false, code: 'kyc_locked' });
+  const changeDob = await auth.updateSelfProfile(me.id, { dateOfBirth: '2010-01-01' });
+  assert.deepEqual(changeDob, { ok: false, code: 'kyc_locked' });
+
+  // The stored values are unchanged.
+  const after = (await repo.findByEmail(valid.email))!;
+  assert.equal(after.country, 'AL');
+  assert.equal(after.dateOfBirth, '1990-05-01');
+
+  // Re-submitting the SAME values is still a harmless no-op (not a lock error).
+  const same = await auth.updateSelfProfile(me.id, { dateOfBirth: '1990-05-01', country: 'AL' });
+  assert.equal(same.ok, true);
+  assert.equal((same as { changed: boolean }).changed, false);
+});
+
 test('GDPR: exportPersonalData returns the profile; deleteAccount anonymizes PII + blocks login', async () => {
   const { auth } = makeService();
   const { user } = await auth.register(valid);

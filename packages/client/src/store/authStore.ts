@@ -3,6 +3,7 @@ import {
   authApi,
   ApiError,
   refreshAccessToken,
+  refreshSession,
   registerSessionHandlers,
   type PublicUser,
   type RegisterInput,
@@ -100,7 +101,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // 5xx) so a logged-in user with a valid cookie isn't bounced to login on a blip.
   async bootstrap() {
     try {
-      const { user, accessToken } = await authApi.refresh();
+      // Single-flight refresh (audit 2026-07-05): share the ONE in-flight /auth/refresh with the
+      // 401-retry and socket paths, so a boot restore racing an early authed call can't fire two
+      // concurrent refreshes that the server would treat as token reuse → family revoke → spurious logout.
+      const { user, accessToken } = await refreshSession();
       set({ user, accessToken, status: 'authed' });
       startProactiveRefresh();
     } catch (e) {

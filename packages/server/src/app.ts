@@ -946,7 +946,20 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
           // A TxID makes the credit idempotent against a player claim of the same on-chain
           // deposit (money-2) — same `tron:<txid>` providerRef as the player path.
           const providerRef = opts?.txId ? `tron:${opts.txId.toLowerCase()}` : undefined;
-          const res = await wallet.adminAdjust(userId, deltaCents, reason, { providerRef });
+          // Atomic (admin-5, audit 2026-07-05): the balance move AND the balance_adjust audit row
+          // commit in ONE transaction, exactly like the HTTP /adjust route — money can't move without
+          // the audit trail, and the 24h cap (summed from that trail) can't be under-counted by a
+          // dropped audit write. When opts.adminId is present, use the audited path.
+          const res = opts?.adminId
+            ? await wallet.adminAdjustAudited(
+                userId,
+                deltaCents,
+                reason,
+                { adminId: opts.adminId, action: 'balance_adjust', targetUserId: userId, amountCents: deltaCents, detail: opts.detail ?? reason },
+                adminAuditRepo,
+                { providerRef },
+              )
+            : await wallet.adminAdjust(userId, deltaCents, reason, { providerRef });
           if (res.idempotent) return { ok: false, reason: 'already_credited' };
           return { ok: true, balanceCents: res.balanceCents, idempotent: res.idempotent };
         } catch (e) {

@@ -149,14 +149,20 @@ export class ClubWarService {
       p.winnerId = winnerId;
       if (winnerId === aUserId) w.scoreA += 1; else w.scoreB += 1;
       if (w.pairings.every((x) => x.winnerId)) {
-        // ORDER MATTERS (money safety): mark the war 'finished' + persist BEFORE moving any money.
-        // If the payout then fails, the row is already 'finished' (so cancel() — which only acts on
-        // 'registering' — can never refund an already-paid war = no double-pay). The payout uses
-        // idempotent providerRefs, so a sweep/retry can safely re-run it. A crash BEFORE save just
-        // leaves the last pairing decided in-memory only; the next report re-decides + re-saves.
-        this.decideOutcome(w);
-        await this.repo.save(w);
-        await this.payoutSettled(w);
+        // ORDER MATTERS (money safety). Decide the winner → persist the ALL-DECIDED 'running' state →
+        // pay out → only THEN flip to 'finished'. Rationale (audit 2026-07-05): the OLD order (persist
+        // 'finished' BEFORE the payout) meant a payout failure left the war durably 'finished' but
+        // UNPAID — and the sweep only re-drives 'registering'/'running' wars, so the escrowed pool was
+        // stranded with NO recovery path. With this order, a payout failure/crash leaves the row
+        // 'running' with every pairing decided IN DB — exactly the state sweepStaleWars re-drives
+        // (idempotent payoutSettled). A 'finished' war is therefore ALWAYS a paid war. Anti-double-pay
+        // still holds: cancel() is 'registering'-only (rejects a 'running' all-decided war), and the
+        // sweep's refund branch fires only for a war that is NOT all-decided — which this state never is.
+        this.decideWinner(w); // winnerClubId in memory (needed by the payout); status stays 'running'
+        await this.repo.save(w); // (1) persist the final pairing decision + winner, still 'running'
+        await this.payoutSettled(w); // (2) move the money (idempotent providerRefs → safe to re-run)
+        w.status = 'finished'; // (3) flip to finished ONLY after a successful payout
+        await this.repo.save(w); // (3b) persist 'finished'
       } else {
         await this.repo.save(w);
       }
@@ -164,9 +170,10 @@ export class ClubWarService {
     });
   }
 
-  /** Decide the winning club (pure, no money): higher score wins; equal → tie (null). */
-  private decideOutcome(w: ClubWar): void {
-    w.status = 'finished';
+  /** Compute the winning club (pure, no money, NO status change): higher score wins; equal → tie (null).
+   *  The caller flips status to 'finished' only AFTER payoutSettled succeeds, so a 'finished' war is
+   *  always a PAID war (audit 2026-07-05) and a failed payout stays recoverable by the sweep. */
+  private decideWinner(w: ClubWar): void {
     w.winnerClubId = w.scoreA > w.scoreB ? w.clubAId : w.scoreB > w.scoreA ? w.clubBId : null;
   }
 
@@ -233,9 +240,14 @@ export class ClubWarService {
         const w = await this.repo.get(snap.id); // re-read under the lock
         if (!w || (w.status !== 'registering' && w.status !== 'running')) return;
         if (w.status === 'running' && w.pairings.length > 0 && w.pairings.every((p) => p.winnerId)) {
-          this.decideOutcome(w);
-          await this.repo.save(w);
+          // The war reached the all-decided state but its settle was interrupted (payout failed/crashed
+          // mid-report, or a prior sweep pass). Re-drive the payout (idempotent providerRefs), then flip
+          // to 'finished' — persisting 'finished' only AFTER a successful payout keeps a failed retry
+          // 'running' so the NEXT sweep re-drives it (no more finished-but-unpaid stranded escrow).
+          this.decideWinner(w);
           await this.payoutSettled(w); // idempotent — safe even if a prior settle partially ran
+          w.status = 'finished';
+          await this.repo.save(w);
         } else {
           await this.refundAll(w);
           w.status = 'cancelled';

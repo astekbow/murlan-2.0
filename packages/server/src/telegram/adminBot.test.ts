@@ -63,7 +63,14 @@ function makeDeps(over: Partial<AdminBotDeps> & { rec?: WithdrawalRecord } = {})
     support: { list: async () => tickets, get: async () => tickets[0], resolve: async (id: string) => { resolved.push(id); return { ...tickets[0]!, status: 'resolved' }; }, create: async () => tickets[0], listByUser: async () => tickets } as never,
     digest: async () => ({ players: 12, newSignups24h: 3, rake24hCents: 4200, pendingWithdrawals: 1, pendingWithdrawalsCents: 5000, liabilitiesCents: 9000 }),
     // Phase 3 fakes
-    adminAdjust: async (userId: string, deltaCents: number, reason: string) => { adjustCalls.push({ userId, deltaCents, reason }); return { ok: true as const, balanceCents: 1500 + deltaCents }; },
+    adminAdjust: async (userId: string, deltaCents: number, reason: string, opts?: { txId?: string; adminId?: string; detail?: string }) => {
+      adjustCalls.push({ userId, deltaCents, reason });
+      // Models the prod wiring: with an adminId the injected adjust runs wallet.adminAdjustAudited,
+      // which writes the balance_adjust audit row ATOMICALLY with the money move (admin-5). The bot no
+      // longer records the audit separately, so the audit trail now comes from HERE.
+      if (opts?.adminId) audit.push({ action: 'balance_adjust', targetUserId: userId, amountCents: deltaCents });
+      return { ok: true as const, balanceCents: 1500 + deltaCents };
+    },
     voidMatch: async (roomId: string, meta: { adminId: string; reason: string }) => { voidCalls.push({ roomId, reason: meta.reason }); return { ok: true as const, matchId: 'm1', refunded: true }; },
     tournamentCreate: async (name: string, buyInCents: number, capacity: number) => { tCreate.push({ name, buyInCents, capacity }); return { ok: true as const, id: 'trn1', name }; },
     tournamentCancel: async (id: string) => { tCancel.push(id); return { ok: true as const }; },

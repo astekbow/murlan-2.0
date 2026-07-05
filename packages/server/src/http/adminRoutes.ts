@@ -19,30 +19,19 @@ import type { RoomManager } from '../room/roomManager.ts';
 import type { MatchesRepository } from '../money/matchesRepository.ts';
 import { revenueBreakdown } from '../money/revenueReport.ts';
 import { InMemoryAdminAudit, type AdminAuditRepository } from '../auth/adminAudit.ts';
-import { checkAdjustGovernance, MAX_ADJUST_CENTS } from '../money/adminAdjustPolicy.ts';
+import { checkAdjustGovernance, MAX_ADJUST_CENTS, serializeAdjust } from '../money/adminAdjustPolicy.ts';
 import type { ChatService } from '../chat/chatService.ts';
 import type { PushService } from '../push/pushService.ts';
 import { type TournamentService, TournamentError } from '../tournament/tournamentService.ts';
 import type { ClubService } from '../social/clubService.ts';
 import type { ClubWarService } from '../social/clubWarService.ts';
 
-// Serialize each admin's balance-adjust critical section (the governance rolling-24h cap READ + the
-// atomic adjust+audit WRITE) so N concurrent /adjust requests can't all read the same stale pre-commit
-// 24h total and blow past DAILY_ADJUST_CAP_CENTS (audit 2026-07-05 TOCTOU). Single-instance; per-admin
-// promise-chain, mirrors walletRoutes.serializeWithdraw / WalletService.serializeDeposit.
 // dos-3: how far back the /revenue/breakdown chart reaches. Bounds the ledger load so a
 // long-lived house account can't turn the breakdown into an unbounded full-table scan.
 const REVENUE_BREAKDOWN_WINDOW_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
 
-const adjustChain = new Map<string, Promise<unknown>>();
-function serializeAdjust<T>(adminId: string, fn: () => Promise<T>): Promise<T> {
-  const prev = adjustChain.get(adminId) ?? Promise.resolve();
-  const next = prev.then(fn, fn); // run after the previous settles (success or failure)
-  const guarded = next.catch(() => undefined); // a rejection must not break the chain
-  adjustChain.set(adminId, guarded);
-  void guarded.then(() => { if (adjustChain.get(adminId) === guarded) adjustChain.delete(adminId); });
-  return next;
-}
+// serializeAdjust is now shared from adminAdjustPolicy so the HTTP /adjust route and the Telegram
+// /credit-/debit path serialize on the SAME per-admin chain (audit 2026-07-05).
 
 export interface AdminRoutesDeps {
   auth: AuthService;

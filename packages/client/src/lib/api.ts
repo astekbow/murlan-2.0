@@ -48,20 +48,34 @@ export function registerSessionHandlers(h: { onToken: (t: string) => void; onLos
   onSessionLost = h.onLost;
 }
 
-let refreshInFlight: Promise<string> | null = null;
-/** Single-flight access-token refresh from the httpOnly refresh cookie. */
-export function refreshAccessToken(): Promise<string> {
+let refreshInFlight: Promise<AuthResponse> | null = null;
+/** Single-flight refresh from the httpOnly cookie: EVERY refresh caller — the app-boot session
+ *  restore, a 401 auto-retry, and the socket-reconnect path — shares ONE in-flight /auth/refresh.
+ *  The server rotates the refresh cookie and treats ANY concurrent reuse of the old cookie as token
+ *  theft (revokes the whole family). So two refreshes firing at once (common on boot: restore +
+ *  an early authed call's 401) would nuke the just-minted session and force a spurious re-login.
+ *  Funnelling them through this single promise prevents that (audit 2026-07-05). */
+function refreshSessionInFlight(): Promise<AuthResponse> {
   if (!refreshInFlight) {
     refreshInFlight = rawRequest<AuthResponse>('/auth/refresh', { method: 'POST' })
       .then((res) => {
         onTokenRefreshed?.(res.accessToken);
-        return res.accessToken;
+        return res;
       })
       .finally(() => {
         refreshInFlight = null;
       });
   }
   return refreshInFlight;
+}
+/** Single-flight access-token refresh — resolves to just the fresh access token. */
+export function refreshAccessToken(): Promise<string> {
+  return refreshSessionInFlight().then((res) => res.accessToken);
+}
+/** Single-flight FULL session refresh (user + access token) — for the app-boot restore, so it
+ *  shares the same in-flight request as refreshAccessToken() instead of racing it. */
+export function refreshSession(): Promise<AuthResponse> {
+  return refreshSessionInFlight();
 }
 
 /** A single fetch with no auto-refresh — used by refresh itself and internally. */

@@ -42,7 +42,10 @@ export async function supportRoutes(app: FastifyInstance, deps: SupportRoutesDep
   const admin = requireAdmin(auth);
 
   // ----- Player -------------------------------------------------------------
-  app.post('/api/support/tickets', async (req, reply) => {
+  // Rate-limit ticket CREATION (audit 2026-07-05): each create fires a best-effort owner Telegram
+  // alert + inserts a row, and had NO per-route cap — one account could flood the owner's Telegram
+  // and grow the tickets table. Tight per-IP bucket, matching the other write routes (DM/friends).
+  app.post('/api/support/tickets', { config: { rateLimit: { max: 6, timeWindow: '1 minute', keyGenerator: (req: any) => req.ip } } }, async (req, reply) => {
     const caller = await guard(req, reply);
     if (!caller) return;
     const parsed = createSchema.safeParse(req.body);

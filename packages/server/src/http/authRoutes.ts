@@ -109,7 +109,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
 
   app.post('/api/auth/login', loginRl, async (req, reply) => {
     try {
-      const { user, tokens } = await auth.login(req.body);
+      const { user, tokens } = await auth.login(req.body, req.ip);
       setRefreshCookie(reply, tokens.refreshToken, secureCookie);
       return reply.send({ user, accessToken: tokens.accessToken });
     } catch (e) {

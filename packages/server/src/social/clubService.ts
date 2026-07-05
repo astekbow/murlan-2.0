@@ -25,6 +25,20 @@ export class ClubService {
     private readonly users: UserRepository,
   ) {}
 
+  // Serialize the per-club join CRITICAL SECTION (countMembers READ + addMember WRITE) so N distinct
+  // users joining a nearly-full club at once can't all read the same pre-write count and blow past
+  // MAX_CLUB_MEMBERS (audit 2026-07-05 TOCTOU — the membership-unique key is on userId, so DISTINCT
+  // users aren't stopped by it). Single-instance; per-club promise-chain, same shape as the money caps.
+  private readonly joinChain = new Map<string, Promise<unknown>>();
+  private serializeJoin<T>(clubId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.joinChain.get(clubId) ?? Promise.resolve();
+    const next = prev.then(fn, fn);
+    const guarded = next.catch(() => undefined);
+    this.joinChain.set(clubId, guarded);
+    void guarded.then(() => { if (this.joinChain.get(clubId) === guarded) this.joinChain.delete(clubId); });
+    return next;
+  }
+
   private summary(c: Club, memberCount: number): ClubSummaryDTO {
     return { id: c.id, name: c.name, tag: c.tag, founderId: c.founderId, createdAt: c.createdAt, memberCount };
   }
@@ -131,9 +145,12 @@ export class ClubService {
     if (!c) throw new ClubError('no_club', 'Klubi nuk ekziston.');
     // A private club can't be joined by id from the public path — only by its code.
     if (c.private) throw new ClubError('no_club', 'Klubi nuk ekziston.');
-    if (await this.clubs.countMembers(clubId) >= MAX_CLUB_MEMBERS) throw new ClubError('club_full', 'Klubi është plot.');
-    await this.clubs.addMember({ userId, clubId, role: 'member' });
-    return this.detail(c, true); // the caller just joined → a member
+    // Serialize the count→add per club so concurrent joins can't overshoot MAX_CLUB_MEMBERS (TOCTOU).
+    return this.serializeJoin(clubId, async () => {
+      if (await this.clubs.countMembers(clubId) >= MAX_CLUB_MEMBERS) throw new ClubError('club_full', 'Klubi është plot.');
+      await this.clubs.addMember({ userId, clubId, role: 'member' });
+      return this.detail(c, true); // the caller just joined → a member
+    });
   }
 
   /** Join a PRIVATE club by its share code. */
@@ -141,9 +158,12 @@ export class ClubService {
     if (await this.clubs.memberOf(userId)) throw new ClubError('already_in_club', 'Je tashmë në një klub.');
     const c = await this.clubs.getByCode(code);
     if (!c) throw new ClubError('no_club', 'Kodi i klubit nuk u gjet.');
-    if (await this.clubs.countMembers(c.id) >= MAX_CLUB_MEMBERS) throw new ClubError('club_full', 'Klubi është plot.');
-    await this.clubs.addMember({ userId, clubId: c.id, role: 'member' });
-    return this.detail(c, true); // the caller just joined → a member
+    // Serialize the count→add per club so concurrent joins can't overshoot MAX_CLUB_MEMBERS (TOCTOU).
+    return this.serializeJoin(c.id, async () => {
+      if (await this.clubs.countMembers(c.id) >= MAX_CLUB_MEMBERS) throw new ClubError('club_full', 'Klubi është plot.');
+      await this.clubs.addMember({ userId, clubId: c.id, role: 'member' });
+      return this.detail(c, true); // the caller just joined → a member
+    });
   }
 
   /** The FOUNDER toggles the club between public and private. Going private generates a

@@ -16,7 +16,7 @@ import { log } from '../logger.ts';
 import { WithdrawalError, type WithdrawalService, type WithdrawalRecord } from '../money/withdrawals.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
 import type { AdminAuditRepository } from '../auth/adminAudit.ts';
-import { checkAdjustGovernance } from '../money/adminAdjustPolicy.ts';
+import { checkAdjustGovernance, serializeAdjust } from '../money/adminAdjustPolicy.ts';
 import { HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
 import { escapeHtml, type InlineButton } from '../notify/notifier.ts';
 import type { TelegramBot } from '../notify/telegramBot.ts';
@@ -171,8 +171,9 @@ export interface AdminBotDeps {
   /** Manual balance adjust (credit/debit). deltaCents>0 credits, <0 debits.
    *  `opts.txId` (CREDIT only) makes the credit idempotent against a player TxID claim
    *  of the same on-chain deposit (money-2): `ok:false, reason:'already_credited'` if
-   *  the TxID was already booked. */
-  adminAdjust?: (userId: string, deltaCents: number, reason: string, opts?: { txId?: string }) => Promise<{ ok: true; balanceCents: number; idempotent?: boolean } | { ok: false; reason: string }>;
+   *  the TxID was already booked. `opts.adminId`/`opts.detail` let the implementation write
+   *  the money move AND its balance_adjust audit row in ONE transaction (admin-5, audit 2026-07-05). */
+  adminAdjust?: (userId: string, deltaCents: number, reason: string, opts?: { txId?: string; adminId?: string; detail?: string }) => Promise<{ ok: true; balanceCents: number; idempotent?: boolean } | { ok: false; reason: string }>;
   /** admin-6: require a 2nd distinct admin to confirm a manual adjustment. OFF by default. */
   adjustDualControl?: boolean;
   /** Void + refund a live match (collusion). */
@@ -499,17 +500,26 @@ export class TelegramAdminBot {
       run: async () => {
         const adminId = await this.deps.resolveAdminUserId();
         if (!adminId) return '⚠️ S’u gjet llogaria admin (vendos ADMIN_EMAIL te .env) — veprimi u ndal.';
-        // SAME governance as the panel (admin-6): per-call ceiling + per-admin 24h cap + no
-        // self-credit — so the Telegram path is not a softer door than the HTTP route.
-        const gov = await checkAdjustGovernance(this.deps.audit, adminId, u.id, delta, { dualControl: this.deps.adjustDualControl });
-        if (!gov.ok) return `⚠️ ${escapeHtml(gov.message)}`;
-        const res = await adjust(u.id, delta, reason, txId ? { txId } : undefined).catch(() => ({ ok: false, reason: 'gabim' } as const));
-        if (!res.ok) {
-          if (res.reason === 'already_credited') return '⚠️ Kjo depozitë (TxID) është kredituar tashmë — nuk u dyfishua.';
-          return `⚠️ ${res.reason === 'insufficient_funds' ? 'Bilanc i pamjaftueshëm për debitim.' : escapeHtml(res.reason)}`;
-        }
-        await this.deps.audit.record({ adminId, action: 'balance_adjust', targetUserId: u.id, amountCents: delta, detail: `${reason} (telegram)${txId ? ` [tron:${txId}]` : ''}` });
-        return `✅ <b>${sign > 0 ? 'Kredituar' : 'Debituar'}</b> ${usd(cents)} · ${escapeHtml(u.username)} · bilanci: <b>${usd(res.balanceCents)}</b>`;
+        // Serialize per-admin on the SAME chain as the HTTP /adjust route (audit 2026-07-05): the
+        // governance rolling-24h cap READ + the adjust WRITE must be one ordered unit, else N rapid
+        // confirm-taps each read a stale pre-commit 24h total and all clear DAILY_ADJUST_CAP_CENTS.
+        return serializeAdjust(adminId, async () => {
+          // SAME governance as the panel (admin-6): per-call ceiling + per-admin 24h cap + no
+          // self-credit — so the Telegram path is not a softer door than the HTTP route.
+          const gov = await checkAdjustGovernance(this.deps.audit, adminId, u.id, delta, { dualControl: this.deps.adjustDualControl });
+          if (!gov.ok) return `⚠️ ${escapeHtml(gov.message)}`;
+          // adminId + detail flow into the injected adjust so it commits the balance move AND the
+          // balance_adjust audit row in ONE transaction (admin-5). The audit row is what the 24h cap
+          // is summed from, so an atomic write also stops a dropped audit from silently un-counting
+          // the adjustment against the cap (the old separate audit.record could throw AFTER the money moved).
+          const detail = `${reason} (telegram)${txId ? ` [tron:${txId}]` : ''}`;
+          const res = await adjust(u.id, delta, reason, { txId, adminId, detail }).catch(() => ({ ok: false, reason: 'gabim' } as const));
+          if (!res.ok) {
+            if (res.reason === 'already_credited') return '⚠️ Kjo depozitë (TxID) është kredituar tashmë — nuk u dyfishua.';
+            return `⚠️ ${res.reason === 'insufficient_funds' ? 'Bilanc i pamjaftueshëm për debitim.' : escapeHtml(res.reason)}`;
+          }
+          return `✅ <b>${sign > 0 ? 'Kredituar' : 'Debituar'}</b> ${usd(cents)} · ${escapeHtml(u.username)} · bilanci: <b>${usd(res.balanceCents)}</b>`;
+        });
       },
     });
     await this.sendConfirm(key);
