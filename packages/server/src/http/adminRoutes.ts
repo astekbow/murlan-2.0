@@ -11,7 +11,7 @@ import type { AuthService } from '../auth/authService.ts';
 import { requireAdmin } from './authRoutes.ts';
 import { requirePermission, isAdminPermission } from './permissions.ts';
 import type { WalletService } from '../money/walletService.ts';
-import { InsufficientFundsError, HOUSE_ACCOUNT_ID } from '../money/walletService.ts';
+import { InsufficientFundsError } from '../money/walletService.ts';
 import type { WithdrawalService } from '../money/withdrawals.ts';
 import { WithdrawalError } from '../money/withdrawals.ts';
 import type { PayoutProvider } from '../money/payoutProvider.ts';
@@ -25,6 +25,24 @@ import type { PushService } from '../push/pushService.ts';
 import { type TournamentService, TournamentError } from '../tournament/tournamentService.ts';
 import type { ClubService } from '../social/clubService.ts';
 import type { ClubWarService } from '../social/clubWarService.ts';
+
+// Serialize each admin's balance-adjust critical section (the governance rolling-24h cap READ + the
+// atomic adjust+audit WRITE) so N concurrent /adjust requests can't all read the same stale pre-commit
+// 24h total and blow past DAILY_ADJUST_CAP_CENTS (audit 2026-07-05 TOCTOU). Single-instance; per-admin
+// promise-chain, mirrors walletRoutes.serializeWithdraw / WalletService.serializeDeposit.
+// dos-3: how far back the /revenue/breakdown chart reaches. Bounds the ledger load so a
+// long-lived house account can't turn the breakdown into an unbounded full-table scan.
+const REVENUE_BREAKDOWN_WINDOW_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+
+const adjustChain = new Map<string, Promise<unknown>>();
+function serializeAdjust<T>(adminId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = adjustChain.get(adminId) ?? Promise.resolve();
+  const next = prev.then(fn, fn); // run after the previous settles (success or failure)
+  const guarded = next.catch(() => undefined); // a rejection must not break the chain
+  adjustChain.set(adminId, guarded);
+  void guarded.then(() => { if (adjustChain.get(adminId) === guarded) adjustChain.delete(adminId); });
+  return next;
+}
 
 export interface AdminRoutesDeps {
   auth: AuthService;
@@ -240,30 +258,34 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
     // Match the player-claim path EXACTLY: lowercase the hash → providerRef `tron:<txid>`.
     const providerRef = parsed.data.txId ? `tron:${parsed.data.txId.toLowerCase()}` : undefined;
     const userId = (req.params as { id: string }).id;
-    // Governance (admin-6): per-call ceiling + per-admin rolling-24h cap + no self-credit.
-    const gov = await checkAdjustGovernance(audit, caller.userId, userId, parsed.data.deltaCents, { dualControl: deps.adjustDualControl });
-    if (!gov.ok) return reply.code(gov.code === 'self_credit' ? 403 : 422).send({ error: { code: gov.code, message: gov.message } });
-    try {
-      // admin-5: the balance mutation AND its AdminAction audit row commit ATOMICALLY
-      // (one transaction in prod) — the money can't move without the audit trail.
-      const res = await wallet.adminAdjustAudited(
-        userId,
-        parsed.data.deltaCents,
-        parsed.data.reason,
-        { adminId: caller.userId, action: 'balance_adjust', targetUserId: userId, amountCents: parsed.data.deltaCents, detail: providerRef ? `${parsed.data.reason} [${providerRef}]` : parsed.data.reason },
-        audit,
-        { providerRef },
-      );
-      // Idempotent replay: this TxID (or providerRef) was already credited — surface a 409
-      // so the operator knows it was NOT double-credited, rather than a silent success.
-      if (res.idempotent) {
-        return reply.code(409).send({ error: { code: 'already_credited', message: 'Kjo depozitë (TxID) është kredituar tashmë.' }, balanceCents: res.balanceCents });
+    // Serialize per-admin so the governance READ + the adjust WRITE below are one ordered unit —
+    // else concurrent adjusts all read a stale 24h total and blow past the cap (TOCTOU).
+    return serializeAdjust(caller.userId, async () => {
+      // Governance (admin-6): per-call ceiling + per-admin rolling-24h cap + no self-credit.
+      const gov = await checkAdjustGovernance(audit, caller.userId, userId, parsed.data.deltaCents, { dualControl: deps.adjustDualControl });
+      if (!gov.ok) return reply.code(gov.code === 'self_credit' ? 403 : 422).send({ error: { code: gov.code, message: gov.message } });
+      try {
+        // admin-5: the balance mutation AND its AdminAction audit row commit ATOMICALLY
+        // (one transaction in prod) — the money can't move without the audit trail.
+        const res = await wallet.adminAdjustAudited(
+          userId,
+          parsed.data.deltaCents,
+          parsed.data.reason,
+          { adminId: caller.userId, action: 'balance_adjust', targetUserId: userId, amountCents: parsed.data.deltaCents, detail: providerRef ? `${parsed.data.reason} [${providerRef}]` : parsed.data.reason },
+          audit,
+          { providerRef },
+        );
+        // Idempotent replay: this TxID (or providerRef) was already credited — surface a 409
+        // so the operator knows it was NOT double-credited, rather than a silent success.
+        if (res.idempotent) {
+          return reply.code(409).send({ error: { code: 'already_credited', message: 'Kjo depozitë (TxID) është kredituar tashmë.' }, balanceCents: res.balanceCents });
+        }
+        return reply.send({ balanceCents: res.balanceCents, transaction: res.transaction });
+      } catch (e) {
+        if (e instanceof InsufficientFundsError) return reply.code(402).send({ error: { code: 'insufficient_funds', message: 'Bilanc i pamjaftueshëm për debitim.' } });
+        return reply.code(400).send({ error: { code: 'error', message: 'Rregullimi dështoi.' } });
       }
-      return reply.send({ balanceCents: res.balanceCents, transaction: res.transaction });
-    } catch (e) {
-      if (e instanceof InsufficientFundsError) return reply.code(402).send({ error: { code: 'insufficient_funds', message: 'Bilanc i pamjaftueshëm për debitim.' } });
-      return reply.code(400).send({ error: { code: 'error', message: 'Rregullimi dështoi.' } });
-    }
+    });
   });
 
   app.post('/api/admin/users/:id/kyc', async (req, reply) => {
@@ -393,13 +415,16 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   });
 
   // House revenue = the accumulated 10% rake (booked to the synthetic house account).
+  // dos-3: DB aggregate + COUNT — the house ledger grows without bound, so NEVER load every
+  // row into JS just to sum/size it (that was an unbounded full-table scan on every call).
   app.get('/api/admin/revenue', async (req, reply) => {
     const caller = await canRevenue(req, reply);
     if (!caller) return;
-    const txs = await wallet.listTransactions(HOUSE_ACCOUNT_ID);
-    const rake = txs.filter((t) => t.type === 'rake');
-    const totalRakeCents = rake.reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
-    return reply.send({ totalRakeCents, rakeCount: rake.length });
+    const [totalRakeCents, rakeCount] = await Promise.all([
+      wallet.getHouseRakeCents(),
+      wallet.getHouseRakeCount(),
+    ]);
+    return reply.send({ totalRakeCents, rakeCount });
   });
 
   // Revenue BREAKDOWN: rake by UTC day + by match type, plus current payout
@@ -408,8 +433,9 @@ export async function adminRoutes(app: FastifyInstance, deps: AdminRoutesDeps): 
   app.get('/api/admin/revenue/breakdown', async (req, reply) => {
     const caller = await canRevenue(req, reply);
     if (!caller) return;
-    const txs = await wallet.listTransactions(HOUSE_ACCOUNT_ID);
-    const rake = txs.filter((t) => t.type === 'rake');
+    // dos-3: bound the load to a time window — the by-day breakdown is a chart, not an
+    // all-time export, and the house ledger grows without bound. Load only recent rake rows.
+    const rake = await wallet.listHouseRakeSince(Date.now() - REVENUE_BREAKDOWN_WINDOW_MS);
     // Bulk-load the match type for each rake row (one query) to bucket by type.
     const ids = [...new Set(rake.map((t) => t.matchId).filter((x): x is string => !!x))];
     const typeById = new Map<string, string>();

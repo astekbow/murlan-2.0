@@ -85,6 +85,19 @@ export interface LedgerRepository {
    */
   sumByUserTypesSince?(userId: string, types: TransactionType[], sinceMs: number): Promise<number>;
   /**
+   * OPTIONAL DB aggregate (dos-3): COUNT of a user's rows of a given type (e.g. the HOUSE
+   * account's 'rake' row count for the revenue view) — a DB COUNT instead of loading every
+   * row into JS. When unimplemented, callers fall back to listByUser().length.
+   */
+  countByUserAndType?(userId: string, type: TransactionType): Promise<number>;
+  /**
+   * OPTIONAL bounded query (dos-3): a user's rows of a given type with createdAt >= sinceMs,
+   * newest-first. Bounds the revenue-breakdown load to a time window instead of the whole
+   * (unbounded, ever-growing) house ledger. When unimplemented, callers fall back to
+   * listByUser() + a JS filter.
+   */
+  listByUserTypeSince?(userId: string, type: TransactionType, sinceMs: number): Promise<Transaction[]>;
+  /**
    * OPTIONAL DB aggregate (db-1 / perf-1): the signed sum of amountCents GROUPED BY userId,
    * for the reconcile invariant, computed with a single SQL GROUP BY instead of loading the
    * entire ledger into JS. When unimplemented, callers fall back to summing all().
@@ -173,6 +186,15 @@ export class InMemoryLedger implements LedgerRepository {
     return this.rows
       .filter((r) => r.userId === userId && set.has(r.type) && r.createdAt >= sinceMs)
       .reduce((s, r) => s + r.amountCents, 0); // signed
+  }
+  async countByUserAndType(userId: string, type: TransactionType): Promise<number> {
+    return this.rows.filter((r) => r.userId === userId && r.type === type).length;
+  }
+  async listByUserTypeSince(userId: string, type: TransactionType, sinceMs: number): Promise<Transaction[]> {
+    return this.rows
+      .filter((r) => r.userId === userId && r.type === type && r.createdAt >= sinceMs)
+      .reverse() // newest-first, matching the Prisma order
+      .map((r) => ({ ...r }));
   }
   async sumsByUser(): Promise<Map<string, number>> {
     const m = new Map<string, number>();

@@ -200,28 +200,34 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
     // Per-user rolling-24h transfer-OUT cap (AML rail). DEFAULT 0 = UNLIMITED (the owner keeps
     // transfers open); >0 = ledger-enforced (sum of transfer_out in the last 24h + this one).
     const cap = deps.dailyTransferCapCents ?? 0;
-    if (cap > 0) {
-      // FAIL-CLOSED: if we can't read the prior 24h total, REJECT (was `.catch(() => 0)`, which let a
-      // transfer through whenever the ledger query hiccuped — an AML-cap bypass).
-      let sentToday: number;
+    // The cap read + the transfer must run as ONE ordered unit, else N concurrent transfers each read
+    // the same stale 24h total and all pass → AML-cap bypass by race (audit 2026-07-05). Serialize on
+    // the SAME per-user money-out chain as withdraw. Only engage the chain when the cap is active.
+    const doTransfer = async () => {
+      if (cap > 0) {
+        // FAIL-CLOSED: if we can't read the prior 24h total, REJECT (was `.catch(() => 0)`, which let a
+        // transfer through whenever the ledger query hiccuped — an AML-cap bypass).
+        let sentToday: number;
+        try {
+          sentToday = await wallet.transferredOutSince(caller.userId, Date.now() - 24 * 60 * 60 * 1000);
+        } catch {
+          return reply.code(503).send({ error: { code: 'cap_check_failed', message: 'S’u verifikua dot kufiri i transfertave — provo sërish.' } });
+        }
+        if (sentToday + amountCents > cap) {
+          return reply.code(422).send({ error: { code: 'transfer_cap', message: `Kufiri ditor i transfertave ($${(cap / 100).toLocaleString('en-US')}) u arrit.` } });
+        }
+      }
       try {
-        sentToday = await wallet.transferredOutSince(caller.userId, Date.now() - 24 * 60 * 60 * 1000);
-      } catch {
-        return reply.code(503).send({ error: { code: 'cap_check_failed', message: 'S’u verifikua dot kufiri i transfertave — provo sërish.' } });
+        const res = await wallet.transfer(caller.userId, toUserId, amountCents, { reason: `transfer to ${toUserId}` });
+        return reply.send({ balanceCents: res.balanceCents });
+      } catch (e) {
+        if (e instanceof InsufficientFundsError) {
+          return reply.code(400).send({ error: { code: 'insufficient_funds', message: 'Balancë e pamjaftueshme.' } });
+        }
+        throw e;
       }
-      if (sentToday + amountCents > cap) {
-        return reply.code(422).send({ error: { code: 'transfer_cap', message: `Kufiri ditor i transfertave ($${(cap / 100).toLocaleString('en-US')}) u arrit.` } });
-      }
-    }
-    try {
-      const res = await wallet.transfer(caller.userId, toUserId, amountCents, { reason: `transfer to ${toUserId}` });
-      return reply.send({ balanceCents: res.balanceCents });
-    } catch (e) {
-      if (e instanceof InsufficientFundsError) {
-        return reply.code(400).send({ error: { code: 'insufficient_funds', message: 'Balancë e pamjaftueshme.' } });
-      }
-      throw e;
-    }
+    };
+    return cap > 0 ? serializeWithdraw(caller.userId, doTransfer) : doTransfer();
   });
 
   app.post('/api/wallet/deposit', async (req, reply) => {

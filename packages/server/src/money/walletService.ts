@@ -428,6 +428,32 @@ export class WalletService {
   }
 
   /**
+   * COUNT of the house's 'rake' ledger rows (dos-3) — a DB COUNT where available so the
+   * revenue view never loads the whole (ever-growing) house ledger into JS just to size it.
+   * Falls back to a row scan when the ledger has no COUNT aggregate.
+   */
+  async getHouseRakeCount(): Promise<number> {
+    if (this.ledger.countByUserAndType) {
+      return this.ledger.countByUserAndType(HOUSE_ACCOUNT_ID, 'rake');
+    }
+    const txs = await this.ledger.listByUser(HOUSE_ACCOUNT_ID);
+    return txs.filter((t) => t.type === 'rake').length;
+  }
+
+  /**
+   * The house's 'rake' rows since `sinceMs`, newest-first (dos-3) — a time-bounded query
+   * where the ledger supports it, so the revenue BREAKDOWN buckets a window instead of the
+   * unbounded house ledger. Falls back to loading + filtering when no windowed query exists.
+   */
+  async listHouseRakeSince(sinceMs: number): Promise<Transaction[]> {
+    if (this.ledger.listByUserTypeSince) {
+      return this.ledger.listByUserTypeSince(HOUSE_ACCOUNT_ID, 'rake', sinceMs);
+    }
+    const txs = await this.ledger.listByUser(HOUSE_ACCOUNT_ID);
+    return txs.filter((t) => t.type === 'rake' && t.createdAt >= sinceMs);
+  }
+
+  /**
    * Lifetime staked volume (Σ of the magnitude of a user's 'bet' escrow rows) — the input to the
    * cosmetic VIP tier. Prefers the ledger's DB aggregate so the hot paths (every match-end + every
    * profile/VIP view) never scan a player's whole growing ledger into memory (audit M4). Bet rows are

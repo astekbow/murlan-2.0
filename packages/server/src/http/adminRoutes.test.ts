@@ -131,6 +131,38 @@ test('adjust over the per-ADMIN rolling-24h cap is rejected (422 over_daily_cap)
   await app.close();
 });
 
+test('CONCURRENT adjusts cannot bypass the rolling-24h cap (TOCTOU serialized)', async () => {
+  const { app, wallet, userId, adminToken } = await build();
+  const url = `/api/admin/users/${userId}/adjust`;
+  // Fire 6 × $5,000 = $30,000 ALL AT ONCE. Without per-admin serialization they'd each read the
+  // same stale $0 pre-commit total and all 6 would pass, crediting $30k — $10k over the $20k cap.
+  // Serialized, exactly 4 fit the cap ($20k) and the rest are rejected.
+  const results = await Promise.all(
+    Array.from({ length: 6 }, (_, i) =>
+      app.inject({ method: 'POST', url, headers: authH(adminToken), payload: { deltaCents: 5_000_00, reason: `race ${i}` } }),
+    ),
+  );
+  const ok = results.filter((r) => r.statusCode === 200).length;
+  const over = results.filter((r) => r.statusCode === 422).length;
+  assert.equal(ok, 4, 'exactly 4 × $5,000 fit under the $20,000 cap');
+  assert.equal(over, 2, 'the 2 over-cap adjusts are rejected');
+  // The money-safety invariant: credited balance never exceeds the cap.
+  assert.equal(await wallet.getBalance(userId), 2_000_000);
+  await app.close();
+});
+
+test('revenue reports total rake + count via aggregates (no full-ledger scan)', async () => {
+  const { app, wallet, adminToken } = await build();
+  await wallet.recordRake(300, { matchId: 'm1', providerRef: 'rake:m1' });
+  await wallet.recordRake(200, { matchId: 'm2', providerRef: 'rake:m2' });
+  const res = await app.inject({ method: 'GET', url: '/api/admin/revenue', headers: authH(adminToken) });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { totalRakeCents: number; rakeCount: number };
+  assert.equal(body.totalRakeCents, 500);
+  assert.equal(body.rakeCount, 2);
+  await app.close();
+});
+
 test('an admin CANNOT credit their OWN account (self_credit, 403)', async () => {
   const { app, adminId, adminToken } = await build();
   const res = await app.inject({ method: 'POST', url: `/api/admin/users/${adminId}/adjust`, headers: authH(adminToken), payload: { deltaCents: 1000, reason: 'self top-up' } });

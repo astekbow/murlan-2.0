@@ -534,6 +534,18 @@ export class PrismaLedger implements LedgerRepository {
     });
     return agg._sum.amountCents ?? 0;
   }
+  async countByUserAndType(userId: string, type: TransactionType): Promise<number> {
+    // DB COUNT for the revenue view (dos-3) — no whole-table JS scan.
+    return this.db.transaction.count({ where: { userId, type } });
+  }
+  async listByUserTypeSince(userId: string, type: TransactionType, sinceMs: number): Promise<Transaction[]> {
+    // Time-bounded, newest-first — caps the revenue-breakdown load to a window (dos-3).
+    const rows = await this.db.transaction.findMany({
+      where: { userId, type, createdAt: { gte: new Date(sinceMs) } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toTx);
+  }
   async sumsByUser(): Promise<Map<string, number>> {
     // db-1/perf-1: a single SQL GROUP BY instead of loading the whole ledger into JS for reconcile.
     const rows = await this.db.transaction.groupBy({ by: ['userId'], _sum: { amountCents: true } });
