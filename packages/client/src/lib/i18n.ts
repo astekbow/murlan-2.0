@@ -952,6 +952,8 @@ const STRINGS: Record<string, Entry> = {
   'session.playing': { sq: 'Po luan:', en: 'Playing:' },
   'session.elapsedTitle': { sq: 'Sa kohë ke luajtur këtë sesion. Luaj me mend 🔞', en: 'Time played this session. Play responsibly 🔞' },
   'profile.title': { sq: 'Profili', en: 'Profile' },
+  'profile.alreadyFriends': { sq: 'Jeni shokë', en: 'Already friends' },
+  'profile.acceptRequest': { sq: 'Prano kërkesën', en: 'Accept request' },
   'profile.loading': { sq: 'Po hapet…', en: 'Loading…' },
   'profile.loadFailed': { sq: 'S’u hap dot profili.', en: 'Failed to load the profile.' },
   'profile.notFound': { sq: 'Profili s’u gjet.', en: 'Profile not found.' },

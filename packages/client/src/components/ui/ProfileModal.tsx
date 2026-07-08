@@ -4,7 +4,7 @@
 // and then refresh both the local profile and the auth store.
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal.tsx';
-import { profileApi, rankedApi, friendsApi, ApiError, type Profile, type RankedProfileDTO } from '../../lib/api.ts';
+import { profileApi, rankedApi, friendsApi, ApiError, type Profile, type RankedProfileDTO, type FriendEntry } from '../../lib/api.ts';
 import { avatarEmoji, isImageAvatar, imageToAvatarDataUrl, AVATARS } from '../../lib/avatars.ts';
 import { dollars } from '../../lib/money.ts';
 import { useAuthStore } from '../../store/authStore.ts';
@@ -30,6 +30,10 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
   const isMe = userId === useAuthStore.getState().user?.id;
   const [friendMsg, setFriendMsg] = useState<string | null>(null);
   const [sendingFriend, setSendingFriend] = useState(false);
+  // The existing relationship with THIS user (already friends / a request pending / blocked / none),
+  // so we don't offer "Add friend" to someone who is already a friend or already requested (the bug:
+  // the button showed unconditionally for anyone-but-me). `undefined` = not yet loaded.
+  const [friendRel, setFriendRel] = useState<FriendEntry | null | undefined>(undefined);
 
   // Send a friend request straight from a profile (e.g. tapped from an in-game seat).
   async function sendFriendReq() {
@@ -39,6 +43,24 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
     try {
       await friendsApi.request(token, profile.username);
       setFriendMsg(t('friends.requestSent'));
+      // Reflect the new outgoing request so the button locks to "request sent" (not "add friend").
+      setFriendRel((r) => (r && r.direction !== 'blocked' ? r : { id: r?.id ?? '', status: 'pending', direction: 'outgoing', online: false, user: { id: userId, username: profile.username, avatar: profile.avatar, level: profile.level } }));
+    } catch (e) {
+      setFriendMsg(e instanceof ApiError ? e.message : t('profile.loadFailed'));
+    } finally {
+      setSendingFriend(false);
+    }
+  }
+
+  // Accept a request THIS user already sent me (direction: 'incoming').
+  async function acceptFriendReq() {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || !friendRel || sendingFriend) return;
+    setSendingFriend(true);
+    try {
+      await friendsApi.respond(token, friendRel.id, true);
+      setFriendRel({ ...friendRel, direction: 'friends', status: 'accepted' });
+      setFriendMsg(null);
     } catch (e) {
       setFriendMsg(e instanceof ApiError ? e.message : t('profile.loadFailed'));
     } finally {
@@ -55,6 +77,13 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
       const token = useAuthStore.getState().accessToken;
       if (isMe && token) {
         rankedApi.me(token).then(({ ranked }) => setRanked(ranked)).catch(() => setRanked(null));
+      }
+      // For anyone else, resolve the existing friendship so the friend button reflects reality
+      // (already friends / request pending / blocked) instead of always offering "Add friend".
+      if (!isMe && token) {
+        friendsApi.list(token)
+          .then(({ friends }) => setFriendRel(friends.find((f) => f.user.id === userId) ?? null))
+          .catch(() => setFriendRel(null));
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t('profile.loadFailed'));
@@ -150,15 +179,27 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
             </div>
           </div>
 
-          {/* Add-friend — shown for everyone but yourself (e.g. tapped from an in-game seat). */}
-          {!isMe && (
-            <button
-              className="btn btn-outline btn-sm w-full"
-              onClick={sendFriendReq}
-              disabled={sendingFriend || friendMsg === t('friends.requestSent')}
-            >
-              {friendMsg ?? `➕ ${t('friends.addFriend')}`}
-            </button>
+          {/* Friend action — reflects the ACTUAL relationship (bug fix: it used to offer "Add friend"
+              to EVERYONE but me, even existing friends). Hidden while the relationship is still loading. */}
+          {!isMe && friendRel !== undefined && (
+            friendRel?.direction === 'friends' ? (
+              <div className="btn btn-ghost btn-sm w-full pointer-events-none text-emerald-300">✓ {t('profile.alreadyFriends')}</div>
+            ) : friendRel?.direction === 'outgoing' ? (
+              <div className="btn btn-ghost btn-sm w-full pointer-events-none text-muted">{friendMsg ?? t('friends.requestSent')}</div>
+            ) : friendRel?.direction === 'incoming' ? (
+              <button type="button" className="btn btn-gold btn-sm w-full" onClick={acceptFriendReq} disabled={sendingFriend}>
+                {friendMsg ?? `✓ ${t('profile.acceptRequest')}`}
+              </button>
+            ) : friendRel?.direction === 'blocked' ? null : (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm w-full"
+                onClick={sendFriendReq}
+                disabled={sendingFriend || friendMsg === t('friends.requestSent')}
+              >
+                {friendMsg ?? `➕ ${t('friends.addFriend')}`}
+              </button>
+            )
           )}
 
           {/* Earned badges (derived from stats) */}
