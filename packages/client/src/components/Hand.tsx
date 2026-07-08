@@ -17,6 +17,8 @@ interface HandProps {
    * unset, the original (portrait/desktop) fitting behaviour is used unchanged.
    */
   fit?: boolean;
+  /** True on MY turn → a pulsing gold aura around the fan so it's unmistakable it's my move. */
+  myTurn?: boolean;
 }
 
 /** Weakest→strongest by Murlan power (3…10,J,Q,K,A,2, black joker, red joker). */
@@ -33,20 +35,41 @@ const sortIds = (cards: Card[]): string[] =>
 // Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips
 // re-rendering on unrelated table updates (an opponent's move, a timer tick) — it
 // only re-renders when the cards/selection/eligibility actually change.
-export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, fit }: HandProps) {
+export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, fit, myTurn }: HandProps) {
   const byId = new Map(cards.map((c) => [cardKey(c), c] as const));
   const selectedSet = new Set(selected);
 
   const [order, setOrder] = useState<string[]>(() => sortIds(cards));
-  // Reconcile on hand change: keep the manual order for surviving cards, but
-  // re-sort fully whenever new cards arrive (a fresh deal or a received card).
+  // Cards that JUST arrived (a received swap card / a fresh deal) — briefly highlighted so the
+  // player sees them "land" in the hand (e.g. the winner visibly receiving the loser's big card).
+  const [justAdded, setJustAdded] = useState<ReadonlySet<string>>(new Set());
+  // Reconcile on hand change: PRESERVE the player's manual order for surviving cards and slot any
+  // NEW card into its sorted-by-power position — so a reorder isn't wiped just because one card was
+  // received/played. A full fresh deal (nothing survives) sorts from scratch.
   useEffect(() => {
+    const present = new Set(cards.map(cardKey));
     setOrder((prev) => {
-      const present = new Set(cards.map(cardKey));
       const survivors = prev.filter((id) => present.has(id));
-      const hasNew = cards.some((c) => !prev.includes(cardKey(c)));
-      return hasNew || survivors.length === 0 ? sortIds(cards) : survivors;
+      if (survivors.length === 0) return sortIds(cards);
+      const newIds = cards.filter((c) => !prev.includes(cardKey(c)));
+      if (newIds.length === 0) return survivors;
+      const merged = [...survivors];
+      for (const c of newIds) {
+        const pw = singlePower(c);
+        let idx = merged.findIndex((mid) => singlePower(byId.get(mid)!) > pw);
+        if (idx === -1) idx = merged.length;
+        merged.splice(idx, 0, cardKey(c));
+      }
+      return merged;
     });
+    // Flag the newly-arrived cards (but not the very first deal into an empty hand) for a brief glow.
+    const fresh = cards.map(cardKey).filter((id) => !order.includes(id));
+    if (order.length > 0 && fresh.length > 0 && fresh.length < cards.length) {
+      setJustAdded(new Set(fresh));
+      const timer = setTimeout(() => setJustAdded(new Set()), 1600);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cards]);
 
   const ids = order.filter((id) => byId.has(id));
@@ -149,7 +172,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
       // combo was clipping/flickering the top of the cards.
       style={fit ? { overflow: 'visible' } : undefined}
     >
-      <div ref={stageRef} className="hand-stage" style={{ width: stageW, height: CARD_H + 34 }}>
+      <div ref={stageRef} className={`hand-stage${myTurn ? ' my-turn' : ''}`} style={{ width: stageW, height: CARD_H + 34 }}>
         {ids.map((id, i) => {
           const card = byId.get(id);
           if (!card) return null;
@@ -175,7 +198,7 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
           return (
             <div
               key={id}
-              className="hand-card"
+              className={`hand-card${justAdded.has(id) ? ' just-added' : ''}`}
               style={style}
               // Keyboard + screen-reader access: each card is a labelled toggle
               // button (pointer users also drag to reorder; keyboard users select).

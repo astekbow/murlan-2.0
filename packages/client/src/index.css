@@ -720,6 +720,25 @@ select:focus-visible,
 .swap-fly-up { animation: swapFlyUp 1.7s cubic-bezier(0.5, 0, 0.75, 0) 0.55s both; }
 .swap-fly-down { animation: swapFlyDown 1.7s cubic-bezier(0.5, 0, 0.75, 0) 0.55s both; }
 
+/* MY-TURN aura: a pulsing gold halo around the whole hand fan so it's unmistakable it's my move
+   (the "rise" alone wasn't obvious enough). filter:drop-shadow hugs the card silhouettes. Reduced-
+   motion safe (the universal * rule zeroes the animation). */
+@keyframes handTurnGlow {
+  0%, 100% { filter: drop-shadow(0 2px 5px rgba(230, 197, 112, 0.30)); }
+  50% { filter: drop-shadow(0 3px 20px rgba(230, 197, 112, 0.85)); }
+}
+.hand-stage.my-turn { animation: handTurnGlow 1.5s ease-in-out infinite; }
+
+/* JUST-RECEIVED card: a card that just arrived in the hand (a swap card / new deal) pops + flashes
+   gold so the player SEES it land — e.g. the winner visibly getting the loser's big card. No fill
+   mode, so after the flash the card reverts to its normal inline transform (selected-lift etc.). */
+@keyframes cardJustAdded {
+  0% { transform: scale(1.2); filter: drop-shadow(0 0 18px rgba(230, 197, 112, 0.95)) brightness(1.25); }
+  55% { filter: drop-shadow(0 0 14px rgba(230, 197, 112, 0.8)); }
+  100% { transform: scale(1); filter: none; }
+}
+.hand-card.just-added { animation: cardJustAdded 1.5s ease; }
+
 /* Winner pot-slide: a gold chip stack slides up into the winnings figure when the
    match-end overlay reveals a staked payout. Plays once (mounts with the overlay).
    Reduced-motion safe (universal rule neutralises the travel). */

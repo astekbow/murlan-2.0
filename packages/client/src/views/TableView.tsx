@@ -508,7 +508,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // The hand + (when not switching) the Play/Pass controls — same components,
   // same handlers, in both layouts.
   const handBlock = (
-    <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate fit={ls || forced} />
+    <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate fit={ls || forced} myTurn={isMyTurn && !switching && !switchPending} />
   );
   // Hide Play/Pass while I'm the switch winner (switching), AND for EVERYONE during the inter-hand
   // pause / card-switch between other players (interHand) — it's no one's turn, so the buttons would
@@ -816,21 +816,23 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         const flyToWinner = complete ? (switchCards.winner === mySeat ? 'swap-fly-down' : 'swap-fly-up') : 'animate-pop';
         const flyToLoser = complete ? (switchCards.loser === mySeat ? 'swap-fly-down' : 'swap-fly-up') : 'animate-pop';
         return (
-          <div className="fixed inset-x-0 top-[16%] z-50 flex justify-center px-3 pointer-events-none" role="status" aria-live="polite">
-            <div className="panel-solid rounded-3xl px-6 py-4 flex flex-col items-center gap-3 ring-1 ring-gold-hi/40 shadow-2xl animate-pop max-w-[94vw]">
-              <span className="font-display text-sm text-gold-hi tracking-[0.28em] uppercase">🔄 {t('table.swapTitle')}</span>
+          // Anchored HIGH (over the upper felt), compact cards → it never covers the local hand at
+          // the bottom (R9). The completed cards then fly DOWN to my hand / UP to an opponent.
+          <div className="fixed inset-x-0 top-[6%] z-50 flex justify-center px-3 pointer-events-none" role="status" aria-live="polite">
+            <div className="panel-solid rounded-2xl px-5 py-3 flex flex-col items-center gap-2 ring-1 ring-gold-hi/40 shadow-2xl animate-pop max-w-[94vw]">
+              <span className="font-display text-xs text-gold-hi tracking-[0.28em] uppercase">🔄 {t('table.swapTitle')}</span>
               <div className="flex items-start justify-center gap-6 sm:gap-9">
                 {switchCards.given && (
-                  <div className={`flex flex-col items-center gap-2 ${flyToWinner}`}>
-                    <CardView card={switchCards.given} big decorative />
+                  <div className={`flex flex-col items-center gap-1.5 ${flyToWinner}`}>
+                    <CardView card={switchCards.given} decorative />
                     <span className="text-[11px] text-cream/90 whitespace-nowrap font-display font-semibold">
                       {nameOf(switchCards.loser)} <span className="text-gold-hi">→</span> {nameOf(switchCards.winner)}
                     </span>
                   </div>
                 )}
                 {switchCards.returned && (
-                  <div className={`flex flex-col items-center gap-2 ${flyToLoser}`}>
-                    <CardView card={switchCards.returned} big decorative />
+                  <div className={`flex flex-col items-center gap-1.5 ${flyToLoser}`}>
+                    <CardView card={switchCards.returned} decorative />
                     <span className="text-[11px] text-cream/90 whitespace-nowrap font-display font-semibold">
                       {nameOf(switchCards.winner)} <span className="text-gold-hi">→</span> {nameOf(switchCards.loser)}
                     </span>
