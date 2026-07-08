@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { friendsApi, ApiError, type FriendEntry } from '../lib/api.ts';
 import { useWakeLock } from '../lib/useWakeLock.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
+import { Modal } from '../components/ui/Modal.tsx';
 import { useAuthStore } from '../store/authStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { dollars } from '../lib/money.ts';
@@ -68,6 +69,10 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
   const [friendsLoading, setFriendsLoading] = useState(true);
   // Friends we've already invited → the button flips to "✓ Invited" so the tap has a clear reaction.
   const [invited, setInvited] = useState<Set<string>>(new Set());
+  // Invite + share-code live in a scrollable MODAL reached by an always-visible button, so a long
+  // friends list is never stuck below the fold / in a cramped landscape strip (the old inline lists
+  // were "impossible to scroll to"). The Modal itself scrolls (max-h + overflow-y).
+  const [showInvite, setShowInvite] = useState(false);
 
   const doInvite = useCallback(async (userId: string, username: string) => {
     if (invited.has(userId)) return;
@@ -190,6 +195,13 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
   // auto-split. Seats {0,2} = Team 1, {1,3} = Team 2 (mirrors the server's DEFAULT_TEAMS).
   const TEAM_SLOTS = [[0, 2], [1, 3]] as const;
   const myTeam = mySeat !== null ? room.seats[mySeat]?.team ?? null : null;
+  // Move to the other team (2v2). A player can CHANGE their mind after picking: if they're marked
+  // ready we auto-unready first (a ready player is locked to their seat), then switch to a free slot.
+  const switchToTeam = async (ti: 0 | 1) => {
+    sound.play('button');
+    if (meReady) await setReady(false);
+    await useGameStore.getState().switchTeam(ti);
+  };
   const teamsEl = (
     <section className="panel p-4 animate-rise" style={{ animationDelay: '.08s' }}>
       <div className="flex items-center justify-between mb-3">
@@ -204,8 +216,9 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           const color = ti === 0 ? 'var(--blue)' : 'var(--red)';
           return (
             <div key={ti} className={`rounded-xl border p-2.5 flex flex-col gap-2 ${mine ? 'border-gold/50 bg-gold/[.06]' : 'border-white/10 bg-white/[.02]'}`}>
-              <div className="font-display font-bold uppercase tracking-wider text-xs text-center" style={{ color }}>
+              <div className="font-display font-bold uppercase tracking-wider text-xs text-center flex items-center justify-center gap-1.5" style={{ color }}>
                 {t('room.team', { n: ti + 1 })}
+                {mine && <span className="text-[9px] text-gold normal-case tracking-normal">{t('room.youParen')}</span>}
               </div>
               {slots.map((idx) => {
                 const s = room.seats[idx];
@@ -223,13 +236,20 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                   </div>
                 );
               })}
-              {!mine && hasFree && !counting && !meReady && (
-                <button
-                  onClick={() => { sound.play('button'); void useGameStore.getState().switchTeam(ti); }}
-                  className="btn btn-gold btn-sm btn-block mt-0.5"
-                >
-                  {t('room.joinTeam')}
-                </button>
+              {/* Switch to the OTHER team whenever it has a free slot (even if I'm ready — we unready
+                  first). A full team offers no button; a hint says why. */}
+              {!mine && !counting && (
+                hasFree ? (
+                  <button
+                    type="button"
+                    onClick={() => void switchToTeam(ti)}
+                    className="btn btn-gold btn-sm btn-block mt-0.5"
+                  >
+                    {t('room.joinTeam')}
+                  </button>
+                ) : (
+                  <div className="text-[10px] text-muted/70 text-center mt-0.5">{t('room.teamFull')}</div>
+                )
               )}
             </div>
           );
@@ -238,54 +258,89 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
     </section>
   );
 
-  // Invite friends
-  const inviteList = (
-    <section className="panel p-5 animate-rise" style={{ animationDelay: '.12s' }}>
-      <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('room.inviteFriends')}</h2>
-      {friendsLoading ? (
-        <div className="text-center py-6">
-          <div className="text-3xl mb-2 opacity-60 animate-pulse">👥</div>
-          <p className="text-sm text-muted">{t('room.loadingFriends')}</p>
-        </div>
-      ) : friends.length === 0 ? (
-        <div className="text-center py-6">
-          <div className="text-3xl mb-2 opacity-60">🫂</div>
-          <p className="text-sm text-muted">{t('room.noFriends')}</p>
-        </div>
-      ) : (
-        <ul className="space-y-2.5">
-          {friends.map((f) => (
-            <li
-              key={f.id}
-              className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
-            >
-              <AvatarFace id={f.user.avatar} size={40} className="text-3xl leading-none" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-block w-2.5 h-2.5 rounded-full ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`}
-                    title={f.online ? t('room.online') : t('room.offline')}
-                    aria-label={f.online ? t('room.online') : t('room.offline')}
-                  />
-                  <span className="font-display font-semibold tracking-wide text-txt truncate">{f.user.username}</span>
-                </div>
-                <div className="text-xs text-muted">{t('room.level', { n: f.user.level })}</div>
-              </div>
-              <div className="ml-auto flex items-center gap-2">
-                {invited.has(f.user.id) ? (
-                  <span className="btn btn-ghost pointer-events-none text-emerald-300" aria-live="polite">✓ {t('room.invited')}</span>
-                ) : (
-                  <button onClick={() => void doInvite(f.user.id, f.user.username)} className="btn btn-gold">
-                    {t('room.invite')}
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+  // The scrollable friends list (reused inside the invite modal). Modal itself owns the scroll.
+  const friendRows = friendsLoading ? (
+    <div className="text-center py-6">
+      <div className="text-3xl mb-2 opacity-60 animate-pulse">👥</div>
+      <p className="text-sm text-muted">{t('room.loadingFriends')}</p>
+    </div>
+  ) : friends.length === 0 ? (
+    <div className="text-center py-6">
+      <div className="text-3xl mb-2 opacity-60">🫂</div>
+      <p className="text-sm text-muted">{t('room.noFriends')}</p>
+    </div>
+  ) : (
+    <ul className="space-y-2.5">
+      {friends.map((f) => (
+        <li
+          key={f.id}
+          className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]"
+        >
+          <AvatarFace id={f.user.avatar} size={40} className="text-3xl leading-none" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-block w-2.5 h-2.5 rounded-full ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`}
+                title={f.online ? t('room.online') : t('room.offline')}
+                aria-label={f.online ? t('room.online') : t('room.offline')}
+              />
+              <span className="font-display font-semibold tracking-wide text-txt truncate">{f.user.username}</span>
+            </div>
+            <div className="text-xs text-muted">{t('room.level', { n: f.user.level })}</div>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {invited.has(f.user.id) ? (
+              <span className="btn btn-ghost pointer-events-none text-emerald-300" aria-live="polite">✓ {t('room.invited')}</span>
+            ) : (
+              <button type="button" onClick={() => void doInvite(f.user.id, f.user.username)} className="btn btn-gold">
+                {t('room.invite')}
+              </button>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
+
+  // Always-visible button that opens the invite/share MODAL (reliable scroll in any orientation).
+  const inviteButton = (
+    <button
+      type="button"
+      onClick={() => { sound.play('button'); setShowInvite(true); }}
+      className="btn btn-gold btn-block flex items-center justify-center gap-2"
+    >
+      <span aria-hidden="true">👥</span> {t('room.inviteFriends')}
+      {!friendsLoading && friends.length > 0 && <span className="text-xs opacity-80">({friends.length})</span>}
+    </button>
+  );
+
+  // The invite + share-code modal. Private code (tap to copy + share link) on top, then the
+  // scrollable friends list. Rendered only when open.
+  const inviteModal = showInvite ? (
+    <Modal title={t('room.inviteFriends')} onClose={() => setShowInvite(false)}>
+      <div className="space-y-4">
+        {room.private && room.joinCode && (
+          <div className="rounded-xl border border-gold-line/40 bg-gold/[.06] p-3 text-center">
+            <div className="text-[11px] uppercase tracking-wider text-muted/70 mb-1">{t('room.shareCode')}</div>
+            <button
+              type="button"
+              onClick={() => void copyWithToast(room.joinCode!, 'room.codeCopied')}
+              className="font-mono text-2xl tracking-[0.3em] gold-text font-bold"
+              aria-label={tr('common.copyCode')}
+            >
+              {room.joinCode}
+            </button>
+            <div className="mt-2">
+              <button type="button" onClick={() => void copyWithToast(roomInviteLink(room.joinCode!), 'room.linkCopied')} className="btn btn-ghost btn-sm">
+                {t('room.copyInviteLink')}
+              </button>
+            </div>
+          </div>
+        )}
+        {friendRows}
+      </div>
+    </Modal>
+  ) : null;
 
   // Countdown + ready CTA
   const readyCta = (
@@ -344,42 +399,6 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
         })}
       </div>
     );
-    // Compact, CLEAR invite list for landscape: a 2-column grid of friend chips (avatar + online
-    // dot + name + a gold "Invite" button) — uses the width and reads as obviously tappable.
-    const lsInvite = (
-      <section className="panel p-3">
-        <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm mb-2 flex items-center gap-1.5">
-          <span aria-hidden="true">👥</span> {t('room.inviteFriends')}
-        </h2>
-        {friendsLoading ? (
-          <p className="text-xs text-muted text-center py-3">{t('room.loadingFriends')}</p>
-        ) : friends.length === 0 ? (
-          <p className="text-xs text-muted text-center py-3">{t('room.noFriends')}</p>
-        ) : (
-          <ul className="grid grid-cols-2 gap-1.5">
-            {friends.map((f) => (
-              <li key={f.id} className="flex items-center gap-2 rounded-lg pl-2 pr-1.5 py-1.5 border border-white/10 bg-white/[.03] min-w-0">
-                <span className="relative shrink-0">
-                  <AvatarFace id={f.user.avatar} size={28} className="text-lg leading-none" />
-                  <span
-                    className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-[#0b0a0e] ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`}
-                    aria-label={f.online ? t('room.online') : t('room.offline')}
-                  />
-                </span>
-                <span className="font-display font-semibold text-xs text-txt truncate flex-1 min-w-0">{f.user.username}</span>
-                {invited.has(f.user.id) ? (
-                  <span className="btn btn-ghost btn-sm shrink-0 pointer-events-none text-emerald-300" aria-live="polite">✓ {t('room.invited')}</span>
-                ) : (
-                  <button onClick={() => void doInvite(f.user.id, f.user.username)} className="btn btn-gold btn-sm shrink-0">
-                    {t('room.invite')}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    );
     return createPortal(
       <div className="pg-ls">
         <div className="pg-ls-top">
@@ -410,12 +429,13 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
               {meReady ? t('room.cancelReady') : !canAfford ? t('room.noFunds') : t('room.imReady')}
             </button>
           </div>
-          {/* Join code + invite list — the only scrolling region. */}
+          {/* Join code (glanceable) + the always-tappable Invite button → scrollable modal. */}
           <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
             {privateCode}
-            {lsInvite}
+            {inviteButton}
           </div>
         </div>
+        {inviteModal}
       </div>,
       document.getElementById('root') ?? document.body,
     );
@@ -428,8 +448,9 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
       {headerCrest}
       {privateCode}
       {room.type === '2v2' ? teamsEl : seatsGrid}
-      {inviteList}
+      {inviteButton}
       {readyCta}
+      {inviteModal}
     </div>
   );
 }

@@ -265,6 +265,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // ON the real hand (no blurring modal) — tap an eligible card to give it.
   const switching = !!switchPrompt && switchPrompt.winner === mySeat;
   const eligibleSwitchIds = switching ? new Set(myHand.filter(isReturnEligible).map(cardKey)) : null;
+  // BETWEEN HANDS: the standings overlay is up, or a card-switch is running. In this window the
+  // frozen game carries the PREVIOUS hand's per-seat counts and it is nobody's turn — so hide the
+  // stale seat counts (R4) and the Play/Pass controls (R3) for everyone.
+  const interHand = !!handStandings || switchPending;
   // While a card-switch is in progress (winner picking, loser→winner pending, or the give/return
   // reveal) HIDE the centre pile: it still holds the PREVIOUS hand's last-played card, which — sitting
   // on the table beside a freshly-dealt hand that may share that rank — looks like a duplicate card.
@@ -480,6 +484,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
             partner={room.type === '2v2' && myTeam !== null && s.team === myTeam}
             turnDeadline={game?.turn === s.seat ? game?.turnDeadline ?? null : null}
             placement={pos}
+            hideCount={interHand}
           />
         </button>
       </>
@@ -505,7 +510,10 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   const handBlock = (
     <Hand cards={myHand} selected={switching ? (switchPick ? [cardKey(switchPick)] : []) : selected} onToggle={onCardTap} eligibleIds={eligibleSwitchIds} dealAnimate fit={ls || forced} />
   );
-  const controlsBlock = !switching ? (
+  // Hide Play/Pass while I'm the switch winner (switching), AND for EVERYONE during the inter-hand
+  // pause / card-switch between other players (interHand) — it's no one's turn, so the buttons would
+  // just be dead controls flashing over the swap (R3).
+  const controlsBlock = !switching && !interHand ? (
     <Controls
       selectedCards={selectedCards(myHand, selected)}
       pile={game?.pile ?? null}
@@ -703,6 +711,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {showStandings && handStandings && !matchResult && !switching && (() => {
         const sb = handStandings.scoreboard;
         const handWinner = handStandings.finishingOrder[0];
+        // The ROUND LOSER = the last player still holding cards when the hand ended (last to finish).
+        // Badged clearly so it's obvious who lost the round (R1).
+        const roundLoser = handStandings.finishingOrder.length ? handStandings.finishingOrder[handStandings.finishingOrder.length - 1] : -1;
         const iReady = mySeat != null && handReady.includes(mySeat);
         const is2v2 = sb.type === '2v2' && !!sb.teamTotals;         // team-grouped board (owner request)
         const myTeam = mySeat != null ? room.seats[mySeat]?.team ?? null : null;
@@ -738,8 +749,11 @@ export function TableView({ room }: { room: RoomStateDTO }) {
                         </div>
                         <div className="space-y-1.5 flex-1">
                           {seats.map(({ seat }) => (
-                            <div key={seat} className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 ${seat === mySeat ? 'bg-gold-line/10' : 'bg-white/[.03]'}`}>
-                              <span className={`truncate text-[13px] ${seat === mySeat ? 'text-gold-hi font-semibold' : 'text-txt'}`}>{nameOf(seat)}</span>
+                            <div key={seat} className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 ${seat === roundLoser ? 'bg-suit/15 ring-1 ring-suit/40' : seat === mySeat ? 'bg-gold-line/10' : 'bg-white/[.03]'}`}>
+                              <span className={`truncate text-[13px] flex items-center gap-1 min-w-0 ${seat === mySeat ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
+                                <span className="truncate">{nameOf(seat)}</span>
+                                {seat === roundLoser && <span className="shrink-0" title={t('table.roundLost')}>💥</span>}
+                              </span>
                               <b className="tabular-nums text-sm text-txt">{sb.cumulative[seat] ?? 0}</b>
                             </div>
                           ))}
@@ -754,13 +768,21 @@ export function TableView({ room }: { room: RoomStateDTO }) {
               ) : (
                 <ol className="text-left space-y-1 flex-1 min-h-0 overflow-y-auto no-scrollbar">
                   {sb.cumulative
-                    .map((pts, seat) => ({ seat, pts, name: nameOf(seat), isMe: seat === mySeat, wonHand: seat === handWinner }))
+                    .map((pts, seat) => ({ seat, pts, name: nameOf(seat), isMe: seat === mySeat, wonHand: seat === handWinner, lostHand: seat === roundLoser }))
                     .sort((a, b) => b.pts - a.pts)
                     .map((r, i) => (
-                      <li key={r.seat} className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'}`}>
+                      <li
+                        key={r.seat}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border ${
+                          r.lostHand ? 'border-suit/60 bg-suit/15 ring-1 ring-suit/40'
+                          : r.wonHand ? 'border-emerald-400/50 bg-emerald-400/10'
+                          : r.isMe ? 'border-gold-line/60 bg-gold-line/10' : 'border-white/10 bg-white/[.03]'
+                        }`}
+                      >
                         <span className="w-5 text-sm font-display font-bold text-muted tabular-nums">{i + 1}</span>
-                        <span className={`flex-1 truncate text-sm ${r.isMe ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
-                          {r.name}{r.wonHand ? ' 🏆' : ''}
+                        <span className={`flex-1 truncate text-sm flex items-center gap-1.5 ${r.isMe ? 'text-gold-hi font-semibold' : 'text-txt'}`}>
+                          <span className="truncate">{r.name}{r.wonHand ? ' 🏆' : ''}</span>
+                          {r.lostHand && <span className="shrink-0 text-[10px] font-display font-bold uppercase tracking-wider text-suit bg-suit/20 rounded px-1.5 py-0.5">💥 {t('table.roundLost')}</span>}
                         </span>
                         <b className="text-gold-hi tabular-nums text-base">{r.pts}</b>
                       </li>
@@ -783,27 +805,42 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         </div>
       )}
 
-      {/* Swap reveal: the two exchanged cards, shown on the table (only the winner
-          + loser receive their identities; other seats get a redacted notice). */}
-      {switchCards && (switchCards.given || switchCards.returned) && !matchResult && (
-        <div className="fixed left-1/2 top-16 -translate-x-1/2 z-50 pointer-events-none" role="status" aria-live="polite">
-          <div className="panel-solid rounded-2xl px-4 py-2.5 flex items-center gap-4 animate-pop ring-1 ring-gold-hi/30">
-            <span className="font-display text-xs text-gold-hi tracking-[0.2em] uppercase">{t('table.swapTitle')}</span>
-            {switchCards.given && (
-              <div className="flex flex-col items-center gap-1">
-                <CardView card={switchCards.given} small />
-                <span className="text-[9px] text-cream/80 whitespace-nowrap">{t('table.swapGave')}</span>
+      {/* Swap reveal: the two exchanged cards, shown BIG and centred (only the winner + loser
+          receive their identities; other seats get a redacted notice). Each card is labelled
+          "giver → receiver"; when the swap COMPLETES (both cards present) each card flies toward
+          its recipient — the loser's card up/down to the WINNER, the winner's card to the LOSER. */}
+      {switchCards && (switchCards.given || switchCards.returned) && !matchResult && (() => {
+        const complete = !!switchCards.given && !!switchCards.returned;
+        // Direction a card flies: DOWN toward my hand when I'm the recipient, else UP toward the
+        // opponents' side. The GIVEN card goes to the winner; the RETURNED card goes to the loser.
+        const flyToWinner = complete ? (switchCards.winner === mySeat ? 'swap-fly-down' : 'swap-fly-up') : 'animate-pop';
+        const flyToLoser = complete ? (switchCards.loser === mySeat ? 'swap-fly-down' : 'swap-fly-up') : 'animate-pop';
+        return (
+          <div className="fixed inset-x-0 top-[16%] z-50 flex justify-center px-3 pointer-events-none" role="status" aria-live="polite">
+            <div className="panel-solid rounded-3xl px-6 py-4 flex flex-col items-center gap-3 ring-1 ring-gold-hi/40 shadow-2xl animate-pop max-w-[94vw]">
+              <span className="font-display text-sm text-gold-hi tracking-[0.28em] uppercase">🔄 {t('table.swapTitle')}</span>
+              <div className="flex items-start justify-center gap-6 sm:gap-9">
+                {switchCards.given && (
+                  <div className={`flex flex-col items-center gap-2 ${flyToWinner}`}>
+                    <CardView card={switchCards.given} big decorative />
+                    <span className="text-[11px] text-cream/90 whitespace-nowrap font-display font-semibold">
+                      {nameOf(switchCards.loser)} <span className="text-gold-hi">→</span> {nameOf(switchCards.winner)}
+                    </span>
+                  </div>
+                )}
+                {switchCards.returned && (
+                  <div className={`flex flex-col items-center gap-2 ${flyToLoser}`}>
+                    <CardView card={switchCards.returned} big decorative />
+                    <span className="text-[11px] text-cream/90 whitespace-nowrap font-display font-semibold">
+                      {nameOf(switchCards.winner)} <span className="text-gold-hi">→</span> {nameOf(switchCards.loser)}
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-            {switchCards.returned && (
-              <div className="flex flex-col items-center gap-1">
-                <CardView card={switchCards.returned} small />
-                <span className="text-[9px] text-cream/80 whitespace-nowrap">{t('table.swapReturned')}</span>
-              </div>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Card switch in progress, but I'm NOT the winner: a small non-blocking
           notice (no full-screen splash) so I can see the table while I wait. */}

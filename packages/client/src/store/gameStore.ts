@@ -124,8 +124,9 @@ interface GameStore {
    *  the winner leads. Drives the "no swap" banner; auto-clears after a few seconds. */
   noSwapNotice: boolean;
   /** The two cards exchanged in the current switch (only revealed to the winner +
-   *  loser), shown on the table. Cleared shortly after the switch completes. */
-  switchCards: { given: Card | null; returned: Card | null } | null;
+   *  loser), shown on the table with `winner`/`loser` seats so the reveal can animate
+   *  each card toward its recipient. Cleared shortly after the switch completes. */
+  switchCards: { given: Card | null; returned: Card | null; winner: number; loser: number } | null;
   matchResult: MatchEndDTO | null;
   /** Open rematch offer for the just-finished room: who has opted in + the window
    *  deadline (epoch ms). null when no offer is open. Drives the "2/3 want a rematch"
@@ -362,11 +363,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // be shown on the table. `given` arrives first (loser→winner), `returned` next.
       if (dto.given || dto.returned) {
         set((s) => {
-          const base = dto.given ? { given: dto.given, returned: null } : (s.switchCards ?? { given: null, returned: null });
-          return { switchCards: { given: dto.given ?? base.given, returned: dto.returned ?? base.returned } };
+          const prev = s.switchCards;
+          const given = dto.given ?? prev?.given ?? null;
+          const returned = dto.returned ?? prev?.returned ?? null;
+          return { switchCards: { given, returned, winner: dto.winner, loser: dto.loser } };
         });
-        // Once the return lands, keep the reveal on screen briefly, then clear it.
-        if (dto.returned) setTimeout(() => set({ switchCards: null }), 2600);
+        // Once the return lands, keep the reveal (incl. the fly-to-player animation) on
+        // screen a beat longer, then clear it.
+        if (dto.returned) setTimeout(() => set({ switchCards: null }), 3200);
       }
       if (dto.awaitingReturn && dto.given === null && dto.winner === mySeat) {
         // I am the winner: choose a 3–10 card to return to the loser.

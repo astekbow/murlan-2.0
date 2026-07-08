@@ -16,6 +16,7 @@ interface SeatBadgeProps {
   partner?: boolean;    // 2v2 teammate of the local player
   turnDeadline?: number | null; // epoch ms — when set + isTurn, a depleting ring shows the time left
   placement?: string;   // seat position ('top' gets a compact layout that hugs the avatar)
+  hideCount?: boolean;  // between hands (standings/card-switch): hide the STALE per-seat card count/fan
 }
 
 function initials(name: string): string {
@@ -47,10 +48,12 @@ function TurnRing({ deadline }: { deadline: number }) {
  * The fan is decorative and capped — opponents' card IDENTITIES are NEVER shown
  * (the server only ever sends counts), only how many they hold.
  */
-function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, gone, avatar, lastPlayer, partner, turnDeadline, placement }: SeatBadgeProps) {
+function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed, gone, avatar, lastPlayer, partner, turnDeadline, placement, hideCount }: SeatBadgeProps) {
   const t = useT();
   const ring = isTurn ? 'turn' : lastPlayer ? 'green' : '';
-  const fanCount = Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
+  // Between hands the frozen game state carries the PREVIOUS hand's counts (the loser still shows
+  // their leftover cards) — misleading during the standings/card-switch pause. Hide it then.
+  const fanCount = hideCount ? 0 : Math.min(Math.max(count, 0), 8); // visual cap; the number is the truth
   // A player who abandoned the match takes priority over every other status — the
   // seat plays on auto-passed (placed last), so show it greyed with a clear label.
   const dimmed = gone || !connected;
@@ -99,7 +102,7 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   // but absolute to the SIDE for the TOP seat so it never hangs over the felt / pile.
   return (
     <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${dimmed ? 'opacity-60' : ''}`}>
-      {!top && (
+      {!top && !hideCount && (
         <div className="flex items-center gap-1.5">
           {/* SIDE seats keep only the count up here — their fan is centred BEHIND the avatar. */}
           {!side && fan}
@@ -110,10 +113,12 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
         // TOP seat: avatar on the left with its cards (+ count) to the RIGHT of it.
         <div className="flex items-center gap-2">
           {avatarEl}
-          <div className="flex items-center gap-1.5">
-            {fan}
-            <span className="seat-cnt">({count})</span>
-          </div>
+          {!hideCount && (
+            <div className="flex items-center gap-1.5">
+              {fan}
+              <span className="seat-cnt">({count})</span>
+            </div>
+          )}
         </div>
       ) : (
         avatarEl

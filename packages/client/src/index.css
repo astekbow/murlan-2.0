@@ -705,6 +705,21 @@ select:focus-visible,
 }
 .finish-pop { animation: finishpop 0.78s cubic-bezier(0.16, 0.84, 0.28, 1) both; }
 
+/* CARD-SWITCH reveal (between hands): the two exchanged cards are shown big + centred, then when the
+   swap completes each one FLIES to its recipient — UP toward an opponent, DOWN toward the local hand.
+   A hold at the start (0–32%) lets both cards be read before they travel. Reduced-motion safe (the
+   universal * rule zeroes the transform/animation). */
+@keyframes swapFlyUp {
+  0%, 32% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-44vh) scale(0.5); }
+}
+@keyframes swapFlyDown {
+  0%, 32% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(44vh) scale(0.5); }
+}
+.swap-fly-up { animation: swapFlyUp 1.7s cubic-bezier(0.5, 0, 0.75, 0) 0.55s both; }
+.swap-fly-down { animation: swapFlyDown 1.7s cubic-bezier(0.5, 0, 0.75, 0) 0.55s both; }
+
 /* Winner pot-slide: a gold chip stack slides up into the winnings figure when the
    match-end overlay reveals a staked payout. Plays once (mounts with the overlay).
    Reduced-motion safe (universal rule neutralises the travel). */
