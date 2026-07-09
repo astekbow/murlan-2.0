@@ -25,7 +25,7 @@ const KIND_ICON: Record<NotifKind, string> = {
   invite: '📨',
   error: '⚠️',
   deposit: '💰',
-  info: '•',
+  info: '🔔', // was a weak '•' text glyph among real emoji — now a proper bell
 };
 
 // Default landing view by kind when a notification carries no explicit `view` —
@@ -56,6 +56,9 @@ function relativeTime(ts: number): string {
 export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const items = useNotifications((s) => s.items);
+  // New items prepend + bump `unread`, so the first `unread` rows are the UNREAD ones. Read on close,
+  // so while the panel is open we can visually separate what's new from what's already been seen.
+  const unread = useNotifications((s) => s.unread);
   // A still-open room invite enables the inline Accept on an 'invite'-action notif.
   const liveInvite = useGameStore((s) => s.invite);
   // Trap Tab inside the open popover and restore focus to the bell on close.
@@ -118,14 +121,15 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <ul className="max-h-[60vh] overflow-y-auto no-scrollbar divide-y divide-white/[.06]">
-            {items.map((n) => {
+            {items.map((n, i) => {
               // acceptInvite() joins the SINGLE live-invite slot (overwritten by the newest invite).
               // Older invite rows would join the WRONG room, so only the NEWEST invite gets the actions.
               const showInviteActions = n.action === 'invite' && liveInvite != null && n.id === items.find((x) => x.action === 'invite')?.id;
               const view = targetView(n);
               const routable = view != null;
+              const isUnread = i < unread;
               return (
-                <li key={n.id} className="px-4 py-3">
+                <li key={n.id} className={`px-4 py-3 ${isUnread ? 'bg-gold/[.06] border-l-2 border-gold' : ''}`}>
                   <div className="flex items-start gap-3">
                     <span className="text-lg leading-none mt-0.5 shrink-0" aria-hidden>
                       {KIND_ICON[n.kind]}

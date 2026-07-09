@@ -286,10 +286,13 @@ export function ClubsView() {
               <ul className="space-y-2.5">
                 {list.map((c) => (
                   <li key={c.id} className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold transition-all">
-                    <span className="font-display font-semibold tracking-wide text-gold-hi shrink-0">[{c.tag}]</span>
-                    <span className="font-display font-semibold tracking-wide text-txt flex-1 truncate">{c.name}</span>
-                    <span className="text-xs text-muted">{c.memberCount} 👥</span>
-                    <button disabled={busy} onClick={() => void act(() => clubsApi.join(token()!, c.id))} className="btn btn-ghost">{t('clubs.join')}</button>
+                    {/* Monogram crest (the tag) so every club has a scannable identity, not an identical text line. */}
+                    <span className="pfp shrink-0 font-display font-bold text-gold-hi" style={{ width: 40, height: 40, fontSize: 12, borderColor: 'var(--gold-line)' }} aria-hidden>{c.tag.slice(0, 3)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-display font-semibold tracking-wide text-txt truncate">{c.name}</span>
+                      <span className="block text-[11px] text-muted">[{c.tag}] · {c.memberCount} {t('clubs.membersSuffix')}</span>
+                    </span>
+                    <button disabled={busy} onClick={() => void act(() => clubsApi.join(token()!, c.id))} className="btn btn-ghost shrink-0">{t('clubs.join')}</button>
                   </li>
                 ))}
               </ul>
@@ -458,6 +461,8 @@ function ClubChat({ club }: { club: ClubDetailDTO }) {
           <p role="status" className="text-sm text-muted text-center py-6">{t('clubs.chatEmpty')}</p>
         ) : messages.map((m: ChatMessageDTO) => (
           <div key={m.id} className="group flex items-start gap-2 rounded-xl px-3 py-2 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
+            {/* Monogram avatar (username initial) so it's scannable who's talking, matching the DM/profile bar. */}
+            <span className="pfp shrink-0 mt-0.5 font-display font-bold" style={{ width: 30, height: 30, fontSize: 13 }} aria-hidden>{m.username.charAt(0).toUpperCase()}</span>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <span className="font-display font-semibold tracking-wide text-gold-hi text-sm truncate">{m.username}</span>

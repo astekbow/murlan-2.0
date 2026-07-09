@@ -18,6 +18,7 @@ const STRINGS: Record<string, Entry> = {
   // Common
   'common.backToLobby': { sq: '← Kthehu te lobi', en: '← Back to lobby' },
   'common.resetsIn': { sq: 'rinovohet për {time}', en: 'resets in {time}' },
+  'common.more': { sq: 'Më shumë', en: 'More' },
   'common.save': { sq: 'Ruaj', en: 'Save' },
   'a11y.skipToMain': { sq: 'Kalo te përmbajtja', en: 'Skip to content' },
   // Plural example pair for the plural() helper (one/other). Use plural('common.gamesN', n, lang).
@@ -917,6 +918,7 @@ const STRINGS: Record<string, Entry> = {
   'clubs.shareCodeHint': { sq: 'Prek për ta kopjuar.', en: 'Tap to copy.' },
   'clubs.empty': { sq: 'Ende s’ka klube — krijo të parin!', en: 'No clubs yet — create the first one!' },
   'clubs.join': { sq: 'Bashkohu', en: 'Join' },
+  'clubs.membersSuffix': { sq: 'anëtarë', en: 'members' },
   'clubs.reportPrompt': { sq: 'Pse po e raporton këtë mesazh?', en: 'Why are you reporting this message?' },
   'clubs.reportSuccess': { sq: 'Mesazhi u raportua.', en: 'Message reported.' },
   'clubs.reportFailed': { sq: 'S’u raportua dot.', en: 'Report failed.' },

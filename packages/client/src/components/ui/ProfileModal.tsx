@@ -157,6 +157,15 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
             >
               {isImageAvatar(profile.avatar) ? <img src={profile.avatar} alt="" className="pfp-img" /> : avatarEmoji(profile.avatar)}
               <span className="lvl">{profile.level}</span>
+              {/* Presence dot — shown for a friend (we know their online state), consistent with the
+                  Friends list / room seats. */}
+              {friendRel?.direction === 'friends' && (
+                <span
+                  className={`absolute top-0 right-0 w-3.5 h-3.5 rounded-full ring-2 ring-[#0b0a0e] ${friendRel.online ? 'bg-emerald-400' : 'bg-white/30'}`}
+                  title={friendRel.online ? t('room.online') : t('room.offline')}
+                  aria-label={friendRel.online ? t('room.online') : t('room.offline')}
+                />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-display font-semibold tracking-wide text-xl leading-none truncate flex items-center gap-2">

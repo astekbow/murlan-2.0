@@ -9,6 +9,7 @@ import { useWalletStore } from '../store/walletStore.ts';
 import { dollars, parseDollarsToCents } from '../lib/money.ts';
 import { useModalBack } from '../lib/useModalBack.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
+import { RowMenu } from '../components/ui/RowMenu.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT } from '../lib/i18n.ts';
@@ -636,25 +637,24 @@ export function FriendsView() {
               <ul className="grid gap-2.5 lg:grid-cols-2">
                 {accepted.map((f) => (
                   <FriendRow key={f.id} entry={f} showOnline>
-                    {inRoom && (
-                      <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} disabled={acting} className="btn btn-gold">
-                        {t('friends.invite')}
-                      </button>
+                    {/* ONE primary action (contextual), everything else behind a ⋯ menu — so
+                        destructive (Remove/Block) no longer sits with the same weight as Message/Send. */}
+                    {inRoom ? (
+                      <button onClick={() => void useGameStore.getState().inviteFriend(f.user.id)} disabled={acting} className="btn btn-gold btn-sm">{t('friends.invite')}</button>
+                    ) : f.online ? (
+                      <button onClick={() => void duel(f)} disabled={acting} className="btn btn-gold btn-sm" title={t('friends.duelHint')}>⚔️ {t('friends.duel')}</button>
+                    ) : (
+                      <button onClick={() => openDm(f)} className="btn btn-gold btn-sm relative">💬 {t('friends.message')}{unread[f.user.id] ? <span className="absolute -top-1 -right-1 bg-suit text-white text-[10px] rounded-full px-1.5 leading-tight">{unread[f.user.id]}</span> : null}</button>
                     )}
-                    {!inRoom && f.online && (
-                      <button onClick={() => void duel(f)} disabled={acting} className="btn btn-gold" title={t('friends.duelHint')}>
-                        ⚔️ {t('friends.duel')}
-                      </button>
-                    )}
-                    {inClub && (
-                      <button onClick={() => void useGameStore.getState().inviteToClub(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('clubs.inviteFriend')}>
-                        🛡️ {t('clubs.inviteToClub')}
-                      </button>
-                    )}
-                    <button onClick={() => openDm(f)} className="btn btn-ghost relative" title={t('friends.message')}>💬 {t('friends.message')}{unread[f.user.id] ? <span className="absolute -top-1 -right-1 bg-suit text-white text-[10px] rounded-full px-1.5 leading-tight">{unread[f.user.id]}</span> : null}</button>
-                    <button onClick={() => { setSendTo(f); setAmount(''); }} disabled={acting} className="btn btn-ghost" title={t('friends.sendMoney')}>💸 {t('friends.sendMoney')}</button>
-                    <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost">{t('common.remove')}</button>
-                    <button onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
+                    <RowMenu
+                      items={[
+                        ...(inRoom || f.online ? [{ key: 'msg', label: <>💬 {t('friends.message')}{unread[f.user.id] ? ` (${unread[f.user.id]})` : ''}</>, onClick: () => openDm(f) }] : []),
+                        ...(inClub ? [{ key: 'club', label: <>🛡️ {t('clubs.inviteToClub')}</>, onClick: () => void useGameStore.getState().inviteToClub(f.user.id), disabled: acting }] : []),
+                        { key: 'money', label: <>💸 {t('friends.sendMoney')}</>, onClick: () => { setSendTo(f); setAmount(''); }, disabled: acting },
+                        { key: 'remove', label: t('common.remove'), onClick: () => void remove(f.id), disabled: acting },
+                        { key: 'block', label: t('friends.block'), onClick: () => void block(f.user.id), danger: true, disabled: acting },
+                      ]}
+                    />
                   </FriendRow>
                 ))}
               </ul>
