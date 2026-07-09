@@ -159,6 +159,12 @@ export class WithdrawalService {
     private readonly uow?: UnitOfWork,
   ) {}
 
+  /** The min/max withdrawal bounds — so the client form sources them from the SERVER instead of
+   *  hard-coding its own constants (which could silently diverge from what the server enforces). */
+  get bounds(): WithdrawalLimits {
+    return { minCents: this.limits.minCents, maxCents: this.limits.maxCents };
+  }
+
   /** Request a withdrawal: validate limits, hold the funds, create a pending row. */
   async request(userId: string, amountCents: number, destination: string): Promise<WithdrawalRecord> {
     if (!Number.isInteger(amountCents) || amountCents <= 0) throw new WithdrawalError('bad_amount', 'Shumë e pavlefshme.');

@@ -51,6 +51,7 @@ export interface WalletRoutesDeps {
   depositWatch?: DepositWatchRegistry; // mark the player as actively depositing → the auto-credit poller watches their address
   tronDepositAddress?: string | null; // legacy SINGLE shared receiving address (used only if no depositWallet)
   hostedDepositEnabled?: boolean; // false → /api/wallet/deposit (hosted checkout) is disabled (mock provider in prod)
+  withdrawFeeCents?: number; // estimated external network/Binance fee shown on the withdraw form (default 100 = ~1 USDT)
   webhookSignatureHeader?: string; // default 'x-signature'
   webhookIps?: string[]; // allowed source IPs for the webhook (empty/undefined = allow any)
 }
@@ -148,6 +149,18 @@ export async function walletRoutes(app: FastifyInstance, deps: WalletRoutesDeps)
   const transferRl = moneyRouteLimit(20, '1 minute');
   const withdrawRl = moneyRouteLimit(15, '1 minute');
   const txidRl = moneyRouteLimit(20, '1 minute');
+
+  // Withdrawal form config — the client sources the min/max + fee estimate from HERE (the server's own
+  // WithdrawalService bounds) instead of hard-coding constants that could drift from what's enforced.
+  app.get('/api/wallet/config', async (req, reply) => {
+    const caller = await guard(req, reply);
+    if (!caller) return;
+    return reply.send({
+      withdrawMinCents: withdrawals.bounds.minCents,
+      withdrawMaxCents: withdrawals.bounds.maxCents,
+      withdrawFeeCents: deps.withdrawFeeCents ?? 100,
+    });
+  });
 
   app.get('/api/wallet', async (req, reply) => {
     const caller = await guard(req, reply);

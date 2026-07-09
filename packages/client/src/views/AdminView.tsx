@@ -768,7 +768,8 @@ export function AdminView() {
                 <li key={tk.id} className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="font-display font-semibold tracking-wide text-txt text-sm">{tk.subject}</span>
-                    <span className={`tag ${tk.status === 'open' ? 'tag-live' : 'tag-open'}`}>{tk.status}</span>
+                    {/* Same status→colour convention as the player Support view: amber=open, green=resolved, muted=closed. */}
+                    <span className={`tag ${tk.status === 'open' ? 'tag-pending' : tk.status === 'closed' ? 'tag-muted' : 'tag-open'}`}>{tk.status}</span>
                   </div>
                   <p className="text-[11px] text-muted mt-1">{tk.category}{tk.matchId ? ` · ${tk.matchId}` : ''} · {new Date(tk.createdAt).toLocaleDateString()}</p>
                   <p className="text-sm text-txt mt-1.5 break-words">{tk.message}</p>

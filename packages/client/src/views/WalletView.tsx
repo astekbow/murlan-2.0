@@ -63,6 +63,8 @@ export function WalletView() {
   const [deleting, setDeleting] = useState(false); // GDPR account deletion in flight
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
   const [depAddr, setDepAddr] = useState<string | null>(null);
+  // Withdrawal bounds + fee sourced from the SERVER (not a client constant that could drift).
+  const [wcfg, setWcfg] = useState({ minCents: 500, maxCents: 1_000_000, feeCents: WITHDRAW_FEE_CENTS });
   const [txId, setTxId] = useState('');
   const [submittingTxid, setSubmittingTxid] = useState(false);
   const [copied, setCopied] = useState(false); // deposit-address Copy button: flip to "Copied ✓" briefly
@@ -72,6 +74,9 @@ export function WalletView() {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     void walletApi.depositAddress(token).then((r) => setDepAddr(r.address)).catch(() => {});
+    // Source the withdrawal min/max/fee from the server so the "you receive" figure + the minimum
+    // shown to the user always match what the server actually enforces.
+    void walletApi.config(token).then((c) => setWcfg({ minCents: c.withdrawMinCents, maxCents: c.withdrawMaxCents, feeCents: c.withdrawFeeCents })).catch(() => {});
   }, []);
 
   const onSubmitTxid = async () => {
@@ -136,6 +141,14 @@ export function WalletView() {
     const cents = parseDollarsToCents(withdrawAmt);
     if (!cents || cents <= 0) {
       useWalletStore.setState({ error: tr('wallet.errAmountGt0') });
+      return;
+    }
+    if (cents < wcfg.minCents) {
+      useWalletStore.setState({ error: translate('wallet.errBelowMin', useLangStore.getState().lang, { min: dollars(wcfg.minCents) }) });
+      return;
+    }
+    if (cents > balanceCents) {
+      useWalletStore.setState({ error: translate('wallet.errInsufficientBal', useLangStore.getState().lang, { have: dollars(balanceCents) }) });
       return;
     }
     if (destination.trim().length < 4) {
@@ -369,8 +382,19 @@ export function WalletView() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <label className="block">
             <span className="field-label">{t('wallet.amountUsd')}</span>
-            <input type="number" min="1" step="1" value={withdrawAmt} onChange={(e) => setWithdrawAmt(e.target.value)}
-              className="field" />
+            <div className="relative">
+              <input type="number" min="1" step="1" value={withdrawAmt} onChange={(e) => setWithdrawAmt(e.target.value)}
+                className="field pr-14" />
+              {/* One-tap "cash out everything" — fills the amount with the full balance. */}
+              <button
+                type="button"
+                onClick={() => setWithdrawAmt(String(balanceCents / 100))}
+                disabled={balanceCents <= 0}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] font-display font-bold uppercase tracking-wide text-gold-hi px-2 py-1 rounded-md border border-gold-line/40 hover:bg-gold/[.12] disabled:opacity-40"
+              >
+                {t('wallet.max')}
+              </button>
+            </div>
           </label>
           <label className="block sm:col-span-2">
             <span className="field-label">{t('wallet.addressDest')}</span>
@@ -387,26 +411,34 @@ export function WalletView() {
             </div>
           </label>
         </div>
-        {(parseDollarsToCents(withdrawAmt) ?? 0) > 0 && (
-          (parseDollarsToCents(withdrawAmt) ?? 0) <= WITHDRAW_FEE_CENTS ? (
-            // Below the network fee → the payout would be $0 or negative. Warn instead of "you receive $0.00".
-            <p className="text-[12px] font-medium text-amber-300">{t('wallet.withdrawBelowFee', { fee: dollars(WITHDRAW_FEE_CENTS) })}</p>
-          ) : (
-            <p className="text-[12px] font-medium text-emerald-300">
-              {t('wallet.youReceive', { amount: dollars((parseDollarsToCents(withdrawAmt) ?? 0) - WITHDRAW_FEE_CENTS) })}
-            </p>
-          )
-        )}
+        {/* Minimum stated UP FRONT (server-sourced), not only after a sub-min attempt. */}
+        <p className="text-[12px] text-muted">{t('wallet.minWithdraw', { min: dollars(wcfg.minCents) })}</p>
+        {(() => {
+          const c = parseDollarsToCents(withdrawAmt) ?? 0;
+          if (c <= 0) return null;
+          if (c > balanceCents) return <p className="text-[12px] font-medium text-red-300">{t('wallet.errInsufficientBal', { have: dollars(balanceCents) })}</p>;
+          if (c < wcfg.minCents) return <p className="text-[12px] font-medium text-amber-300">{t('wallet.errBelowMin', { min: dollars(wcfg.minCents) })}</p>;
+          if (c <= wcfg.feeCents) return <p className="text-[12px] font-medium text-amber-300">{t('wallet.withdrawBelowFee', { fee: dollars(wcfg.feeCents) })}</p>;
+          return <p className="text-[12px] font-medium text-emerald-300">{t('wallet.youReceive', { amount: dollars(c - wcfg.feeCents) })}</p>;
+        })()}
         {/* Honest payout timing so the player knows what to expect. */}
         <p className="text-[12px] text-muted">⏱ {t('wallet.withdrawTimeEstimate')}</p>
-        {/* Gate on the SAME TRON shape check the ✗/✓ indicator shows — the button used to submit even
-            while the field showed ✗ invalid, producing a confusing server rejection. Mirrors the TxID submit. */}
-        <button onClick={() => void onWithdraw()} disabled={withdrawing || !isLikelyTron(destination)} className="btn btn-ghost">{withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}</button>
+        {/* PRIMARY action (gold, full-width) — cashing out is the most important money action and must
+            not read as secondary. Gated on a valid TRON address + amount within [min, balance]. */}
+        {(() => {
+          const c = parseDollarsToCents(withdrawAmt) ?? 0;
+          const ok = !withdrawing && isLikelyTron(destination) && c >= wcfg.minCents && c <= balanceCents;
+          return (
+            <button onClick={() => void onWithdraw()} disabled={!ok} className="btn btn-gold btn-block btn-lg">
+              {withdrawing ? t('wallet.sending') : t('wallet.requestWithdraw')}
+            </button>
+          );
+        })()}
       </section>
 
-      {/* Your data (GDPR Art.15/17): export everything, or delete the account. (The verification +
-          responsible-gaming controls were removed by owner decision — kept the data rights only.) */}
-      <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'withdraw' ? '' : 'hidden'}`} style={{ animationDelay: '.16s' }}>
+      {/* Your data (GDPR Art.15/17): export everything, or delete the account. MOVED off the Withdraw
+          tab (a destructive delete button beside the money form was a mis-tap hazard) → History tab. */}
+      <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'history' ? '' : 'hidden'}`} style={{ animationDelay: '.16s' }}>
         <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base">{t('wallet.yourData')}</h2>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => void onExportData()} disabled={exporting} className="btn btn-ghost btn-sm">
@@ -524,8 +556,20 @@ export function WalletView() {
                 <div className="flex items-center gap-3">
                   <span className="font-display font-semibold tracking-wide text-txt">{dollars(w.amountCents)}</span>
                   <span className="text-sm text-muted flex-1 truncate">→ {w.destination}</span>
-                  <span className={`tag ml-auto ${w.status === 'rejected' ? 'tag-live text-red-300' : 'tag-live'}`}>{t(w.status === 'completed' ? 'wallet.wstatusCompleted' : w.status === 'rejected' ? 'wallet.wstatusRejected' : 'wallet.wstatusPending')}</span>
+                  <span className={`tag ml-auto ${w.status === 'completed' ? 'tag-open' : w.status === 'rejected' ? 'tag-live text-red-300' : 'tag-pending'}`}>{t(w.status === 'completed' ? 'wallet.wstatusCompleted' : w.status === 'rejected' ? 'wallet.wstatusRejected' : 'wallet.wstatusPending')}</span>
                 </div>
+                {/* On-chain verification for a COMPLETED (irreversible) payout: open the destination on
+                    Tronscan to confirm the funds actually arrived — the same trust signal deposits have. */}
+                {w.status === 'completed' && isLikelyTron(w.destination) && (
+                  <a
+                    href={`https://tronscan.org/#/address/${w.destination.trim()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[12px] font-medium text-gold-hi underline underline-offset-2 hover:opacity-80 mt-1.5"
+                  >
+                    {t('wallet.viewOnTronscan')} ↗
+                  </a>
+                )}
                 {w.status === 'rejected' && w.failureReason && (
                   <p className="text-[12px] text-red-300/90 mt-1.5">{t('wallet.rejectedReason')} {w.failureReason}</p>
                 )}

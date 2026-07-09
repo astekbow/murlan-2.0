@@ -7,6 +7,7 @@ import { useUiStore } from '../store/uiStore.ts';
 import { useGameStore } from '../store/gameStore.ts';
 import { useNotifications } from '../store/notificationsStore.ts';
 import { SkeletonList } from '../components/ui/Skeleton.tsx';
+import { ResetCountdown } from '../components/ui/ResetCountdown.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { dollars } from '../lib/money.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
@@ -344,8 +345,9 @@ export function RewardsView() {
                 {busy === 'daily' ? t('rewards.claiming') : t('rewards.claimDaily', { xp: status.daily.rewardXp })}
               </button>
             ) : (
-              <button disabled className="btn btn-ghost btn-lg btn-block">
-                {t('rewards.claimedToday')}
+              <button disabled className="btn btn-ghost btn-lg btn-block flex items-center justify-center gap-2">
+                <span>✓ {t('rewards.claimedToday')}</span>
+                <span className="text-[11px] text-muted/80">· <ResetCountdown /></span>
               </button>
             )}
           </section>

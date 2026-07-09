@@ -98,10 +98,29 @@ export function TournamentsView() {
               {t('tourn.buyIn')}: <b className="text-txt">{dollars(tn.buyInCents)}</b> · {t('tourn.prize')}: <b className="text-gold-hi">{dollars(tn.prizePoolCents)}</b> · {tn.playerIds.length}/{tn.capacity} 👥
             </div>
           </div>
-          <span className="tag tag-open">{t(`tourn.status.${tn.status}`)}</span>
+          {/* One status→colour convention: green=finished, red=live, amber=waiting, muted=cancelled. */}
+          <span className={`tag ${tn.status === 'finished' ? 'tag-open' : tn.status === 'running' ? 'tag-live' : tn.status === 'cancelled' ? 'tag-muted' : 'tag-pending'}`}>{t(`tourn.status.${tn.status}`)}</span>
         </div>
 
-        {canRegister && <button disabled={busy} onClick={async () => { if (tn.buyInCents === 0 || await confirm({ title: t('tourn.register'), message: t('tourn.confirmRegisterM', { amount: dollars(tn.buyInCents) }), confirmLabel: t('tourn.register') })) void act(() => tournamentsApi.register(tk()!, tn.id)); }} className="btn btn-gold btn-block">{t('tourn.register')} · {dollars(tn.buyInCents)}</button>}
+        {/* Disclose the 10% house fee BEFORE registering — the winner takes the pool minus the rake.
+            Real money: the cut must be visible, not buried in a code comment. */}
+        {tn.buyInCents > 0 && (tn.status === 'registering' || tn.status === 'running') && (
+          <p className="text-[11px] text-muted text-center">{t('tourn.rakeNote', { net: dollars(Math.floor(tn.prizePoolCents * 0.9)) })}</p>
+        )}
+        {canRegister && (() => {
+          const canAfford = tn.buyInCents === 0 || balanceCents >= tn.buyInCents;
+          if (!canAfford) {
+            return (
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-amber-300 text-center">{t('shop.needMore', { amount: dollars(tn.buyInCents - balanceCents) })}</p>
+                <button type="button" onClick={() => setView('wallet')} className="btn btn-outline btn-block">{t('shop.addFunds')}</button>
+              </div>
+            );
+          }
+          return (
+            <button disabled={busy} onClick={async () => { if (tn.buyInCents === 0 || await confirm({ title: t('tourn.register'), message: t('tourn.confirmRegisterM2', { amount: dollars(tn.buyInCents) }), confirmLabel: t('tourn.register') })) void act(() => tournamentsApi.register(tk()!, tn.id)); }} className="btn btn-gold btn-block">{t('tourn.register')} · {dollars(tn.buyInCents)}</button>
+          );
+        })()}
         {joined && tn.status === 'registering' && <p className="text-xs text-emerald-300 text-center">{t('tourn.registered')}</p>}
         {isAdmin && tn.status === 'registering' && <button disabled={busy} onClick={async () => { if (await confirm({ title: t('tourn.cancelRefund'), message: t('tourn.confirmCancelM'), danger: true, confirmLabel: t('tourn.cancelRefund') })) void act(() => tournamentsApi.cancel(tk()!, tn.id)); }} className="btn btn-danger btn-block">{t('tourn.cancelRefund')}</button>}
         {/* Dual-control: a parked champion awaits a SECOND admin's confirmation before payout. */}

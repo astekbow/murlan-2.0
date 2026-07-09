@@ -10,6 +10,7 @@ import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { useT, translate, useLangStore } from '../lib/i18n.ts';
 import { dollars } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
+import { ResetCountdown } from '../components/ui/ResetCountdown.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 
 const tr = (key: string) => translate(key, useLangStore.getState().lang);
@@ -201,6 +202,7 @@ export function ShopView() {
                             onPreview={() => setPreview((p) => ({ ...p, [item.type]: item.id }))}
                             onBuy={() => void buy(item)}
                             onEquip={() => void equip(item)}
+                            onAddFunds={() => setView('wallet')}
                           />
                         ))}
                       </ul>
@@ -331,6 +333,7 @@ export function ShopView() {
                     onPreview={() => setPreview((p) => ({ ...p, [item.type]: item.id }))}
                     onBuy={() => void buy(item)}
                     onEquip={() => void equip(item)}
+                    onAddFunds={() => setView('wallet')}
                   />
                 ))}
               </ul>
@@ -357,9 +360,10 @@ interface ShopItemRowProps {
   onPreview: () => void;
   onBuy: () => void;
   onEquip: () => void;
+  onAddFunds: () => void; // money item you can't afford → deep-link to the wallet deposit
 }
 
-function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb, compact = false, onPreview, onBuy, onEquip }: ShopItemRowProps) {
+function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb, compact = false, onPreview, onBuy, onEquip, onAddFunds }: ShopItemRowProps) {
   const t = useT();
   const isXp = (item.costXp ?? 0) > 0;
   const isEquipped = status.equipped[item.type] === item.id;
@@ -391,6 +395,7 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
           {item.featured && !item.owned && <span className="tag tag-live shrink-0 text-[10px]">{t('shop.new')}</span>}
           {isXp && !item.owned && <span className="tag tag-open shrink-0 text-[10px] text-gold-hi" title={t('shop.xpTagHint')}>XP</span>}
           {isDeal && <span className="tag tag-open shrink-0 text-[10px] text-emerald-300">−{status.dailyDeal!.pct}%</span>}
+          {isDeal && <span className="text-[10px] text-muted/80 shrink-0 whitespace-nowrap">⏳ <ResetCountdown /></span>}
         </div>
         <div className="text-xs text-muted mt-0.5">
           {isDeal ? (
@@ -399,6 +404,11 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
               <span className="text-emerald-300 font-semibold">{costLabel(price)}</span>
             </>
           ) : priceLabel(item)}
+          {/* Instead of a dead greyed "Buy" (whose reason only shows in an invisible title= on touch),
+              tell the user exactly how much MONEY they're short — the CTA to fix it is on the right. */}
+          {!canAfford && !isXp && !item.owned && (
+            <span className="block text-[11px] font-medium text-amber-300 mt-0.5">{t('shop.needMore', { amount: dollars(price - balanceCents) })}</span>
+          )}
         </div>
       </div>
       <div className="ml-auto flex items-center gap-2">
@@ -408,8 +418,13 @@ function ShopItemRow({ item, status, balanceCents, busy, previewFelt, previewCb,
           ) : (
             <button onClick={onEquip} disabled={busy} className={btnSize}>{busy ? t('shop.equipping') : t('shop.equip')}</button>
           )
+        ) : (!canAfford && !isXp) ? (
+          // Money item you can't afford → a live path to top up, not a dead button.
+          <button type="button" onClick={onAddFunds} className={compact ? 'btn btn-outline btn-sm' : 'btn btn-outline'}>
+            {t('shop.addFunds')}
+          </button>
         ) : (
-          <button onClick={onBuy} disabled={busy || !canAfford} className={btnSize} title={!canAfford ? (isXp ? t('shop.notEnoughXp') : t('shop.notEnoughBalance')) : undefined}>
+          <button onClick={onBuy} disabled={busy || !canAfford} className={btnSize} title={!canAfford ? t('shop.notEnoughXp') : undefined}>
             {busy ? t('shop.buying') : t('shop.buy')}
           </button>
         )}

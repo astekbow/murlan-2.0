@@ -17,6 +17,7 @@ interface Entry { sq: string; en: string }
 const STRINGS: Record<string, Entry> = {
   // Common
   'common.backToLobby': { sq: '← Kthehu te lobi', en: '← Back to lobby' },
+  'common.resetsIn': { sq: 'rinovohet për {time}', en: 'resets in {time}' },
   'common.save': { sq: 'Ruaj', en: 'Save' },
   'a11y.skipToMain': { sq: 'Kalo te përmbajtja', en: 'Skip to content' },
   // Plural example pair for the plural() helper (one/other). Use plural('common.gamesN', n, lang).
@@ -112,6 +113,8 @@ const STRINGS: Record<string, Entry> = {
   'tourn.players': { sq: 'Lojtarë', en: 'Players' },
   'tourn.register': { sq: 'Regjistrohu', en: 'Register' },
   'tourn.confirmRegisterM': { sq: 'Të regjistrohesh me pagesë {amount}? Shuma bllokohet derisa të mbarojë turneu.', en: 'Register for {amount}? The buy-in is held until the tournament ends.' },
+  'tourn.confirmRegisterM2': { sq: 'Të regjistrohesh me pagesë {amount}? Shuma bllokohet (dhe kthehet nëse turneu anulohet). Fituesi merr fondin − 10% tarifë shtëpie.', en: 'Register for {amount}? The buy-in is held (and refunded if the tournament is cancelled). The winner takes the pool − 10% house fee.' },
+  'tourn.rakeNote': { sq: 'Fituesi merr fondin − 10% tarifë shtëpie (~{net})', en: 'Winner takes the pool − 10% house fee (~{net})' },
   'tourn.registered': { sq: '✓ U regjistrove — prit të tjerët.', en: '✓ Registered — waiting for others.' },
   'tourn.champion': { sq: 'Kampioni', en: 'Champion' },
   'tourn.round': { sq: 'Raundi', en: 'Round' },
@@ -243,6 +246,10 @@ const STRINGS: Record<string, Entry> = {
   'wallet.withdrawFeeNote': { sq: 'Tarifa e rrjetit (~1 USDT) zbritet nga shuma — të vijnë: shuma − ~1 USDT.', en: 'A network fee (~1 USDT) is deducted from the amount — you receive: amount − ~1 USDT.' },
   'wallet.youReceive': { sq: 'Të vijnë: {amount} (pas ~$1 tarifë rrjeti)', en: 'You will receive: {amount} (after ~$1 network fee)' },
   'wallet.withdrawBelowFee': { sq: 'Shuma është nën tarifën e rrjetit ({fee}). Fut një shumë më të madhe.', en: 'Amount is below the network fee ({fee}). Enter a larger amount.' },
+  'wallet.max': { sq: 'Max', en: 'Max' },
+  'wallet.minWithdraw': { sq: 'Tërheqja minimale: {min}', en: 'Minimum withdrawal: {min}' },
+  'wallet.errBelowMin': { sq: 'Nën minimumin ({min}).', en: 'Below the minimum ({min}).' },
+  'wallet.errInsufficientBal': { sq: 'Balancë e pamjaftueshme (ke {have}).', en: 'Insufficient balance (you have {have}).' },
   'wallet.depositQrAlt': { sq: 'Kod QR — skanoje për të dërguar USDT te adresa jote e depozitës.', en: 'QR code — scan it to send USDT to your deposit address.' },
   'wallet.addrValid': { sq: 'Adresa duket në rregull (TRON)', en: 'Address looks valid (TRON)' },
   'wallet.addrInvalid': { sq: 'Adresa s’duket në rregull — TRON nis me T, 34 karaktere', en: 'Address doesn’t look valid — TRON starts with T, 34 chars' },
@@ -544,6 +551,8 @@ const STRINGS: Record<string, Entry> = {
   'shop.confirmBuyBody': { sq: 'Të blihet «{name}» për {price}?', en: 'Buy “{name}” for {price}?' },
   'shop.xpTagHint': { sq: 'Kushton XP të fituar (jo lekë nga kuleta).', en: 'Costs earned XP (not wallet money).' },
   'shop.notEnoughBalance': { sq: 'S’ke aq lekë.', en: 'Not enough balance.' },
+  'shop.needMore': { sq: 'Të duhen edhe {amount}', en: 'Need {amount} more' },
+  'shop.addFunds': { sq: 'Shto fonde', en: 'Add funds' },
   'shop.loading': { sq: 'Po hapet dyqani…', en: 'Loading the shop…' },
   'shop.loginToOpen': { sq: 'Hyr që të hapësh dyqanin.', en: 'Log in to open the shop.' },
   'shop.errLoad': { sq: 'S’u hap dot dyqani.', en: 'Failed to load the shop.' },

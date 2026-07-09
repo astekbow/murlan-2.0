@@ -244,7 +244,12 @@ export function VipView() {
                   <li key={t2.key} className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${isMine ? 'border-gold bg-gradient-to-b from-gold/[.14] to-gold/[.04]' : 'border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]'}`}>
                     <Badge tier={t2} size="sm" />
                     {isMine && <span className="tag tag-open">{t('vip.you')}</span>}
-                    <span className="text-xs text-muted ml-auto">{t('vip.from')} {dollars(t2.minStakedCents)}</span>
+                    {/* Show the REAL perk (XP boost) here too — portrait used to omit it, so the same
+                        ladder showed different info depending on how you held the phone. */}
+                    <span className="text-xs text-muted ml-auto flex items-center gap-2">
+                      {t2.xpBoostBps > 0 && <b className="text-emerald-300">+{Math.round(t2.xpBoostBps / 100)}% XP</b>}
+                      <span>{t('vip.from')} {dollars(t2.minStakedCents)}</span>
+                    </span>
                   </li>
                 );
               })}

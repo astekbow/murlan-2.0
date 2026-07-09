@@ -377,6 +377,8 @@ export interface ComplianceProfile {
 
 export const walletApi = {
   balance: (token: string) => request<{ balanceCents: number }>('/wallet', { token }),
+  /** Withdrawal form config sourced from the SERVER (min/max/fee) so the client doesn't hard-code it. */
+  config: (token: string) => request<{ withdrawMinCents: number; withdrawMaxCents: number; withdrawFeeCents: number }>('/wallet/config', { token }),
   transactions: (token: string) => request<{ transactions: Transaction[] }>('/wallet/transactions', { token }),
   deposit: (token: string, amountCents: number) => request<DepositIntent>('/wallet/deposit', { method: 'POST', token, body: { amountCents } }),
   withdraw: (token: string, amountCents: number, destination: string) =>

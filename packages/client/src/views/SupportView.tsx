@@ -144,7 +144,8 @@ export function SupportView() {
               <li key={ticket.id} className="rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01]">
                 <div className="flex items-center gap-2">
                   <span className="font-display font-semibold tracking-wide text-txt truncate flex-1">{ticket.subject}</span>
-                  <span className={`tag ${ticket.status === 'open' ? 'tag-open' : 'tag-live'}`}>{t(STATUS_KEY[ticket.status])}</span>
+                  {/* One convention: amber=open/waiting, green=resolved/done, muted=closed. */}
+                  <span className={`tag ${ticket.status === 'open' ? 'tag-pending' : ticket.status === 'closed' ? 'tag-muted' : 'tag-open'}`}>{t(STATUS_KEY[ticket.status])}</span>
                 </div>
                 <p className="text-xs text-muted mt-1 whitespace-pre-wrap break-words">{ticket.message}</p>
                 {ticket.matchId && <p className="text-[11px] text-muted/70 mt-1 font-mono">{t('support.matchLabel', { id: ticket.matchId })}</p>}
