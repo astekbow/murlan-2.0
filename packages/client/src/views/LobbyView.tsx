@@ -243,14 +243,17 @@ export function LobbyView() {
                         <span className="text-xs text-muted">{stakeLabel(r.stakeCents)}</span>
                         <span className="text-xs text-muted">{r.seatsFilled}/{r.seatsTotal} 👥</span>
                         {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
-                        <button
-                          onClick={() => handleJoin(r)}
-                          disabled={!joinable}
-                          title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
-                          className={`btn btn-sm ml-auto shrink-0 ${joinable ? 'btn-gold' : 'btn-ghost'}`}
-                        >
-                          {!open ? t('lobby.playing') : full ? t('lobby.full') : canAfford ? t('lobby.enter') : t('lobby.noFunds')}
-                        </button>
+                        {open && !full && !canAfford ? (
+                          <button type="button" onClick={() => setView('wallet')} className="btn btn-sm btn-outline ml-auto shrink-0">{t('lobby.deposit')}</button>
+                        ) : (
+                          <button
+                            onClick={() => handleJoin(r)}
+                            disabled={!joinable}
+                            className={`btn btn-sm ml-auto shrink-0 ${joinable ? 'btn-gold' : 'btn-ghost'}`}
+                          >
+                            {!open ? t('lobby.playing') : full ? t('lobby.full') : t('lobby.enter')}
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -324,14 +327,18 @@ export function LobbyView() {
                         <span><b className="text-txt">{r.seatsFilled}/{r.seatsTotal}</b> {t('lobby.playersSuffix')}</span>
                       </div>
                       {open ? <span className="tag tag-open">{t('lobby.openTag')}</span> : <span className="tag tag-live"><span className="pls" />{t('lobby.playing')}</span>}
-                      <button
-                        onClick={() => handleJoin(r)}
-                        disabled={!joinable}
-                        title={open && !full && !canAfford ? t('lobby.cantAfford') : undefined}
-                        className={`btn w-full sm:w-auto ${joinable ? 'btn-gold' : 'btn-ghost'}`}
-                      >
-                        {!open ? t('lobby.playing') : full ? t('lobby.full') : canAfford ? t('lobby.enter') : t('lobby.noFunds')}
-                      </button>
+                      {/* No funds → a live path to deposit, not a dead greyed button. */}
+                      {open && !full && !canAfford ? (
+                        <button type="button" onClick={() => setView('wallet')} className="btn btn-outline w-full sm:w-auto">{t('lobby.deposit')}</button>
+                      ) : (
+                        <button
+                          onClick={() => handleJoin(r)}
+                          disabled={!joinable}
+                          className={`btn w-full sm:w-auto ${joinable ? 'btn-gold' : 'btn-ghost'}`}
+                        >
+                          {!open ? t('lobby.playing') : full ? t('lobby.full') : t('lobby.enter')}
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -371,6 +378,16 @@ export function LobbyView() {
           <FriendsOnlineStrip />
           {/* Recent-winners ticker (display-only). */}
           <LobbyLiveStrip data={live2} />
+          {/* Balance + one-tap deposit on the HOME hub — a first-time depositor now has an obvious
+              funnel instead of only the tiny TopBar chip. */}
+          <button type="button" onClick={() => { sound.play('button'); setView('wallet'); }} className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 border border-gold-line/30 bg-gradient-to-r from-gold/[.08] to-transparent hover:border-gold/50 transition-colors">
+            <span className="coin shrink-0" style={{ width: 22, height: 22 }} aria-hidden />
+            <span className="text-left flex-1 min-w-0">
+              <span className="block text-[10px] uppercase tracking-wider text-muted/70">{t('lobby.yourBalance')}</span>
+              <span className="block font-display font-bold text-gold-hi text-lg leading-none tabular-nums">{dollars(balanceCents)}</span>
+            </span>
+            <span className="btn btn-gold btn-sm pointer-events-none shrink-0">＋ {t('lobby.deposit')}</span>
+          </button>
           <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 

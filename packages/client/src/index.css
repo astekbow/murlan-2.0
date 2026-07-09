@@ -809,7 +809,7 @@ select:focus-visible,
   .mode { min-height: 124px; padding: 11px 14px; gap: 3px; border-radius: 16px; }
   .mode .micon { font-size: 32px; }
   .mode .mname { font-size: 18px; letter-spacing: 0.4px; }
-  .mode .mdesc { font-size: 10.5px; margin-top: 0; line-height: 1.25; }
+  .mode .mdesc { font-size: 12px; margin-top: 0; line-height: 1.3; }
   .mode .mcta { margin-top: 5px; font-size: 11px; padding: 5px 14px; }
 }
 
@@ -1155,7 +1155,7 @@ select:focus-visible,
   .mode { min-height: 124px; padding: 10px 14px; border-radius: 16px; gap: 3px; }
   .mode .micon { font-size: 30px; }
   .mode .mname { font-size: 17px; letter-spacing: 0.4px; }
-  .mode .mdesc { font-size: 10.5px; margin-top: 1px; }
+  .mode .mdesc { font-size: 12px; margin-top: 1px; }
   .mode .mcta { margin-top: 6px; font-size: 11px; padding: 6px 16px; }
 }
 

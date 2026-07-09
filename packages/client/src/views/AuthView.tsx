@@ -11,6 +11,7 @@ export function AuthView() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [agreed18, setAgreed18] = useState(false); // register: must confirm 18+ / accept the terms
   const [forgotBusy, setForgotBusy] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
 
@@ -81,8 +82,6 @@ export function AuthView() {
           />
           <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">CARD CLUB</div>
           <h1 className={`gold-text font-display font-bold tracking-wide leading-none ${landscape ? 'text-3xl' : 'text-4xl'}`}>CRYPTO-MURLAN</h1>
-          {/* Get the app — iPhone + Android buttons right under the title (no bottom-of-page scroll). */}
-          {!isStandalone() && <AppDownload landscape={landscape} />}
           {/* Language pill — a pre-login switch (the app defaults to Albanian). */}
           <div className="mt-3 inline-flex rounded-full border border-gold/25 overflow-hidden text-xs" role="radiogroup" aria-label={t('settings.language')}>
             {(['sq', 'en'] as Lang[]).map((l) => (
@@ -122,10 +121,12 @@ export function AuthView() {
             </button>
           </div>
 
+          {/* aria-describedby (not blanket aria-invalid) links the error to the fields — a generic
+              server error like "wrong credentials" no longer marks EVERY field invalid. */}
           {mode === 'register' && (
-            <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
+            <Field label={t('auth.username')} value={username} onChange={setUsername} autoComplete="username" required minLength={3} describedBy={error ? 'auth-error' : undefined} />
           )}
-          <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required invalid={!!error} describedBy={error ? 'auth-error' : undefined} />
+          <Field label={t('auth.email')} type="email" value={email} onChange={setEmail} autoComplete="email" required describedBy={error ? 'auth-error' : undefined} />
           <Field
             label={t('auth.password')}
             type="password"
@@ -134,15 +135,23 @@ export function AuthView() {
             autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
             required
             minLength={mode === 'register' ? 8 : undefined}
-            invalid={!!error}
             describedBy={error ? 'auth-error' : undefined}
+            hint={mode === 'register' ? t('auth.pwRule') : undefined}
           />
+
+          {/* 18+ / terms gate on the real-money register screen (compliance + trust). */}
+          {mode === 'register' && (
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input type="checkbox" checked={agreed18} onChange={(e) => setAgreed18(e.target.checked)} className="mt-0.5 w-4 h-4 accent-gold shrink-0" />
+              <span className="text-[12px] text-muted leading-snug">{t('auth.age18')}</span>
+            </label>
+          )}
 
           {error && (
             <div id="auth-error" role="alert" className="text-sm text-red-300 bg-suit/15 border border-suit/40 rounded-lg px-3 py-2">{error}</div>
           )}
 
-          <button type="submit" disabled={loading} className={`btn btn-gold btn-block ${landscape ? '' : 'btn-lg'}`}>
+          <button type="submit" disabled={loading || (mode === 'register' && !agreed18)} className={`btn btn-gold btn-block ${landscape ? '' : 'btn-lg'}`}>
             {loading ? t('auth.processing') : mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
           </button>
 
@@ -151,6 +160,9 @@ export function AuthView() {
               {t('auth.forgot')}
             </button>
           )}
+
+          {/* "Get the app" moved BELOW the sign-in form so login is the hero, not the install prompt. */}
+          {!isStandalone() && <AppDownload landscape={landscape} />}
         </div>
       </form>
     </div>
@@ -229,28 +241,46 @@ interface FieldProps {
   minLength?: number;
   invalid?: boolean;
   describedBy?: string;
+  hint?: string; // small helper line under the field (e.g. password rules)
 }
-function Field({ label, value, onChange, type = 'text', autoComplete, required, minLength, invalid, describedBy }: FieldProps) {
+function Field({ label, value, onChange, type = 'text', autoComplete, required, minLength, invalid, describedBy, hint }: FieldProps) {
+  const t = useT();
+  const isPw = type === 'password';
+  const [show, setShow] = useState(false);
   return (
     <label className="block">
       <span className="field-label">{label}</span>
-      <input
-        type={type}
-        value={value}
-        autoComplete={autoComplete}
-        required={required}
-        minLength={minLength}
-        aria-invalid={invalid || undefined}
-        aria-describedby={describedBy}
-        // Stop mobile keyboards from auto-capitalizing/autocorrecting credentials
-        // (an auto-capped first letter in the email was breaking login).
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        inputMode={type === 'email' ? 'email' : undefined}
-        onChange={(e) => onChange(e.target.value)}
-        className="field"
-      />
+      <div className="relative">
+        <input
+          type={isPw && show ? 'text' : type}
+          value={value}
+          autoComplete={autoComplete}
+          required={required}
+          minLength={minLength}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
+          // Stop mobile keyboards from auto-capitalizing/autocorrecting credentials
+          // (an auto-capped first letter in the email was breaking login).
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode={type === 'email' ? 'email' : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          className={`field ${isPw ? 'pr-14' : ''}`}
+        />
+        {/* Show/hide toggle — typing a password blind on a phone is the biggest login friction. */}
+        {isPw && (
+          <button
+            type="button"
+            onClick={() => setShow((s) => !s)}
+            aria-label={show ? t('auth.hidePw') : t('auth.showPw')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-display font-semibold uppercase tracking-wide text-gold-hi px-1.5 py-1 rounded-md hover:bg-gold/[.12]"
+          >
+            {show ? t('auth.hide') : t('auth.show')}
+          </button>
+        )}
+      </div>
+      {hint && <p className="text-[11px] text-muted/80 mt-1">{hint}</p>}
     </label>
   );
 }
