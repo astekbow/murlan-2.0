@@ -91,40 +91,24 @@ function LobbyLiveStrip({ data }: { data: LobbyLiveDTO | null }) {
 /** Compact "friends online now" strip on the hub — tap a friend to challenge them to a free 1v1 duel. */
 function FriendsOnlineStrip() {
   const t = useT();
-  const [online, setOnline] = useState<FriendEntry[]>([]);
+  const [count, setCount] = useState(0);
   useEffect(() => {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
     let alive = true;
-    const pull = () => { void friendsApi.list(token).then((r) => { if (alive) setOnline(r.friends.filter((f) => f.direction === 'friends' && f.online)); }).catch(() => {}); };
+    const pull = () => { void friendsApi.list(token).then((r) => { if (alive) setCount(r.friends.filter((f) => f.direction === 'friends' && f.online).length); }).catch(() => {}); };
     pull();
     const id = window.setInterval(pull, 20_000);
     return () => { alive = false; window.clearInterval(id); };
   }, []);
-  if (online.length === 0) return null;
-  const duel = async (f: FriendEntry) => {
-    sound.play('button');
-    const gs = useGameStore.getState();
-    const roomId = await gs.createRoom('1v1', 0, undefined, true); // free private 1v1, then invite them
-    if (roomId) await gs.inviteFriend(f.user.id);
-    else useGameStore.setState({ toast: t('friends.duelFailed'), toastKind: 'error' });
-  };
+  if (count === 0) return null;
+  // Just a compact COUNT (owner request) — no per-friend avatar chips.
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2 animate-rise">
-      <span className="shrink-0 font-serif text-[10px] tracking-[0.25em] text-muted uppercase">{t('lobby.friendsOnline')}</span>
-      {online.slice(0, 6).map((f) => (
-        <button
-          key={f.user.id}
-          type="button"
-          onClick={() => void duel(f)}
-          title={t('lobby.duelFriend', { name: f.user.username })}
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[.04] pl-1 pr-2.5 py-1 hover:border-gold transition-colors"
-        >
-          <AvatarFace id={f.user.avatar} size={22} className="text-base leading-none" />
-          <span className="text-xs font-display font-semibold text-txt truncate max-w-[80px]">{f.user.username}</span>
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden />
-        </button>
-      ))}
+    <div className="flex items-center justify-center animate-rise">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[.04] px-3 py-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden />
+        <span className="text-xs font-display font-semibold text-txt">{t('lobby.friendsOnlineCount', { n: count })}</span>
+      </span>
     </div>
   );
 }
@@ -378,16 +362,6 @@ export function LobbyView() {
           <FriendsOnlineStrip />
           {/* Recent-winners ticker (display-only). */}
           <LobbyLiveStrip data={live2} />
-          {/* Balance + one-tap deposit on the HOME hub — a first-time depositor now has an obvious
-              funnel instead of only the tiny TopBar chip. */}
-          <button type="button" onClick={() => { sound.play('button'); setView('wallet'); }} className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 border border-gold-line/30 bg-gradient-to-r from-gold/[.08] to-transparent hover:border-gold/50 transition-colors">
-            <span className="coin shrink-0" style={{ width: 22, height: 22 }} aria-hidden />
-            <span className="text-left flex-1 min-w-0">
-              <span className="block text-[10px] uppercase tracking-wider text-muted/70">{t('lobby.yourBalance')}</span>
-              <span className="block font-display font-bold text-gold-hi text-lg leading-none tabular-nums">{dollars(balanceCents)}</span>
-            </span>
-            <span className="btn btn-gold btn-sm pointer-events-none shrink-0">＋ {t('lobby.deposit')}</span>
-          </button>
           <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 
