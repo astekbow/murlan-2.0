@@ -361,7 +361,7 @@ export function FriendsView() {
       ) : results.length === 0 ? (
         searched ? <p className="text-xs text-muted px-3 py-2">{t('friends.searchNoResults')}</p> : null
       ) : (
-        <ul className="max-h-56 overflow-y-auto divide-y divide-white/5">
+        <ul className="max-h-[34vh] overflow-y-auto divide-y divide-white/5">
           {results.map((u) => (
             <li key={u.id} className="flex items-center gap-2 px-3 py-2">
               <span className="pfp shrink-0" style={{ width: 28, height: 28 }}><AvatarFace id={u.avatar} fill className="text-sm leading-none" /></span>
@@ -434,7 +434,9 @@ export function FriendsView() {
             {incoming.length > 0 && (
               <details className="mb-2 rounded-lg border border-gold/30 bg-gold/[.05] px-2.5 py-1.5">
                 <summary className="cursor-pointer text-xs font-display font-semibold text-gold-hi">{t('friends.requests')} ({incoming.length})</summary>
-                <ul className="mt-2 space-y-1.5">
+                {/* Cap + scroll internally so an expanded list can't eat the pane and collapse the
+                    friends-list scroller below it (landscape squeeze). */}
+                <ul className="mt-2 space-y-1.5 max-h-[28vh] overflow-y-auto">
                   {incoming.map((f) => (
                     <li key={f.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 border border-white/10 bg-white/[.03]">
                       <span className="font-display font-semibold text-txt text-sm flex-1 truncate">{f.user.username}</span>

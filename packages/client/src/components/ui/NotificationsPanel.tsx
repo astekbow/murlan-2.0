@@ -105,10 +105,10 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         ref={panelRef}
         role="dialog"
         aria-label={t('notifs.ariaLabel')}
-        className="fixed right-3 top-16 w-80 max-w-[calc(100vw-1.5rem)] z-[91] panel-solid animate-pop overflow-hidden"
+        className="fixed right-3 top-16 w-80 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-5rem)] flex flex-col z-[91] panel-solid animate-pop overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10">
+        <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10">
           <h2 className="font-display font-semibold tracking-wide text-gold-hi text-sm">{t('notifs.title')}</h2>
           {items.length > 0 && <span className="text-xs text-muted">{items.length}</span>}
         </div>
@@ -120,7 +120,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
             <p className="text-sm text-muted">{t('notifs.empty')}</p>
           </div>
         ) : (
-          <ul className="max-h-[60vh] overflow-y-auto no-scrollbar divide-y divide-white/[.06]">
+          <ul className="flex-1 min-h-0 overflow-y-auto no-scrollbar divide-y divide-white/[.06]">
             {items.map((n, i) => {
               // acceptInvite() joins the SINGLE live-invite slot (overwritten by the newest invite).
               // Older invite rows would join the WRONG room, so only the NEWEST invite gets the actions.
@@ -169,7 +169,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
 
         {/* Footer */}
         {items.length > 0 && (
-          <div className="px-3 py-2.5 border-t border-white/10">
+          <div className="shrink-0 px-3 py-2.5 border-t border-white/10">
             <button
               type="button"
               className="btn btn-ghost btn-block"

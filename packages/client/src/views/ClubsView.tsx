@@ -519,7 +519,9 @@ function InviteFriendsPanel({ compact = false }: { compact?: boolean }) {
         friends.length === 0 ? (
           <p className="text-xs text-muted py-2">{t('clubs.noFriendsToInvite')}</p>
         ) : (
-          <ul className="space-y-1.5 mt-2">
+          // Cap + scroll internally so an expanded invite list can't eat the landscape pane and
+          // squeeze the members-list scroller below it (same squeeze as the room 2v2 picker).
+          <ul className="space-y-1.5 mt-2 max-h-[30vh] overflow-y-auto">
             {friends.map((f) => (
               <li key={f.id} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 border border-white/10 bg-white/[.03]">
                 <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${f.online ? 'bg-emerald-400' : 'bg-white/25'}`} aria-hidden />

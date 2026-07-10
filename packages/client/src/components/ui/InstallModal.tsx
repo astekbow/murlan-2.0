@@ -53,7 +53,7 @@ export function InstallModal() {
       onClick={() => dismiss(false)}
     >
       <div
-        className="panel-solid rounded-2xl p-5 w-full max-w-sm animate-rise relative"
+        className="panel-solid rounded-2xl p-5 w-full max-w-sm animate-rise relative max-h-[92dvh] overflow-y-auto overscroll-contain"
         style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}
         onClick={(e) => e.stopPropagation()}
       >

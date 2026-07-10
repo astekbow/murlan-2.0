@@ -31,7 +31,7 @@ export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: 
         role="dialog"
         aria-modal="true"
         aria-label={kind === 'emote' ? t('emote.emote') : t('emote.quickChat')}
-        className="panel-solid w-full max-w-sm p-4 animate-pop outline-none"
+        className="panel-solid w-full max-w-sm p-4 animate-pop outline-none max-h-[88dvh] overflow-y-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
