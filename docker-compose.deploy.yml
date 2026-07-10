@@ -30,26 +30,30 @@ services:
   # because it can't reach the DB (audit 2026-06-08, finding C3).
   # Resource caps (audit: a runaway container shouldn't let the OOM-killer evict
   # Postgres mid-write and corrupt the ledger) + Docker log rotation (so container
-  # stdout can't fill a small disk). Caps are env-overridable to size to YOUR VPS —
-  # DEFAULTS are tuned for a ~1GB host (the current box: 961Mi RAM). On a 2GB+ box
-  # RAISE them via .env (e.g. POSTGRES_MEM_LIMIT=1g SERVER_MEM_LIMIT=768m). Postgres
-  # gets the largest share + a reservation so the kernel prefers killing the app/redis
-  # over the database under pressure. ⚠️ 1GB is TIGHT for this full stack (it leans on
-  # swap) — upgrade to 2GB before real player volume. mem_limit needs Compose v2.
+  # stdout can't fill a small disk). Caps are env-overridable to size to YOUR VPS.
+  # DEFAULTS are now tuned for the FINLAND box (~7.8 GB RAM, 4 cores). ⚠️ HISTORY: they
+  # used to be tuned for a 1 GB host (SERVER_MEM_LIMIT=384m). After the move to the 7.8 GB
+  # box those tiny caps were NOT raised, so the Node server (which does NOT see the cgroup
+  # limit and sizes its heap off host RAM) grew past 384 MB and Docker OOM-KILLED it (exit
+  # 137) → restart → EVERY live socket dropped at once (players "all disconnected mid-match",
+  # 2026-07). Fix: caps sized for the real box + --max-old-space-size so Node GCs INSIDE the
+  # cap instead of being SIGKILLed. Total default ≈ 3.9 GB, well under 7.8 GB (headroom for
+  # the OS + spikes). Postgres gets the largest share + a reservation so the kernel prefers
+  # killing the app/redis over the database under pressure. Override in .env if your box differs.
   postgres:
     restart: unless-stopped
     stop_grace_period: 60s   # let Postgres flush WAL + finish a backup dump cleanly
-    mem_reservation: ${POSTGRES_MEM_RESERVATION:-160m}
-    mem_limit: ${POSTGRES_MEM_LIMIT:-512m}
+    mem_reservation: ${POSTGRES_MEM_RESERVATION:-512m}
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
     logging: { driver: json-file, options: { max-size: '50m', max-file: '5' } }  # bigger ring so a money incident stays traceable (audit 2026-06-28)
   redis:
     restart: unless-stopped
-    mem_limit: ${REDIS_MEM_LIMIT:-96m}
+    mem_limit: ${REDIS_MEM_LIMIT:-256m}
     logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
   server:
     restart: unless-stopped
     stop_grace_period: 60s   # let in-flight matches drain (graceful SIGTERM) before kill
-    mem_limit: ${SERVER_MEM_LIMIT:-384m}
+    mem_limit: ${SERVER_MEM_LIMIT:-1536m}
     # SINGLE-INSTANCE ONLY (audit 2026-06-28 #4): timers, rate-limits, room ownership and the deposit/
     # auto-payout CAP serialization are all in-process. Running >1 replica corrupts live matches AND lets
     # a player bypass caps by hitting two instances in parallel. This pins the default to 1; NEVER run
@@ -65,6 +69,11 @@ services:
     # (profile: ios-signing) copies Caddy's Let's Encrypt cert here, chowned to this container's `node`
     # uid. EMPTY unless you enable it — set the two env vars in .env to turn signing on (see below).
     environment:
+      # Node does NOT read the container's cgroup mem_limit — without this it sizes its old-space
+      # heap off the HOST's 7.8 GB and grows until Docker OOM-kills the container. Pin the heap
+      # comfortably BELOW mem_limit (1536m) so V8 GCs within the cap instead of being SIGKILLed.
+      # Keep this < SERVER_MEM_LIMIT (leaves room for Prisma native + buffers). Env-overridable.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=1024}
       IOS_PROFILE_SIGN_CERT: ${IOS_PROFILE_SIGN_CERT:-}
       IOS_PROFILE_SIGN_KEY: ${IOS_PROFILE_SIGN_KEY:-}
     volumes:
