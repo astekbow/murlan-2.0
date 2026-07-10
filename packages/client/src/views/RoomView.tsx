@@ -412,8 +412,14 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
           </span>
         </div>
         <div className="flex-1 min-h-0 flex flex-col gap-2.5">
-          {room.type === '2v2' ? teamsEl : lsSeats}
-          {/* Status + the ready CTA — the core action, always visible without scroll. */}
+          {/* Scrollable: seats / the 2v2 team picker + the join code. The 2v2 picker is TALL, so it
+              scrolls HERE instead of eating the flex space and squeezing the Invite button off-screen
+              (the "invite doesn't show in 2v2" bug). */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
+            {room.type === '2v2' ? teamsEl : lsSeats}
+            {privateCode}
+          </div>
+          {/* Status + ready CTA — PINNED, always visible without scroll. */}
           <div className="shrink-0 text-center space-y-1.5">
             {counting ? (
               <div className="gold-text font-display font-bold text-4xl leading-none animate-pop" key={secs}>{secs}</div>
@@ -429,11 +435,8 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
               {meReady ? t('room.cancelReady') : !canAfford ? t('room.noFunds') : t('room.imReady')}
             </button>
           </div>
-          {/* Join code (glanceable) + the always-tappable Invite button → scrollable modal. */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
-            {privateCode}
-            {inviteButton}
-          </div>
+          {/* Invite button — PINNED below the CTA so it's ALWAYS reachable, incl. 2v2. */}
+          <div className="shrink-0">{inviteButton}</div>
         </div>
         {inviteModal}
       </div>,
