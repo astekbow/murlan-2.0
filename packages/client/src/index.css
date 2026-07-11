@@ -75,20 +75,18 @@ body,
 }
 
 /* MOBILE ROOT GUARDS (responsive audit 2026-06):
-   - text-size-adjust:100% — STOP mobile browsers auto-inflating text when the viewport
-     widens on ROTATION. This is the real root cause of the "page zooms in when I rotate"
-     bug (NOT the viewport meta, which is already correct). Not a hack — it disables an
-     unwanted browser heuristic while leaving real pinch-zoom intact.
-   - scrollbar-gutter:stable — reserve the scrollbar lane so the page WIDTH is identical
-     whether a route scrolls or not → no horizontal jump when navigating between screens.
+   - text-size-adjust:100% — STOP mobile browsers auto-inflating text when the viewport widens on
+     ROTATION (the real root cause of "page zooms in when I rotate"; not the viewport meta, which is
+     correct). BOTH forms are required: WebKit/Safari honor only -webkit-, Blink/Chrome want the
+     unprefixed. Firefox has no auto-inflate so the compat note there is informational. Real
+     pinch-zoom stays intact.
    - overflow-x:clip — defense-in-depth against a stray over-wide element forcing a
-     horizontal scroll / rotation rescale. `clip` (not `hidden`) so it never becomes a
-     scroll container or breaks position:sticky; inner scrollers (the hand fan) are
-     unaffected. */
+     horizontal scroll / rotation rescale (also removes the between-route width jump).
+     `clip` (not `hidden`) so it never becomes a scroll container or breaks position:sticky;
+     inner scrollers (the hand fan) are unaffected. */
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  scrollbar-gutter: stable;
   /* Paint the ROOT canvas obsidian. html/body are height:100% = the INITIAL viewport;
      on iOS the VISUAL viewport can momentarily be taller (browser chrome collapsing,
      landscape home-indicator band, lobby↔table transitions). The exposed strip below
@@ -777,8 +775,10 @@ select:focus-visible,
 .card-selected { transform: translateY(-18px); }
 
 @layer utilities {
+  /* Hide scrollbars: ::-webkit-scrollbar covers all mobile (WebKit/Blink) + Chrome; -ms- covers legacy
+     Edge. (Dropped the Firefox-only `scrollbar-width` — desktop Firefox isn't a target for this phone PWA.) */
   .no-scrollbar::-webkit-scrollbar { display: none; }
-  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .no-scrollbar { -ms-overflow-style: none; }
 }
 
 /* ---- Mobile-first table fixes (phones ≤480px) ---------------------------- */
@@ -1275,7 +1275,7 @@ select:focus-visible,
 .pg-ls-left  { flex: 0 0 36%; display: flex; flex-direction: column; min-height: 0; }
 .pg-ls-right { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 /* The ONLY scrolling region(s) — bounded inside a pane, never the whole page. */
-.pg-ls-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; }
+.pg-ls-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
 /* Right-pane tab bar (time-slices Turne/Chat so each fits the short height). */
 .pg-ls-tabs { flex: 0 0 auto; display: flex; gap: 6px; margin-bottom: 6px; }
 .pg-ls-tab { flex: 1 1 0; padding: 7px 10px; border-radius: 10px; font-weight: 600; font-size: 13px;

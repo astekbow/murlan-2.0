@@ -7,6 +7,9 @@
     }],
     "axe/forms": ["default", {
       "autocomplete-valid": "off"
+    }],
+    "compat-api/css": ["default", {
+      "ignore": ["text-size-adjust"]
     }]
   }
 }

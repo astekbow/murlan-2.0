@@ -601,11 +601,13 @@ export function FriendsView() {
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.requests')} <span className="text-muted font-normal">({incoming.length})</span></h2>
               <ul className="space-y-2.5">
                 {incoming.map((f) => (
-                  <FriendRow key={f.id} entry={f}>
-                    <button onClick={() => void respond(f.id, true)} disabled={acting} className="btn btn-green">{t('friends.accept')}</button>
-                    <button onClick={() => void respond(f.id, false)} disabled={acting} className="btn btn-ghost">{t('friends.decline')}</button>
-                    <button onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
+                  <li key={f.id}>
+                  <FriendRow entry={f}>
+                    <button type="button" onClick={() => void respond(f.id, true)} disabled={acting} className="btn btn-green">{t('friends.accept')}</button>
+                    <button type="button" onClick={() => void respond(f.id, false)} disabled={acting} className="btn btn-ghost">{t('friends.decline')}</button>
+                    <button type="button" onClick={() => void block(f.user.id)} disabled={acting} className="btn btn-ghost" title={t('friends.block')}>{t('friends.block')}</button>
                   </FriendRow>
+                  </li>
                 ))}
               </ul>
             </section>
@@ -617,10 +619,12 @@ export function FriendsView() {
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.pending')} <span className="text-muted font-normal">({outgoing.length})</span></h2>
               <ul className="space-y-2.5">
                 {outgoing.map((f) => (
-                  <FriendRow key={f.id} entry={f}>
+                  <li key={f.id}>
+                  <FriendRow entry={f}>
                     <span className="tag tag-open">{t('friends.sent')}</span>
-                    <button onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost btn-sm" title={t('friends.cancelRequest')}>{t('friends.cancelRequest')}</button>
+                    <button type="button" onClick={() => void remove(f.id)} disabled={acting} className="btn btn-ghost btn-sm" title={t('friends.cancelRequest')}>{t('friends.cancelRequest')}</button>
                   </FriendRow>
+                  </li>
                 ))}
               </ul>
             </section>
@@ -638,7 +642,8 @@ export function FriendsView() {
             ) : (
               <ul className="grid gap-2.5 lg:grid-cols-2">
                 {accepted.map((f) => (
-                  <FriendRow key={f.id} entry={f} showOnline>
+                  <li key={f.id}>
+                  <FriendRow entry={f} showOnline>
                     {/* ONE primary action (contextual), everything else behind a ⋯ menu — so
                         destructive (Remove/Block) no longer sits with the same weight as Message/Send. */}
                     {inRoom ? (
@@ -658,6 +663,7 @@ export function FriendsView() {
                       ]}
                     />
                   </FriendRow>
+                  </li>
                 ))}
               </ul>
             )}
@@ -669,9 +675,11 @@ export function FriendsView() {
               <h2 className="font-display font-semibold tracking-wide text-gold-hi text-base mb-3">{t('friends.blocked')} <span className="text-muted font-normal">({blocked.length})</span></h2>
               <ul className="space-y-2.5">
                 {blocked.map((f) => (
-                  <FriendRow key={f.id} entry={f}>
-                    <button onClick={() => void unblock(f.user.id)} disabled={acting} className="btn btn-ghost">{t('friends.unblock')}</button>
+                  <li key={f.id}>
+                  <FriendRow entry={f}>
+                    <button type="button" onClick={() => void unblock(f.user.id)} disabled={acting} className="btn btn-ghost">{t('friends.unblock')}</button>
                   </FriendRow>
+                  </li>
                 ))}
               </ul>
             </section>
@@ -688,11 +696,13 @@ interface FriendRowProps {
   children?: React.ReactNode;
 }
 
+// Renders the row CARD (a <div>) — the caller wraps it in an <li> so the <ul> only ever contains
+// <li> (valid list structure; a component-rendered <li> confused static a11y checkers).
 function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
   const t = useT();
   const { user, online } = entry;
   return (
-    <li className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold/40 transition-colors">
+    <div className="flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] hover:border-gold/40 transition-colors">
       <AvatarFace id={user.avatar} size={40} className="text-3xl leading-none" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -708,6 +718,6 @@ function FriendRow({ entry, showOnline = false, children }: FriendRowProps) {
         <div className="text-xs text-muted">{t('friends.level', { n: user.level })}{showOnline && online ? ` · ${presenceText(entry, t)}` : ''}</div>
       </div>
       <div className="ml-auto flex items-center gap-2">{children}</div>
-    </li>
+    </div>
   );
 }
