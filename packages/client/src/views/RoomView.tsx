@@ -236,20 +236,17 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
                   </div>
                 );
               })}
-              {/* Switch to the OTHER team whenever it has a free slot (even if I'm ready — we unready
-                  first). A full team offers no button; a hint says why. */}
+              {/* Move to the OTHER team ANY time before the countdown (we auto-unready first). If it has
+                  a free slot we join it; if it's full we SWAP with a player there — so a full 2+2 room
+                  can still rearrange teams (before, a full room locked everyone's team forever). */}
               {!mine && !counting && (
-                hasFree ? (
-                  <button
-                    type="button"
-                    onClick={() => void switchToTeam(ti)}
-                    className="btn btn-gold btn-sm btn-block mt-0.5"
-                  >
-                    {t('room.joinTeam')}
-                  </button>
-                ) : (
-                  <div className="text-[10px] text-muted/70 text-center mt-0.5">{t('room.teamFull')}</div>
-                )
+                <button
+                  type="button"
+                  onClick={() => void switchToTeam(ti)}
+                  className="btn btn-gold btn-sm btn-block mt-0.5"
+                >
+                  {hasFree ? t('room.joinTeam') : t('room.swapTeam')}
+                </button>
               )}
             </div>
           );

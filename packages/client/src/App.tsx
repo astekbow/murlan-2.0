@@ -114,6 +114,18 @@ export function App() {
   const connected = useGameStore((s) => s.connected);
   useUrlSync(); // lobby sub-views ↔ URL path: deep-linkable pages + working back button
   useKeyboardInset(); // keep the focused text field above the on-screen keyboard (iOS DM/chat composers etc.)
+
+  // On any MAJOR screen change (lobby ↔ waiting room ↔ table, incl. game open / "play again" / exit),
+  // drop focus (close any soft keyboard) and reset scroll to the top — so a screen never opens "stuck"
+  // mid-scroll or panned from the previous one (the reported "view jams to the middle" between hands).
+  const screenKey = spectating && room ? 'spectate'
+    : room && (room.status === 'inMatch' || room.status === 'finished') ? 'table'
+    : room ? 'room'
+    : lobbyView;
+  useEffect(() => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    window.scrollTo({ top: 0 });
+  }, [screenKey]);
   // Phones + tablets are LANDSCAPE-ONLY: held portrait, the whole app is blocked by the rotate
   // prompt (no portrait UI at all). Desktops/laptops are unaffected — they render normally.
   const forceRotate = useForceLandscapeApp(); // true on a phone/tablet held PORTRAIT → show RotateOverlay

@@ -29,15 +29,26 @@ test('switchTeam moves a 2v2 player to a free seat of the other team and frees t
   assert.equal(rm.switchTeam('B', 0).ok, true, 'no-op when already on that team');
 });
 
-test('switchTeam refuses when the target team is full', () => {
+test('switchTeam SWAPS with a target-team player when that team is full (full room can still rearrange)', () => {
   const rm = new RoomManager();
   const { roomId } = rm.createRoom(u('A'), { type: '2v2', stakeCents: 0 });
   rm.joinRoom(u('B'), roomId!);
   rm.joinRoom(u('C'), roomId!);
-  rm.joinRoom(u('D'), roomId!); // full: team0 = A,C ; team1 = B,D
-  const res = rm.switchTeam('A', 1);
-  assert.equal(res.ok, false);
-  if (!res.ok) assert.equal(res.error?.code, 'team_full');
+  rm.joinRoom(u('D'), roomId!); // full: team0 seats {0,2}=A,C ; team1 seats {1,3}=B,D
+  const res = rm.switchTeam('A', 1); // A wants team1 (full) → swap with the first team-1 player (B)
+  assert.equal(res.ok, true);
+  const after = rm.getRoom(roomId!)!;
+  assert.equal(after.seats[1]!.userId, 'A', 'A took a team-1 seat');
+  assert.equal(after.seats[1]!.team, 1);
+  assert.equal(after.seats[0]!.userId, 'B', 'the displaced player took A\'s team-0 seat');
+  assert.equal(after.seats[0]!.team, 0);
+  assert.equal(after.seats[2]!.userId, 'C', 'the other team-0 player is untouched');
+  assert.equal(after.seats[3]!.userId, 'D', 'the other team-1 player is untouched');
+  assert.equal(after.seats[1]!.ready, false, 'the mover is un-readied');
+  assert.equal(after.seats[0]!.ready, false, 'the swapped player is un-readied');
+  // Still exactly 2 + 2.
+  assert.equal(after.seats.filter((s) => s.team === 0 && s.userId).length, 2);
+  assert.equal(after.seats.filter((s) => s.team === 1 && s.userId).length, 2);
 });
 
 test('switchTeam refuses outside a 2v2 room', () => {

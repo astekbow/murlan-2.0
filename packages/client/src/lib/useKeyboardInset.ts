@@ -29,12 +29,18 @@ export function useKeyboardInset(): void {
     };
 
     let raf = 0;
+    let kbOpen = false;
     const applyInset = () => {
       if (!vv) return;
       // Keyboard height ≈ how much shorter the visual viewport is than the layout viewport, from the bottom.
       const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       root.style.setProperty('--kb', `${Math.round(kb)}px`);
-      root.classList.toggle('kb-open', kb > 80); // ignore tiny insets (the collapsing URL bar, etc.)
+      const open = kb > 80; // ignore tiny insets (the collapsing URL bar, etc.)
+      root.classList.toggle('kb-open', open);
+      // When the keyboard CLOSES, undo any page scroll the reveal left behind (so the view doesn't stay
+      // "stuck to the middle" after you finish typing). Only when the document actually scrolled.
+      if (kbOpen && !open && window.scrollY > 0) window.scrollTo({ top: 0 });
+      kbOpen = open;
     };
     const onViewport = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(applyInset); };
 
@@ -42,9 +48,12 @@ export function useKeyboardInset(): void {
     const onFocusIn = (e: FocusEvent) => {
       if (!isTextField(e.target)) return;
       const el = e.target as HTMLElement;
-      // Wait for the keyboard to open + the modal/scroller to re-measure, then bring the field into view.
+      // Wait for the keyboard to open + the modal/scroller to re-measure, then bring the field into view —
+      // but ONLY if a soft keyboard actually opened. Otherwise (desktop, or an already-visible field) the
+      // center-scroll would needlessly jerk the page to the middle ("stuck in the middle" on focus).
       clearTimeout(revealTimer);
       revealTimer = setTimeout(() => {
+        if (!root.classList.contains('kb-open')) return;
         try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /* old browser */ }
       }, 320);
     };

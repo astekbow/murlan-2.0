@@ -375,10 +375,11 @@ export class RoomManager {
     return okResult;
   }
 
-  /** 2v2 only: move a WAITING player to a free seat of `team` — the "join Team 1 / Team 2" flow so
-   *  players arrange their own squads instead of being auto-split. Frees their old seat + un-readies
-   *  them (the roster changed). No-op if already on that team; refused once the match started or if
-   *  the target team is full. */
+  /** 2v2 only: move a player to `team` so players arrange their own squads instead of being
+   *  auto-split. If the target team has a FREE seat, move there; if it's FULL, SWAP with a player on
+   *  it (so a full 2+2 room can still rearrange — otherwise, once all 4 seats fill, nobody could ever
+   *  change teams). Both the mover and any swapped player are un-readied (the roster changed). No-op if
+   *  already on that team; refused once the match started. */
   switchTeam(userId: string, team: 0 | 1): ManagerResult {
     const room = this.roomOf(userId);
     if (!room) return err('no_room', 'Nuk je në një dhomë.');
@@ -387,19 +388,27 @@ export class RoomManager {
     const cur = room.seats.find((s) => s.userId === userId);
     if (!cur) return err('no_seat', 'Nuk ke vend në dhomë.');
     if (cur.team === team) return okResult; // already there
-    const targetIdx = TEAM_SEATS[team].find((i) => room.seats[i]!.userId === null);
-    if (targetIdx === undefined) return err('team_full', 'Skuadra është plot.');
-    const target = room.seats[targetIdx]!;
-    target.userId = cur.userId;
-    target.username = cur.username;
-    target.avatar = cur.avatar;
-    target.team = team;
-    target.ready = false;               // moving un-readies you (roster changed)
-    target.connected = cur.connected;
-    target.gone = false;
-    // Vacate the old seat.
-    cur.userId = null; cur.username = null; cur.avatar = null; cur.team = null;
-    cur.ready = false; cur.connected = false; cur.gone = false;
+    const freeIdx = TEAM_SEATS[team].find((i) => room.seats[i]!.userId === null);
+    if (freeIdx !== undefined) {
+      // Free seat on the target team → just move into it, vacating the old seat. (An empty seat carries
+      // no team, so set it; the vacated seat is cleared to team=null.)
+      const target = room.seats[freeIdx]!;
+      target.userId = cur.userId; target.username = cur.username; target.avatar = cur.avatar;
+      target.team = team; target.ready = false; target.connected = cur.connected; target.gone = false;
+      cur.userId = null; cur.username = null; cur.avatar = null; cur.team = null;
+      cur.ready = false; cur.connected = false; cur.gone = false;
+    } else {
+      // Target team FULL → SWAP with a player there. `seat.team` is fixed per seat index, so only the
+      // PLAYER identity moves between the two seats; each seat keeps its own team.
+      const swapIdx = TEAM_SEATS[team].find((i) => room.seats[i]!.userId != null && room.seats[i]!.userId !== userId);
+      if (swapIdx === undefined) return err('team_full', 'Skuadra është plot.'); // no one to swap with (shouldn't happen)
+      const other = room.seats[swapIdx]!;
+      const moved = { userId: cur.userId, username: cur.username, avatar: cur.avatar, connected: cur.connected };
+      cur.userId = other.userId; cur.username = other.username; cur.avatar = other.avatar; cur.connected = other.connected;
+      cur.ready = false; cur.gone = false;
+      other.userId = moved.userId; other.username = moved.username; other.avatar = moved.avatar; other.connected = moved.connected;
+      other.ready = false; other.gone = false;
+    }
     room.status = this.isFull(room.id) ? 'ready' : 'waiting';
     return okResult;
   }

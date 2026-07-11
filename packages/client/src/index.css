@@ -114,6 +114,10 @@ body {
   color: var(--txt);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  /* Kill the accidental DOUBLE-TAP-to-zoom app-wide (players tap buttons/cards fast; a stray
+     double-tap zoomed the page in with no easy way back — "auto zoom in/out"). `manipulation`
+     keeps panning AND pinch-zoom (accessibility), only the non-standard double-tap gesture goes. */
+  touch-action: manipulation;
   background:
     radial-gradient(120% 80% at 50% -8%, rgba(232, 200, 121, 0.07), transparent 55%),
     radial-gradient(100% 90% at 50% 118%, rgba(58, 15, 22, 0.5), transparent 62%),

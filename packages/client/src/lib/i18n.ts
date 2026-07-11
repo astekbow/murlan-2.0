@@ -394,6 +394,7 @@ const STRINGS: Record<string, Entry> = {
   'room.youParen': { sq: '(ti)', en: '(you)' },
   'room.team': { sq: 'Ekipi {n}', en: 'Team {n}' },
   'room.joinTeam': { sq: 'Bashkohu', en: 'Join' },
+  'room.swapTeam': { sq: 'Këmbe vendet', en: 'Swap seats' },
   'room.teamFull': { sq: 'Ekipi plot', en: 'Team full' },
   'room.waiting': { sq: 'Po presim…', en: 'Waiting…' },
   'room.ready': { sq: 'Gati', en: 'Ready' },
