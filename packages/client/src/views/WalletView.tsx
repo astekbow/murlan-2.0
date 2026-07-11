@@ -272,21 +272,20 @@ export function WalletView() {
       {celebrate && <Confetti />}
       {dialog}
 
-      {(error || notice) && (
-        <button
-          type="button"
-          className={`w-full text-left rounded-lg px-3 py-2 text-sm border cursor-pointer ${
-            error
-              ? 'text-red-300 bg-suit/15 border-suit/40'
-              : 'text-emerald-200 bg-emerald-700/15 border-emerald-500/40'
-          }`}
-          role={error ? 'alert' : 'status'}
-          aria-label={t('common.close')}
-          onClick={clearMessages}
-        >
-          {error || notice}
+      {/* Split into two STATIC-role branches (role='alert' for an error, role='status' for a notice)
+          so the role is a literal a linter can validate — a dynamic role={error ? …} tripped a false
+          "invalid ARIA role" warning even though both values are valid. Same behaviour either way. */}
+      {error ? (
+        <button type="button" role="alert" aria-label={t('common.close')} onClick={clearMessages}
+          className="w-full text-left rounded-lg px-3 py-2 text-sm border cursor-pointer text-red-300 bg-suit/15 border-suit/40">
+          {error}
         </button>
-      )}
+      ) : notice ? (
+        <button type="button" role="status" aria-label={t('common.close')} onClick={clearMessages}
+          className="w-full text-left rounded-lg px-3 py-2 text-sm border cursor-pointer text-emerald-200 bg-emerald-700/15 border-emerald-500/40">
+          {notice}
+        </button>
+      ) : null}
 
       {/* Segmented selector: only the active section renders. Modelled as a group of toggle buttons
           (aria-pressed) rather than an incomplete tablist — each "tab" swaps several panels, so a real
@@ -508,8 +507,10 @@ export function WalletView() {
               const linkable = !!tx.matchId && (tx.type === 'bet' || tx.type === 'payout');
               const Row = linkable ? 'button' : 'div';
               return (
+              // Wrap each row in an <li> so the <ul> only contains <li> (valid list structure); the
+              // interactive button/div lives INSIDE the item.
+              <li key={tx.id}>
               <Row
-                key={tx.id}
                 {...(linkable ? { onClick: () => useUiStore.getState().openReplay(tx.matchId!) } : {})}
                 className={`w-full text-left flex items-center gap-3 rounded-xl px-4 py-3 border border-white/10 bg-gradient-to-b from-white/[.04] to-white/[.01] ${linkable ? 'hover:border-gold/40' : ''}`}
               >
@@ -522,6 +523,7 @@ export function WalletView() {
                   {tx.amountCents >= 0 ? '+' : '−'}{dollars(Math.abs(tx.amountCents))}
                 </span>
               </Row>
+              </li>
               );
             })}
           </ul>

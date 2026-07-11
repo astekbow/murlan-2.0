@@ -297,7 +297,7 @@ select:focus-visible,
   }
   .field:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(232, 200, 121, 0.18); }
   .field::placeholder { color: var(--txt-faint); }
-  select.field { appearance: none; -webkit-appearance: none; cursor: pointer; }
+  select.field { -webkit-appearance: none; appearance: none; cursor: pointer; }
 
   /* ---- Avatar + level ring + XP ----------------------------------------- */
   .pfp {
@@ -927,8 +927,8 @@ select:focus-visible,
   width: max(5cqw, 30px); height: max(5cqw, 30px); font-size: 2.7cqw;
   background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
   border: 1px solid var(--hairline-gold) !important;
-  backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
   box-shadow: 0 8px 20px -12px #000, inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 .tv-ls .tvc-topbar .iconbtn:hover {
@@ -947,8 +947,8 @@ select:focus-visible,
   background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
   border: 1px solid var(--hairline-gold) !important;
   color: var(--txt-hi) !important;
-  backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
   box-shadow: 0 8px 20px -12px #000, inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
   letter-spacing: 0.3px;
 }
@@ -1068,8 +1068,8 @@ select:focus-visible,
   border-radius: 18px;
   padding: 2.2cqh 3.6cqw;
   box-shadow: 0 18px 44px -16px #000, 0 0 26px rgba(232, 200, 121, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   animation: switchrise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 /* Gold top-highlight hairline (same idiom as .panel::before). */
