@@ -1,0 +1,9 @@
+{
+  // VS Code's built-in CSS validator doesn't know Tailwind's at-rules (@tailwind / @apply / @layer /
+  // @screen), so it flags "Unknown at rule @tailwind" on index.css. Tailwind expands them at build
+  // time (the build passes), so this is a false positive — tell the CSS linter to ignore unknown
+  // at-rules. (The Tailwind CSS IntelliSense extension, recommended below, also resolves them.)
+  "css.lint.unknownAtRules": "ignore",
+  "scss.lint.unknownAtRules": "ignore",
+  "less.lint.unknownAtRules": "ignore"
+}
