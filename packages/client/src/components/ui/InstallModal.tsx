@@ -2,12 +2,13 @@
 // once at startup — with a close button and a "don't remind me again" that sticks
 // (localStorage). On Android/desktop Chrome it offers a one-tap install; on iOS it
 // shows the Share → Add to Home Screen hint. Never shown once installed.
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCanInstall, isIos, isStandalone, promptInstall } from '../../lib/pwa.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
+import { InstallGuide } from './InstallGuide.tsx';
 
 const DISMISS_KEY = 'murlan.installDismissed';
 
@@ -20,17 +21,6 @@ export function InstallModal() {
   const installOpen = useUiStore((s) => s.installOpen);
   const setInstallOpen = useUiStore((s) => s.setInstallOpen);
   const iosHint = isIos() && !isStandalone();
-  // Verify the iOS profile endpoint is actually serving (signing cert mounted, route up) so we can steer
-  // the user to the manual "Add to Home Screen" steps instead of a silent/blank download if it's down.
-  const [iosProfileOk, setIosProfileOk] = useState(true);
-  useEffect(() => {
-    if (!iosHint) return;
-    let alive = true;
-    fetch('/api/install/ios.mobileconfig', { method: 'HEAD' })
-      .then((r) => { if (alive) setIosProfileOk(r.ok); })
-      .catch(() => { if (alive) setIosProfileOk(false); });
-    return () => { alive = false; };
-  }, [iosHint]);
 
   // Already installed → nothing to offer. Otherwise show when force-opened from Settings, OR
   // (auto) the first time if not dismissed and there's an install path for this platform.
@@ -65,7 +55,8 @@ export function InstallModal() {
         >
           ✕
         </button>
-        <div className="text-4xl mb-2">📲</div>
+        {/* The real app icon (same treatment as the login card) — this IS what they're installing. */}
+        <img src="/icon-192.png" alt="" className="w-14 h-14 rounded-2xl shadow-lg ring-1 ring-gold/25 mb-3" />
         <div className="font-display font-bold text-gold-hi text-lg pr-8">{t('install.title')}</div>
         <p className="text-sm text-muted mt-1">{t('install.subtitle')}</p>
         {canInstall ? (
@@ -77,44 +68,11 @@ export function InstallModal() {
             {t('install.cta')}
           </button>
         ) : iosHint ? (
-          // iOS: one-tap CONFIGURATION-PROFILE install (downloads → Settings → Install). Built by the
-          // server for THIS origin. A collapsed manual "Add to Home Screen" stays as a fallback.
-          <>
-            {iosProfileOk ? (
-              <>
-                <a
-                  href="/api/install/ios.mobileconfig"
-                  className="btn btn-gold btn-lg btn-block mt-4"
-                  onClick={() => sound.play('button')}
-                >
-                  {t('install.iosProfileCta')}
-                </a>
-                <p className="text-[11px] text-muted/80 mt-2 leading-relaxed">{t('install.iosProfileHint')}</p>
-              </>
-            ) : (
-              // Profile endpoint unreachable (signing/route down) → don't dangle a dead button; steer to manual.
-              <p className="text-[12px] text-amber-300 mt-4 leading-relaxed bg-amber-500/10 border border-amber-400/40 rounded-lg px-3 py-2">{t('install.iosProfileUnavailable')}</p>
-            )}
-            <details className="mt-3" open={!iosProfileOk}>
-              <summary className="text-xs text-muted cursor-pointer select-none">{t('install.iosManualToggle')}</summary>
-              <ol className="mt-2.5 space-y-2.5 text-sm text-txt">
-                <li className="flex items-center gap-2.5">
-                  <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">1</span>
-                  <span className="flex items-center gap-1.5">{t('install.iosStep1')}
-                    <span aria-hidden className="inline-flex items-center justify-center w-5 h-6 rounded-[5px] border border-current leading-none relative -top-px">↑</span>
-                  </span>
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">2</span>
-                  <span>{t('install.iosStep2')}</span>
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-gold/15 text-gold-hi font-display font-bold text-xs">3</span>
-                  <span>{t('install.iosStep3')}</span>
-                </li>
-              </ol>
-            </details>
-          </>
+          // iOS: the shared, canonical install flow (one-tap profile + manual fallback with the real
+          // Share glyph). Same component the login-screen "Get the app" guide renders, so they match.
+          <div className="mt-4">
+            <InstallGuide onProfileClick={() => sound.play('button')} />
+          </div>
         ) : (
           // Force-opened from Settings on a desktop / unsupported browser: nothing to install here.
           <p className="text-sm text-muted mt-4 leading-relaxed">{t('install.openOnPhone')}</p>

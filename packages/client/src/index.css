@@ -1148,10 +1148,12 @@ select:focus-visible,
 /* An uploaded avatar image fills the round profile picture (over the .pfp). */
 .pfp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 
-/* "Rotate your phone" hint on the game table (RotateOverlay) — a phone tipping
-   onto its side. Reduced-motion neutralizes it via the universal rule. */
-@keyframes rotatePhone { 0%, 12% { transform: rotate(0deg); } 45%, 67% { transform: rotate(-90deg); } 100% { transform: rotate(0deg); } }
-.rotate-hint { animation: rotatePhone 2.4s ease-in-out infinite; }
+/* "Rotate your phone" overlay (RotateOverlay) — the inline gold phone group tips
+   portrait→landscape about its OWN centre (transform-box:fill-box makes the origin
+   the group's bounding box, not the SVG canvas). Reduced-motion leaves it static in
+   portrait (the arc cue still shows direction) via the universal rule below. */
+@keyframes rotatePhone { 0%, 14% { transform: rotate(0deg); } 46%, 68% { transform: rotate(-90deg); } 100% { transform: rotate(0deg); } }
+.rotate-phone-anim { transform-box: fill-box; transform-origin: center; animation: rotatePhone 2.8s ease-in-out infinite; }
 
 /* Lobby in LANDSCAPE on a phone: shrink the big hero "mode" cards so they fit on
    screen instead of overflowing, and tighten the spacing. */

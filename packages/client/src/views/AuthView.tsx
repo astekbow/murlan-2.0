@@ -4,6 +4,7 @@ import { authApi } from '../lib/api.ts';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
 import { isIos, isStandalone } from '../lib/pwa.ts';
 import { Modal } from '../components/ui/Modal.tsx';
+import { InstallGuide } from '../components/ui/InstallGuide.tsx';
 import { useT, useLangStore, type Lang } from '../lib/i18n.ts';
 
 export function AuthView() {
@@ -189,15 +190,21 @@ function AppDownload({ landscape }: { landscape: boolean }) {
 
   return (
     <div className={landscape ? 'pt-2' : 'pt-3'}>
-      <p className="font-serif text-[10px] tracking-[0.25em] text-muted/80 uppercase mb-1.5">📲 {t('download.prompt')}</p>
+      <p className="font-serif text-[10px] tracking-[0.25em] text-muted/80 uppercase mb-1.5">{t('download.prompt')}</p>
       <div className="flex gap-2">
-        {/* iOS: navigating to the profile triggers the Safari "install profile" flow. */}
-        <a href="/api/install/ios.mobileconfig" onClick={() => setGuide('ios')} className={`btn btn-sm flex-1 ${device === 'ios' ? 'btn-gold' : 'btn-ghost'}`}>🍎 {t('download.ios')}</a>
+        {/* iOS: open the shared install guide (its gold CTA triggers the profile download in Safari). */}
+        <button type="button" onClick={() => setGuide('ios')} className={`btn btn-sm flex-1 inline-flex items-center justify-center gap-1.5 ${device === 'ios' ? 'btn-gold' : 'btn-ghost'}`}>
+          <AppleGlyph /> {t('download.ios')}
+        </button>
         {/* Android: the download attr saves the .apk (disabled with a note until it's hosted). */}
         {apkOk === false ? (
-          <button type="button" disabled className="btn btn-ghost btn-sm flex-1 opacity-60 cursor-not-allowed">🤖 {t('download.android')}</button>
+          <button type="button" disabled className="btn btn-ghost btn-sm flex-1 inline-flex items-center justify-center gap-1.5 opacity-60 cursor-not-allowed">
+            <AndroidGlyph /> {t('download.android')}
+          </button>
         ) : (
-          <a href="/install/crypto-murlan.apk" download onClick={() => setGuide('android')} className={`btn btn-sm flex-1 ${device === 'android' ? 'btn-gold' : 'btn-ghost'}`}>🤖 {t('download.android')}</a>
+          <a href="/install/crypto-murlan.apk" download onClick={() => setGuide('android')} className={`btn btn-sm flex-1 inline-flex items-center justify-center gap-1.5 ${device === 'android' ? 'btn-gold' : 'btn-ghost'}`}>
+            <AndroidGlyph /> {t('download.android')}
+          </a>
         )}
       </div>
       {apkOk === false && <p className="text-[10px] text-amber-300 mt-1">{t('download.apkMissing')}</p>}
@@ -205,8 +212,7 @@ function AppDownload({ landscape }: { landscape: boolean }) {
       {/* Per-device install guide (modal) — opens when a button is tapped. */}
       {guide === 'ios' && (
         <Modal title={t('download.iosTitle')} onClose={() => setGuide(null)}>
-          <p className="text-xs text-amber-300 mb-3 leading-relaxed">{t('download.iosOpenSafari')}</p>
-          <DownloadSteps items={[t('download.ios1'), t('download.ios2'), t('download.ios3')]} />
+          <InstallGuide />
         </Modal>
       )}
       {guide === 'android' && (
@@ -215,6 +221,22 @@ function AppDownload({ landscape }: { landscape: boolean }) {
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Platform glyphs for the download buttons — Apple mark + Android robot (currentColor). */
+function AppleGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="currentColor" aria-hidden="true">
+      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.51 4.09l-.02-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+    </svg>
+  );
+}
+function AndroidGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="currentColor" aria-hidden="true">
+      <path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zM15.53 2.16l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85 1.23 12.95 1 12 1c-.96 0-1.86.23-2.66.63L7.85.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.26 6 5.01 6 7h12c0-1.99-.97-3.75-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z" />
+    </svg>
   );
 }
 
