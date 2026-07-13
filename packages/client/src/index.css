@@ -331,6 +331,20 @@ select:focus-visible,
   }
   .rail-lbl { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: var(--gold-hi); }
 
+  /* ---- Lobby liveliness status row (online chip + recent-winners ticker) ----
+     ALWAYS rendered at a FIXED height so the .lobby-hub below stays pinned (zero
+     layout shift) across all four states: both empty, only-online, only-winners,
+     both present. The strips collapse to nothing when empty but the row keeps its
+     height; overflow:hidden guarantees content can never grow it to a second line.
+     Transparent (no bg/border): an empty row reads as breathing room, not a bar. */
+  .lobby-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 30px;      /* content-independent → zero CLS for the hub below */
+    overflow: hidden;  /* single line only; the ticker truncates, never wraps */
+  }
+
   /* ---- Hero mode cards --------------------------------------------------- */
   .mode {
     position: relative; border-radius: 20px; padding: 22px 18px; min-height: 196px; cursor: pointer; overflow: hidden;
@@ -815,6 +829,9 @@ select:focus-visible,
   .mode .mname { font-size: 18px; letter-spacing: 0.4px; }
   .mode .mdesc { font-size: 12px; margin-top: 0; line-height: 1.3; }
   .mode .mcta { margin-top: 5px; font-size: 11px; padding: 5px 14px; }
+  /* Reclaim a little vertical space above the hub (SE-class); the status row stays 30px.
+     Unlayered → beats Tailwind's .space-y-3 utility. */
+  .lobby-home.space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
 }
 
 /* Short LANDSCAPE: compact the standalone reset-password card + the spectate page so they fit
@@ -1163,6 +1180,11 @@ select:focus-visible,
   .mode .mname { font-size: 17px; letter-spacing: 0.4px; }
   .mode .mdesc { font-size: 12px; margin-top: 1px; }
   .mode .mcta { margin-top: 6px; font-size: 11px; padding: 6px 16px; }
+  /* Keep the status row tall enough for the ~26px chip pill (no clip) but compact, and
+     tighten the single gap above the hub so cards + rails stay no-scroll. Unlayered →
+     legitimately beats Tailwind's .space-y-3 utility. */
+  .lobby-status { height: 26px; gap: 10px; }
+  .lobby-home.space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.4rem; }
 }
 
 /* ===== App shell safe-area + page transitions (redesign) ===== */

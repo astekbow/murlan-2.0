@@ -63,18 +63,19 @@ function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' })
   );
 }
 
-/** Compact lobby-liveliness strip: a live "X online" chip + a subtle ticker of recent
- *  real-money winners ("Ardit fitoi $20"). Display-only; data is polled read-only. */
+/** Compact lobby-liveliness ticker of recent real-money winners ("Ardit fitoi $20").
+ *  Display-only; data is polled read-only. Renders an ALWAYS-mounted aria-live region
+ *  and fills the status row; shows nothing when there are no winners — the fixed-height
+ *  row reserves the space so the hub below never moves. */
 function LobbyLiveStrip({ data }: { data: LobbyLiveDTO | null }) {
   const t = useT();
   const winners = data?.recentWinners ?? [];
-  if (winners.length === 0) return null; // nothing to show (online-count chip removed by owner)
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm animate-rise" aria-live="polite">
+    <div className="min-w-0 flex-1 overflow-hidden" aria-live="polite">
       {winners.length > 0 && (
-        <span className="min-w-0 flex-1 flex items-baseline gap-2 overflow-hidden">
+        <span className="flex min-w-0 items-baseline gap-2 overflow-hidden animate-rise">
           <span className="shrink-0 font-serif text-[10px] tracking-[0.25em] text-muted uppercase">{t('lobby.recentWinners')}</span>
-          <span className="min-w-0 truncate text-muted">
+          <span className="min-w-0 truncate text-sm text-muted">
             {winners.map((w, i) => (
               <span key={`${w.at}-${i}`} className={i === 0 ? 'text-gold-hi' : undefined}>
                 {i > 0 && <span className="text-muted/50"> · </span>}
@@ -88,7 +89,8 @@ function LobbyLiveStrip({ data }: { data: LobbyLiveDTO | null }) {
   );
 }
 
-/** Compact "friends online now" strip on the hub — tap a friend to challenge them to a free 1v1 duel. */
+/** "Friends online now" count chip, pinned to the left of the lobby status row. Always
+ *  renders an aria-live region (so the count announces on change); shows nothing at zero. */
 function FriendsOnlineStrip() {
   const t = useT();
   const [count, setCount] = useState(0);
@@ -101,14 +103,15 @@ function FriendsOnlineStrip() {
     const id = window.setInterval(pull, 20_000);
     return () => { alive = false; window.clearInterval(id); };
   }, []);
-  if (count === 0) return null;
   // Just a compact COUNT (owner request) — no per-friend avatar chips.
   return (
-    <div className="flex items-center justify-center animate-rise">
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[.04] px-3 py-1">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden />
-        <span className="text-xs font-display font-semibold text-txt">{t('lobby.friendsOnlineCount', { n: count })}</span>
-      </span>
+    <div className="shrink-0" aria-live="polite">
+      {count > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[.04] px-3 py-1 animate-rise">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap text-xs font-display font-semibold text-txt">{t('lobby.friendsOnlineCount', { n: count })}</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -358,10 +361,13 @@ export function LobbyView() {
       ) : (
         /* ---- Home — four equal cards ---- */
         <div className="lobby-home space-y-3">
-          {/* Friends online now → one-tap free duel. */}
-          <FriendsOnlineStrip />
-          {/* Recent-winners ticker (display-only). */}
-          <LobbyLiveStrip data={live2} />
+          {/* Always-on liveliness status row — its FIXED height pins .lobby-hub below
+              (zero layout shift) whether or not friends are online / winners are ticking.
+              Online chip sits on the left; the winners ticker fills the rest of the line. */}
+          <div className="lobby-status">
+            <FriendsOnlineStrip />
+            <LobbyLiveStrip data={live2} />
+          </div>
           <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
           <RailNav items={RAIL_LEFT} side="left" />
 
