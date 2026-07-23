@@ -389,6 +389,13 @@ export class GameGateway {
       this.rooms.setConnected(userId, true);
       this.pushFullStateTo(socket);
       this.broadcastRoomState(existing.id);
+    } else {
+      // No active room for this user. If the socket RECONNECTED after its match ended / it was
+      // forfeited (grace expired) while offline, the client may still be stranded on a dead
+      // table — the 'match:playerLeft'/'match:end' that would have ejected it was broadcast to
+      // the room while this socket was absent. Tell it to reset to the lobby. Harmless no-op for
+      // a normal lobby client (the handler only acts when it actually holds a room).
+      socket.emit('room:closed', { reason: 'none' });
     }
 
     // Rate-gate like every other real-work handler: listLobby() is O(rooms) filter+map+serialize,

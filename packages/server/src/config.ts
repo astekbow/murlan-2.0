@@ -33,7 +33,7 @@ const schema = z.object({
   TURN_MS: z.coerce.number().int().positive().default(25_000), // per-turn max (owner: exactly 25s)
   COUNTDOWN_MS: z.coerce.number().int().nonnegative().default(3_000),
   HAND_PAUSE_MS: z.coerce.number().int().min(0).max(60_000).default(7_000), // inter-hand standings pause; 0 = deal next hand immediately
-  ABANDON_MS: z.coerce.number().int().positive().default(30_000), // reconnect grace before forfeit
+  ABANDON_MS: z.coerce.number().int().positive().default(60_000), // reconnect grace before forfeit — 60s so a phone lock / app-background (socket freezes, pingTimeout drops it) can still rejoin the LIVE match instead of forfeiting a real-money 1v1
   RANKED_BOT_MS: z.coerce.number().int().positive().default(20_000), // ranked solo-queue → vs-BOT fallback: no human opponent within this window starts a RATED bot match
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   PAYMENT_WEBHOOK_IPS: z.string().optional(), // CSV of allowed source IPs for the webhook (empty = allow any)

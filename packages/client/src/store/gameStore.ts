@@ -282,6 +282,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     socket.on('room:spectators', (dto) => set({ spectators: dto.count, spectatorNames: dto.names ?? [] }));
 
+    // The server says we hold NO active room (we reconnected after our match ended / we were
+    // forfeited past the grace while offline, so we never got the match:end that ejects us). If
+    // we're still showing a table, reset to the lobby so we're never stuck on a dead match and
+    // can start a new game immediately. No-op for a normal lobby client (room is null).
+    socket.on('room:closed', () => {
+      if (get().room == null) return;
+      set({ ...emptyRoomState, toast: tg('msg.youLeftMatch'), toastKind: 'info' });
+      get().refreshLobby();
+    });
+
     socket.on('match:start', (room) => {
       // A (re)match is starting → clear the previous match-over overlay + any rematch offer, and
       // RESET the scoreboard so a rematch shows 0/0 from game 1 instead of carrying the old match's
@@ -623,7 +633,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Honor the server ack: only clear local room state once the server confirms the leave. Blindly
     // clearing on failure would desync (the seat stays occupied server-side while the client thinks it left).
     const res = await request<Ack>(socket, 'room:leave');
-    if (!res.ok) { set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' }); return; }
+    // `no_room` means the server already freed our seat (match ended / forfeited while we were
+    // offline) — the table we're showing is dead, so clearing local state is correct, not a
+    // desync. Any OTHER error is transient (rate limit / timeout) → keep state and surface it.
+    if (!res.ok && res.error?.code !== 'no_room') { set({ toast: ackText(res.error, 'err.actionFailed'), toastKind: 'error' }); return; }
     set({ ...emptyRoomState });
     get().refreshLobby();
   },

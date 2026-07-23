@@ -109,6 +109,11 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   'lobby:state': (state: LobbyStateDTO) => void;
   'room:state': (state: RoomStateDTO) => void;
+  // On (re)connect the server tells a socket it is NOT in any active room — e.g. its match
+  // ended or it was forfeited (grace expired) while the socket was offline, so the
+  // 'match:playerLeft'/'match:end' that would have ejected it was never delivered. Lets a
+  // client stranded on a dead table reset to the lobby. No-op for clients already lobby-side.
+  'room:closed': (dto: { reason: 'forfeited' | 'ended' | 'none' }) => void;
   'match:start': (room: RoomStateDTO) => void;
   'game:start': (dto: GameStartDTO) => void;          // private: your hand + counts
   'game:hand': (dto: HandDTO) => void;                // private: refreshed hand
