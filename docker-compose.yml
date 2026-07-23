@@ -71,7 +71,10 @@ services:
       # external DB (e.g. Supabase); set DATABASE_URL='' to force in-memory.
       # Built from the same POSTGRES_* vars so a custom password flows through (infra-3).
       # The dev default keeps murlan:murlan so the running deploy/volume is NOT broken.
-      DATABASE_URL: ${DATABASE_URL-postgres://${POSTGRES_USER:-murlan}:${POSTGRES_PASSWORD:-murlan}@postgres:5432/${POSTGRES_DB:-murlan}}
+      # ?connection_limit=20 raises Prisma's pool from its default (num_cpus*2+1 = 9) so match
+      # escrow/settlement bursts don't queue on a tiny pool. Postgres max_connections is 100 (one
+      # app instance), so 20 is safe headroom. Only applies to the bundled-DB default below.
+      DATABASE_URL: ${DATABASE_URL-postgres://${POSTGRES_USER:-murlan}:${POSTGRES_PASSWORD:-murlan}@postgres:5432/${POSTGRES_DB:-murlan}?connection_limit=20}
       DIRECT_URL: ${DIRECT_URL-postgres://${POSTGRES_USER:-murlan}:${POSTGRES_PASSWORD:-murlan}@postgres:5432/${POSTGRES_DB:-murlan}}
       RAKE_BPS: ${RAKE_BPS:-1000}
       # Four-eyes control: when true, a tournament champion payout needs a SECOND admin

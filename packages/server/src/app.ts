@@ -1096,7 +1096,12 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
   );
 
   let detachRedis: (() => Promise<void>) | null = null;
-  if (config.redisUrl) {
+  if (config.redisUrl && !config.multiInstance) {
+    // Single instance (the default): the Redis adapter would only add a serialize+PUBLISH to
+    // EVERY broadcast for zero benefit, so skip it. Set MULTI_INSTANCE=1 to enable it when you
+    // actually run >1 replica (with sticky-by-room routing — see the warning below).
+    app.log.info('REDIS_URL set but MULTI_INSTANCE is off → skipping the Socket.IO Redis adapter (single-instance mode; broadcasts stay in-process).');
+  } else if (config.redisUrl && config.multiInstance) {
     detachRedis = await attachRedisAdapter(io, config.redisUrl);
     // REDIS_URL implies multi-instance intent. The adapter shares broadcasts, but
     // timers/rate-limit/presence/matchmaking are still per-instance — so loudly

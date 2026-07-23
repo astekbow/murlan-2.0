@@ -53,7 +53,7 @@ services:
   server:
     restart: unless-stopped
     stop_grace_period: 60s   # let in-flight matches drain (graceful SIGTERM) before kill
-    mem_limit: ${SERVER_MEM_LIMIT:-1536m}
+    mem_limit: ${SERVER_MEM_LIMIT:-2560m}   # 7.8 GB box: Postgres 2g + Redis 256m + this 2560m + OS ≈ 5.9g (≈1.9g spare). More headroom = fewer GC stalls / OOM-kills under load.
     # SINGLE-INSTANCE ONLY (audit 2026-06-28 #4): timers, rate-limits, room ownership and the deposit/
     # auto-payout CAP serialization are all in-process. Running >1 replica corrupts live matches AND lets
     # a player bypass caps by hitting two instances in parallel. This pins the default to 1; NEVER run
@@ -70,10 +70,11 @@ services:
     # uid. EMPTY unless you enable it — set the two env vars in .env to turn signing on (see below).
     environment:
       # Node does NOT read the container's cgroup mem_limit — without this it sizes its old-space
-      # heap off the HOST's 7.8 GB and grows until Docker OOM-kills the container. Pin the heap
-      # comfortably BELOW mem_limit (1536m) so V8 GCs within the cap instead of being SIGKILLed.
-      # Keep this < SERVER_MEM_LIMIT (leaves room for Prisma native + buffers). Env-overridable.
-      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=1024}
+      # heap off the HOST's 7.8 GB and grows until Docker OOM-kills the container. Pin the MAIN-thread
+      # heap comfortably BELOW mem_limit (2560m) so V8 GCs within the cap instead of being SIGKILLed.
+      # NOTE: the 3 bot worker_threads carry their OWN heaps on TOP of this — 1536m main + ~3×small
+      # worker heaps + Prisma native still fits inside 2560m with room to spare. Env-overridable.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=1536}
       IOS_PROFILE_SIGN_CERT: ${IOS_PROFILE_SIGN_CERT:-}
       IOS_PROFILE_SIGN_KEY: ${IOS_PROFILE_SIGN_KEY:-}
     volumes:

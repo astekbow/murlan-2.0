@@ -2654,8 +2654,24 @@ export class GameGateway {
 
   // ---------- Broadcast helpers ----------------------------------------------
 
+  private lobbyDirty = false;
+  private lobbyFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
   private broadcastLobby(): void {
-    this.io.emit('lobby:state', this.rooms.listLobby());
+    // Coalesce a burst of room transitions into ONE lobby fan-out per ~250ms. listLobby() is an
+    // O(rooms) serialize + a write to EVERY connected socket, and a single match-end fires
+    // several broadcastLobby() calls — so under churn this collapses a storm of global emits into
+    // a steady ≤4/sec on the shared event loop (the top scaling cost per the audit). The ~250ms
+    // delay is invisible for a lobby list. unref() so a pending flush never keeps the process alive.
+    this.lobbyDirty = true;
+    if (this.lobbyFlushTimer) return;
+    this.lobbyFlushTimer = setTimeout(() => {
+      this.lobbyFlushTimer = null;
+      if (!this.lobbyDirty) return;
+      this.lobbyDirty = false;
+      this.io.emit('lobby:state', this.rooms.listLobby());
+    }, 250);
+    this.lobbyFlushTimer.unref?.();
   }
 
   private broadcastRoomState(roomId: string): void {

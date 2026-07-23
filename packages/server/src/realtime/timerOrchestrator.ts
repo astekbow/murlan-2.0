@@ -8,6 +8,8 @@
 // `arm*` clears any existing timer for that key first (re-arm is idempotent).
 // ============================================================================
 
+import { log } from '../logger.ts';
+
 type Handle = ReturnType<typeof setTimeout>;
 
 export class TimerOrchestrator {
@@ -35,7 +37,9 @@ export class TimerOrchestrator {
     const handle = setTimeout(() => {
       this.countdowns.delete(roomId);
       this.countdownDeadlines.delete(roomId);
-      onExpire();
+      // A throw here would otherwise be swallowed only by the process-level guard; catch it at
+      // the source so it's clearly attributed and can never take the event loop with it.
+      try { onExpire(); } catch (e) { log.error('[timer] countdown expiry threw', e); }
     }, ms);
     this.countdowns.set(roomId, handle);
   }
@@ -58,7 +62,7 @@ export class TimerOrchestrator {
   armTurn(roomId: string, ms: number, onExpire: () => void): void {
     this.clearTurn(roomId);
     this.turnDeadlines.set(roomId, Date.now() + ms);
-    this.turnTimers.set(roomId, setTimeout(onExpire, ms));
+    this.turnTimers.set(roomId, setTimeout(() => { try { onExpire(); } catch (e) { log.error('[timer] turn expiry threw', e); } }, ms));
   }
   clearTurn(roomId: string): void {
     const h = this.turnTimers.get(roomId);
@@ -70,7 +74,7 @@ export class TimerOrchestrator {
   // ---------- Abandon (reconnection grace) -----------------------------------
   armAbandon(userId: string, ms: number, onExpire: () => void): void {
     this.clearAbandon(userId);
-    this.abandonTimers.set(userId, setTimeout(onExpire, ms));
+    this.abandonTimers.set(userId, setTimeout(() => { try { onExpire(); } catch (e) { log.error('[timer] abandon expiry threw', e); } }, ms));
   }
   clearAbandon(userId: string): void {
     const h = this.abandonTimers.get(userId);

@@ -27,6 +27,11 @@ const schema = z.object({
   // revocation-aware (ver claim), but a short TTL still caps any residual window.
   REFRESH_TTL: z.string().default('7d'),
   REDIS_URL: z.string().optional(),
+  // Attach the Socket.IO Redis adapter ONLY when running >1 replica. On the single-instance
+  // deploy the adapter is pure overhead: every lobby + per-turn broadcast is serialized and
+  // PUBLISHed to Redis, round-tripped, then discarded by its own uid — CPU/network on the hot
+  // path for zero benefit. Default OFF → single instance skips it even if REDIS_URL is set.
+  MULTI_INSTANCE: z.string().optional(),
   DATABASE_URL: z.string().optional(), // when set, use Prisma/Postgres instead of in-memory
   // Money knobs (used in Phase 6); kept here so config is the single source.
   RAKE_BPS: z.coerce.number().int().min(0).max(10_000).default(1_000), // 10.00%
@@ -151,6 +156,7 @@ export interface AppConfig {
   accessTtl: string;
   refreshTtl: string;
   redisUrl: string | null;
+  multiInstance: boolean; // attach the Socket.IO Redis adapter (only meaningful with >1 replica)
   databaseUrl: string | null;
   rakeBps: number;
   tournamentDualControl: boolean; // require a 2nd distinct admin to confirm a champion payout
@@ -320,6 +326,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     accessTtl: parsed.ACCESS_TTL,
     refreshTtl: parsed.REFRESH_TTL,
     redisUrl: parsed.REDIS_URL ?? null,
+    multiInstance: isTrue(parsed.MULTI_INSTANCE),
     databaseUrl: parsed.DATABASE_URL ?? null,
     rakeBps: parsed.RAKE_BPS,
     tournamentDualControl: isTrue(parsed.TOURNAMENT_DUAL_CONTROL),
