@@ -50,6 +50,7 @@ import { MockPaymentProvider, type PaymentProvider } from './money/paymentProvid
 import { ConsoleEmailProvider, type EmailProvider } from './email/emailProvider.ts';
 import { ResendEmailProvider } from './email/resendEmailProvider.ts';
 import { createNotifier, type Notifier } from './notify/notifier.ts';
+import { startHealthMonitor } from './health/healthMonitor.ts';
 import { TelegramBot } from './notify/telegramBot.ts';
 import { TelegramAdminBot } from './telegram/adminBot.ts';
 import { telegramRoutes } from './http/telegramRoutes.ts';
@@ -1362,6 +1363,16 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     })();
   }, GAUGE_MS);
   gaugeTimer.unref?.();
+
+  // Health monitor: sample event-loop lag + memory and, on a stall or memory nearing the cap
+  // (the two things that silently disconnect EVERYONE at once on this single instance), log a
+  // warning + send a throttled Telegram ops alert — so we learn the moment it happens instead of
+  // waiting for a player to report it. Gauges are also published to /metrics. notify is omitted
+  // (logs-only) when Telegram isn't configured. unref'd internally — never keeps the app alive.
+  startHealthMonitor({
+    notify: notifier.name !== 'null' ? (text) => notifier.notify(text) : undefined,
+    context: () => `Ndeshje aktive: ${rooms.activeMatchIds().size} · Socket: ${io.engine.clientsCount}`,
+  });
 
   // Auto-credit poller: each cycle, credit on-chain USDT deposits for the players who
   // are ACTIVELY depositing (they opened the deposit screen → "watched"), so they don't

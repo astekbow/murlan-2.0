@@ -53,6 +53,28 @@ export const socketConnections = new client.Gauge({
   registers: [registry],
 });
 
+/** Max event-loop delay (ms) seen in the last health-monitor window. A high value means the
+ *  single event loop stalled (GC pressure / sync bot search) — long enough and every client's
+ *  socket times out ("connection lost"). The health monitor also Telegram-alerts on this. */
+export const eventLoopLagMs = new client.Gauge({
+  name: 'murlan_event_loop_lag_ms',
+  help: 'Max event-loop delay in ms observed in the last health-monitor window',
+  registers: [registry],
+});
+
+/** Process memory (bytes): resident set (RSS, watched vs the container cgroup limit) and V8
+ *  heap-used (watched vs the --max-old-space-size cap). Sampled by the health monitor. */
+export const processRssBytes = new client.Gauge({
+  name: 'murlan_process_rss_bytes',
+  help: 'Process resident set size (RSS) in bytes',
+  registers: [registry],
+});
+export const heapUsedBytes = new client.Gauge({
+  name: 'murlan_heap_used_bytes',
+  help: 'V8 heap used in bytes',
+  registers: [registry],
+});
+
 /** Matches in progress right now (escrowed, not yet settled/refunded). */
 export const activeMatches = new client.Gauge({
   name: 'murlan_active_matches',
