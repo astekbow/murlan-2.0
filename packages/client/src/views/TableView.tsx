@@ -844,17 +844,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
         );
       })()}
 
-      {/* Card switch in progress, but I'm NOT the winner: a small non-blocking
-          notice (no full-screen splash) so I can see the table while I wait. */}
-      {switchPending && !switching && !matchResult && (
-        <div className="fixed left-1/2 -translate-x-1/2 bottom-28 z-40 pointer-events-none" role="status" aria-live="polite">
-          <span className="inline-block panel-solid rounded-xl px-4 py-2 text-white font-display font-semibold tracking-wide text-sm animate-pop">
-            {t('table.oppSwitching')}
-          </span>
-        </div>
-      )}
-
-      {/* (Card-switch is handled inline on the real hand above — no modal/blur.) */}
+      {/* (Card-switch is handled inline on the real hand above — no modal/blur. While the
+          winner picks, non-winners just watch the table: the swap fly animation announces
+          the exchange itself, so no "opponent is choosing…" banner — owner request.) */}
 
       {/* Match-end celebration */}
       {matchResult && iWon && <Confetti />}

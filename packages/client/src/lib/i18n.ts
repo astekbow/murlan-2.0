@@ -450,7 +450,6 @@ const STRINGS: Record<string, Entry> = {
   'table.toTarget': { sq: 'deri në {n} pikë', en: 'to {n} pts' },
   'table.continue': { sq: 'Vazhdo', en: 'Continue' },
   'table.waitingOthers': { sq: 'Po presim… {n}/{total}', en: 'Waiting… {n}/{total}' },
-  'table.oppSwitching': { sq: 'Kundërshtari po zgjedh një letër 3–10…', en: 'Your opponent is choosing a 3–10 card…' },
   'table.matchOver': { sq: 'Ndeshja mbaroi', en: 'Match over' },
   'table.matchOverBang': { sq: 'Ndeshja mbaroi!', en: 'Match over!' },
   'table.youWon': { sq: 'Urime — fitove! 🎉', en: 'Congrats — you won! 🎉' },
