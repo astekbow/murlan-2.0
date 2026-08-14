@@ -1,0 +1,4 @@
+# Shell scripts + Dockerfiles run inside Linux containers — force LF even on a Windows
+# checkout (CRLF in a sh entrypoint breaks with "\r: not found" at container start).
+*.sh text eol=lf
+Dockerfile* text eol=lf

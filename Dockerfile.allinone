@@ -1,0 +1,58 @@
+# Murlan ALL-IN-ONE image (friends-server / single-container mode).
+#
+# ONE self-contained container serving BOTH the built web client (static SPA) AND the game
+# server (HTTP API + Socket.IO websockets) on a SINGLE port — made for running behind an
+# HTTPS tunnel/reverse-proxy (e.g. Cloudflare Tunnel) on any subdomain:
+#   - listens on ENV PORT (default 8080), bound to 0.0.0.0
+#   - client + server same-origin → websockets (wss) work through any HTTPS proxy, no fixed
+#     hostname anywhere (the client connects to its own origin)
+#   - no external services required: no DATABASE_URL → fully in-memory (accounts reset on
+#     container restart); no Redis needed (single instance)
+#   - secrets auto-generate on first boot; mount a volume at /data to persist them across
+#     restarts (see deploy/allinone-entrypoint.sh)
+#   - GET /health → 200 (wired to the Docker HEALTHCHECK below)
+#
+# Build:  docker build -f Dockerfile.allinone -t murlan-allinone .
+# Run:    docker run -d --name murlan -p 8080:8080 -v murlan_data:/data --memory 768m murlan-allinone
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS deps
+WORKDIR /app
+# openssl: Prisma engine detection on Alpine/musl (same as Dockerfile.server).
+RUN apk add --no-cache openssl
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/server/package.json packages/server/package.json
+COPY packages/client/package.json packages/client/package.json
+RUN npm ci
+
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runtime
+WORKDIR /app
+RUN apk upgrade --no-cache && apk add --no-cache openssl
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# Build the client SPA (Vite) + generate the Prisma client at image-build time.
+RUN npm run build --workspace @murlan/client \
+ && npx prisma generate --schema packages/server/prisma/schema.prisma
+# Single-container defaults: one port for everything; the server also serves the built SPA.
+# Compliance flags are EXPLICIT here (prod config fails closed if any is unset) — this image
+# is the casual/friends build: no KYC/geo/age gating, no real-money provider wired.
+ENV NODE_ENV=production \
+    PORT=8080 \
+    HOST=0.0.0.0 \
+    STATIC_DIR=/app/packages/client/dist \
+    DATA_DIR=/data \
+    KYC_REQUIRED=false \
+    MIN_AGE=0 \
+    GEO_BLOCKED_COUNTRIES= \
+    RESPONSIBLE_GAMING=false \
+    TRUST_PROXY=1 \
+    DEMO_LEADERBOARD=true
+# /data holds the auto-generated secrets (and nothing else); owned by the runtime user so
+# the entrypoint can write it even when no volume is mounted.
+RUN mkdir -p /data && chown node:node /data
+USER node
+EXPOSE 8080
+VOLUME /data
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/health" || exit 1
+CMD ["sh", "deploy/allinone-entrypoint.sh"]

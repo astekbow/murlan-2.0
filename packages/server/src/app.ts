@@ -12,6 +12,8 @@
 import { log } from './logger.ts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -205,19 +207,37 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   });
 
   await app.register(cookie);
-  // Security headers (HSTS in prod, frameguard, noSniff, referrer policy). The SPA is served
-  // by nginx/Vite (that layer owns the page CSP), so THIS origin only ever returns JSON — a
-  // lock-everything-down CSP is therefore safe here and closes the "CSP disabled" finding
-  // (websec/CSP): a JSON API loads no sub-resources and must never be framed or form-posted.
+  // Security headers (HSTS in prod, frameguard, noSniff, referrer policy).
+  // Two CSP modes:
+  //  - API-only (the normal deploy; nginx serves the SPA and owns the page CSP): this origin
+  //    only ever returns JSON → lock everything down (closes the "CSP disabled" finding).
+  //  - Single-container mode (STATIC_DIR set — this server ALSO serves the SPA): a same-origin
+  //    page CSP that permits the app's own assets + Google Fonts (index.html loads
+  //    Cinzel/Oswald/Outfit) + same-origin ws/wss for Socket.IO + the PWA service worker.
+  const servesSpa = !!deps.config.staticDir;
   await app.register(helmet, {
     contentSecurityPolicy: {
       useDefaults: false,
-      directives: {
-        'default-src': ["'none'"],
-        'frame-ancestors': ["'none'"],
-        'base-uri': ["'none'"],
-        'form-action': ["'none'"],
-      },
+      directives: servesSpa
+        ? {
+            'default-src': ["'self'"],
+            'script-src': ["'self'"],
+            'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            'font-src': ["'self'", 'https://fonts.gstatic.com'],
+            'img-src': ["'self'", 'data:', 'blob:'],
+            'connect-src': ["'self'", 'wss:', 'ws:', 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
+            'manifest-src': ["'self'"],
+            'worker-src': ["'self'"],
+            'frame-ancestors': ["'none'"],
+            'base-uri': ["'self'"],
+            'form-action': ["'self'"],
+          }
+        : {
+            'default-src': ["'none'"],
+            'frame-ancestors': ["'none'"],
+            'base-uri': ["'none'"],
+            'form-action': ["'none'"],
+          },
     },
     hsts: deps.config.isProd ? { maxAge: 15552000, includeSubDomains: true } : false,
   });
@@ -440,6 +460,37 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     );
     return reply.code(204).send();
   });
+
+  // ---- Single-container mode: serve the built SPA from STATIC_DIR ------------------------
+  // Same origin/port as the API + Socket.IO, so the client's same-origin socket "just works"
+  // over wss behind any HTTPS tunnel/proxy. Vite's hashed /assets are cached immutable;
+  // index.html is never cached (each deploy ships new hashes). Unknown non-API GETs fall back
+  // to index.html (SPA routing). Off (null) in the normal nginx deploy.
+  if (deps.config.staticDir) {
+    const staticRoot = path.resolve(deps.config.staticDir);
+    if (!fs.existsSync(path.join(staticRoot, 'index.html'))) {
+      app.log.warn(`STATIC_DIR set but ${staticRoot}/index.html not found — SPA serving disabled`);
+    } else {
+      const { default: fastifyStatic } = await import('@fastify/static');
+      await app.register(fastifyStatic, {
+        root: staticRoot,
+        wildcard: true,
+        cacheControl: false, // we set cache-control ourselves below (the plugin's maxAge would override it)
+        setHeaders: (res, filePath) => {
+          if (/[\\/]assets[\\/]/.test(filePath)) res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+          else res.setHeader('cache-control', 'no-cache');
+        },
+      });
+      app.setNotFoundHandler((req, reply) => {
+        // API/infra paths keep their JSON 404; everything else is an SPA route → index.html.
+        if (req.method !== 'GET' || req.url.startsWith('/api') || req.url.startsWith('/socket.io')) {
+          return reply.code(404).send({ error: { code: 'not_found', message: 'Not found.' } });
+        }
+        return reply.type('text/html').sendFile('index.html');
+      });
+      app.log.info(`Serving the SPA from ${staticRoot} (single-container mode)`);
+    }
+  }
 
   return app;
 }

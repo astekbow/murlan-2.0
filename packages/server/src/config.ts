@@ -26,6 +26,11 @@ const schema = z.object({
   ACCESS_TTL: z.string().default('5m'), // short by design — access tokens are now
   // revocation-aware (ver claim), but a short TTL still caps any residual window.
   REFRESH_TTL: z.string().default('7d'),
+  // Single-container mode: serve the BUILT client (Vite dist) from this server at the same
+  // origin/port as the API + Socket.IO. Point it at the client dist dir; empty = off (the
+  // normal deploy keeps nginx serving the SPA). Same-origin also makes wss "just work"
+  // behind any HTTPS tunnel/proxy — the client already connects to its own origin.
+  STATIC_DIR: z.string().optional(),
   REDIS_URL: z.string().optional(),
   // Attach the Socket.IO Redis adapter ONLY when running >1 replica. On the single-instance
   // deploy the adapter is pure overhead: every lobby + per-turn broadcast is serialized and
@@ -155,6 +160,7 @@ export interface AppConfig {
   refreshSecret: string;
   accessTtl: string;
   refreshTtl: string;
+  staticDir: string | null; // serve the built SPA from this dir (single-container mode); null = API-only
   redisUrl: string | null;
   multiInstance: boolean; // attach the Socket.IO Redis adapter (only meaningful with >1 replica)
   databaseUrl: string | null;
@@ -325,6 +331,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     refreshSecret: parsed.JWT_REFRESH_SECRET ?? DEV_REFRESH_SECRET,
     accessTtl: parsed.ACCESS_TTL,
     refreshTtl: parsed.REFRESH_TTL,
+    staticDir: (parsed.STATIC_DIR ?? '').trim() || null,
     redisUrl: parsed.REDIS_URL ?? null,
     multiInstance: isTrue(parsed.MULTI_INSTANCE),
     databaseUrl: parsed.DATABASE_URL ?? null,
