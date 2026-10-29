@@ -9,7 +9,7 @@
 set -euo pipefail
 
 # Dockerfile base images (the `FROM` lines).
-dockerfile_images=("node:22-alpine" "nginx:1.27-alpine")
+dockerfile_images=("node:22-alpine" "nginx:1.30-alpine")
 # docker-compose service images (the `image:` keys). prom/*:latest is the most
 # important to pin — a floating :latest can pull a different Prometheus/Alertmanager
 # on any rebuild of a real-money host.
@@ -25,7 +25,7 @@ for ref in "${dockerfile_images[@]}"; do
 done
 echo "------------------------------------------------------------------------"
 echo "Dockerfile.server: pin the two 'FROM node:22-alpine ...' lines."
-echo "Dockerfile.client: pin 'FROM node:22-alpine AS build' and 'FROM nginx:1.27-alpine AS runtime'."
+echo "Dockerfile.client: pin 'FROM node:22-alpine AS build' and 'FROM nginx:1.30-alpine AS runtime'."
 echo "(Keep the ' AS <stage>' suffix; just insert @sha256:... before it.)"
 echo
 echo "== docker-compose — paste over the matching 'image:' values =="

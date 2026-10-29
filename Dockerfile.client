@@ -3,8 +3,8 @@
 #
 # SUPPLY CHAIN: base images pinned to content digests (audit L11) — tags kept for readability, the
 # @sha256 digests are enforced. Re-pin on a base bump via deploy/pin-images.sh (or
-# `docker buildx imagetools inspect <image> --format '{{.Manifest.Digest}}'`). Resolved 2026-06.
-FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS build
+# `docker buildx imagetools inspect <image> --format '{{.Manifest.Digest}}'`). Resolved 2026-10-29.
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/package.json
@@ -18,7 +18,9 @@ COPY . .
 # verified before push (locally + CI `npm run typecheck`). Use `npm run build` for a typechecked build.
 RUN npm run build:image --workspace @murlan/client
 
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 AS runtime
+# nginx 1.30 = current STABLE line, on Alpine 3.24 (1.27-alpine sat on Alpine 3.21, which leaves
+# security support 2026-11-01 — after that `apk upgrade` below could no longer close new CVEs).
+FROM nginx:1.30-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949 AS runtime
 # Patch OS packages to the latest alpine security fixes (pinned digest ages between re-pins; closes the
 # FIXABLE CVEs the CI Trivy gate flags). Done before copying the static bundle.
 RUN apk upgrade --no-cache

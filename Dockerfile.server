@@ -1,10 +1,17 @@
 # Murlan game server (Fastify + Socket.IO). Runs the TypeScript sources via tsx.
 #
+# RUNTIME-ONLY IMAGE (2026-10-29): the image carries ONLY production dependencies (`npm ci --omit=dev`;
+# tsx + the prisma CLI are declared runtime deps of @murlan/server) and NO npm / npx / yarn / corepack —
+# the server and its boot-time migration run with plain `node`. The dev toolchain (vite, vitest,
+# playwright, concurrently, vite's old esbuild…) and npm's own bundled packages (tar, pacote, sigstore…)
+# were what kept failing the CI Trivy gate from 2026-07 on: none reachable at runtime, but every new
+# advisory against them blocked the GHCR push. They are simply not shipped any more.
+#
 # SUPPLY CHAIN: base image pinned to a content digest (audit L11) for reproducible, tamper-evident
-# builds. The :22-alpine tag is kept for readability; the @sha256 digest is what's enforced. Re-pin on
-# a base bump with: docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
-# (or run deploy/pin-images.sh). Digest resolved 2026-06 for node:22-alpine.
-FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS deps
+# builds. The :22-alpine tag is kept for readability; the @sha256 digest (multi-arch index) is what's
+# enforced. Re-pin on a base bump with: docker buildx imagetools inspect node:22-alpine --format
+# '{{.Manifest.Digest}}' (or run deploy/pin-images.sh). Digest resolved 2026-10-29 for node:22-alpine.
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS deps
 WORKDIR /app
 # Prisma needs openssl present to pick the correct engine for Alpine/musl (else it
 # guesses openssl-1.1.x and tries to download an engine at runtime — which fails as
@@ -16,16 +23,16 @@ COPY packages/engine/package.json packages/engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/server/package.json packages/server/package.json
 COPY packages/client/package.json packages/client/package.json
-RUN npm ci
+# Production deps only — no dev toolchain in the image.
+RUN npm ci --omit=dev
 
-FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS runtime
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
 WORKDIR /app
 # Patch OS packages to the latest alpine security fixes (the base digest is pinned for reproducibility but
 # ages between re-pins; `apk upgrade` closes FIXABLE CVEs the CI Trivy gate flags). Then openssl so Prisma
 # detects the right engine at build AND runtime (see deps stage).
 # devops-3 trade-off (deliberate): `apk upgrade` makes the layer non-reproducible across time, but for a
-# RUNTIME image we choose CVE-currency over byte-reproducibility. The proper long-term fix is to re-pin the
-# base digest to a freshly-patched node:22-alpine on a schedule and drop this line — until then, keep it.
+# RUNTIME image we choose CVE-currency over byte-reproducibility.
 RUN apk upgrade --no-cache && apk add --no-cache openssl
 # PORT must match EXPOSE + the HEALTHCHECK below AND the docker-compose `PORT` env +
 # nginx upstream (all 3000). A mismatch would make Docker probe the wrong port and
@@ -33,9 +40,12 @@ RUN apk upgrade --no-cache && apk add --no-cache openssl
 ENV NODE_ENV=production PORT=3000
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Generate the Prisma client + bundle the engines at build time (as root, writable)
-# so the non-root runtime never needs to download one.
-RUN npx prisma generate --schema packages/server/prisma/schema.prisma
+# Generate the Prisma client + bundle the engines at build time (as root, writable) so the non-root
+# runtime never needs to download one — then REMOVE the package managers: nothing at runtime needs
+# them (see the CMD), and npm's bundled dependencies are a standing source of image CVEs.
+RUN node node_modules/prisma/build/index.js generate --schema packages/server/prisma/schema.prisma \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 # Drop privileges: run as the built-in unprivileged `node` user, not root.
 # (The app writes nothing to disk; node only needs read access to /app.)
 USER node
@@ -48,4 +58,6 @@ HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
 # the server. FAIL-FAST: if the migration fails, exit (the container restarts and
 # retries) rather than starting on an empty DB and 500-ing every query. With no
 # DATABASE_URL the server runs in-memory and the migrate step is skipped.
-CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy --schema packages/server/prisma/schema.prisma || exit 1; fi; exec npm run start --workspace @murlan/server"]
+# Plain node (no npm): the same command as the @murlan/server `start` script, and `exec` makes node
+# PID 1 so docker's SIGTERM reaches the server's graceful-drain handler directly.
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then node node_modules/prisma/build/index.js migrate deploy --schema packages/server/prisma/schema.prisma || exit 1; fi; cd packages/server && exec node --env-file-if-exists=../../.env --import tsx src/index.ts"]
