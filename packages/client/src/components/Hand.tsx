@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Card } from '@murlan/engine';
 import { singlePower } from '@murlan/engine';
 import { CardView } from './CardView.tsx';
@@ -25,12 +25,37 @@ interface HandProps {
 const sortIds = (cards: Card[]): string[] =>
   [...cards].sort((a, b) => singlePower(a) - singlePower(b)).map(cardKey);
 
+/** A finger always jitters a few px on a tap: below this it's a tap (select), past it a drag (reorder). */
+const DRAG_SLOP_PX = 10;
+
+/** Horizontal slot position. On the OUTER card wrapper only (compositor-friendly transform), so the
+ *  inner element stays free for the selected-lift + the just-received pop animation. */
+const slotTransform = (x: number) => `translate3d(${x}px,0,0)`;
+
+interface DragState {
+  id: string;
+  pointerId: number;
+  startX: number;
+  /** Pointer offset from the card's left edge at grab time — the card stays under the finger exactly where it was picked up. */
+  grab: number;
+  stageLeft: number;
+  /** Current card left (px, stage coords). */
+  x: number;
+  moved: boolean;
+}
+
 /**
  * The local player's hand: shown as a fan, auto-sorted weakest→strongest by
  * default, and freely RE-ORDERABLE by drag (pointer = mouse + touch). A short
  * press toggles selection; a drag moves the card. The fan width is fitted to the
  * available space so EVERY card is visible (it never overflows off-screen).
  * Display/order only — moves are sent to the server by card id.
+ *
+ * Drag mechanics (smoothness): the pointer is captured on the STAGE, which never moves in the DOM —
+ * capturing on the card broke the drag the moment React re-ordered that card's node (moving a node
+ * drops its pointer capture, so dragging RIGHT used to stall after one slot). The dragged card follows
+ * the finger via a direct, rAF-batched transform write (no React render per pointermove); React only
+ * re-renders when the card crosses into a new slot, and the other cards GLIDE to their new places.
  */
 // Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips
 // re-rendering on unrelated table updates (an opponent's move, a timer tick) — it
@@ -117,40 +142,84 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   // Landscape cards are taller+thinner (1.82) so a narrow card still reads as big; portrait keeps 1.4.
   const CARD_H = Math.round(CARD_W * (fit ? 1.82 : 1.4));
   const stageW = (n - 1) * step + CARD_W;
+  // Stable style object → the memoized CardView skips re-rendering while cards slide around.
+  const cardStyle = useMemo<CSSProperties>(() => ({ width: CARD_W, height: CARD_H, pointerEvents: 'none' }), [CARD_W, CARD_H]);
 
-  const [drag, setDrag] = useState<{ id: string; x: number; moved: boolean } | null>(null);
-  const startX = useRef(0);
+  // ---------- drag-to-reorder ----------
+  const cardEls = useRef(new Map<string, HTMLDivElement>());
+  const dragRef = useRef<DragState | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const rafRef = useRef(0);
+  // Latest layout + callback for the pointer handlers (a drag outlives several renders).
+  const layout = useRef({ ids, step, n, CARD_W });
+  layout.current = { ids, step, n, CARD_W };
+  const onToggleRef = useRef(onToggle);
+  onToggleRef.current = onToggle;
 
-  const onDown = (id: string, e: PointerEvent) => {
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    startX.current = e.clientX;
-    setDrag({ id, x: e.clientX, moved: false });
+  const applyDrag = () => {
+    rafRef.current = 0;
+    const d = dragRef.current;
+    if (!d || !d.moved) return;
+    cardEls.current.get(d.id)?.style.setProperty('transform', slotTransform(d.x));
+    const { ids: cur, step: st, n: count } = layout.current;
+    if (st <= 0) return;
+    const target = Math.max(0, Math.min(count - 1, Math.round(d.x / st)));
+    const from = cur.indexOf(d.id);
+    if (from === -1 || from === target) return;
+    const next = cur.slice();
+    next.splice(from, 1);
+    next.splice(target, 0, d.id);
+    setOrder(next); // the neighbours glide into their new slots (CSS transition)
   };
-  const onMove = (id: string, e: PointerEvent) => {
-    if (!drag || drag.id !== id) return;
-    // Touch slop: a finger always jitters a few px on a tap, so only treat it as a DRAG
-    // (reorder) past 16px — below that it's a tap (select) and the card stays put. (Was 6px,
-    // which made cards jump out of place on almost every tap.)
-    const moved = drag.moved || Math.abs(e.clientX - startX.current) > 16;
-    const stage = stageRef.current?.getBoundingClientRect();
-    if (stage && step > 0) {
-      const target = Math.max(0, Math.min(n - 1, Math.round((e.clientX - stage.left - CARD_W / 2) / step)));
-      setOrder((prev) => {
-        const arr = prev.filter((x) => byId.has(x));
-        const from = arr.indexOf(id);
-        if (from === -1 || from === target) return prev;
-        arr.splice(from, 1);
-        arr.splice(target, 0, id);
-        return arr;
-      });
+
+  const onCardDown = (id: string, e: PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (dragRef.current) return; // a second finger mid-drag is ignored
+    const stage = stageRef.current;
+    if (!stage) return;
+    const stageLeft = stage.getBoundingClientRect().left;
+    const cardLeft = Math.max(0, layout.current.ids.indexOf(id)) * layout.current.step;
+    dragRef.current = { id, pointerId: e.pointerId, startX: e.clientX, grab: e.clientX - stageLeft - cardLeft, stageLeft, x: cardLeft, moved: false };
+    try { stage.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+  };
+
+  const onStageMove = (e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (!d.moved) {
+      if (Math.abs(e.clientX - d.startX) <= DRAG_SLOP_PX) return; // still a tap
+      d.moved = true;
+      setDragId(d.id);
     }
-    if (moved !== drag.moved || e.clientX !== drag.x) setDrag({ id, x: e.clientX, moved });
+    const { step: st, n: count, CARD_W: cw } = layout.current;
+    const maxX = Math.max(0, (count - 1) * st);
+    d.x = Math.max(-cw * 0.25, Math.min(maxX + cw * 0.25, e.clientX - d.stageLeft - d.grab));
+    if (!rafRef.current) rafRef.current = requestAnimationFrame(applyDrag);
   };
-  const onUp = (id: string, e: PointerEvent) => {
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-    if (drag && drag.id === id && !drag.moved) onToggle(id);
-    setDrag(null);
+
+  const endDrag = (e: PointerEvent, isTap: boolean) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    dragRef.current = null;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+    try { stageRef.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (isTap && !d.moved) onToggleRef.current(d.id);
+    setDragId(null);
   };
+
+  // Drop: the card's transform was last written directly (not by React), so make sure it is sent
+  // back to its slot — it then glides there via the restored CSS transition.
+  const lastDragged = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (dragId) { lastDragged.current = dragId; return; }
+    const id = lastDragged.current;
+    lastDragged.current = null;
+    if (!id) return;
+    const i = layout.current.ids.indexOf(id);
+    if (i >= 0) cardEls.current.get(id)?.style.setProperty('transform', slotTransform(i * layout.current.step));
+  }, [dragId]);
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
   // Empty hand → render nothing (no "you have no cards" placeholder); keep the row's
   // height reserved so the layout doesn't jump when the deal arrives. In fit (canvas)
@@ -172,33 +241,34 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
       // combo was clipping/flickering the top of the cards.
       style={fit ? { overflow: 'visible' } : undefined}
     >
-      <div ref={stageRef} className={`hand-stage${myTurn ? ' my-turn' : ''}`} style={{ width: stageW, height: CARD_H + 34 }}>
+      <div
+        ref={stageRef}
+        className={`hand-stage${myTurn ? ' my-turn' : ''}${dragId ? ' dragging' : ''}`}
+        style={{ width: stageW, height: CARD_H + 34 }}
+        onPointerMove={onStageMove}
+        onPointerUp={(e) => endDrag(e, true)}
+        onPointerCancel={(e) => endDrag(e, false)}
+        onLostPointerCapture={(e) => endDrag(e, false)}
+      >
         {ids.map((id, i) => {
           const card = byId.get(id);
           if (!card) return null;
           const isSel = selectedSet.has(id);
-          const dragging = drag?.id === id;
-          let style: CSSProperties;
-          if (dragging) {
-            const stage = stageRef.current?.getBoundingClientRect();
-            const left = stage ? drag!.x - stage.left - CARD_W / 2 : i * step;
-            // Straight row; a small lift while dragging so it reads as "picked up".
-            style = { left, bottom: 0, transform: 'translateY(-16px)', zIndex: 50, transition: 'none' };
-          } else {
-            // Flat row. A selected card rises BUT keeps its natural stacking (z = i,
-            // not on top of everything), so only its raised top edge (rank + gold ring)
-            // peeks above the row — it never covers the neighbouring cards. The lift +
-            // gold ring alone signal the pick (no dimming of the other cards).
-            style = { left: i * step, bottom: 0, transform: isSel ? 'translateY(calc(var(--card-lift, 32px) * -1))' : 'none', zIndex: i, transition: 'transform .12s ease' };
-          }
-          if (eligibleIds && !eligibleIds.has(id)) style = { ...style, opacity: 0.4 };
+          const dragging = dragId === id;
+          // Straight row. The dragged card rides on top (z 50) at the finger's position; every
+          // other card sits in its slot with natural stacking (z = i) so a SELECTED card's
+          // raised top edge (rank + gold ring) peeks above the row without covering its neighbours.
+          const x = dragging && dragRef.current ? dragRef.current.x : i * step;
+          const style: CSSProperties = { transform: slotTransform(x), zIndex: dragging ? 50 : i };
+          if (eligibleIds && !eligibleIds.has(id)) style.opacity = 0.4;
           const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(id); }
           };
           return (
             <div
               key={id}
-              className={`hand-card${justAdded.has(id) ? ' just-added' : ''}`}
+              ref={(el) => { if (el) cardEls.current.set(id, el); else cardEls.current.delete(id); }}
+              className={`hand-card${dragging ? ' dragging' : ''}`}
               style={style}
               // Keyboard + screen-reader access: each card is a labelled toggle
               // button (pointer users also drag to reorder; keyboard users select).
@@ -207,12 +277,11 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
               aria-label={cardAriaLabel(card)}
               aria-pressed={isSel}
               onKeyDown={onKey}
-              onPointerDown={(e) => onDown(id, e)}
-              onPointerMove={(e) => onMove(id, e)}
-              onPointerUp={(e) => onUp(id, e)}
-              onPointerCancel={() => setDrag(null)}
+              onPointerDown={(e) => onCardDown(id, e)}
             >
-              <CardView card={card} big selected={isSel} decorative style={{ width: CARD_W, height: CARD_H, pointerEvents: 'none' }} />
+              <div className={`hand-card-lift${isSel ? ' sel' : ''}${justAdded.has(id) ? ' just-added' : ''}`}>
+                <CardView card={card} big selected={isSel} decorative style={cardStyle} />
+              </div>
             </div>
           );
         })}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, Suspense, type ReactNode } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from './store/authStore.ts';
 import { useGameStore } from './store/gameStore.ts';
 import { useUiStore } from './store/uiStore.ts';
@@ -104,8 +105,17 @@ function Shell({ children, bare = false }: { children: ReactNode; bare?: boolean
 }
 
 export function App() {
-  const { status, accessToken, user, bootstrap, bootstrapped } = useAuthStore();
-  const { socket, room, spectating, connect, disconnect, toast, toastKind, dismissToast } = useGameStore();
+  // Field selectors (useShallow), NOT the whole store: a bare useGameStore() re-rendered the ENTIRE
+  // app tree — the table included — on every game event, card tap, log line and chat bubble.
+  const { status, accessToken, user, bootstrap, bootstrapped } = useAuthStore(
+    useShallow((s) => ({ status: s.status, accessToken: s.accessToken, user: s.user, bootstrap: s.bootstrap, bootstrapped: s.bootstrapped })),
+  );
+  const { socket, room, spectating, connect, disconnect, toast, toastKind, dismissToast } = useGameStore(
+    useShallow((s) => ({
+      socket: s.socket, room: s.room, spectating: s.spectating, connect: s.connect, disconnect: s.disconnect,
+      toast: s.toast, toastKind: s.toastKind, dismissToast: s.dismissToast,
+    })),
+  );
   const lobbyView = useUiStore((s) => s.view);
   const replayMatchId = useUiStore((s) => s.replayMatchId);
   const profileUserId = useUiStore((s) => s.profileUserId);

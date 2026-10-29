@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { RoomStateDTO } from '@murlan/shared';
 import type { Card } from '@murlan/engine';
@@ -264,7 +264,11 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Card-switch: the winner returns a rank-3–10 card to the loser. Handled
   // ON the real hand (no blurring modal) — tap an eligible card to give it.
   const switching = !!switchPrompt && switchPrompt.winner === mySeat;
-  const eligibleSwitchIds = switching ? new Set(myHand.filter(isReturnEligible).map(cardKey)) : null;
+  // Memoized so the memo'd <Hand> isn't forced to re-render on every table update during a switch.
+  const eligibleSwitchIds = useMemo(
+    () => (switching ? new Set(myHand.filter(isReturnEligible).map(cardKey)) : null),
+    [switching, myHand],
+  );
   // BETWEEN HANDS: the standings overlay is up, or a card-switch is running. In this window the
   // frozen game carries the PREVIOUS hand's per-seat counts and it is nobody's turn — so hide the
   // stale seat counts (R4) and the Play/Pass controls (R3) for everyone.

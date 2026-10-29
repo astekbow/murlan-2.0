@@ -476,10 +476,17 @@ select:focus-visible,
   .av.green { border-color: var(--green); }
   /* Active opponent: a thick gold halo that PULSES — readable in peripheral vision even
      at the 36px landscape avatar, where the thin depleting ring alone was easy to miss. */
-  .av.turn { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(232, 200, 121, 0.78), 0 0 22px rgba(230, 197, 112, 0.7); animation: turn-pulse 1.4s ease-in-out infinite; }
+  /* PERF: the pulse animates the OPACITY of a pre-drawn glow ring (compositor-only) instead of
+     animating box-shadow itself, which repainted the avatar every frame for the whole turn. */
+  .av.turn { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(232, 200, 121, 0.7), 0 0 16px rgba(230, 197, 112, 0.55); }
+  .av.turn::after {
+    content: ''; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
+    box-shadow: 0 0 0 2px rgba(232, 200, 121, 0.98), 0 0 30px rgba(230, 197, 112, 0.95);
+    animation: turn-pulse 1.4s ease-in-out infinite;
+  }
   @keyframes turn-pulse {
-    0%, 100% { box-shadow: 0 0 0 4px rgba(232, 200, 121, 0.7), 0 0 16px rgba(230, 197, 112, 0.55); }
-    50% { box-shadow: 0 0 0 5px rgba(232, 200, 121, 0.98), 0 0 30px rgba(230, 197, 112, 0.95); }
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
   }
   .av.off { opacity: 0.5; }
 
@@ -578,11 +585,23 @@ select:focus-visible,
   @media (orientation: landscape) and (max-height: 560px) {
     .hand-stage { --card-lift: 20px; }
   }
+  /* Outer wrapper = the card's SLOT, placed by a translate3d (compositor-only) so cards GLIDE
+     into new slots while another card is dragged across them. The inner .hand-card-lift carries
+     the selected-lift / drag-lift / just-received pop, so the two transforms never fight. */
   .hand-card {
-    position: absolute; transform-origin: bottom center; cursor: grab; touch-action: none;
-    transition: left 0.18s ease, transform 0.18s ease;
+    position: absolute; left: 0; bottom: 0; cursor: grab; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
   }
-  .hand-card:active { cursor: grabbing; }
+  .hand-card:active, .hand-card.dragging { cursor: grabbing; }
+  .hand-card.dragging { transition: none; } /* follows the finger 1:1 */
+  .hand-stage.dragging .hand-card { will-change: transform; }
+  .hand-card-lift { transform-origin: bottom center; transition: transform 0.12s ease; }
+  .hand-card-lift.sel { transform: translateY(calc(var(--card-lift, 32px) * -1)); }
+  .hand-card.dragging .hand-card-lift {
+    transform: translateY(-16px) scale(1.05);
+    filter: drop-shadow(0 14px 12px rgba(0, 0, 0, 0.45));
+  }
 
   /* ---- (legacy) flex fan classes, kept harmless ------------------------- */
   .hand-fan { display: flex; justify-content: center; align-items: flex-end; min-height: 124px; padding: 0 6px 4px; }
@@ -741,13 +760,21 @@ select:focus-visible,
 .swap-fly-down { animation: swapFlyDown 1.7s cubic-bezier(0.5, 0, 0.75, 0) 0.55s both; }
 
 /* MY-TURN aura: a pulsing gold halo around the whole hand fan so it's unmistakable it's my move
-   (the "rise" alone wasn't obvious enough). filter:drop-shadow hugs the card silhouettes. Reduced-
-   motion safe (the universal * rule zeroes the animation). */
-@keyframes handTurnGlow {
-  0%, 100% { filter: drop-shadow(0 2px 5px rgba(230, 197, 112, 0.30)); }
-  50% { filter: drop-shadow(0 3px 20px rgba(230, 197, 112, 0.85)); }
+   (the "rise" alone wasn't obvious enough). PERF: a static glow layer behind the card row whose
+   OPACITY pulses (compositor-only) — the old animated filter:drop-shadow on the whole fan re-painted
+   every card on every frame exactly while the player taps/drags, making the hand stutter on phones.
+   z-index auto + first in paint order → it sits behind the cards. Reduced-motion safe (the universal
+   * rule zeroes the animation). */
+@keyframes handTurnPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
-.hand-stage.my-turn { animation: handTurnGlow 1.5s ease-in-out infinite; }
+.hand-stage.my-turn::before {
+  content: ''; position: absolute; left: -8px; right: -8px; top: 30px; bottom: -4px;
+  border-radius: 14px; pointer-events: none;
+  box-shadow: 0 0 22px 4px rgba(230, 197, 112, 0.8);
+  animation: handTurnPulse 1.5s ease-in-out infinite;
+}
 
 /* JUST-RECEIVED card: a card that just arrived in the hand (a swap card / new deal) pops + flashes
    gold so the player SEES it land — e.g. the winner visibly getting the loser's big card. No fill
@@ -757,7 +784,7 @@ select:focus-visible,
   55% { filter: drop-shadow(0 0 14px rgba(230, 197, 112, 0.8)); }
   100% { transform: scale(1); filter: none; }
 }
-.hand-card.just-added { animation: cardJustAdded 1.5s ease; }
+.hand-card-lift.just-added { animation: cardJustAdded 1.5s ease; }
 
 /* Winner pot-slide: a gold chip stack slides up into the winnings figure when the
    match-end overlay reveals a staked payout. Plays once (mounts with the overlay).
@@ -946,10 +973,10 @@ select:focus-visible,
      small canvases — clamp each axis up to 30px (with the wider tap padding the
      effective target reaches ~44px). */
   width: max(5cqw, 30px); height: max(5cqw, 30px); font-size: 2.7cqw;
-  background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
+  /* PERF: near-opaque fill INSTEAD of backdrop-filter blur — a blur over the live felt had to be
+     recomputed every frame anything moved underneath (cards flying in, the pile, turn glows). */
+  background: linear-gradient(180deg, rgba(36, 33, 45, 0.9), rgba(13, 12, 18, 0.86)) !important;
   border: 1px solid var(--hairline-gold) !important;
-  -webkit-backdrop-filter: blur(7px);
-  backdrop-filter: blur(7px);
   box-shadow: 0 8px 20px -12px #000, inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 .tv-ls .tvc-topbar .iconbtn:hover {
@@ -965,11 +992,9 @@ select:focus-visible,
   min-height: 0 !important;
   line-height: 1.1 !important;
   border-radius: 9999px !important;
-  background: linear-gradient(180deg, rgba(36, 33, 45, 0.72), rgba(13, 12, 18, 0.62)) !important;
+  background: linear-gradient(180deg, rgba(36, 33, 45, 0.9), rgba(13, 12, 18, 0.86)) !important; /* opaque, no blur (perf) */
   border: 1px solid var(--hairline-gold) !important;
   color: var(--txt-hi) !important;
-  -webkit-backdrop-filter: blur(7px);
-  backdrop-filter: blur(7px);
   box-shadow: 0 8px 20px -12px #000, inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
   letter-spacing: 0.3px;
 }
