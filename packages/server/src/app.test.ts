@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { io as ioClient } from 'socket.io-client';
 import { createGameServer } from './app.ts';
 import { loadConfig } from './config.ts';
@@ -64,6 +67,39 @@ test('end-to-end: HTTP register issues a token that authenticates a socket and c
     sock.close();
   } finally {
     await server.close();
+  }
+});
+
+test('single-container mode (STATIC_DIR): serves the SPA, caches hashed assets, falls back to index.html', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'murlan-spa-'));
+  fs.mkdirSync(path.join(dir, 'assets'));
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>murlan</title>');
+  fs.writeFileSync(path.join(dir, 'assets', 'app-abc123.js'), 'console.log(1)');
+  const config = loadConfig({ NODE_ENV: 'test', PORT: '0', STATIC_DIR: dir } as NodeJS.ProcessEnv);
+  const server = await createGameServer({ config });
+  try {
+    const root = await server.app.inject({ method: 'GET', url: '/' });
+    assert.equal(root.statusCode, 200);
+    assert.match(root.body, /<title>murlan<\/title>/);
+    assert.equal(root.headers['cache-control'], 'no-cache');
+
+    const asset = await server.app.inject({ method: 'GET', url: '/assets/app-abc123.js' });
+    assert.equal(asset.statusCode, 200);
+    assert.equal(asset.headers['cache-control'], 'public, max-age=31536000, immutable');
+
+    const spaRoute = await server.app.inject({ method: 'GET', url: '/u/some-profile' });
+    assert.equal(spaRoute.statusCode, 200, 'an SPA route falls back to index.html');
+    assert.match(spaRoute.body, /<title>murlan<\/title>/);
+
+    const apiMiss = await server.app.inject({ method: 'GET', url: '/api/does-not-exist' });
+    assert.equal(apiMiss.statusCode, 404);
+    assert.equal(apiMiss.json().error.code, 'not_found');
+
+    const traversal = await server.app.inject({ method: 'GET', url: '/assets/..%2f..%2fpackage.json' });
+    assert.doesNotMatch(traversal.body, /"name"/, 'no path traversal out of STATIC_DIR');
+  } finally {
+    await server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

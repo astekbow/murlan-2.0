@@ -275,19 +275,21 @@ test('login: a missing email still runs a password verify (no fast-path enumerat
 });
 
 // ----- infra-8: a forged X-Forwarded-For can't move req.ip -------------------
-test('infra-8: with a bounded trustProxy (hop=1), a forged X-Forwarded-For cannot spoof req.ip', async () => {
+test('infra-8: with a bounded trustProxy (TRUST_PROXY=1), a forged X-Forwarded-For cannot spoof req.ip', async () => {
   const Fastify = (await import('fastify')).default;
-  // Mirror the prod-recommended config: trust exactly ONE proxy hop. Fastify then takes
-  // req.ip as the entry SECOND-from-the-right of X-Forwarded-For (the address the single
+  // Mirror the prod config: TRUST_PROXY=1 → trust exactly ONE hop, and only if that hop is our own
+  // (loopback/private) proxy. req.ip is then the right-most XFF entry (the address the single
   // trusted proxy saw) — NOT the attacker-controlled left-most value.
-  const app = Fastify({ trustProxy: 1 });
+  const app = Fastify({ trustProxy: loadConfig({ NODE_ENV: 'test', TRUST_PROXY: '1' } as NodeJS.ProcessEnv).trustProxy });
   app.get('/ip', async (req) => ({ ip: req.ip }));
   await app.ready();
-  // Attacker forges a left-most XFF to impersonate 1.2.3.4; the real proxy appends the
-  // true peer. With hop=1 the spoofed left-most entry is ignored.
+  // Via our proxy (inject's peer is 127.0.0.1): the real client 9.9.9.9 is resolved, the spoof ignored.
   const res = await app.inject({ method: 'GET', url: '/ip', headers: { 'x-forwarded-for': '1.2.3.4, 9.9.9.9' } });
   assert.equal(res.statusCode, 200);
-  assert.notEqual(res.json().ip, '1.2.3.4', 'the spoofed left-most XFF must NOT become req.ip');
+  assert.equal(res.json().ip, '9.9.9.9', 'each player keeps their own IP behind the proxy (separate rate-limit buckets)');
+  // A client hitting the server DIRECTLY from a public IP can't spoof via XFF (GHSA-3m5p-2c4r-xxw2).
+  const direct = await app.inject({ method: 'GET', url: '/ip', remoteAddress: '8.8.8.8', headers: { 'x-forwarded-for': '1.2.3.4' } });
+  assert.equal(direct.json().ip, '8.8.8.8');
   await app.close();
 });
 

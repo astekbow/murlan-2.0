@@ -8,6 +8,7 @@
 import { log } from './logger.ts';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
+import { BlockList, isIPv4, isIPv6 } from 'node:net';
 
 const DEV_ACCESS_SECRET = 'dev-access-secret-change-me';
 const DEV_REFRESH_SECRET = 'dev-refresh-secret-change-me';
@@ -144,12 +145,44 @@ const ACCESS_TTL_MAX_MS = 15 * 60 * 1000; // 15 minutes
 // re-collapsing rate-limit buckets and poisoning the webhook IP allowlist.
 // Override with TRUST_PROXY: 'true'/'false', a hop count, or a CSV of IPs/CIDRs.
 const DEFAULT_TRUSTED_PROXIES = ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
-function parseTrustProxy(v: string | undefined): boolean | number | string[] {
+
+/** Fastify's custom trust function: (address, hop) → trust this hop? */
+export type TrustProxyFn = (address: string, hop: number) => boolean;
+
+/** Our own proxies only ever reach the server from loopback or a private (Docker/LAN) network. */
+const PRIVATE_PROXY_NETS = (() => {
+  const list = new BlockList();
+  list.addSubnet('127.0.0.0', 8, 'ipv4');
+  list.addSubnet('10.0.0.0', 8, 'ipv4');
+  list.addSubnet('172.16.0.0', 12, 'ipv4');
+  list.addSubnet('192.168.0.0', 16, 'ipv4');
+  list.addAddress('::1', 'ipv6');
+  list.addSubnet('fc00::', 7, 'ipv6'); // IPv6 unique-local (Docker IPv6 networks)
+  return list;
+})();
+
+/**
+ * TRUST_PROXY=<N> → trust at most N proxy hops, AND only hops whose address is loopback/private.
+ * Fastify ≥5.12 fails a bare hop count CLOSED (trusts nothing — GHSA-3m5p-2c4r-xxw2: a client that
+ * reaches the server directly could spoof X-Forwarded-For past an unvalidated hop count). Passing
+ * the number through would have collapsed EVERY player onto the proxy's IP, i.e. one shared
+ * rate-limit bucket for the whole site. This keeps the per-client IPs while validating each hop.
+ */
+export function hopCountTrust(hops: number): TrustProxyFn {
+  return (address, hop) => {
+    if (hop >= hops) return false;
+    const a = address.startsWith('::ffff:') ? address.slice(7) : address; // IPv4-mapped IPv6
+    const type = isIPv4(a) ? 'ipv4' : isIPv6(a) ? 'ipv6' : null;
+    return type !== null && PRIVATE_PROXY_NETS.check(a, type);
+  };
+}
+
+function parseTrustProxy(v: string | undefined): boolean | string[] | TrustProxyFn {
   const s = (v ?? '').trim();
   if (s === '') return DEFAULT_TRUSTED_PROXIES;
   if (s === 'true') return true;
   if (s === 'false') return false;
-  if (/^\d+$/.test(s)) return Number(s); // hop count
+  if (/^\d+$/.test(s)) return Number(s) > 0 ? hopCountTrust(Number(s)) : false; // hop count (validated)
   return s.split(',').map((x) => x.trim()).filter(Boolean);
 }
 
@@ -182,7 +215,7 @@ export interface AppConfig {
   rankedBotMs: number; // ranked solo-queue → vs-BOT fallback delay (ms); 0 disabled by schema (positive)
   paymentWebhookSecret: string;
   paymentWebhookIps: string[];
-  trustProxy: boolean | number | string[]; // Fastify trustProxy: which proxy hops/IPs to trust for X-Forwarded-For
+  trustProxy: boolean | string[] | TrustProxyFn; // Fastify trustProxy: which proxy hops/IPs to trust for X-Forwarded-For
   metricsToken: string | null;             // bearer token guarding GET /metrics (null = private-IP-only)
   resendApiKey: string | null;
   emailFrom: string;

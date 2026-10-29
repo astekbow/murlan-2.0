@@ -482,9 +482,10 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
         root: staticRoot,
         wildcard: true,
         cacheControl: false, // we set cache-control ourselves below (the plugin's maxAge would override it)
-        setHeaders: (res, filePath) => {
-          if (/[\\/]assets[\\/]/.test(filePath)) res.setHeader('cache-control', 'public, max-age=31536000, immutable');
-          else res.setHeader('cache-control', 'no-cache');
+        // @fastify/static ≥10 passes the Fastify reply here (was the raw ServerResponse in 8.x).
+        setHeaders: (reply, filePath) => {
+          if (/[\\/]assets[\\/]/.test(filePath)) reply.header('cache-control', 'public, max-age=31536000, immutable');
+          else reply.header('cache-control', 'no-cache');
         },
       });
       app.setNotFoundHandler((req, reply) => {

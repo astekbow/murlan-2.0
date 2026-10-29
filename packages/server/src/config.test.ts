@@ -139,7 +139,16 @@ test('infra-8 prod: TRUST_PROXY=true is refused; blank is allowed (deployed ngin
 });
 
 test('infra-8 prod: a concrete hop count or CIDR is accepted', () => {
-  assert.equal(loadConfig(prodEnv({ TRUST_PROXY: '1' })).trustProxy, 1);
+  // A hop count becomes a VALIDATING trust fn (Fastify ≥5.12 fails bare numbers closed — which
+  // would collapse every player onto the proxy IP): ≤N hops, each from loopback/private only.
+  const tp = loadConfig(prodEnv({ TRUST_PROXY: '1' })).trustProxy;
+  assert.equal(typeof tp, 'function');
+  const trust = tp as (address: string, hop: number) => boolean;
+  assert.equal(trust('172.18.0.5', 0), true, 'our Docker-network proxy is trusted');
+  assert.equal(trust('::ffff:127.0.0.1', 0), true, 'IPv4-mapped loopback is trusted');
+  assert.equal(trust('8.8.8.8', 0), false, 'a public peer is never trusted (no XFF spoofing)');
+  assert.equal(trust('10.0.0.2', 1), false, 'only ONE hop is trusted');
+  assert.equal(loadConfig(prodEnv({ TRUST_PROXY: '0' })).trustProxy, false);
   assert.deepEqual(loadConfig(prodEnv({ TRUST_PROXY: '172.18.0.0/16' })).trustProxy, ['172.18.0.0/16']);
 });
 
