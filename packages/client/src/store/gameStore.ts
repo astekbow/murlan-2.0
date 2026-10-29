@@ -7,7 +7,7 @@ import type {
 } from '@murlan/shared';
 import { PLAYERS_PER_TYPE } from '@murlan/shared';
 import { connectSocket, request, type MurlanSocket } from '../lib/socket.ts';
-import { refreshAccessToken, clubsApi } from '../lib/api.ts';
+import { refreshAccessToken, clubsApi, isSessionDead, reportSessionLost } from '../lib/api.ts';
 import { ackText } from '../lib/errors.ts';
 import { translate, useLangStore, type TVars } from '../lib/i18n.ts';
 import { toggleCard, selectedCards } from '../lib/selection.ts';
@@ -261,16 +261,41 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const socket = connectSocket(getToken);
     set({ socket, myUserId: userId });
 
+    // Consecutive handshake refusals — backs off the manual retries below; reset on connect.
+    let refusals = 0;
+    const retryConnect = (ms: number) => {
+      window.setTimeout(() => {
+        if (get().socket === socket && !socket.connected) socket.connect();
+      }, ms);
+    };
+
     socket.on('connect', () => {
+      refusals = 0;
       set({ connected: true });
       get().refreshLobby();
     });
     socket.on('disconnect', () => set({ connected: false }));
-    // A rejected handshake (expired access token) surfaces as connect_error.
-    // Refresh the token now so Socket.IO's next auto-reconnect attempt — which
-    // re-invokes the auth callback — carries a live token instead of looping.
+    // A handshake REFUSED by the server (expired access token / connect rate-limit) is TERMINAL
+    // for Socket.IO — the client destroys the socket and never auto-reconnects (`socket.active`
+    // goes false). Before, we only refreshed the token and the socket then stayed dead until a
+    // full reload: the player was silently cut off from the table. Now: refresh the token and
+    // reconnect ourselves, with a capped backoff. Transport failures (`socket.active` still true)
+    // are left to Socket.IO's own reconnection.
     socket.on('connect_error', (err) => {
-      if (err.message === 'unauthorized') void refreshAccessToken().catch(() => {});
+      if (socket.active) return;
+      const backoff = Math.min(30_000, 1_000 * 2 ** refusals++);
+      if (err.message === 'unauthorized') {
+        refreshAccessToken().then(
+          () => retryConnect(refusals > 1 ? backoff : 0),
+          (e: unknown) => {
+            if (isSessionDead(e)) reportSessionLost(); // cookie really gone → login screen (tears the socket down)
+            else retryConnect(backoff); // refresh hiccup → keep trying, still signed in
+          },
+        );
+      } else if (err.message === 'rate_limited') {
+        retryConnect(backoff + Math.random() * 1_000);
+      }
+      // banned / suspended / other account-state refusals: do not hammer the server.
     });
 
     socket.on('lobby:state', (state) => set({ lobby: state.rooms, live: state.live }));

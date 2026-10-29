@@ -25,7 +25,9 @@ const schema = z.object({
   JWT_REFRESH_SECRET: z.string().optional(),
   ACCESS_TTL: z.string().default('5m'), // short by design — access tokens are now
   // revocation-aware (ver claim), but a short TTL still caps any residual window.
-  REFRESH_TTL: z.string().default('7d'),
+  // 30d SLIDING (every refresh re-mints a fresh 30d token), so a regular player stays signed in;
+  // was 7d, which logged out anyone who skipped a week.
+  REFRESH_TTL: z.string().default('30d'),
   // Single-container mode: serve the BUILT client (Vite dist) from this server at the same
   // origin/port as the API + Socket.IO. Point it at the client dist dir; empty = off (the
   // normal deploy keeps nginx serving the SPA). Same-origin also makes wss "just work"
@@ -118,7 +120,7 @@ const isTrue = (v: string | undefined): boolean => v === 'true' || v === '1';
 // Parse a JWT TTL string ('15m', '5m', '30s', '2h', '7d') or a bare number (seconds)
 // to milliseconds. Returns null if it can't be parsed (caller treats that as invalid).
 const TTL_UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-function ttlToMs(v: string): number | null {
+export function ttlToMs(v: string): number | null {
   const s = v.trim();
   if (/^\d+$/.test(s)) return Number(s) * 1000; // bare seconds (jsonwebtoken convention)
   const m = /^(\d+)\s*(s|m|h|d)$/.exec(s);

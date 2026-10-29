@@ -237,7 +237,9 @@ test('refresh rejects a garbage token', async () => {
   );
 });
 
-test('refresh ROTATES: the old token is revoked, and replaying it kills the whole family', async () => {
+const jtiOf = (tokens: TokenService, refreshToken: string) => tokens.verifyRefresh(refreshToken).jti;
+
+test('refresh ROTATES: once the successor was USED, replaying an old token kills the whole family', async () => {
   const { auth } = makeService();
   const res = await auth.register(valid);
   const r1 = res.tokens.refreshToken;
@@ -245,31 +247,55 @@ test('refresh ROTATES: the old token is revoked, and replaying it kills the whol
   const rotated = await auth.refresh(r1); // r1 -> r2 (r1 now revoked)
   const r2 = rotated.tokens.refreshToken;
   assert.notEqual(r1, r2);
+  const r3 = (await auth.refresh(r2)).tokens.refreshToken; // the client USED r2 → r3
 
-  // Replaying the rotated-away r1 is rejected AND, as reuse detection, revokes
-  // the family — so the legitimately-rotated r2 is also invalidated.
+  // Replaying r1 now (its successor r2 was already used) is a genuine replay → rejected AND,
+  // as reuse detection, the family is revoked — so the live r3 is invalidated too.
   await assert.rejects(auth.refresh(r1), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
-  await assert.rejects(auth.refresh(r2), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
+  await assert.rejects(auth.refresh(r3), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
 });
 
-// auth-3: two concurrent /refresh calls presenting the SAME token must NOT both mint a
-// session — the atomic conditional revoke lets exactly one win; the other is detected as
-// reuse and the family is revoked (the winner's new token is then dead too).
-test('refresh is atomic: concurrent reuse of one token never mints two live sessions', async () => {
-  const { auth } = makeService();
+// The "logged out for no reason" fix: a phone that lost the refresh RESPONSE (app backgrounded /
+// network drop mid-request) still holds the rotated-away cookie. Its successor was never used, so
+// presenting the old token hands back that SAME successor instead of nuking the session.
+test('refresh: replaying the just-rotated token while its successor is unused resumes the session', async () => {
+  const { auth, tokens } = makeService();
   const res = await auth.register(valid);
   const r1 = res.tokens.refreshToken;
 
-  // Fire both at once. With the atomic revokeIfActive, at most one resolves.
-  const results = await Promise.allSettled([auth.refresh(r1), auth.refresh(r1)]);
-  const wins = results.filter((r) => r.status === 'fulfilled');
-  const losses = results.filter((r) => r.status === 'rejected');
-  assert.equal(wins.length, 1, 'exactly one concurrent refresh may succeed');
-  assert.equal(losses.length, 1, 'the other is rejected (detected reuse)');
+  const r2 = (await auth.refresh(r1)).tokens.refreshToken; // response "lost" — client keeps r1
+  const again = await auth.refresh(r1);
+  assert.equal(jtiOf(tokens, again.tokens.refreshToken), jtiOf(tokens, r2), 'the unused successor is re-issued (no new row)');
+  // The session is alive: the resumed token rotates normally.
+  const r3 = (await auth.refresh(again.tokens.refreshToken)).tokens.refreshToken;
+  assert.ok(r3);
+  // …and r1 is now a genuine replay (its successor was used) → rejected.
+  await assert.rejects(auth.refresh(r1), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
+});
 
-  // Reuse tripped family revocation → even the winner's freshly-minted token is now dead.
-  const winnerToken = (wins[0] as PromiseFulfilledResult<{ tokens: { refreshToken: string } }>).value.tokens.refreshToken;
-  await assert.rejects(auth.refresh(winnerToken), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
+// auth-3: two concurrent /refresh calls presenting the SAME token (two tabs / a double-submit)
+// must NOT mint two live sessions — the atomic conditional revoke lets exactly one rotate; the
+// other is handed the winner's successor, so both callers stay signed in on ONE token.
+test('refresh is atomic: concurrent use of one token never mints two live sessions', async () => {
+  const { auth, tokens } = makeService();
+  const res = await auth.register(valid);
+  const r1 = res.tokens.refreshToken;
+
+  const results = await Promise.allSettled([auth.refresh(r1), auth.refresh(r1)]);
+  const wins = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<{ tokens: { refreshToken: string } }>[];
+  assert.equal(wins.length, 2, 'neither caller is logged out');
+  const [a, b] = wins.map((w) => jtiOf(tokens, w.value.tokens.refreshToken));
+  assert.equal(a, b, 'both callers share the ONE successor token — no second session');
+  // That shared token is live.
+  await auth.refresh(wins[0]!.value.tokens.refreshToken);
+});
+
+test('refresh: replaying a LOGGED-OUT token is rejected (no successor to resume)', async () => {
+  const { auth } = makeService();
+  const res = await auth.register(valid);
+  const r2 = (await auth.refresh(res.tokens.refreshToken)).tokens.refreshToken;
+  await auth.logout(r2);
+  await assert.rejects(auth.refresh(r2), (e: unknown) => e instanceof AuthError && e.code === 'bad_refresh');
 });
 
 test('logout revokes the refresh token (it can no longer be refreshed)', async () => {

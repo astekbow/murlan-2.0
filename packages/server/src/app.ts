@@ -22,7 +22,7 @@ import { Server } from 'socket.io';
 import type {
   ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData,
 } from '@murlan/shared';
-import { loadConfig, type AppConfig } from './config.ts';
+import { loadConfig, ttlToMs, type AppConfig } from './config.ts';
 import { InMemoryUserRepository, type UserRepository } from './auth/userRepository.ts';
 import { TokenService } from './auth/tokens.ts';
 import { AuthService } from './auth/authService.ts';
@@ -323,6 +323,12 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     // the per-EMAIL throttle in AuthService stops IP-rotation brute-force (MONEY-7/WEB-2).
     authRateLimit: { max: 10, timeWindow: '5 minutes' },
     loginRateLimit: { max: 8, timeWindow: '5 minutes' },
+    // /refresh is NOT a brute-force target (a signed, server-tracked token) and fires on every
+    // app open + every few minutes per player — it used to share the 8/5min LOGIN bucket, so a
+    // few players behind one IP (home Wi-Fi / mobile carrier NAT) or a few reloads got a 429
+    // and were dropped to the login screen. Its own generous per-IP bucket instead.
+    refreshRateLimit: { max: 120, timeWindow: '1 minute' },
+    refreshCookieMaxAgeSec: Math.floor((ttlToMs(deps.config.refreshTtl) ?? 30 * 86_400_000) / 1000),
   });
   await accountRoutes(app, { auth: deps.auth, audit: deps.adminAudit, rg: deps.rg, push: deps.push, wallet: deps.wallet, withdrawals: deps.withdrawals });
 
@@ -744,6 +750,7 @@ export async function createGameServer(opts: CreateServerOptions = {}): Promise<
     appUrl: config.clientOrigin,
     email,
     ownerEmail: config.adminEmail, // owner is never locked out by a stray account-state block (admin-3)
+    refreshTtlMs: ttlToMs(config.refreshTtl) ?? undefined, // refresh-token rows live as long as the refresh JWT
   });
 
   // Admin bootstrap: promote the configured ADMIN_EMAIL to admin on boot (if that

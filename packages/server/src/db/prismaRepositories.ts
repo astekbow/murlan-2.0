@@ -739,6 +739,17 @@ export class PrismaRefreshTokens implements RefreshTokenRepository {
   async revokeFamily(family: string): Promise<void> {
     await this.db.refreshToken.updateMany({ where: { family }, data: { revoked: true } });
   }
+  async findSuccessor(r: RefreshTokenRecord): Promise<RefreshTokenRecord | null> {
+    // Uses the @@index([family]); a family's rotations are a full client round-trip apart, so
+    // createdAt strictly orders them.
+    const row = await this.db.refreshToken.findFirst({
+      where: { family: r.family, createdAt: { gt: new Date(r.createdAt) } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return row
+      ? { jti: row.jti, userId: row.userId, family: row.family, revoked: row.revoked, expiresAt: ms(row.expiresAt), createdAt: ms(row.createdAt) }
+      : null;
+  }
   async revokeAllForUser(userId: string): Promise<void> {
     await this.db.refreshToken.updateMany({ where: { userId, revoked: false }, data: { revoked: true } });
   }

@@ -69,7 +69,7 @@ export class TokenService {
     return jwt.sign(
       { username, type: 'refresh', jti: opts.jti, family: opts.family, ver: opts.ver } satisfies Omit<RefreshClaims, 'sub'>,
       this.cfg.refreshSecret,
-      this.signOpts(this.cfg.refreshTtl ?? '7d', sub),
+      this.signOpts(this.cfg.refreshTtl ?? '30d', sub),
     );
   }
 

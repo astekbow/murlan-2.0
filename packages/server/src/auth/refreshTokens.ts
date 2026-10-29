@@ -34,6 +34,9 @@ export interface RefreshTokenRepository {
    */
   revokeIfActive(jti: string): Promise<boolean>;
   revokeFamily(family: string): Promise<void>;
+  /** The token minted by ROTATING `r`: the next token created in the same family after it
+   *  (rotation chains are linear — each token is rotated at most once), or null if none. */
+  findSuccessor(r: RefreshTokenRecord): Promise<RefreshTokenRecord | null>;
   /** Revoke EVERY (unrevoked) refresh token for a user — "log out all devices". The
    *  tokenVersion bump already invalidates them at /refresh; this marks the stored rows
    *  too (defense-in-depth + so a reuse-detection scan never re-arms a dead session). */
@@ -64,6 +67,16 @@ export class InMemoryRefreshTokens implements RefreshTokenRepository {
   }
   async revokeFamily(family: string): Promise<void> {
     for (const r of this.byJti.values()) if (r.family === family) r.revoked = true;
+  }
+  async findSuccessor(r: RefreshTokenRecord): Promise<RefreshTokenRecord | null> {
+    // Map iteration is insertion order, so "created after r" = later in the map — exact even
+    // when two tokens share a millisecond (common in tests).
+    let seen = false;
+    for (const x of this.byJti.values()) {
+      if (x.jti === r.jti) { seen = true; continue; }
+      if (seen && x.family === r.family) return { ...x };
+    }
+    return null;
   }
   async revokeAllForUser(userId: string): Promise<void> {
     for (const r of this.byJti.values()) if (r.userId === userId) r.revoked = true;

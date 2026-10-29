@@ -13,7 +13,7 @@ import { type UserRepository, type User, type UserRole, type ComplianceUpdate, t
 import { AccountStateService, type AccountStatus, type AccountCheck } from './accountStateService.ts';
 import { hashPassword, verifyPassword } from './password.ts';
 import { TokenService, type TokenPair } from './tokens.ts';
-import { InMemoryRefreshTokens, type RefreshTokenRepository } from './refreshTokens.ts';
+import { InMemoryRefreshTokens, type RefreshTokenRepository, type RefreshTokenRecord } from './refreshTokens.ts';
 import {
   InMemoryVerificationTokens,
   hashToken,
@@ -22,7 +22,11 @@ import {
 } from './verificationTokens.ts';
 import { ConsoleEmailProvider, type EmailProvider } from '../email/emailProvider.ts';
 
-const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // mirror the refresh JWT TTL
+const DEFAULT_REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // mirror the refresh JWT TTL (config REFRESH_TTL)
+// How long a request that LOST a concurrent rotation of the same token waits for the winner to
+// persist the successor (the winner revokes first, then saves the new row).
+const SUCCESSOR_WAIT_TRIES = 10;
+const SUCCESSOR_WAIT_STEP_MS = 50;
 const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000; // 1h
 // Sentinel user id for the password-reset timing decoy: a well-formed id that never matches a real
@@ -44,6 +48,8 @@ export interface AuthServiceDeps {
   // operator out of their own panel. Owner-targeting blocks are also refused at the
   // admin routes, but this is the last-resort backstop.
   ownerEmail?: string | null;
+  // Server-side lifetime of a refresh-token row; keep equal to the refresh JWT TTL. Default 30d.
+  refreshTtlMs?: number;
 }
 
 export class AuthError extends Error {
@@ -112,7 +118,10 @@ export class AuthService {
     this.accountState = new AccountStateService(this.now);
     this.loginThrottle = deps.loginThrottle ?? { maxFailures: 5, windowMs: 10 * 60 * 1000 };
     this.ownerEmail = deps.ownerEmail ? deps.ownerEmail.trim().toLowerCase() : null;
+    this.refreshTtlMs = deps.refreshTtlMs && deps.refreshTtlMs > 0 ? deps.refreshTtlMs : DEFAULT_REFRESH_TTL_MS;
   }
+
+  private readonly refreshTtlMs: number;
 
   private readonly email: EmailProvider;
   private readonly verificationTokens: VerificationTokenRepository;
@@ -242,7 +251,7 @@ export class AuthService {
   private async issueSession(user: User, family?: string): Promise<TokenPair> {
     const jti = randomUUID();
     const fam = family ?? randomUUID();
-    await this.refreshTokens.save({ jti, userId: user.id, family: fam, expiresAt: Date.now() + REFRESH_TTL_MS });
+    await this.refreshTokens.save({ jti, userId: user.id, family: fam, expiresAt: Date.now() + this.refreshTtlMs });
     return {
       // Stamp the access token with the user's current tokenVersion so a force-logout/
       // ban/reset (which bumps tokenVersion) invalidates it on the next request.
@@ -359,25 +368,60 @@ export class AuthService {
     if (!record) throw expired; // unknown jti
     if (record.expiresAt < Date.now()) throw expired;
     if (record.revoked) {
-      // Already revoked when we read it ⇒ a replay of a rotated token ⇒ likely theft:
-      // nuke the whole family.
+      // Already rotated away. If its successor is still UNUSED this is the same client whose
+      // previous refresh response never landed (see resumeUnusedSuccessor) → hand that
+      // successor back. Otherwise it is a genuine replay ⇒ likely theft: nuke the family.
+      const resumed = await this.resumeUnusedSuccessor(record, user, false);
+      if (resumed) return resumed;
       await this.refreshTokens.revokeFamily(record.family);
       throw expired;
     }
 
-    // ATOMIC rotation (auth-3): revoke ONLY if still active. If two requests present the
-    // same stolen token concurrently, exactly ONE wins the conditional revoke; the loser
-    // gets false and we treat it as detected REUSE → revoke the family (no two live
-    // sessions minted from one token, no find→revoke gap). This DELIBERATELY treats even a
-    // benign concurrent same-cookie double-submit as reuse (favouring theft detection over the
-    // rare UX cost of one re-login); the client single-flights refresh to avoid tripping it
-    // (audit 2026-07-05 — fix is client-side in api.ts, NOT a weakening of this invariant).
+    // ATOMIC rotation (auth-3): revoke ONLY if still active, so two requests presenting the
+    // same token can never BOTH mint a new row — exactly one wins the conditional revoke. The
+    // loser (a second tab / a double-submit racing the winner) is handed the winner's successor
+    // once it is persisted, so both end up on ONE live token; if no successor appears it is
+    // treated as reuse and the family is revoked.
     const won = await this.refreshTokens.revokeIfActive(claims.jti);
     if (!won) {
+      const resumed = await this.resumeUnusedSuccessor(record, user, true);
+      if (resumed) return resumed;
       await this.refreshTokens.revokeFamily(record.family);
       throw expired;
     }
     return { tokens: await this.issueSession(user, record.family), user: toPublicUser(user) };
+  }
+
+  /**
+   * Benign-replay recovery (the #1 cause of "logged out for no reason" on phones): the client
+   * presents the token we JUST rotated away because the response carrying the new cookie never
+   * reached it — the app was backgrounded / the network dropped mid-request — or because two
+   * tabs refreshed at once. If that token's direct successor exists and has NEVER been used
+   * (still active + unexpired), re-issue THAT successor (same jti, no new row) instead of
+   * revoking the family. Replaying any older token, or replaying after the successor was itself
+   * rotated, still trips reuse detection. Same rule as Supabase GoTrue's "parent of the active
+   * token" allowance. `wait` polls briefly for a successor a concurrent winner is still saving.
+   */
+  private async resumeUnusedSuccessor(
+    record: RefreshTokenRecord,
+    user: User,
+    wait: boolean,
+  ): Promise<{ tokens: TokenPair; user: PublicUser } | null> {
+    for (let i = 0; i < (wait ? SUCCESSOR_WAIT_TRIES : 1); i++) {
+      const next = await this.refreshTokens.findSuccessor(record);
+      if (next) {
+        if (next.revoked || next.expiresAt < Date.now()) return null;
+        return {
+          tokens: {
+            accessToken: this.tokens.issueAccess(user.id, user.username, user.tokenVersion),
+            refreshToken: this.tokens.issueRefresh(user.id, user.username, { jti: next.jti, family: next.family, ver: user.tokenVersion }),
+          },
+          user: toPublicUser(user),
+        };
+      }
+      if (wait) await new Promise((r) => setTimeout(r, SUCCESSOR_WAIT_STEP_MS));
+    }
+    return null;
   }
 
   /** Revoke the refresh token behind a session (real logout, not just cookie clear). */

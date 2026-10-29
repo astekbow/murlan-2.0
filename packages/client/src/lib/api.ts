@@ -34,6 +34,8 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   token?: string | null;
+  /** Abort (as a network error) after this many ms — so a hung request can't hold the refresh lock. */
+  timeoutMs?: number;
 }
 
 // ---------- Session bridge (set by the auth store) --------------------------
@@ -48,16 +50,50 @@ export function registerSessionHandlers(h: { onToken: (t: string) => void; onLos
   onSessionLost = h.onLost;
 }
 
+/** Tell the auth store the session is really gone (the server rejected the refresh cookie). */
+export function reportSessionLost(): void {
+  onSessionLost?.();
+}
+
+/** True ONLY when a failed refresh means the session is genuinely over — the server answered
+ *  401 (cookie expired / revoked / account blocked). A network blip, a 5xx or a 429 is NOT a
+ *  lost session and must never drop the player to the login screen. */
+export function isSessionDead(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 401;
+}
+
+/** Lifetime (ms) of a JWT access token from its own iat→exp claims, or null if unreadable.
+ *  Both claims come from the SERVER clock, so the result is immune to a wrong phone clock. */
+export function tokenLifetimeMs(token: string | null | undefined): number | null {
+  try {
+    const part = token?.split('.')[1];
+    if (!part) return null;
+    const claims = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as { iat?: unknown; exp?: unknown };
+    if (typeof claims.iat !== 'number' || typeof claims.exp !== 'number' || claims.exp <= claims.iat) return null;
+    return (claims.exp - claims.iat) * 1000;
+  } catch {
+    return null;
+  }
+}
+
+/** Run `fn` under a cross-TAB lock (Web Locks API) where available, so two tabs / the PWA +
+ *  a browser tab never send the same refresh cookie at once. The second tab waits, then sends
+ *  the cookie the first one just rotated in (the cookie jar is shared). */
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+  if (!locks?.request) return fn();
+  return locks.request('murlan-auth-refresh', fn) as Promise<T>;
+}
+
 let refreshInFlight: Promise<AuthResponse> | null = null;
 /** Single-flight refresh from the httpOnly cookie: EVERY refresh caller — the app-boot session
- *  restore, a 401 auto-retry, and the socket-reconnect path — shares ONE in-flight /auth/refresh.
- *  The server rotates the refresh cookie and treats ANY concurrent reuse of the old cookie as token
- *  theft (revokes the whole family). So two refreshes firing at once (common on boot: restore +
- *  an early authed call's 401) would nuke the just-minted session and force a spurious re-login.
- *  Funnelling them through this single promise prevents that (audit 2026-07-05). */
+ *  restore, a 401 auto-retry, the proactive timer and the socket-reconnect path — shares ONE
+ *  in-flight /auth/refresh (and, via withRefreshLock, one across tabs). The server rotates the
+ *  refresh cookie on every use, so concurrent refreshes with the same cookie are wasteful and
+ *  were historically treated as token theft (audit 2026-07-05). */
 function refreshSessionInFlight(): Promise<AuthResponse> {
   if (!refreshInFlight) {
-    refreshInFlight = rawRequest<AuthResponse>('/auth/refresh', { method: 'POST' })
+    refreshInFlight = withRefreshLock(() => rawRequest<AuthResponse>('/auth/refresh', { method: 'POST', timeoutMs: 15_000 }))
       .then((res) => {
         onTokenRefreshed?.(res.accessToken);
         return res;
@@ -84,6 +120,8 @@ async function rawRequest<T>(path: string, opts: RequestOptions = {}): Promise<T
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
   if (opts.token) headers['authorization'] = `Bearer ${opts.token}`;
 
+  const ctrl = opts.timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), opts.timeoutMs) : null;
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
@@ -91,10 +129,13 @@ async function rawRequest<T>(path: string, opts: RequestOptions = {}): Promise<T
       headers,
       credentials: 'include',
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      ...(ctrl ? { signal: ctrl.signal } : {}),
     });
   } catch {
-    // fetch rejects only on a network/CORS failure — distinguish from a 4xx/5xx.
+    // fetch rejects only on a network/CORS failure (or our timeout abort) — distinguish from a 4xx/5xx.
     throw new ApiError(errText('network'), 'network', 0); // localized via the err.network catalog key
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 
   const data = (await res.json().catch(() => ({}))) as Record<string, any>;
@@ -117,16 +158,20 @@ async function request<T>(path: string, opts: RequestOptions = {}, _retried = fa
     // refresh once from the cookie and retry with the new token. Never recurse on
     // the refresh endpoint itself, and only retry once.
     const is401 = e instanceof ApiError && e.status === 401;
-    if (is401 && opts.token && !_retried && path !== '/auth/refresh') {
-      try {
-        const newToken = await refreshAccessToken();
-        return await request<T>(path, { ...opts, token: newToken }, true);
-      } catch {
-        onSessionLost?.();
-        throw new ApiError(errText('session_expired'), 'session_expired', 401); // localized via err.session_expired
-      }
+    if (!(is401 && opts.token && !_retried && path !== '/auth/refresh')) throw e;
+    let newToken: string;
+    try {
+      newToken = await refreshAccessToken();
+    } catch (re) {
+      // Only a REJECTED refresh cookie ends the session. A network blip / 5xx / 429 during the
+      // refresh keeps the player signed in (the call just fails) — this used to log people out.
+      if (!isSessionDead(re)) throw re;
+      onSessionLost?.();
+      throw new ApiError(errText('session_expired'), 'session_expired', 401); // localized via err.session_expired
     }
-    throw e;
+    // The retried call's own errors (400 / 409 / 5xx …) are ordinary failures, never a logout —
+    // previously ANY error here (e.g. "insufficient funds" right after a token expiry) signed the player out.
+    return await request<T>(path, { ...opts, token: newToken }, true);
   }
 }
 

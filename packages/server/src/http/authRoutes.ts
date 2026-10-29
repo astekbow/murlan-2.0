@@ -22,15 +22,21 @@ export interface AuthRoutesDeps {
   authRateLimit?: { max: number; timeWindow: string };
   /** stricter per-IP rate-limit for login specifically (brute-force target); falls back to authRateLimit */
   loginRateLimit?: { max: number; timeWindow: string };
+  /** per-IP rate-limit for /refresh (session keep-alive — must be generous); falls back to loginRateLimit */
+  refreshRateLimit?: { max: number; timeWindow: string };
+  /** refresh-cookie lifetime in seconds; keep equal to REFRESH_TTL. Default 30 days. */
+  refreshCookieMaxAgeSec?: number;
 }
 
-function setRefreshCookie(reply: FastifyReply, token: string, secure: boolean): void {
+const DEFAULT_REFRESH_COOKIE_MAX_AGE_SEC = 30 * 24 * 60 * 60; // 30 days
+
+function setRefreshCookieRaw(reply: FastifyReply, token: string, secure: boolean, maxAge: number): void {
   reply.setCookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
     secure,
     path: '/api/auth',
-    maxAge: 7 * 24 * 60 * 60, // 7 days (seconds)
+    maxAge, // seconds
   });
 }
 
@@ -96,6 +102,13 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
   // Login gets its own (tighter) per-IP bucket; the per-EMAIL throttle in AuthService
   // is the IP-rotation-proof layer on top.
   const loginRl = (deps.loginRateLimit ?? deps.authRateLimit) ? { config: { rateLimit: deps.loginRateLimit ?? deps.authRateLimit } } : {};
+  const refreshLimit = deps.refreshRateLimit ?? deps.loginRateLimit ?? deps.authRateLimit;
+  const refreshRl = refreshLimit ? { config: { rateLimit: refreshLimit } } : {};
+  const cookieMaxAge = deps.refreshCookieMaxAgeSec && deps.refreshCookieMaxAgeSec > 0
+    ? deps.refreshCookieMaxAgeSec
+    : DEFAULT_REFRESH_COOKIE_MAX_AGE_SEC;
+  const setRefreshCookie = (reply: FastifyReply, token: string, secure: boolean) =>
+    setRefreshCookieRaw(reply, token, secure, cookieMaxAge);
 
   app.post('/api/auth/register', rl, async (req, reply) => {
     try {
@@ -117,7 +130,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
     }
   });
 
-  app.post('/api/auth/refresh', loginRl, async (req, reply) => {
+  app.post('/api/auth/refresh', refreshRl, async (req, reply) => {
     const token = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE];
     if (!token) {
       return reply.code(401).send({ error: { code: 'bad_refresh', message: 'Sesioni ka skaduar. Hyr përsëri.' } });
@@ -133,7 +146,7 @@ export async function authRoutes(app: FastifyInstance, deps: AuthRoutesDeps): Pr
 
   app.post('/api/auth/logout', async (req, reply) => {
     // Real logout: REVOKE the refresh token server-side (not just clear the
-    // cookie), so a captured copy can't be replayed for the rest of its 7-day TTL.
+    // cookie), so a captured copy can't be replayed for the rest of its TTL.
     const token = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE];
     await auth.logout(token);
     reply.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });

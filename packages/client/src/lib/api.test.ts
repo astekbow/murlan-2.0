@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { walletApi, adminApi, ApiError, registerSessionHandlers } from './api.ts';
+import { walletApi, adminApi, ApiError, registerSessionHandlers, tokenLifetimeMs } from './api.ts';
 
 // The REST layer that moves money (deposit/withdraw/admin adjust/approve/reject). We mock
 // global fetch and assert the exact request it builds (path/method/auth/body) + its error
@@ -116,6 +116,40 @@ test('if the refresh also fails, it signals session lost + throws session_expire
   fail(401); // #2 refresh → 401 → refresh rejects
   await expect(walletApi.balance('stale')).rejects.toMatchObject({ code: 'session_expired', status: 401 });
   expect(onLost).toHaveBeenCalled();
+});
+
+// "Logged out for no reason": a transient refresh failure must keep the player signed in.
+test('a refresh that fails with a 429 / 5xx / network blip does NOT sign the player out', async () => {
+  const onLost = vi.fn();
+  registerSessionHandlers({ onToken: vi.fn(), onLost });
+  fail(401, 'token_expired');
+  fail(429); // refresh rate-limited
+  await expect(walletApi.balance('stale')).rejects.toMatchObject({ code: 'rate_limited', status: 429 });
+  fail(401, 'token_expired');
+  fail(503); // server restarting
+  await expect(walletApi.balance('stale')).rejects.toMatchObject({ status: 503 });
+  fail(401, 'token_expired');
+  (global.fetch as unknown as { mockRejectedValueOnce: (e: unknown) => void }).mockRejectedValueOnce(new Error('down'));
+  await expect(walletApi.balance('stale')).rejects.toMatchObject({ code: 'network' });
+  expect(onLost).not.toHaveBeenCalled();
+});
+
+test("the retried call's own error (e.g. insufficient funds) is NOT a logout", async () => {
+  const onLost = vi.fn();
+  registerSessionHandlers({ onToken: vi.fn(), onLost });
+  fail(401, 'token_expired');
+  ok({ accessToken: 'fresh', user: {} });
+  fail(402, 'insufficient_funds');
+  await expect(walletApi.withdraw('stale', 1, 'x')).rejects.toMatchObject({ code: 'insufficient_funds', status: 402 });
+  expect(onLost).not.toHaveBeenCalled();
+});
+
+test('tokenLifetimeMs reads iat→exp from the JWT (server clock, skew-proof)', () => {
+  const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const jwt = `${b64({ alg: 'HS256' })}.${b64({ iat: 1000, exp: 1300 })}.sig`;
+  expect(tokenLifetimeMs(jwt)).toBe(300_000);
+  expect(tokenLifetimeMs('garbage')).toBeNull();
+  expect(tokenLifetimeMs(null)).toBeNull();
 });
 
 test('an UNauthenticated 401 does NOT trigger a refresh (no token)', async () => {

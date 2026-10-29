@@ -2,9 +2,12 @@ import { create } from 'zustand';
 import {
   authApi,
   ApiError,
+  isSessionDead,
   refreshAccessToken,
   refreshSession,
   registerSessionHandlers,
+  reportSessionLost,
+  tokenLifetimeMs,
   type PublicUser,
   type RegisterInput,
   type LoginInput,
@@ -31,26 +34,64 @@ interface AuthStore {
   clearError: () => void;
 }
 
-// The access token TTL is 15 minutes (server config). Refresh well inside that
-// window so REST calls and socket (re)connects always carry a live token.
-const PROACTIVE_REFRESH_MS = 12 * 60 * 1000;
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
+// Proactive access-token refresh, timed from the token's OWN lifetime (iat→exp) rather than a
+// hard-coded guess: the old fixed 12-min timer assumed a 15m token while the server defaults to
+// 5m, so every cycle left ~7 minutes on a dead token — REST calls 401'd and socket reconnects
+// were refused (the "kicked out" reports). Refresh at 75% of the lifetime so a live token is
+// always on hand. Timed from when WE received it, so a wrong phone clock can't skew it.
+const REFRESH_AT = 0.75;
+const FALLBACK_LIFETIME_MS = 5 * 60 * 1000; // server default ACCESS_TTL, if the token is unreadable
+const RETRY_TRANSIENT_MS = 20_000;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let tokenReceivedAt = 0;
+let tokenLifetime = FALLBACK_LIFETIME_MS;
+let proactiveOn = false;
 
-function startProactiveRefresh(): void {
-  if (refreshTimer) return;
-  refreshTimer = setInterval(() => {
-    void refreshAccessToken().catch(() => {
-      /* a failed proactive refresh surfaces on the next real call / reconnect */
-    });
-  }, PROACTIVE_REFRESH_MS);
+function clearRefreshTimer(): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
+}
+
+/** Note a freshly-received access token and (re)arm the timer for it. */
+function armRefresh(token: string): void {
+  tokenReceivedAt = Date.now();
+  tokenLifetime = tokenLifetimeMs(token) ?? FALLBACK_LIFETIME_MS;
+  if (!proactiveOn) return;
+  clearRefreshTimer();
+  refreshTimer = setTimeout(() => void runProactiveRefresh(), Math.max(10_000, tokenLifetime * REFRESH_AT));
+}
+
+async function runProactiveRefresh(): Promise<void> {
+  clearRefreshTimer();
+  try {
+    await refreshAccessToken(); // → onToken → armRefresh(new token)
+  } catch (e) {
+    if (isSessionDead(e)) { reportSessionLost(); return; }
+    // Network blip / server restart / 429: stay signed in and try again shortly.
+    if (proactiveOn) refreshTimer = setTimeout(() => void runProactiveRefresh(), RETRY_TRANSIENT_MS);
+  }
+}
+
+function startProactiveRefresh(token: string): void {
+  proactiveOn = true;
+  armRefresh(token);
 }
 
 function stopProactiveRefresh(): void {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
+  proactiveOn = false;
+  clearRefreshTimer();
 }
+
+// Phones freeze timers while the app is in the background, so on RETURN the token is often
+// already stale. Refresh straight away (before the socket's reconnect handshake needs it).
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !proactiveOn) return;
+    if (Date.now() - tokenReceivedAt >= tokenLifetime * REFRESH_AT) void runProactiveRefresh();
+  });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
@@ -64,7 +105,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const { user, accessToken } = await authApi.register(input);
       set({ user, accessToken, status: 'authed' });
-      startProactiveRefresh();
+      startProactiveRefresh(accessToken);
       return true;
     } catch (e) {
       set({ status: 'error', error: e instanceof ApiError ? e.message : tr('err.registerFailed') });
@@ -77,7 +118,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const { user, accessToken } = await authApi.login(input);
       set({ user, accessToken, status: 'authed' });
-      startProactiveRefresh();
+      startProactiveRefresh(accessToken);
       return true;
     } catch (e) {
       set({ status: 'error', error: e instanceof ApiError ? e.message : tr('err.loginFailed') });
@@ -100,19 +141,28 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Distinguish "no session" (genuine 401) from "server unreachable" (network /
   // 5xx) so a logged-in user with a valid cookie isn't bounced to login on a blip.
   async bootstrap() {
-    try {
-      // Single-flight refresh (audit 2026-07-05): share the ONE in-flight /auth/refresh with the
-      // 401-retry and socket paths, so a boot restore racing an early authed call can't fire two
-      // concurrent refreshes that the server would treat as token reuse → family revoke → spurious logout.
-      const { user, accessToken } = await refreshSession();
-      set({ user, accessToken, status: 'authed' });
-      startProactiveRefresh();
-    } catch (e) {
-      const transient = e instanceof ApiError && (e.code === 'network' || e.status >= 500);
-      set({ status: transient ? 'offline' : 'idle' });
-    } finally {
-      set({ bootstrapped: true });
+    // A transient failure (network / 5xx / 429 rate limit) is retried a couple of times before
+    // giving up to the "offline — retry" screen. Only a genuine 401 (no / dead cookie) shows the
+    // login form — a 429 used to land players on the login screen as if they'd been logged out.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        // Single-flight refresh (audit 2026-07-05): shares the ONE in-flight /auth/refresh with the
+        // 401-retry, timer and socket paths.
+        const { user, accessToken } = await refreshSession();
+        set({ user, accessToken, status: 'authed' });
+        startProactiveRefresh(accessToken);
+        break;
+      } catch (e) {
+        const transient = e instanceof ApiError && (e.code === 'network' || e.status >= 500 || e.status === 429);
+        if (transient && attempt < 2) {
+          await sleep(1500 * (attempt + 1));
+          continue;
+        }
+        set({ status: transient ? 'offline' : 'idle' });
+        break;
+      }
     }
+    set({ bootstrapped: true });
   },
 
   // Re-read the authoritative profile (incl. balanceCents) — e.g. after a match
@@ -138,6 +188,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 // session (refresh cookie expired/revoked) drops to the login screen cleanly.
 registerSessionHandlers({
   onToken: (accessToken) => {
+    armRefresh(accessToken); // every fresh token (timer, 401-retry, socket, boot) re-arms the timer
     if (useAuthStore.getState().accessToken !== accessToken) useAuthStore.setState({ accessToken });
   },
   onLost: () => {
