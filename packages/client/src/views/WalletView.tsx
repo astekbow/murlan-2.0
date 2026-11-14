@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/authStore.ts';
 import { accountApi, walletApi, ApiError } from '../lib/api.ts';
 import { dollars, parseDollarsToCents, txLabel } from '../lib/money.ts';
 import { CountUp } from '../components/ui/CountUp.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { Confetti } from '../components/ui/Confetti.tsx';
 import { useConfirm } from '../components/ui/useConfirm.tsx';
 import { sound } from '../lib/sound.ts';
@@ -63,6 +64,9 @@ export function WalletView() {
   const [deleting, setDeleting] = useState(false); // GDPR account deletion in flight
   // Fee-free USDT-TRC20 deposit: our receiving address + the player's TxID.
   const [depAddr, setDepAddr] = useState<string | null>(null);
+  // 'loading' until the server answers; 'off' = this server has no deposit rail configured (the
+  // friends/demo build) — the Deposit tab then explains it instead of rendering an empty page.
+  const [depState, setDepState] = useState<'loading' | 'on' | 'off'>('loading');
   // Withdrawal bounds + fee sourced from the SERVER (not a client constant that could drift).
   const [wcfg, setWcfg] = useState({ minCents: 500, maxCents: 1_000_000, feeCents: WITHDRAW_FEE_CENTS });
   const [txId, setTxId] = useState('');
@@ -73,7 +77,9 @@ export function WalletView() {
   useEffect(() => {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
-    void walletApi.depositAddress(token).then((r) => setDepAddr(r.address)).catch(() => {});
+    void walletApi.depositAddress(token)
+      .then((r) => { setDepAddr(r.address); setDepState(r.address ? 'on' : 'off'); })
+      .catch(() => setDepState('off'));
     // Source the withdrawal min/max/fee from the server so the "you receive" figure + the minimum
     // shown to the user always match what the server actually enforces.
     void walletApi.config(token).then((c) => setWcfg({ minCents: c.withdrawMinCents, maxCents: c.withdrawMaxCents, feeCents: c.withdrawFeeCents })).catch(() => {});
@@ -246,14 +252,14 @@ export function WalletView() {
 
       {/* Balance hero */}
       <section className="panel-solid p-5 animate-rise text-center relative overflow-hidden">
-        <h1 className="font-serif text-xs tracking-[0.4em] text-muted mb-2">{t('wallet.balance')}</h1>
+        <h1 className="text-sm font-semibold text-muted mb-1.5">{t('wallet.balance')}</h1>
         <div className="flex items-center justify-center gap-3">
           <span
             className="coin-anim shrink-0 rounded-full"
             aria-hidden
             style={{
               width: 34, height: 34,
-              background: 'radial-gradient(circle at 35% 30%, #fff3cf, #e8c879 55%, #a9842f)',
+              background: 'radial-gradient(circle at 35% 30%, #FFE7B0, var(--amber) 55%, #B9832A)',
               boxShadow: '0 4px 10px -3px rgba(0,0,0,.6), inset 0 1px 2px rgba(255,255,255,.6)',
             }}
           />
@@ -305,6 +311,21 @@ export function WalletView() {
       </div>
 
       <div className="wallet-body space-y-4">
+      {/* No deposit rail on this server → say so plainly (and offer free play) instead of a blank tab. */}
+      {walletTab === 'deposit' && depState === 'off' && (
+        <section className="panel p-6 text-center space-y-3 animate-rise">
+          <span className="mx-auto grid place-items-center w-12 h-12 rounded-full bg-amber/15 text-amber" aria-hidden><Icon name="wallet" size={24} /></span>
+          <h2 className="font-display font-bold text-lg text-txt-hi">{t('wallet.depositOffTitle')}</h2>
+          <p className="text-sm text-muted max-w-sm mx-auto">{t('wallet.depositOffBody')}</p>
+          <button type="button" className="btn btn-gold" onClick={() => setView('lobby')}>{t('wallet.depositOffCta')}</button>
+        </section>
+      )}
+      {walletTab === 'deposit' && depState === 'loading' && (
+        <section className="panel p-6 space-y-3" aria-hidden>
+          <span className="block animate-pulse bg-white/10 rounded h-5 w-40" />
+          <span className="block animate-pulse bg-white/10 rounded h-24 w-full" />
+        </section>
+      )}
       {/* Fee-free USDT-TRC20 deposit: send to our address, then paste the TxID. */}
       {depAddr && (
         <section className={`panel p-5 space-y-3 animate-rise ${walletTab === 'deposit' ? '' : 'hidden'}`} style={{ animationDelay: '.06s' }}>

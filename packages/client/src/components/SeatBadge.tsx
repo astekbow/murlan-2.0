@@ -96,44 +96,47 @@ function SeatBadgeImpl({ name, count, team, isTurn, connected, finished, passed,
   const teamEl = team !== null && !partner ? <span className="text-[11px] text-cream/80">{t('seat.team', { n: team + 1 })}</span> : null;
   const top = placement === 'top';
 
-  // Layout: the count "(N)" sits with the cards. The TOP seat faces DOWN toward the table, so its
-  // avatar goes UP and the card-fan drops BELOW it (avatar → name → cards). Side seats keep only the
-  // count up top (their fan is BEHIND the avatar). The "led last" badge is inline for non-top seats
-  // but absolute to the SIDE for the TOP seat so it never hangs over the felt / pile.
+  // Layout: STABLE — nothing that comes and goes during play (turn status, "led last", the count
+  // between hands, a shrinking fan) may change the badge's size, or the avatar would twitch around
+  // the felt every turn (the seat is centred on its own box). Transient bits either keep their slot
+  // (invisible when off) or hang absolutely beside the avatar.
+  // TOP seat: the cards + count (and the "led last" tag under them) sit to the RIGHT of the avatar,
+  // out of flow, so the avatar stays exactly centred. Side seats: count above, tags below, reserved.
   return (
     <div className={`relative flex flex-col items-center ${top ? 'gap-0.5' : 'gap-1'} ${dimmed ? 'opacity-60' : ''}`}>
-      {!top && !hideCount && (
-        <div className="flex items-center gap-1.5">
+      {!top && (
+        <div className={`flex items-center gap-1.5 ${hideCount ? 'invisible' : ''}`}>
           {/* SIDE seats keep only the count up here — their fan is centred BEHIND the avatar. */}
           {!side && fan}
           <span className="seat-cnt">({count})</span>
         </div>
       )}
       {top ? (
-        // TOP seat: avatar on the left with its cards (+ count) to the RIGHT of it.
-        <div className="flex items-center gap-2">
+        <div className="relative">
           {avatarEl}
-          {!hideCount && (
-            <div className="flex items-center gap-1.5">
-              {fan}
-              <span className="seat-cnt">({count})</span>
-            </div>
-          )}
+          <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 flex flex-col items-start gap-1 whitespace-nowrap">
+            {!hideCount && (
+              <div className="flex items-center gap-1.5">
+                {fan}
+                <span className="seat-cnt">({count})</span>
+              </div>
+            )}
+            {lastPlayer && <span className="lastp">{t('seat.ledLast')}</span>}
+          </div>
         </div>
       ) : (
         avatarEl
       )}
       {nameEl}
-      {(teamEl || (lastPlayer && !top)) && (
+      {top ? (
+        teamEl
+      ) : (
         <div className="flex items-center gap-1.5">
-          {lastPlayer && !top && <span className="lastp">{t('seat.ledLast')}</span>}
+          <span className={`lastp ${lastPlayer ? '' : 'invisible'}`} aria-hidden={!lastPlayer || undefined}>{t('seat.ledLast')}</span>
           {teamEl}
         </div>
       )}
-      {lastPlayer && top && (
-        <span className="lastp absolute left-full top-1/2 -translate-y-1/2 ml-1.5 whitespace-nowrap">{t('seat.ledLast')}</span>
-      )}
-      {status && <div className="text-[11px] text-cream/80 leading-tight">{status}</div>}
+      <div className="text-[11px] text-cream/80 leading-tight min-h-[14px]">{status}</div>
     </div>
   );
 }

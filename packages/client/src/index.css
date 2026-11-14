@@ -207,6 +207,8 @@ select:focus-visible,
   .btn-danger { color: #fff; background: #C93838; box-shadow: 0 12px 26px -14px rgba(201, 56, 56, 0.8); }
   .btn-lg { padding: 13px 30px; font-size: 16px; }
   .btn-block { display: block; width: 100%; text-align: center; }
+  /* A block button that leads with an icon: keep the icon on the same line as the label. */
+  .btn-block.btn-ico { display: flex; align-items: center; justify-content: center; gap: 8px; }
 
   .btn-sm { padding: 7px 14px; font-size: 13px; }
   .btn-xs { padding: 4px 10px; font-size: 12px; }
@@ -395,7 +397,8 @@ select:focus-visible,
        off-screen and unreachable. The panel now caps height + scrolls; compact it here so it FITS
        without scroll on a short landscape phone and the rematch CTA is visible. */
     .match-result-panel { padding: 0.7rem 1.1rem; }
-    .match-result-panel > .text-5xl { font-size: 1.7rem; margin-bottom: 0.15rem; }
+    .match-result-panel > .result-icon { width: 2.5rem; height: 2.5rem; margin-bottom: 0.25rem; }
+    .match-result-panel > .result-icon svg { width: 20px; height: 20px; }
     .match-result-panel > h2 { font-size: 1.35rem; margin-bottom: 0.1rem; }
     .match-result-panel > p { margin-bottom: 0.4rem; }
     .match-result-panel > .mb-4, .match-result-panel > .mb-5 { margin-bottom: 0.45rem; }
@@ -536,7 +539,7 @@ select:focus-visible,
   .seat-cnt { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 13px; color: #7cffa8; text-shadow: 0 1px 2px #000; }
   .seat-nm { font-size: 12px; font-weight: 600; color: var(--muted-sm); text-shadow: 0 1px 3px #000; }
   .seat-nm.partner { color: #9bd0f5; }
-  .lastp { font-size: 10px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 2px 8px; letter-spacing: 0.3px; }
+  .lastp { font-size: 10px; font-weight: 700; color: var(--gold-hi); background: rgba(52, 211, 153, 0.14); border: 1px solid rgba(52, 211, 153, 0.35); border-radius: 999px; padding: 1px 8px; letter-spacing: 0.2px; white-space: nowrap; }
 
   /* ---- Face-down mini fan (opponents — COUNT only, never identities) ----- */
   .mini {
@@ -575,7 +578,9 @@ select:focus-visible,
   /* The stage's size + --card-lift come from Hand.tsx (computeLayout): the lift room is reserved
      ABOVE the back row, so a raised (selected) card never pokes into whatever sits above the hand. */
   .hand-wrap { width: 100%; min-width: 0; display: flex; justify-content: center; }
-  .hand-stage { position: relative; margin: 0 auto; flex-shrink: 0; }
+  /* isolation + z-index: the cards' own z-indexes (front row = 100+) stay INSIDE the hand — without it
+     the front row painted over every table overlay (chat, emotes, the leave / round-end dialogs). */
+  .hand-stage { position: relative; margin: 0 auto; flex-shrink: 0; isolation: isolate; z-index: 6; }
   /* Outer wrapper = the card's SLOT, placed by a translate3d (compositor-only) so cards GLIDE
      into new slots while another card is dragged across them. The inner .hand-card-lift carries
      the selected-lift / drag-lift / just-received pop, so the two transforms never fight. */
@@ -761,7 +766,7 @@ select:focus-visible,
   50% { opacity: 1; }
 }
 .hand-stage.my-turn::before {
-  content: ''; position: absolute; left: -8px; right: -8px; top: calc(var(--card-lift, 24px) - 4px); bottom: -4px;
+  content: ''; position: absolute; left: -8px; right: -8px; top: calc(var(--glow-top, var(--card-lift, 24px)) - 4px); bottom: -4px;
   border-radius: 14px; pointer-events: none;
   box-shadow: 0 0 22px 4px rgba(52, 211, 153, 0.8);
   animation: handTurnPulse 1.5s ease-in-out infinite;
@@ -952,7 +957,8 @@ select:focus-visible,
 /* Play / Pass: real, thumb-sized buttons — never shrunk. Portrait: one full-width row under the hand. */
 .tvx-controls { grid-area: controls; min-width: 0; }
 .tvx-controls .ctrl-wrap { padding: 0; gap: 6px; align-items: stretch; }
-.tvx-controls .ctrl-hint { text-align: center; font-size: 12px; height: auto; min-height: 16px; }
+/* One fixed-height hint line: a longer hint must never grow the controls and push the felt around. */
+.tvx-controls .ctrl-hint { text-align: center; font-size: 12px; height: 16px; line-height: 16px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tvx-controls .ctrl-row { width: 100%; max-width: 560px; margin: 0 auto; gap: 8px; }
 .tvx-controls .ctrl-clear { flex: 0 0 auto; padding-left: 16px; padding-right: 16px; min-height: 54px; }
 .tvx-controls .ctrl-pass { flex: 1 1 0; min-height: 54px; font-size: 16px; }
@@ -1280,4 +1286,31 @@ html.kb-open:not(.force-landscape) .modal-backdrop > .panel-solid {
 html.kb-open:not(.force-landscape) .pg-ls-scroll {
   padding-bottom: var(--kb, 0px);
   scroll-padding-bottom: calc(var(--kb, 0px) + 12px);
+}
+
+/* ===== Bottom-anchored floaters (toasts, invites, cookie notice) ===========================
+   They must never sit ON the portrait bottom tab bar (they used to cover it). With the nav present
+   in portrait they ride just above it; in landscape/desktop the nav is a side rail, so they keep the
+   normal bottom inset. Modals (z 50+) cover the cookie notice; toasts sit above modals. */
+.float-bottom { bottom: calc(1rem + env(safe-area-inset-bottom)); }
+html.has-app-nav .float-bottom { bottom: calc(var(--nav-h) + 0.75rem + env(safe-area-inset-bottom)); }
+.cookie-notice {
+  position: fixed; z-index: 45; left: 8px; right: 8px; margin: 0 auto; max-width: 560px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+}
+html.has-app-nav .cookie-notice { bottom: calc(var(--nav-h) + 8px + env(safe-area-inset-bottom)); }
+.cookie-short { display: none; }
+@media (orientation: landscape), (min-width: 1024px) {
+  html.has-app-nav .float-bottom { bottom: calc(1rem + env(safe-area-inset-bottom)); }
+  html.has-app-nav .cookie-notice { bottom: calc(8px + env(safe-area-inset-bottom)); left: calc(var(--nav-w) + 8px + env(safe-area-inset-left)); }
+}
+/* Short landscape phone: a slim one-line bar, so it never covers the Play / Log-in buttons. */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Bottom-RIGHT corner: the primary actions (lobby Play, log-in) live left / centre-left there. */
+  .cookie-notice, html.has-app-nav .cookie-notice {
+    padding: 5px 6px 5px 14px; font-size: 12px; left: auto; margin: 0; max-width: min(420px, 48vw);
+    right: max(8px, env(safe-area-inset-right)); bottom: calc(6px + env(safe-area-inset-bottom));
+  }
+  .cookie-long { display: none; }
+  .cookie-short { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }

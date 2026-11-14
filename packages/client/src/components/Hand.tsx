@@ -54,7 +54,7 @@ interface DragState {
 }
 
 /** Pure layout of the fan: card size, overlap step, one or two rows, and each slot's position. */
-function computeLayout(n: number, availW: number, vh: number, layout: 'portrait' | 'landscape') {
+function computeLayout(n: number, availW: number, vh: number, layout: 'portrait' | 'landscape', reserveRows = 1) {
   const w = availW || 340;
   const landscape = layout === 'landscape';
   const cardW = Math.round(landscape ? clamp(vh * 0.17, 56, 92) : clamp(w / 5.4, 58, 76));
@@ -70,22 +70,27 @@ function computeLayout(n: number, availW: number, vh: number, layout: 'portrait'
   const rowOffset = Math.round(cardH * 0.5);
   const rowWidth = (len: number) => (len > 0 ? (len - 1) * step + cardW : 0);
   const stageW = rowWidth(perRow0);
-  const stageH = lift + cardH + (rows - 1) * rowOffset;
+  // The stage keeps the height of the most rows this deal has needed (reserveRows), so the hand area
+  // — and with it the felt above — never jumps when the hand drops from two rows to one or empties.
+  // A single row then sits in the FRONT-row position (bottom), right above Play/Pass.
+  const shownRows = Math.max(rows, reserveRows);
+  const yBase = (shownRows - rows) * rowOffset;
+  const stageH = lift + cardH + (shownRows - 1) * rowOffset;
   const rowOff = (r: 0 | 1) => (stageW - rowWidth(r === 1 ? perRow1 : perRow0)) / 2;
   const slot = (i: number) => {
     const r: 0 | 1 = rows === 2 && i >= perRow0 ? 1 : 0;
     const c = r === 1 ? i - perRow0 : i;
-    return { x: rowOff(r) + c * step, y: lift + r * rowOffset, r };
+    return { x: rowOff(r) + c * step, y: yBase + lift + r * rowOffset, r };
   };
   /** Where a card dropped at (x, y) belongs, as an index into the hand order. */
   const targetIndex = (x: number, y: number) => {
     if (n <= 1 || step <= 0) return 0;
-    const r: 0 | 1 = rows === 2 && y > lift + rowOffset / 2 ? 1 : 0;
+    const r: 0 | 1 = rows === 2 && y > yBase + lift + rowOffset / 2 ? 1 : 0;
     const len = r === 1 ? perRow1 : perRow0;
     const col = clamp(Math.round((x - rowOff(r)) / step), 0, Math.max(0, r === 1 ? len : len - 1));
     return clamp(r === 1 ? perRow0 + col : col, 0, n - 1);
   };
-  return { cardW, cardH, step, rows, lift, stageW, stageH, slot, targetIndex };
+  return { cardW, cardH, step, rows, lift, yBase, stageW, stageH, slot, targetIndex };
 }
 
 /**
@@ -160,7 +165,15 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
-  const L = computeLayout(n, availW, vh, layout);
+  // Sticky row reservation: remember the most rows needed for this table geometry, so playing
+  // cards away (two rows → one → none) never shrinks the hand area and shoves the felt around.
+  // A new geometry (rotation / resize / card size) starts a fresh reservation.
+  const fit = computeLayout(n, availW, vh, layout);
+  const peak = useRef({ key: '', rows: 1 });
+  const geoKey = `${layout}|${fit.cardW}|${Math.round(availW / 8)}`;
+  if (peak.current.key !== geoKey) peak.current = { key: geoKey, rows: fit.rows };
+  else if (fit.rows > peak.current.rows) peak.current.rows = fit.rows;
+  const L = peak.current.rows > fit.rows ? computeLayout(n, availW, vh, layout, peak.current.rows) : fit;
   // Stable style object → the memoized CardView skips re-rendering while cards slide around.
   const cardStyle = useMemo<CSSProperties>(() => ({ width: L.cardW, height: L.cardH, pointerEvents: 'none' }), [L.cardW, L.cardH]);
 
@@ -245,15 +258,16 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
 
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
-  // Empty hand → render nothing, but keep measuring so the first deal lays out at its final size.
-  if (n === 0) return <div ref={scrollRef} className="hand-wrap" aria-hidden />;
+  // Empty hand (between deals / after going out) → no cards, but keep the reserved HEIGHT so the
+  // table doesn't jump, and keep measuring so the next deal lays out at its final size.
+  if (n === 0) return <div ref={scrollRef} className="hand-wrap" aria-hidden><div style={{ height: L.stageH }} /></div>;
 
   return (
     <div ref={scrollRef} className="hand-wrap">
       <div
         ref={stageRef}
         className={`hand-stage${myTurn ? ' my-turn' : ''}${dragId ? ' dragging' : ''}${L.rows === 2 ? ' two-rows' : ''}`}
-        style={{ width: L.stageW, height: L.stageH, '--card-lift': `${L.lift}px` } as CSSProperties}
+        style={{ width: L.stageW, height: L.stageH, '--card-lift': `${L.lift}px`, '--glow-top': `${L.lift + L.yBase}px` } as CSSProperties}
         onPointerMove={onStageMove}
         onPointerUp={(e) => endDrag(e, true)}
         onPointerCancel={(e) => endDrag(e, false)}

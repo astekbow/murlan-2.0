@@ -9,11 +9,12 @@ import { useRulesStore } from '../../store/rulesStore.ts';
 import { useGameStore } from '../../store/gameStore.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
+import { Icon } from './Icon.tsx';
 
-const STEPS = [
-  { icon: '🃏', titleKey: 'onb.s1Title', bodyKey: 'onb.s1Body' },
-  { icon: '🤖', titleKey: 'onb.s2Title', bodyKey: 'onb.s2Body' },
-  { icon: '💰', titleKey: 'onb.s3Title', bodyKey: 'onb.s3Body' },
+const STEPS: { icon: 'cards' | 'robot' | 'wallet'; titleKey: string; bodyKey: string }[] = [
+  { icon: 'cards', titleKey: 'onb.s1Title', bodyKey: 'onb.s1Body' },
+  { icon: 'robot', titleKey: 'onb.s2Title', bodyKey: 'onb.s2Body' },
+  { icon: 'wallet', titleKey: 'onb.s3Title', bodyKey: 'onb.s3Body' },
 ] as const;
 
 export function OnboardingModal() {
@@ -40,7 +41,7 @@ export function OnboardingModal() {
   return (
     <Modal title={t('onb.title')} onClose={complete}>
       <div className="space-y-4 text-center">
-        <div className="text-5xl">{s.icon}</div>
+        <span className="mx-auto grid place-items-center w-16 h-16 rounded-2xl bg-gold/15 text-gold-hi" aria-hidden><Icon name={s.icon} size={32} /></span>
         <h3 className="font-display font-semibold text-gold-hi text-lg">{t(s.titleKey)}</h3>
         <p className="text-sm text-muted leading-relaxed">{t(s.bodyKey)}</p>
 
@@ -68,7 +69,7 @@ export function OnboardingModal() {
           {step > 0 && (
             <button className="btn btn-ghost btn-block text-sm" onClick={() => { sound.play('button'); setStep((n) => Math.max(0, n - 1)); }}>{t('onb.back')}</button>
           )}
-          <button className="btn btn-ghost btn-block text-sm" onClick={() => useRulesStore.getState().setOpen(true)}>{t('onb.viewRules')}</button>
+          <button className="btn btn-ghost btn-block btn-ico text-sm" onClick={() => useRulesStore.getState().setOpen(true)}><Icon name="book" size={16} /> {t('onb.viewRules')}</button>
           <button className="btn btn-ghost btn-block text-sm" onClick={complete}>{t('onb.skip')}</button>
         </div>
       </div>

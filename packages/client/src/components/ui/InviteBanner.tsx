@@ -3,6 +3,7 @@ import { useGameStore } from '../../store/gameStore.ts';
 import { dollars } from '../../lib/money.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
+import { Icon } from './Icon.tsx';
 
 const TYPE_LABEL_KEY: Record<MatchType, string> = { '1v1': 'lobby.type1v1', '1v1v1': 'lobby.type1v1v1', '2v2': 'lobby.type2v2' };
 
@@ -16,15 +17,15 @@ export function InviteBanner() {
 
   return (
     <div
-      className="fixed inset-x-0 z-[55] flex justify-center pointer-events-none"
+      className="float-bottom fixed inset-x-0 z-[55] flex justify-center pointer-events-none"
       style={{
-        bottom: 'calc(1rem + env(safe-area-inset-bottom))', // clear the home indicator
+        // .float-bottom clears the home indicator AND the portrait bottom tab bar.
         paddingLeft: 'max(1rem, env(safe-area-inset-left))',
         paddingRight: 'max(1rem, env(safe-area-inset-right))',
       }}
     >
       <div className="panel-solid pointer-events-auto flex items-center gap-3 px-4 py-3 max-w-md w-full animate-pop">
-        <div className="text-2xl">📨</div>
+        <span className="grid place-items-center w-10 h-10 rounded-full bg-gold/15 text-gold-hi shrink-0" aria-hidden><Icon name="mail" size={20} /></span>
         <div className="flex-1 min-w-0 text-sm">
           <b className="text-gold-hi">{invite.fromUsername}</b> {t('invite.invitedYouTo')}{' '}
           <b>{t(TYPE_LABEL_KEY[invite.type])}</b> · {dollars(invite.stakeCents)}

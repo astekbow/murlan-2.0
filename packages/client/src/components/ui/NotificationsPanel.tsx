@@ -17,15 +17,16 @@ import { useUiStore, type LobbyView } from '../../store/uiStore.ts';
 import { useGameStore } from '../../store/gameStore.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT, translate, useLangStore } from '../../lib/i18n.ts';
+import { Icon, type IconName } from './Icon.tsx';
 
 const tr = (key: string, vars?: Record<string, string | number>) => translate(key, useLangStore.getState().lang, vars);
 
-const KIND_ICON: Record<NotifKind, string> = {
-  win: '🏆',
-  invite: '📨',
-  error: '⚠️',
-  deposit: '💰',
-  info: '🔔', // was a weak '•' text glyph among real emoji — now a proper bell
+const KIND_ICON: Record<NotifKind, IconName> = {
+  win: 'trophy',
+  invite: 'mail',
+  error: 'alert',
+  deposit: 'wallet',
+  info: 'bell',
 };
 
 // Default landing view by kind when a notification carries no explicit `view` —
@@ -116,7 +117,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         {/* List */}
         {items.length === 0 ? (
           <div className="text-center px-4 py-10">
-            <div className="text-3xl mb-2 opacity-60">🔔</div>
+            <span className="mx-auto mb-3 grid place-items-center w-12 h-12 rounded-full bg-white/5 text-txt-lo" aria-hidden><Icon name="bell" size={24} /></span>
             <p className="text-sm text-muted">{t('notifs.empty')}</p>
           </div>
         ) : (
@@ -131,8 +132,8 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
               return (
                 <li key={n.id} className={`px-4 py-3 ${isUnread ? 'bg-gold/[.06] border-l-2 border-gold' : ''}`}>
                   <div className="flex items-start gap-3">
-                    <span className="text-lg leading-none mt-0.5 shrink-0" aria-hidden>
-                      {KIND_ICON[n.kind]}
+                    <span className="text-gold-hi mt-0.5 shrink-0" aria-hidden>
+                      <Icon name={KIND_ICON[n.kind]} size={18} />
                     </span>
                     {routable ? (
                       <button

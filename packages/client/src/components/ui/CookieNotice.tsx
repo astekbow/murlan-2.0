@@ -35,12 +35,12 @@ export function CookieNotice() {
     <div
       role="dialog"
       aria-label={t('consent.text')}
-      className="fixed inset-x-2 bottom-2 z-[60] mx-auto max-w-2xl rounded-xl border border-gold/30 bg-obsidian/95 px-4 py-3 text-sm text-ivory shadow-2xl backdrop-blur"
-      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      className="cookie-notice rounded-2xl border border-white/10 bg-[#0E1828]/95 px-4 py-3 text-sm text-ivory shadow-2xl backdrop-blur"
     >
-      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="leading-snug text-ivory/90">{t('consent.text')}</p>
-        <button type="button" onClick={accept} className="btn btn-gold shrink-0 whitespace-nowrap px-4 py-1.5">
+      <div className="cookie-row flex items-center justify-between gap-3">
+        <p className="cookie-long leading-snug text-ivory/90">{t('consent.text')}</p>
+        <p className="cookie-short leading-snug text-ivory/90">{t('consent.short')}</p>
+        <button type="button" onClick={accept} className="btn btn-gold btn-sm shrink-0 whitespace-nowrap px-4">
           {t('consent.accept')}
         </button>
       </div>

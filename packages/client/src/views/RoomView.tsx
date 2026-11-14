@@ -1,4 +1,5 @@
 import { Icon } from '../components/ui/Icon.tsx';
+import { BrandMark } from '../components/ui/Logo.tsx';
 import type { RoomStateDTO } from '@murlan/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -112,7 +113,10 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
   // Crest / matchmaking header (portrait only — landscape puts this in the console top bar).
   const headerCrest = (
     <section className="panel-solid p-6 text-center animate-rise">
-      <div className="crest gold-text text-3xl sm:text-4xl mb-2">MURLAN</div>
+      <div className="flex items-center justify-center gap-2.5 mb-3">
+        <BrandMark size={36} />
+        <span className="font-display font-extrabold text-2xl text-txt-hi tracking-tight">Murlan</span>
+      </div>
       <div className="inline-flex items-center gap-2">
         <span className="tag tag-open">{t(CONTEXT[room.type])}</span>
         <span className="chip" style={{ padding: '5px 12px 5px 7px', fontSize: 13 }}>
@@ -401,7 +405,7 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
       <div className="pg-ls">
         <div className="pg-ls-top">
           <button onClick={() => void leaveRoom()} className="btn btn-ghost btn-sm">{t('common.backToLobby')}</button>
-          <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">MURLAN</h1>
+          <h1 className="pg-ls-title inline-flex items-center gap-2 font-display font-extrabold text-txt-hi truncate"><BrandMark size={26} />Murlan</h1>
           <span className="inline-flex items-center gap-1.5 shrink-0">
             <span className="tag tag-open">{t(CONTEXT[room.type])}</span>
             <span className="chip" style={{ padding: '4px 10px 4px 6px', fontSize: 12 }}>

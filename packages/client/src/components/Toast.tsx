@@ -34,7 +34,7 @@ export function Toast({ message, kind = 'error', onDismiss }: ToastProps) {
       <div aria-live="assertive" role="alert" className="sr-only">{message && kind === 'error' ? message : ''}</div>
       <div aria-live="polite" role="status" className="sr-only">{message && kind !== 'error' ? message : ''}</div>
       {message && (
-        <div className="fixed left-1/2 -translate-x-1/2 z-40 max-w-[90%]" style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+        <div className="float-bottom fixed left-1/2 -translate-x-1/2 z-[75] max-w-[90%]">
           <button
             type="button"
             onClick={onDismiss}

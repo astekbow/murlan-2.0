@@ -489,18 +489,21 @@ export function TableView({ room }: { room: RoomStateDTO }) {
   // Hide Play/Pass while I'm the switch winner (switching), AND for EVERYONE during the inter-hand
   // pause / card-switch between other players (interHand) — it's no one's turn, so the buttons would
   // just be dead controls flashing over the swap (R3).
-  const controlsBlock = !switching && !interHand ? (
+  // The controls stay MOUNTED (just invisible) while hidden, so their row keeps its height and the
+  // felt doesn't jump up and back down around every swap / between-hands pause.
+  const controlsHidden = switching || interHand;
+  const controlsBlock = (
     <Controls
       selectedCards={selectedCards(myHand, selected)}
       pile={game?.pile ?? null}
-      isMyTurn={isMyTurn}
+      isMyTurn={isMyTurn && !controlsHidden}
       canPass={canPass}
       requireThreeSpades={requireThreeSpades}
       onPlay={() => { sound.play('card'); haptics.tap(); void play(); }}
       onPass={() => { sound.play('pass'); void pass(); }}
       onClear={clearSelection}
     />
-  ) : null;
+  );
   // The card-switch confirm bar OR my floating emote/chat bubble (above the hand).
   const switchOrBubble = switching ? (
     <div className="text-center pb-1.5">
@@ -573,7 +576,9 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       </div>
 
       {/* Play / Pass — real, thumb-sized buttons (a row in portrait, a column beside the hand in landscape). */}
-      {controlsBlock && <div className="tvx-controls">{controlsBlock}</div>}
+      <div className="tvx-controls" aria-hidden={controlsHidden || undefined} style={controlsHidden ? { visibility: 'hidden' } : undefined}>
+        {controlsBlock}
+      </div>
     </div>
   );
 
@@ -757,7 +762,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {matchResult && (
         <div className="modal-backdrop !z-[60]" role="dialog" aria-modal="true" aria-label={t('table.matchOver')}>
           <div ref={matchOverTrapRef} tabIndex={-1} className="match-result-panel panel-solid w-full max-w-sm p-7 text-center animate-pop outline-none max-h-[94dvh] overflow-y-auto overscroll-contain">
-            <div className="text-5xl mb-2">{iWon ? '🏆' : '🃏'}</div>
+            <span className={`result-icon mx-auto mb-3 grid place-items-center w-16 h-16 rounded-2xl ${iWon ? 'bg-amber/15 text-amber' : 'bg-gold/15 text-gold-hi'}`} aria-hidden><Icon name={iWon ? 'trophy' : 'cards'} size={32} /></span>
             <h2 className="gold-text font-display font-bold tracking-wide text-3xl mb-1">{t('table.matchOverBang')}</h2>
             <p className="text-sm text-muted mb-4">
               {iWon ? t('table.youWon') : t('table.winnerWas', { names: matchResult.winnerSeats.map((s) => nameOf(s)).join(' & ') })}
@@ -874,7 +879,7 @@ export function TableView({ room }: { room: RoomStateDTO }) {
       {confirmLeave && (
         <div className="modal-backdrop !z-[62]" role="dialog" aria-modal="true" aria-label={t('table.leaveMatch')}>
           <div ref={forfeitTrapRef} tabIndex={-1} className="panel-solid w-full max-w-sm p-6 text-center animate-pop outline-none">
-            <div className="text-4xl mb-2">⚠️</div>
+            <span className="mx-auto mb-3 grid place-items-center w-14 h-14 rounded-full bg-amber/15 text-amber" aria-hidden><Icon name="alert" size={28} /></span>
             <h2 className="font-display font-semibold tracking-wide text-gold-hi text-xl mb-1">{t('table.leaveConfirm')}</h2>
             <p className="text-sm text-muted mb-5">
               {room.stakeCents > 0

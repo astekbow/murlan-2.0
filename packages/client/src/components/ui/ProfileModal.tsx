@@ -11,6 +11,7 @@ import { useAuthStore } from '../../store/authStore.ts';
 import { TierBadge } from './TierBadge.tsx';
 import { earnedBadges } from '../../lib/badges.ts';
 import { useT } from '../../lib/i18n.ts';
+import { Icon } from './Icon.tsx';
 
 interface ProfileModalProps {
   userId: string;
@@ -140,7 +141,7 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
         </div>
       ) : error || !profile ? (
         <div className="text-center py-10">
-          <div className="text-4xl mb-2 opacity-60">⚠️</div>
+          <span className="mx-auto mb-3 grid place-items-center w-12 h-12 rounded-full bg-red-500/10 text-red-300" aria-hidden><Icon name="alert" size={24} /></span>
           <p className="text-sm text-red-300">{error ?? t('profile.notFound')}</p>
         </div>
       ) : (
@@ -268,8 +269,8 @@ export function ProfileModal({ userId, onClose, onProfileChange }: ProfileModalP
                 <h3 className="font-display font-semibold tracking-wide text-gold-hi text-sm">
                   {t('profile.chooseAvatar')}
                 </h3>
-                <label className={`btn btn-ghost btn-sm cursor-pointer ${savingAvatar ? 'opacity-50 pointer-events-none' : ''}`}>
-                  📷 {t('profile.uploadAvatar')}
+                <label className={`btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 ${savingAvatar ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <Icon name="camera" size={16} /> {t('profile.uploadAvatar')}
                   <input
                     type="file"
                     accept="image/*"

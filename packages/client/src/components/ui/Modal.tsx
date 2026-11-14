@@ -8,6 +8,7 @@ import { useFocusTrap } from './useFocusTrap.ts';
 import { useModalBack } from '../../lib/useModalBack.ts';
 import { haptics } from '../../lib/haptics.ts';
 import { useT } from '../../lib/i18n.ts';
+import { Icon } from './Icon.tsx';
 
 interface ModalProps {
   title: string;
@@ -38,14 +39,12 @@ export function Modal({ title, onClose, children, maxWidth = 420 }: ModalProps) 
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="gold-text font-display font-semibold tracking-wide text-xl">{title}</h2>
-          <button className="iconbtn" onClick={onClose} aria-label={t('common.close')} title={t('common.close')}>✕</button>
+          <button className="iconbtn" onClick={onClose} aria-label={t('common.close')} title={t('common.close')}><Icon name="close" size={18} /></button>
         </div>
         {children}
       </div>
     </div>,
-    // Portal into #root (not <body>) so the modal sits INSIDE the CSS-rotated app frame on a portrait
-    // phone (force-landscape) — otherwise it'd render upright while the table is sideways. #root is
-    // still a top-level container, so it keeps the modal above the lobby's stacking contexts.
+    // Portal into #root (a top-level container) so the modal sits above the lobby's stacking contexts.
     document.getElementById('root') ?? document.body,
   );
 }
