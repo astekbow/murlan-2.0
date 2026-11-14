@@ -24,7 +24,7 @@ export function EmoteChat({ kind, onClose }: { kind: 'emote' | 'chat'; onClose: 
   const pick = (fn: () => void) => { sound.play('button'); fn(); onClose(); };
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+    <div className="sheet-safe fixed inset-0 z-[55] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
       <div
         ref={trapRef}
         tabIndex={-1}

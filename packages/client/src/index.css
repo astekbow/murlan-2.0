@@ -383,7 +383,7 @@ select:focus-visible,
      trim the dialog padding + the title gap, tighten the stacked content, and use nearly the
      full height. Wider screens / portrait are unaffected. */
   @media (orientation: landscape) and (max-height: 600px) {
-    .modal-backdrop { padding-top: 6px; padding-bottom: 6px; }
+    .modal-backdrop { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
     .modal-backdrop > .panel-solid { padding: 0.7rem 1.1rem; max-height: 97dvh; }
     .modal-backdrop > .panel-solid > .flex.mb-4 { margin-bottom: 0.5rem; }
     .modal-backdrop > .panel-solid h2 { font-size: 1.05rem; }
@@ -922,9 +922,11 @@ select:focus-visible,
 @media (orientation: landscape) { .tvx-felt .felt-ring { inset: 18% 24%; } }
 
 /* Centre pile — never steals taps from the hand. */
-.tvx-pile { position: absolute; inset: 0; display: grid; place-items: center; z-index: 3; pointer-events: none; }
+.tvx-pile { position: absolute; inset: 0; display: grid; place-items: center; z-index: 3; pointer-events: none; container-type: inline-size; }
 .tvx-pile .pile-cards .gcard { width: 60px; height: 86px; }
-.tvx-pile .pile-cards .gcard + .gcard { margin-left: -26px; }
+/* Long plays (a 10–13 card kolor) overlap tighter so the whole play stays INSIDE the felt (max 82%
+   of its width) instead of running off the table / screen. --n = cards in this play (Pile.tsx). */
+.tvx-pile .pile-cards .gcard + .gcard { margin-left: min(-26px, calc((82cqw - var(--n, 1) * 60px) / max(1, var(--n, 1) - 1))); }
 
 /* Opponent seats sit ON the felt's edge (the felt's own geometry, not a fixed canvas). */
 .tvx-seat { position: absolute; z-index: 5; }
@@ -990,7 +992,7 @@ select:focus-visible,
   .tvx-seat .av { width: 40px; height: 40px; font-size: 13px; }
   .tvx-seat .seat-nm { font-size: 11px; max-width: 80px; }
   .tvx-pile .pile-cards .gcard { width: 50px; height: 72px; }
-  .tvx-pile .pile-cards .gcard + .gcard { margin-left: -22px; }
+  .tvx-pile .pile-cards .gcard + .gcard { margin-left: min(-22px, calc((82cqw - var(--n, 1) * 50px) / max(1, var(--n, 1) - 1))); }
   .tvx-controls { width: 128px; }
   .tvx-controls .ctrl-hint, .tvx-controls .ctrl-clear { display: none; }
   .tvx-controls .ctrl-play { min-height: 52px; }
@@ -1053,7 +1055,10 @@ select:focus-visible,
   .app-nav-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
   .app-nav-item { min-height: 58px; }
   .app-main { padding-left: calc(var(--nav-w) + env(safe-area-inset-left)); }
-  .app-main .app-shell { padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+  /* The rail already sits over the left safe area (notch / Dynamic Island), so the shell inside
+     must NOT add that inset a second time — it used to leave a ~60px dead gap beside the rail on
+     iPhones held sideways and squeezed the lobby. The right inset still applies. */
+  .app-main .app-shell { padding-left: 1rem; padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
 }
 /* Short landscape phones: drop the brand tile, tighten the rail so all six fit with no scroll. */
 @media (orientation: landscape) and (max-height: 480px) {
@@ -1313,4 +1318,35 @@ html.has-app-nav .cookie-notice { bottom: calc(var(--nav-h) + 8px + env(safe-are
   }
   .cookie-long { display: none; }
   .cookie-short { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* ===== iPhone safe areas (Dynamic Island / notch / home indicator) =========================== */
+/* Bottom sheets (quick chat / emoji): never under the home indicator or beside the island. */
+.sheet-safe {
+  padding: 1rem max(1rem, env(safe-area-inset-right)) max(1rem, calc(env(safe-area-inset-bottom) + 6px)) max(1rem, env(safe-area-inset-left));
+}
+/* Log-in / sign-up: a scrollable column whose card centres with auto margins — when the card is
+   taller than the screen it scrolls from the TOP instead of being centred off both ends (it used to
+   start under the Dynamic Island and end under the home indicator). */
+.auth-screen {
+  display: flex; flex-direction: column; align-items: center;
+  padding: max(12px, calc(env(safe-area-inset-top) + 8px)) max(12px, env(safe-area-inset-right))
+           max(12px, calc(env(safe-area-inset-bottom) + 8px)) max(12px, env(safe-area-inset-left));
+}
+.auth-screen > form { margin-top: auto; margin-bottom: auto; }
+/* Narrow phones (iPhone SE / mini, 320–389px): the five stake chips share one row instead of
+   "Tjetër" wrapping alone onto a second line. */
+@media (max-width: 389px) {
+  .stake-row:not(:has(.stake-custom)) { flex-wrap: nowrap; gap: 5px; }
+  .stake-row:not(:has(.stake-custom)) .stake-chip { flex: 1 1 auto; min-width: 0; padding: 0 8px; }
+}
+/* Very short landscape (iPhone in Safari with its bars, SE / mini held sideways: ≤ 420px tall):
+   the whole lobby home must fit ABOVE the home indicator with no scroll. The live ticker row is a
+   nice-to-have there, and the controls tighten slightly (still ≥ 40px touch targets). */
+@media (orientation: landscape) and (max-height: 420px) {
+  .lobby-status { display: none; }
+  .topbar { margin-bottom: 8px; }
+  .play-card .seg-tab { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+  .play-card .stake-chip, .play-card .stake-custom { min-height: 40px; }
+  .play-cta { min-height: 44px; }
 }

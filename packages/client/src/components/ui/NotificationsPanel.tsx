@@ -54,7 +54,7 @@ function relativeTime(ts: number): string {
   return tr('notifs.timeDays', { n: days });
 }
 
-export function NotificationsPanel({ onClose }: { onClose: () => void }) {
+export function NotificationsPanel({ onClose, top = 64 }: { onClose: () => void; top?: number }) {
   const t = useT();
   const items = useNotifications((s) => s.items);
   // New items prepend + bump `unread`, so the first `unread` rows are the UNREAD ones. Read on close,
@@ -106,7 +106,10 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         ref={panelRef}
         role="dialog"
         aria-label={t('notifs.ariaLabel')}
-        className="fixed right-3 top-16 w-80 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-5rem)] flex flex-col z-[91] panel-solid animate-pop overflow-hidden"
+        className="fixed w-80 max-w-[calc(100vw-1.5rem)] flex flex-col z-[91] panel-solid animate-pop overflow-hidden"
+        // Sits just below the top bar (TopBar measures it — lower under a notch / Dynamic Island) and
+        // never runs into the home indicator.
+        style={{ top, right: 'max(0.75rem, env(safe-area-inset-right))', maxHeight: `calc(100dvh - ${top}px - max(12px, env(safe-area-inset-bottom)))` }}
       >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10">

@@ -6,7 +6,7 @@
 // NOTE: level/XP is cosmetic scaffolding for now; the progression DATA lands in
 // Phase 5. The `$` balance is the real wallet figure, untouched.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { avatarEmoji, isImageAvatar } from '../../lib/avatars.ts';
 import { useAuthStore } from '../../store/authStore.ts';
@@ -42,6 +42,8 @@ export function TopBar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const [popY, setPopY] = useState(64); // px from the top: where the bell / ⋯ popovers open
   const [profile, setProfile] = useState<Profile | null>(null);
   const unread = useNotifications((s) => s.unread);
   // Keyboard focus stays inside the open gear menu (Tab cycles its items, focus
@@ -72,9 +74,14 @@ export function TopBar() {
 
   if (!user) return null;
 
+  // Popovers (bell / ⋯ menu) open just BELOW the top bar wherever it actually sits — under the
+  // Dynamic Island / notch in a home-screen app it is ~60px lower than in a browser tab, so a fixed
+  // `top-16` used to drop the menu ON the top bar.
+  const popBelowBar = () => Math.round((headerRef.current?.getBoundingClientRect().bottom ?? 58) + 8);
+
   return (
     <>
-    <header className="topbar flex items-center justify-between gap-3 mb-4 animate-rise">
+    <header ref={headerRef} className="topbar flex items-center justify-between gap-3 mb-4 animate-rise">
       {/* Profile */}
       <button
         type="button"
@@ -122,7 +129,7 @@ export function TopBar() {
           <span className="plus shrink-0"><Icon name="plus" size={16} stroke={2.6} /></span>
         </button>
         <div className="relative shrink-0">
-          <button type="button" className="iconbtn" onClick={() => setNotifOpen((o) => !o)} title={t('topbar.notifications')} aria-label={t('topbar.notifications')} aria-haspopup="true" aria-expanded={notifOpen}>
+          <button type="button" className="iconbtn" onClick={() => { setPopY(popBelowBar()); setNotifOpen((o) => !o); }} title={t('topbar.notifications')} aria-label={t('topbar.notifications')} aria-haspopup="true" aria-expanded={notifOpen}>
             <Icon name="bell" />
           </button>
           {unread > 0 && (
@@ -130,13 +137,13 @@ export function TopBar() {
               {unread > 9 ? '9+' : unread}
             </span>
           )}
-          {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
+          {notifOpen && <NotificationsPanel top={popY} onClose={() => setNotifOpen(false)} />}
         </div>
         <div className="relative shrink-0">
           <button
             type="button"
             className="iconbtn"
-            onClick={() => setMenuOpen((o) => !o)}
+            onClick={() => { setPopY(popBelowBar()); setMenuOpen((o) => !o); }}
             title={t('topbar.settings')}
             aria-label={t('topbar.settings')}
             aria-haspopup="menu"
@@ -147,7 +154,7 @@ export function TopBar() {
           {menuOpen && createPortal(
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div ref={menuRef} role="menu" aria-label={t('topbar.settings')} className="fixed top-16 w-56 z-[91] panel-solid p-1.5 animate-pop" style={{ right: 'max(0.75rem, env(safe-area-inset-right))' }}>
+              <div ref={menuRef} role="menu" aria-label={t('topbar.settings')} className="fixed w-56 z-[91] panel-solid p-1.5 animate-pop" style={{ top: popY, right: 'max(0.75rem, env(safe-area-inset-right))' }}>
                 {([
                   ...(user.role === 'admin' ? [{ key: 'admin', icon: 'admin', label: t('topbar.adminPanel'), tone: 'text-gold-hi', run: () => setView('admin') }] : []),
                   { key: 'vip', icon: 'crown', label: t('navx.vip'), tone: 'text-txt', run: () => setView('vip') },

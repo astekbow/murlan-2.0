@@ -56,11 +56,12 @@ function PileImpl({ pile, history = [], fromDir }: { pile: Combo | null; history
               style={{
                 // The disk-throw CSS vars go on the NEW top layer only; its cards inherit them.
                 ...(isTop ? throwStyle : {}),
+                '--n': cards.length,
                 gridArea: '1 / 1',
                 transform: `translate(${-back * 11}px, ${-back * 13}px)`,
                 opacity: isTop ? 1 : 0.5, // older plays just dimmed (no blur), as before
                 zIndex: i + 1,
-              }}
+              } as CSSProperties}
             >
               {cards.map((card) => (
                 <CardView key={cardKey(card)} card={card} />

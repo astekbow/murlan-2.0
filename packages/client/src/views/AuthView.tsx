@@ -40,10 +40,7 @@ export function AuthView() {
 
   if (mode === 'forgot') {
     return (
-      <div
-        className="relative z-10 min-h-full flex items-center justify-center"
-        style={{ padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))' }}
-      >
+      <div className="auth-screen relative z-10 min-h-full">
         <form onSubmit={submit} className="panel-solid w-full max-w-sm p-7 space-y-5 animate-rise">
           <div className="text-center">
             <h1 className="gold-text font-display font-bold text-3xl tracking-wide leading-none">{t('auth.recoverTitle')}</h1>
@@ -68,7 +65,7 @@ export function AuthView() {
   }
 
   return (
-    <div className="relative z-10 min-h-full flex items-center justify-center p-3">
+    <div className="auth-screen relative z-10 min-h-full">
       {/* On a short LANDSCAPE phone the stacked form is taller than the screen → it scrolls. There
           we switch to a compact two-column card (branding | form) so it fits with NO scroll. */}
       <form
