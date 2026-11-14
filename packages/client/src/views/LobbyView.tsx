@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import type { MatchType, LobbyRoomInfo } from '@murlan/shared';
 import { useGameStore } from '../store/gameStore.ts';
 import { useAuthStore } from '../store/authStore.ts';
-import { useUiStore, type LobbyView as LobbyViewName } from '../store/uiStore.ts';
+import { useUiStore } from '../store/uiStore.ts';
 import { dollars } from '../lib/money.ts';
 import { lobbyApi, friendsApi, type LobbyLiveDTO, type FriendEntry } from '../lib/api.ts';
 import { AvatarFace } from '../components/ui/AvatarFace.tsx';
@@ -13,6 +13,7 @@ import { Modal } from '../components/ui/Modal.tsx';
 import { PageHeader } from '../components/ui/PageHeader.tsx';
 import { EmptyState } from '../components/ui/EmptyState.tsx';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 import { useT } from '../lib/i18n.ts';
 
 // Maps match type → catalog key, resolved with t() at each use site.
@@ -22,46 +23,12 @@ const TYPE_LABEL: Record<MatchType, string> = {
   '2v2': 'lobby.type2v2',
 };
 const TYPES: MatchType[] = ['1v1', '1v1v1', '2v2'];
-
-interface RailItem { icon: string; labelKey: string; badge: string | null; to: LobbyViewName | null }
-// Split into two rails — 3 on the left, 3 on the right of the hero (desktop).
-// Support lives in the ⚙ settings menu now (not the rail).
-const RAIL_LEFT: RailItem[] = [
-  { icon: '🏆', labelKey: 'nav.leaderboard', badge: null, to: 'leaderboard' },
-  { icon: '👥', labelKey: 'nav.friends', badge: null, to: 'friends' },
-  { icon: '🛡️', labelKey: 'nav.clubs', badge: null, to: 'clubs' },
-];
-const RAIL_RIGHT: RailItem[] = [
-  { icon: '🎯', labelKey: 'nav.challenges', badge: null, to: 'rewards' },
-  { icon: '🛍️', labelKey: 'nav.shop', badge: null, to: 'shop' },
-  { icon: '♛', labelKey: 'nav.vip', badge: null, to: 'vip' },
-];
-
-/** A vertical rail of nav icons (one on each side of the hero on desktop; wraps
- *  into a row on mobile). `side` only controls the responsive ordering. */
-function RailNav({ items, side }: { items: RailItem[]; side: 'left' | 'right' }) {
-  const t = useT();
-  const setView = useUiStore((s) => s.setView);
-  const view = useUiStore((s) => s.view);
-  return (
-    <nav aria-label={t(side === 'left' ? 'nav.railPrimary' : 'nav.railSecondary')} className={`flex md:flex-col flex-row flex-wrap justify-center gap-4 md:gap-5 animate-rise ${side === 'left' ? 'order-2 md:order-1' : 'order-3'}`}>
-      {items.map((r) => (
-        <button
-          key={r.labelKey}
-          className="rail-item"
-          aria-current={r.to && r.to === view ? 'page' : undefined}
-          onClick={() => { sound.play('button'); haptics.tap(); if (r.to) setView(r.to); }}
-        >
-          <span className="rail-ic">
-            {r.icon}
-            {r.badge && <span className="badge">{r.badge}</span>}
-          </span>
-          <span className="rail-lbl">{t(r.labelKey)}</span>
-        </button>
-      ))}
-    </nav>
-  );
-}
+// Short, plain-language labels for the Play-now card ("3 players" reads better than "1v1v1").
+const TYPE_LABEL_SHORT: Record<MatchType, string> = {
+  '1v1': 'lobby.type1v1',
+  '1v1v1': 'lobbyx.type3',
+  '2v2': 'lobby.type2v2',
+};
 
 /** Compact lobby-liveliness ticker of recent real-money winners ("Ardit fitoi $20").
  *  Display-only; data is polled read-only. Renders an ALWAYS-mounted aria-live region
@@ -132,7 +99,7 @@ export function LobbyView() {
   const t = useT();
   const landscape = useLandscapePage();
 
-  const [quickOpen, setQuickOpen] = useState(false);
+  const [practiceOpen, setPracticeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [rankedOpen, setRankedOpen] = useState(false);
   const [codeInput, setCodeInput] = useState('');
@@ -151,6 +118,22 @@ export function LobbyView() {
     if (r.type === '2v2') setJoinTeamFor(r);
     else void joinRoom(r.id);
   };
+
+  // Quick-match (the Play-now card): join a waiting table with the same type + stake, else open
+  // one and wait. Reuses the existing join/create events — no server matchmaker is invented. 2v2 →
+  // the player picks a team first (same picker as Open Rooms).
+  async function quickPlay(type: MatchType, cents: number): Promise<boolean> {
+    refreshLobby();
+    await new Promise((r) => setTimeout(r, 250)); // let the fresh lobby list land
+    const fresh = useGameStore.getState().lobby;
+    const candidate = fresh.find((r) => r.type === type && r.stakeCents === cents && r.status === 'waiting' && r.seatsFilled < r.seatsTotal);
+    if (candidate && candidate.type === '2v2') { setJoinTeamFor(candidate); return false; }
+    let ok = false;
+    if (candidate) ok = await joinRoom(candidate.id);
+    if (!ok) ok = (await createRoom(type, cents)) !== null;
+    return ok;
+  }
+  const waitingRooms = lobby.filter((r) => r.status === 'waiting' && r.seatsFilled < r.seatsTotal).length;
 
   // A 0-stake room is a FREE game — show "Falas" instead of "$0.00" wherever a stake
   // is displayed. (Such a room is always affordable; the join gate never blocks it.)
@@ -359,73 +342,45 @@ export function LobbyView() {
           )}
         </div>
       ) : (
-        /* ---- Home — four equal cards ---- */
-        <div className="lobby-home space-y-3">
-          {/* Always-on liveliness status row — its FIXED height pins .lobby-hub below
-              (zero layout shift) whether or not friends are online / winners are ticking.
-              Online chip sits on the left; the winners ticker fills the rest of the line. */}
+        /* ---- Home (Midnight Mint): ONE big "Play now" card — type + stake picked right there, no
+             extra dialog — and three secondary tiles. Fits a landscape phone with no scroll; stacks
+             in portrait. Navigation lives in the persistent app nav (AppNav), not in the page. ---- */
+        <div className="lobby-home">
+          {/* Always-on liveliness status row — its FIXED height keeps the content below from jumping. */}
           <div className="lobby-status">
             <FriendsOnlineStrip />
             <LobbyLiveStrip data={live2} />
           </div>
-          <div className="lobby-hub grid gap-4 md:grid-cols-[64px_1fr_64px] items-start">
-          <RailNav items={RAIL_LEFT} side="left" />
-
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 order-1 md:order-2">
-            <button className="mode casual mode-hero animate-rise text-inherit" style={{ animationDelay: '.05s' }} onClick={() => { sound.play('button'); haptics.tap(); setQuickOpen(true); }}>
-              <span className="mode-badge" aria-hidden>⚡ {t('lobby.instant')}</span>
-              <div className="art" />
-              <span className="micon" aria-hidden>🎴</span>
-              <div className="mname gold-text">{t('lobby.quickName')}</div>
-              <div className="mdesc">{t('lobby.quickDesc')}</div>
-              <div className="mcta">{t('lobby.quickCta')}</div>
-            </button>
-
-            <button className="mode tourn animate-rise text-inherit" style={{ animationDelay: '.1s' }} onClick={() => { sound.play('button'); haptics.tap(); setView('tournaments'); }}>
-              <div className="art" />
-              <span className="micon" aria-hidden>🏆</span>
-              <div className="mname gold-text">{t('lobby.tournName')}</div>
-              <div className="mdesc">{t('lobby.tournDesc')}</div>
-              <div className="mcta">{t('lobby.tournCta')}</div>
-            </button>
-
-            <button className="mode ranked animate-rise text-inherit" style={{ animationDelay: '.15s' }} onClick={() => { sound.play('button'); haptics.tap(); setRankedOpen(true); }}>
-              <div className="art" />
-              <span className="micon" aria-hidden>⚔️</span>
-              <div className="mname gold-text">{t('lobby.rankedTitle')}</div>
-              <div className="mdesc">{t('lobby.rankedDesc')}</div>
-              <div className="mcta">{t('lobby.findMatch')}</div>
-            </button>
-
-            <button className="mode rooms animate-rise text-inherit" style={{ animationDelay: '.2s' }} onClick={() => { sound.play('button'); haptics.tap(); setShowRooms(true); }}>
-              <div className="art" />
-              <span className="micon" aria-hidden>🃏</span>
-              <div className="mname gold-text">{t('lobby.openRooms')}</div>
-              <div className="mdesc">{t('lobby.roomsCardDesc')}</div>
-              <div className="mcta">{t('lobby.roomsCardCta')}</div>
-            </button>
-          </div>
-
-          <RailNav items={RAIL_RIGHT} side="right" />
+          <div className="lobby-grid">
+            <PlayNowCard
+              balanceCents={balanceCents}
+              onPlay={quickPlay}
+              onPractice={() => { sound.play('button'); haptics.tap(); setPracticeOpen(true); }}
+              onDeposit={() => setView('wallet')}
+            />
+            <div className="lobby-tiles">
+              <LobbyTile
+                icon="trophy" tint="amber"
+                title={t('lobbyx.tournaments')} meta={t('lobbyx.tournamentsMeta')}
+                onClick={() => setView('tournaments')}
+              />
+              <LobbyTile
+                icon="star" tint="blue"
+                title={t('lobbyx.ranked')} meta={t('lobbyx.rankedMeta')}
+                onClick={() => setRankedOpen(true)}
+              />
+              <LobbyTile
+                icon="grid" tint="mint"
+                title={t('lobbyx.rooms')}
+                meta={waitingRooms > 0 ? t('lobbyx.roomsMeta', { n: waitingRooms }) : t('lobbyx.roomsNone')}
+                onClick={() => setShowRooms(true)}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      {quickOpen && (
-        <QuickMatchModal
-          onClose={() => setQuickOpen(false)}
-          onJoin={joinRoom}
-          onCreate={createRoom}
-          onPickTeam={(r) => setJoinTeamFor(r)}
-          onRefresh={async () => {
-            // Kick a lobby refresh and await the store landing the fresh list,
-            // so quick-match matches against current data (not a stale prop).
-            refreshLobby();
-            await new Promise((r) => setTimeout(r, 250));
-            return useGameStore.getState().lobby;
-          }}
-        />
-      )}
+      {practiceOpen && <PracticeModal onClose={() => setPracticeOpen(false)} />}
       {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} onCreate={createRoom} />}
       {joinTeamFor && <JoinTeamModal room={joinTeamFor} onClose={() => setJoinTeamFor(null)} onJoin={joinRoom} />}
       {rankedOpen && <RankedModal onClose={() => setRankedOpen(false)} onFind={findRanked} />}
@@ -475,7 +430,7 @@ function TypePicker({ value, onChange }: { value: MatchType; onChange: (t: Match
     <div className="seg w-full grid grid-cols-3" role="group">
       {TYPES.map((mt) => (
         <button key={mt} type="button" aria-pressed={value === mt} className={`seg-tab text-center ${value === mt ? 'active' : ''}`} onClick={() => onChange(mt)}>
-          {t(TYPE_LABEL[mt])}
+          {t(TYPE_LABEL_SHORT[mt])}
         </button>
       ))}
     </div>
@@ -505,45 +460,120 @@ function toCents(stake: string): number {
   return Number.isFinite(c) ? Math.max(0, c) : 0;
 }
 
-interface QuickProps {
-  onClose: () => void;
-  onJoin: (id: string) => Promise<boolean>;
-  onCreate: (type: MatchType, cents: number, team?: 0 | 1) => Promise<string | null>;
-  onRefresh: () => Promise<ReturnType<typeof useGameStore.getState>['lobby']>;
-  onPickTeam: (room: LobbyRoomInfo) => void; // 2v2: choose a team before joining (same modal as Open Rooms)
-}
-function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh, onPickTeam }: QuickProps) {
+/** Stake presets for the Play-now card (cents). 0 = a free game. "Other" reveals a custom amount. */
+const STAKE_PRESETS = [0, 100, 500, 1000];
+
+/**
+ * The lobby's ONE primary action: pick the game type and the stake inline, then "Luaj" — no dialog in
+ * between. Quick-match semantics are unchanged (join a waiting table with the same type+stake, else
+ * open one) — see LobbyView.quickPlay. If the chosen stake is above the balance the button becomes
+ * "Deposit to play" instead of failing on the server.
+ */
+function PlayNowCard({ balanceCents, onPlay, onPractice, onDeposit }: {
+  balanceCents: number;
+  onPlay: (type: MatchType, cents: number) => Promise<boolean>;
+  onPractice: () => void;
+  onDeposit: () => void;
+}) {
   const t = useT();
-  const [tab, setTab] = useState<'play' | 'practice'>('play');
   const [type, setType] = useState<MatchType>('1v1');
-  const [stake, setStake] = useState('0');
+  const [stake, setStake] = useState<number>(0);
+  const [custom, setCustom] = useState<string | null>(null); // non-null = "Other" amount being typed
+  const [busy, setBusy] = useState(false);
+  const cents = custom !== null ? toCents(custom) : stake;
+  const short = cents > balanceCents;
+
+  async function go() {
+    if (busy) return;
+    sound.play('button');
+    haptics.tap();
+    if (short) { onDeposit(); return; }
+    setBusy(true);
+    const ok = await onPlay(type, cents);
+    if (!ok) setBusy(false); // success unmounts the lobby (we're seated); failure → store toast, retry
+  }
+
+  return (
+    <section className="play-card animate-rise" aria-labelledby="play-now-title">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id="play-now-title" className="play-title">{t('lobbyx.playTitle')}</h2>
+          <p className="play-sub">{t('lobbyx.playSub')}</p>
+        </div>
+        <button type="button" className="play-alt" onClick={onPractice}>
+          <Icon name="robot" size={18} />
+          <span>{t('lobbyx.practice')}</span>
+        </button>
+      </div>
+
+      <div className="seg w-full grid grid-cols-3" role="group" aria-label={t('lobby.gameType')}>
+        {TYPES.map((mt) => (
+          <button key={mt} type="button" aria-pressed={type === mt} className={`seg-tab text-center ${type === mt ? 'active' : ''}`} onClick={() => setType(mt)}>
+            {t(TYPE_LABEL_SHORT[mt])}
+          </button>
+        ))}
+      </div>
+
+      <div className="stake-row" role="group" aria-label={t('lobbyx.stake')}>
+        {STAKE_PRESETS.map((c) => {
+          const on = custom === null && stake === c;
+          return (
+            <button key={c} type="button" aria-pressed={on} className={`stake-chip${on ? ' active' : ''}`} onClick={() => { setCustom(null); setStake(c); }}>
+              {c === 0 ? t('lobby.free') : `$${c / 100}`}
+            </button>
+          );
+        })}
+        {custom === null ? (
+          <button type="button" className="stake-chip" onClick={() => setCustom(stake > 0 ? String(stake / 100) : '')}>
+            {t('lobbyx.other')}
+          </button>
+        ) : (
+          <label className="stake-custom">
+            <span className="sr-only">{t('lobby.stakeUsd')}</span>
+            <span aria-hidden="true">$</span>
+            <input
+              autoFocus
+              type="number"
+              min="0"
+              step="0.5"
+              inputMode="decimal"
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void go(); } }}
+            />
+          </label>
+        )}
+      </div>
+
+      <button type="button" className={`btn btn-lg btn-block play-cta ${short ? 'btn-amber' : 'btn-gold'}`} disabled={busy} onClick={() => void go()}>
+        {busy ? t('lobby.searching') : short ? t('lobbyx.depositToPlay') : t('lobbyx.play')}
+      </button>
+    </section>
+  );
+}
+
+/** A secondary lobby destination: round tinted icon, title, one-line live meta, chevron. */
+function LobbyTile({ icon, tint, title, meta, onClick }: { icon: IconName; tint: 'amber' | 'blue' | 'mint'; title: string; meta: string; onClick: () => void }) {
+  return (
+    <button type="button" className="lobby-tile animate-rise" onClick={() => { sound.play('button'); haptics.tap(); onClick(); }}>
+      <span className={`ic ${tint}`}><Icon name={icon} size={22} /></span>
+      <span className="flex-1 min-w-0">
+        <span className="tt">{title}</span>
+        <span className="mt">{meta}</span>
+      </span>
+      <Icon name="chevronRight" size={18} className="text-muted shrink-0" />
+    </button>
+  );
+}
+
+/** Practice vs AI bots: a private zero-stake table that starts instantly — pick the game type and
+ *  the bots' strength. No matchmaking, no money: for learning the rules or warming up. */
+function PracticeModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  const [type, setType] = useState<MatchType>('1v1');
   const [tier, setTier] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [busy, setBusy] = useState(false);
 
-  // Quick-match = find an open room that matches, else create one and wait.
-  // Reuses the existing join/create events — no server matchmaker is invented.
-  async function play() {
-    if (busy) return;
-    setBusy(true);
-    const lobby = await onRefresh();
-    const cents = toCents(stake);
-    const candidate = lobby.find((r) => r.type === type && r.stakeCents === cents && r.status === 'waiting' && r.seatsFilled < r.seatsTotal);
-    // 2v2: found a table → let the player pick their team first (same picker as Open Rooms),
-    // instead of auto-seating them. Creating a fresh table (no candidate) falls through to the
-    // in-room picker. Non-2v2 joins straight in.
-    if (candidate && candidate.type === '2v2') { onClose(); onPickTeam(candidate); return; }
-    let ok = false;
-    if (candidate) ok = await onJoin(candidate.id);
-    // Fall through to creating our own table only if we didn't join one. Close the
-    // modal only on success — on failure the store's toast explains why and the
-    // modal stays open so the user can retry (not silently dismissed).
-    if (!ok) ok = (await onCreate(type, cents)) !== null;
-    if (ok) onClose();
-    else setBusy(false);
-  }
-
-  // Practice vs AI bots: a private zero-stake table that starts instantly. No
-  // matchmaking, no money — great for learning the rules or warming up.
   async function practice() {
     if (busy) return;
     setBusy(true);
@@ -553,57 +583,26 @@ function QuickMatchModal({ onClose, onJoin, onCreate, onRefresh, onPickTeam }: Q
   }
 
   return (
-    <Modal title={t('lobby.quickName')} onClose={onClose}>
+    <Modal title={t('lobbyx.practiceTitle')} onClose={onClose}>
       <div className="space-y-4">
-        {/* Two tabs keep each panel short enough to fit a flat phone with NO scroll:
-            "Luaj" (real/free vs people) and "Praktikë" (vs bots). */}
-        <div className="seg w-full grid grid-cols-2">
-          <button type="button" className={`seg-tab text-center ${tab === 'play' ? 'active' : ''}`} aria-pressed={tab === 'play'} onClick={() => setTab('play')}>{t('lobby.tabPlay')}</button>
-          <button type="button" className={`seg-tab text-center ${tab === 'practice' ? 'active' : ''}`} aria-pressed={tab === 'practice'} onClick={() => setTab('practice')}>{t('lobby.tabPractice')}</button>
+        <p className="text-sm text-muted">{t('lobbyx.practiceBlurb')}</p>
+        <div>
+          <span className="field-label">{t('lobby.gameType')}</span>
+          <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
         </div>
-
-        {tab === 'play' ? (
-          <>
-            <div>
-              <span className="field-label">{t('lobby.gameType')}</span>
-              <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
-            </div>
-            <div>
-              <StakeField value={stake} onChange={setStake} onEnter={() => void play()} />
-              <p className="text-xs text-muted mt-1">{t('lobby.freeHint')}</p>
-            </div>
-            <button className="btn btn-green btn-lg btn-block" disabled={busy} onClick={() => void play()}>
-              {busy ? t('lobby.searching') : t('lobby.quickCta')}
-            </button>
-          </>
-        ) : (
-          <>
-            <div>
-              <span className="field-label">{t('lobby.gameType')}</span>
-              <div className="mt-1"><TypePicker value={type} onChange={setType} /></div>
-            </div>
-            {/* Bot difficulty applies to the practice game below. */}
-            <div>
-              <span className="field-label">{t('lobby.botDifficulty')}</span>
-              <div className="mt-1 grid grid-cols-3 gap-1.5">
-                {(['easy', 'medium', 'hard'] as const).map((lv) => (
-                  <button
-                    key={lv}
-                    type="button"
-                    aria-pressed={tier === lv}
-                    onClick={() => setTier(lv)}
-                    className={`btn btn-sm ${tier === lv ? 'btn-gold' : 'btn-ghost'}`}
-                  >
-                    {t(lv === 'easy' ? 'lobby.botEasy' : lv === 'medium' ? 'lobby.botMedium' : 'lobby.botHard')}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void practice()}>
-              {t('lobby.practice')}
-            </button>
-          </>
-        )}
+        <div>
+          <span className="field-label">{t('lobby.botDifficulty')}</span>
+          <div className="seg w-full grid grid-cols-3 mt-1" role="group" aria-label={t('lobby.botDifficulty')}>
+            {(['easy', 'medium', 'hard'] as const).map((lv) => (
+              <button key={lv} type="button" aria-pressed={tier === lv} onClick={() => setTier(lv)} className={`seg-tab text-center ${tier === lv ? 'active' : ''}`}>
+                {t(lv === 'easy' ? 'lobby.botEasy' : lv === 'medium' ? 'lobby.botMedium' : 'lobby.botHard')}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button className="btn btn-gold btn-lg btn-block" disabled={busy} onClick={() => void practice()}>
+          {busy ? t('onb.starting') : t('lobbyx.practiceStart')}
+        </button>
       </div>
     </Modal>
   );

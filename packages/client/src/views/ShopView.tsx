@@ -141,7 +141,7 @@ export function ShopView() {
       <div className="pg-ls">
         {dialog}
         <div className="pg-ls-top">
-          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">{t('common.backToLobby')}</button>
           <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('shop.title')}</h1>
           <span className="flex items-center gap-2 shrink-0">
             {status && <span className="text-sm font-display font-semibold text-gold-hi">{t('shop.xpBalance', { xp: status.spendableXp })}</span>}

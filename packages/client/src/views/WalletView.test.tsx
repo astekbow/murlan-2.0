@@ -49,7 +49,7 @@ test('WalletView renders and gates a withdrawal behind a confirmation dialog', a
   render(<WalletView />);
 
   // The money view rendered (the Withdraw section is present).
-  expect(await screen.findByText('WITHDRAW')).toBeTruthy();
+  expect((await screen.findAllByText('Withdraw')).length).toBeGreaterThan(0); // catalog 'WITHDRAW' → brand sentence case
 
   // Fill a valid destination (the amount defaults to 5); then request the withdrawal.
   fireEvent.change(screen.getByPlaceholderText('your USDT (TRC20) address'), {

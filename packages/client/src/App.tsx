@@ -10,6 +10,7 @@ import { LobbyView } from './views/LobbyView.tsx';
 import { Toast } from './components/Toast.tsx';
 import { Background } from './components/ui/Background.tsx';
 import { TopBar } from './components/ui/TopBar.tsx';
+import { AppNav } from './components/ui/AppNav.tsx';
 import { InviteBanner } from './components/ui/InviteBanner.tsx';
 import { ClubInviteBanner } from './components/ui/ClubInviteBanner.tsx';
 import { RankedSearchOverlay } from './components/ui/RankedSearchOverlay.tsx';
@@ -22,9 +23,7 @@ import { DailyStreakModal } from './components/ui/DailyStreakModal.tsx';
 import { ViewTransition } from './components/ui/ViewTransition.tsx';
 import { useOnboardingStore } from './store/onboardingStore.ts';
 import { useUrlSync } from './lib/useUrlSync.ts';
-import { useForceLandscapeApp } from './lib/useForceLandscapeApp.ts';
 import { useKeyboardInset } from './lib/useKeyboardInset.ts';
-import { RotateOverlay } from './components/ui/RotateOverlay.tsx';
 import { takePendingJoinCode, takePendingProfileId } from './lib/deepLink.ts';
 import { getResetToken, takeVerifyToken } from './lib/hashTokens.ts';
 import { ProfileModal } from './components/ui/ProfileModal.tsx';
@@ -78,29 +77,35 @@ function OfflineSplash({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** Lobby-area chrome: centered column with the global top bar on top. */
-function Shell({ children, bare = false }: { children: ReactNode; bare?: boolean }) {
-  // Safe-area insets (notch / Dynamic Island / home indicator) + room for the
-  // mobile bottom nav live in the `.app-shell` class (index.css) so a media query
-  // can drop the extra bottom space on desktop. The page content fades on each
-  // lobby-view switch via ViewTransition (TopBar persists).
-  // `bare` hides the global TopBar — used by full-screen pages that have their OWN
-  // header + Back button (Wallet, Support) so they aren't cramped on short landscape phones.
+/** Lobby-area chrome: the app navigation (bottom tab bar in portrait, left rail in landscape /
+ *  desktop) + a centered column with the global top bar on top. */
+function Shell({ children, bare = false, nav = true }: { children: ReactNode; bare?: boolean; nav?: boolean }) {
+  // Safe-area insets (notch / Dynamic Island / home indicator) + the room the navigation needs live
+  // in the `.app-shell` / `.app-main` classes (index.css), so media queries can move the nav between
+  // the bottom (portrait) and the left edge (landscape/desktop). The page content fades on each
+  // lobby-view switch via ViewTransition (TopBar + nav persist).
+  // `bare` hides the global TopBar — used by full-screen pages that have their OWN header + Back
+  // button (Wallet, Support). `nav={false}` = the waiting room (you're seated — no app navigation).
   const view = useUiStore((s) => s.view);
   const t = useT();
   return (
-    <div className="app-shell relative z-10 mx-auto w-full max-w-[1180px]">
-      {/* Keyboard a11y: jump past the persistent TopBar nav straight to the page content (WCAG 2.4.1). */}
-      <a href="#main-content" className="skip-link">{t('a11y.skipToMain')}</a>
-      {!bare && <TopBar />}
-      {/* Inner Suspense so a lazy sub-view loads UNDER the persistent TopBar (only the main area shows the
-          loader) instead of the outer full-screen Splash flashing the whole shell away on first navigation. */}
-      <main id="main-content" tabIndex={-1} className="outline-none">
-        <Suspense fallback={<div className="flex items-center justify-center py-24"><span className="text-3xl opacity-60 animate-twinkle" aria-hidden>🎴</span></div>}>
-          <ViewTransition viewKey={view}>{children}</ViewTransition>
-        </Suspense>
-      </main>
-    </div>
+    <>
+      {nav && <AppNav />}
+      <div className={nav ? 'app-main' : undefined}>
+        <div className="app-shell relative z-10 mx-auto w-full max-w-[1180px]">
+          {/* Keyboard a11y: jump past the persistent TopBar nav straight to the page content (WCAG 2.4.1). */}
+          <a href="#main-content" className="skip-link">{t('a11y.skipToMain')}</a>
+          {!bare && <TopBar />}
+          {/* Inner Suspense so a lazy sub-view loads UNDER the persistent TopBar (only the main area shows the
+              loader) instead of the outer full-screen Splash flashing the whole shell away on first navigation. */}
+          <main id="main-content" tabIndex={-1} className="outline-none">
+            <Suspense fallback={<div className="flex items-center justify-center py-24"><span className="w-10 h-10 rounded-full border-2 border-gold/30 border-t-gold animate-spin" aria-hidden /></div>}>
+              <ViewTransition viewKey={view}>{children}</ViewTransition>
+            </Suspense>
+          </main>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -136,9 +141,8 @@ export function App() {
     (document.activeElement as HTMLElement | null)?.blur?.();
     window.scrollTo({ top: 0 });
   }, [screenKey]);
-  // Phones + tablets are LANDSCAPE-ONLY: held portrait, the whole app is blocked by the rotate
-  // prompt (no portrait UI at all). Desktops/laptops are unaffected — they render normally.
-  const forceRotate = useForceLandscapeApp(); // true on a phone/tablet held PORTRAIT → show RotateOverlay
+  // Phones play in BOTH orientations: every screen has a native portrait and landscape layout
+  // (no rotate prompt, no orientation lock, no CSS rotation).
 
   // Shareable room invite (/join/<CODE>): once the player is authenticated AND the
   // socket is connected and they're not already in a room, consume the captured code
@@ -261,7 +265,7 @@ export function App() {
   else if (status !== 'authed') body = <AuthView />;
   else if (spectating && room) body = <SpectateView room={room} />;
   else if (room && (room.status === 'inMatch' || room.status === 'finished')) body = <TableView room={room} />;
-  else if (room) body = <Shell><RoomView room={room} /></Shell>;
+  else if (room) body = <Shell nav={false}><RoomView room={room} /></Shell>;
   else if (lobbyView === 'wallet') body = <Shell bare><WalletView /></Shell>;
   else if (lobbyView === 'admin' && user?.role === 'admin') body = <Shell><AdminView /></Shell>;
   else if (lobbyView === 'leaderboard') body = <Shell><LeaderboardView /></Shell>;
@@ -278,9 +282,6 @@ export function App() {
     <ErrorBoundary>
       <Background />
       <Suspense fallback={<Splash text={t('app.loading')} />}>{body}</Suspense>
-      {/* Phones/tablets are landscape-only: held PORTRAIT, this overlay blocks the whole app with a
-          "rotate your phone" prompt; turned landscape, the app renders natively. Desktops render normally. */}
-      {forceRotate && <RotateOverlay />}
       {status === 'authed' && <InviteBanner />}
       {status === 'authed' && <ClubInviteBanner />}
       {/* First-run welcome takes precedence; the install prompt waits until it's done. */}

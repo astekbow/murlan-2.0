@@ -100,6 +100,36 @@ const STRINGS: Record<string, Entry> = {
   // Accessible names for the two icon rails flanking the lobby hero.
   'nav.railPrimary': { sq: 'Menuja kryesore', en: 'Primary menu' },
   'nav.railSecondary': { sq: 'Menuja dytësore', en: 'Secondary menu' },
+  // App navigation (rebrand 2026-11) — sentence case, short enough for a phone tab bar.
+  'navx.lobby': { sq: 'Lobi', en: 'Lobby' },
+  'auth.tagline2': { sq: 'Loja shqiptare e letrave — online, me miq ose me bast.', en: 'The Albanian card game — online, with friends or for stakes.' },
+  // Lobby home (rebrand 2026-11): the Play-now card + tiles.
+  'lobbyx.playTitle': { sq: 'Luaj tani', en: 'Play now' },
+  'lobbyx.playSub': { sq: 'Zgjidh lojën dhe bastin — të gjejmë kundërshtar', en: 'Pick a game and a stake — we’ll find you an opponent' },
+  'lobbyx.type3': { sq: '3 lojtarë', en: '3 players' },
+  'lobbyx.stake': { sq: 'Basti', en: 'Stake' },
+  'lobbyx.other': { sq: 'Tjetër', en: 'Other' },
+  'lobbyx.play': { sq: 'Luaj', en: 'Play' },
+  'lobbyx.depositToPlay': { sq: 'Depozito për të luajtur', en: 'Deposit to play' },
+  'lobbyx.practice': { sq: 'Praktikë', en: 'Practice' },
+  'lobbyx.practiceTitle': { sq: 'Praktikë me robotë', en: 'Practice vs bots' },
+  'lobbyx.practiceBlurb': { sq: 'Falas dhe pa para — nis menjëherë. Ideale për të mësuar ose për t’u ngrohur.', en: 'Free and no money — starts instantly. Great for learning or warming up.' },
+  'lobbyx.practiceStart': { sq: 'Nis lojën provë', en: 'Start practice game' },
+  'lobbyx.tournaments': { sq: 'Turne', en: 'Tournaments' },
+  'lobbyx.tournamentsMeta': { sq: 'Eliminim direkt · çmime në $', en: 'Knockout · cash prizes' },
+  'lobbyx.ranked': { sq: 'Ranked', en: 'Ranked' },
+  'lobbyx.rankedMeta': { sq: 'Ngjitu nga Bronzi te Mjeshtri', en: 'Climb from Bronze to Master' },
+  'lobbyx.rooms': { sq: 'Dhomat e hapura', en: 'Open rooms' },
+  'lobbyx.roomsMeta': { sq: '{n} dhoma presin', en: '{n} tables waiting' },
+  'lobbyx.roomsNone': { sq: 'Hap dhomën tënde', en: 'Open your own table' },
+  'topbar.levelN': { sq: 'Niveli {n}', en: 'Level {n}' },
+  'navx.challenges': { sq: 'Sfidat', en: 'Challenges' },
+  'navx.leaderboard': { sq: 'Renditja', en: 'Ranking' },
+  'navx.friends': { sq: 'Miqtë', en: 'Friends' },
+  'navx.clubs': { sq: 'Klubet', en: 'Clubs' },
+  'navx.shop': { sq: 'Dyqani', en: 'Shop' },
+  'navx.vip': { sq: 'Klubi VIP', en: 'VIP club' },
+  'navx.rules': { sq: 'Si luhet', en: 'How to play' },
 
   // Lobby hero / sections
   'lobby.quickName': { sq: 'Lojë e Shpejtë', en: 'Quick Match' },
@@ -477,6 +507,7 @@ const STRINGS: Record<string, Entry> = {
   'table.leaveWarn': { sq: 'Po u largove tani, e humb ndeshjen.', en: 'If you leave now, you lose the match.' },
   'table.stay': { sq: 'Qëndro', en: 'Stay' },
   'table.leave': { sq: 'Largohu', en: 'Leave' },
+  'table.youShort': { sq: 'Ti', en: 'You' },
   'table.seatN': { sq: 'Vendi {n}', en: 'Seat {n}' },
 
   // Auto-merged from the i18n migration workflow
@@ -1333,9 +1364,21 @@ export type TVars = Record<string, string | number>;
  * Pure lookup: the string for `key` in `lang`, falling back to sq, then the key.
  * When `vars` is given, `{name}` placeholders are substituted (e.g. "+{n} XP").
  */
+// Midnight Mint (rebrand 2026-11) speaks in SENTENCE case ("Krijo dhomë", not "KRIJO DHOMË"). The
+// catalog grew up shouting, so ALL-CAPS entries are normalised here once, centrally, instead of
+// rewriting hundreds of strings. Acronyms stay upper; small eyebrow labels that should LOOK upper
+// keep a CSS `uppercase` class (presentation stays in CSS).
+const KEEP_UPPER = new Set(['VIP', 'XP', 'MMR', 'KYC', 'USD', 'USDT', 'TRX', 'TRC20', 'BTC', 'ETH', 'PIN', 'ID', 'OK', 'SQ', 'EN', 'PWA', 'APK', 'QR', 'FAQ', 'AI', 'MP']);
+export function sentenceCase(raw: string): string {
+  const letters = raw.replace(/[^\p{L}]/gu, '');
+  if (letters.length < 3 || letters !== letters.toUpperCase() || letters === letters.toLowerCase()) return raw;
+  const lowered = raw.replace(/[\p{L}\d]+/gu, (w) => (KEEP_UPPER.has(w) ? w : w.toLowerCase()));
+  return lowered.replace(/\p{L}/u, (c) => c.toUpperCase());
+}
+
 export function translate(key: string, lang: Lang, vars?: TVars): string {
   const e = STRINGS[key];
-  const raw = e ? (e[lang] || e.sq || key) : key;
+  const raw = sentenceCase(e ? (e[lang] || e.sq || key) : key);
   if (!vars) return raw;
   return raw.replace(/\{(\w+)\}/g, (_m, name: string) => (name in vars ? String(vars[name]) : `{${name}}`));
 }

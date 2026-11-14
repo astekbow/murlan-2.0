@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
-// Premium "card-club" theme extracted from murlan-mockup-v2.html: deep
-// maroon→black, warm red felt, ornate glowing gold. Mirrored as CSS variables in
+// "Midnight Mint" brand (rebrand 2026-11): midnight navy, one mint action accent,
+// amber for money, sea-teal felt. Mirrored as CSS variables in
 // index.css (:root) so both Tailwind utilities and the component classes agree.
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -9,29 +9,34 @@ export default {
       // "Obsidian & Gold" — mirrors the CSS vars in index.css :root (kept as hex so
       // Tailwind's /opacity modifiers keep working). The game-table felt stays warm.
       colors: {
-        bg0: '#0b0a0e',
-        bg1: '#131119',
-        maroon: '#3a0f16',
-        felt: { DEFAULT: '#7c1620', hi: '#94202b', edge: '#330a0e' },
-        gold: { DEFAULT: '#e8c879', hi: '#fff3cf', deep: '#a9842f', line: '#c9a14d' },
-        bulb: '#ffe6a3',
-        royal: '#3f6fd6', // player ring: idle
-        emerald2: '#34c46a', // player ring: active / last-played
-        cream: '#fbfaf5',
-        ink: '#14110c',
-        suit: '#c21f1f', // suit red on cards
-        txt: { DEFAULT: '#d9d2c6', hi: '#f6f1e8', lo: '#b8b0c8' },
-        muted: '#b8b0c8', // = --muted in index.css; ≈5.6:1 on the dark base (WCAG AA). Was #9c96a6 (≈4.0:1, failed).
+        // "Midnight Mint" (rebrand 2026-11) — mirrors the CSS vars in index.css :root (hex so the
+        // /opacity modifiers keep working). Legacy NAMES kept: `gold` is now the MINT accent.
+        bg0: '#08101C',
+        bg1: '#0D1726',
+        maroon: '#123B3A',
+        felt: { DEFAULT: '#145A66', hi: '#1F7C86', edge: '#0C3A45' },
+        gold: { DEFAULT: '#34D399', hi: '#6EE7B7', deep: '#1FA97A', line: '#2BB886' },
+        amber: { DEFAULT: '#FBBF5A', hi: '#FCD38D', ink: '#2A1A02' },
+        navy: { DEFAULT: '#14223A', hi: '#1B2D4A', deep: '#0F1A2C' },
+        bulb: '#FBBF5A',
+        royal: '#7C9CF5', // player ring: idle
+        emerald2: '#34D399', // player ring: active / last-played
+        cream: '#FFFFFF',
+        ink: '#0F172A',
+        suit: '#D92D3A', // suit red on cards
+        txt: { DEFAULT: '#D3DCEA', hi: '#EEF3FB', lo: '#A9B6CB' },
+        muted: '#A9B6CB', // ≥ 4.5:1 on the midnight base (WCAG AA)
         // Semantic (chrome).
-        success: '#34d39a',
-        danger: '#ff5d5d',
-        info: '#5b8cff',
-        live: '#ff7a4d',
+        success: '#34D399',
+        danger: '#F87171',
+        info: '#7C9CF5',
+        live: '#FB923C',
       },
       fontFamily: {
-        display: ['Oswald', 'system-ui', 'sans-serif'], // game titles / labels
-        serif: ['Cinzel', 'Georgia', 'serif'], // crests / headers
-        sans: ['Outfit', 'system-ui', 'Segoe UI', 'sans-serif'], // body
+        // ONE family for the whole brand: Plus Jakarta Sans (800 titles · 700 labels · 500 body).
+        display: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        serif: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        sans: ['Plus Jakarta Sans', 'system-ui', 'Segoe UI', 'sans-serif'],
       },
       borderRadius: {
         table: '134px / 90px',

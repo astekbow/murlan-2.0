@@ -1,12 +1,23 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { translate, plural } from './i18n.ts';
+import { translate, plural, sentenceCase } from './i18n.ts';
 
-test('translate returns the requested language', () => {
-  assert.equal(translate('auth.login', 'sq'), 'HYR');
-  assert.equal(translate('auth.login', 'en'), 'LOG IN');
-  assert.equal(translate('nav.clubs', 'en'), 'CLUBS');
-  assert.equal(translate('nav.clubs', 'sq'), 'KLUBET');
+test('translate returns the requested language (in the brand sentence case)', () => {
+  assert.equal(translate('auth.login', 'sq'), 'Hyr');
+  assert.equal(translate('auth.login', 'en'), 'Log in');
+  assert.equal(translate('nav.clubs', 'en'), 'Clubs');
+  assert.equal(translate('nav.clubs', 'sq'), 'Klubet');
+});
+
+test('sentenceCase: ALL-CAPS → sentence case, acronyms and mixed-case text untouched', () => {
+  assert.equal(sentenceCase('KRIJO DHOMË'), 'Krijo dhomë');
+  assert.equal(sentenceCase('SFIDAT & SHPËRBLIME'), 'Sfidat & shpërblime');
+  assert.equal(sentenceCase('XP PËR TË SHPENZUAR'), 'XP për të shpenzuar');
+  assert.equal(sentenceCase('KLUBI VIP'), 'Klubi VIP');
+  assert.equal(sentenceCase('VIP'), 'VIP');
+  assert.equal(sentenceCase('Luaj tani'), 'Luaj tani');
+  assert.equal(sentenceCase('$10.00'), '$10.00');
+  assert.equal(sentenceCase('← LARGOHU'), '← Largohu');
 });
 
 test('translate falls back to the key for unknown ids (never blank)', () => {

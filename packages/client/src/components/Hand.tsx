@@ -12,12 +12,12 @@ interface HandProps {
   /** When set (e.g. during the card switch), cards NOT in this set are dimmed. */
   eligibleIds?: ReadonlySet<string> | null;
   /**
-   * Landscape canvas mode: size the whole fan to ALWAYS fit the measured zone
-   * width with NO horizontal scroll, keeping the cards as big as possible. When
-   * unset, the original (portrait/desktop) fitting behaviour is used unchanged.
+   * How the table is laid out. PORTRAIT sizes cards from the available WIDTH; LANDSCAPE (and
+   * desktop) sizes them from the viewport HEIGHT so the felt keeps its room. Either way the hand
+   * never squeezes the cards below a readable overlap — it wraps to TWO rows instead.
    */
-  fit?: boolean;
-  /** True on MY turn → a pulsing gold aura around the fan so it's unmistakable it's my move. */
+  layout?: 'portrait' | 'landscape';
+  /** True on MY turn → a pulsing glow behind the hand so it's unmistakable it's my move. */
   myTurn?: boolean;
 }
 
@@ -27,40 +27,83 @@ const sortIds = (cards: Card[]): string[] =>
 
 /** A finger always jitters a few px on a tap: below this it's a tap (select), past it a drag (reorder). */
 const DRAG_SLOP_PX = 10;
+/** The narrowest overlap that still shows a card's whole corner index (incl. "10"). Below it the
+ *  hand switches to two rows rather than squeezing the cards together. */
+const MIN_STEP_PX = 30;
 
-/** Horizontal slot position. On the OUTER card wrapper only (compositor-friendly transform), so the
- *  inner element stays free for the selected-lift + the just-received pop animation. */
-const slotTransform = (x: number) => `translate3d(${x}px,0,0)`;
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/** Slot transform. On the OUTER card wrapper only (compositor-friendly), so the inner element
+ *  stays free for the selected-lift + the just-received pop animation. */
+const slotTransform = (x: number, y: number) => `translate3d(${x}px,${y}px,0)`;
 
 interface DragState {
   id: string;
   pointerId: number;
   startX: number;
-  /** Pointer offset from the card's left edge at grab time — the card stays under the finger exactly where it was picked up. */
-  grab: number;
+  startY: number;
+  /** Pointer offset from the card's top-left at grab time — the card stays under the finger exactly where it was picked up. */
+  grabX: number;
+  grabY: number;
   stageLeft: number;
-  /** Current card left (px, stage coords). */
+  stageTop: number;
+  /** Current card top-left (px, stage coords). */
   x: number;
+  y: number;
   moved: boolean;
 }
 
+/** Pure layout of the fan: card size, overlap step, one or two rows, and each slot's position. */
+function computeLayout(n: number, availW: number, vh: number, layout: 'portrait' | 'landscape') {
+  const w = availW || 340;
+  const landscape = layout === 'landscape';
+  const cardW = Math.round(landscape ? clamp(vh * 0.17, 56, 92) : clamp(w / 5.4, 58, 76));
+  const cardH = Math.round(cardW * 1.42);
+  const maxStep = cardW * (landscape ? 0.7 : 0.62);
+  const oneRowStep = n > 1 ? (w - cardW) / (n - 1) : 0;
+  const rows = n > 1 && oneRowStep < MIN_STEP_PX ? 2 : 1;
+  const perRow0 = rows === 2 ? Math.ceil(n / 2) : n;
+  const perRow1 = n - perRow0;
+  const rawStep = rows === 2 ? (w - cardW) / Math.max(1, perRow0 - 1) : oneRowStep;
+  const step = n > 1 ? Math.max(0, Math.min(maxStep, rawStep)) : 0;
+  const lift = landscape ? 18 : 24;
+  const rowOffset = Math.round(cardH * 0.5);
+  const rowWidth = (len: number) => (len > 0 ? (len - 1) * step + cardW : 0);
+  const stageW = rowWidth(perRow0);
+  const stageH = lift + cardH + (rows - 1) * rowOffset;
+  const rowOff = (r: 0 | 1) => (stageW - rowWidth(r === 1 ? perRow1 : perRow0)) / 2;
+  const slot = (i: number) => {
+    const r: 0 | 1 = rows === 2 && i >= perRow0 ? 1 : 0;
+    const c = r === 1 ? i - perRow0 : i;
+    return { x: rowOff(r) + c * step, y: lift + r * rowOffset, r };
+  };
+  /** Where a card dropped at (x, y) belongs, as an index into the hand order. */
+  const targetIndex = (x: number, y: number) => {
+    if (n <= 1 || step <= 0) return 0;
+    const r: 0 | 1 = rows === 2 && y > lift + rowOffset / 2 ? 1 : 0;
+    const len = r === 1 ? perRow1 : perRow0;
+    const col = clamp(Math.round((x - rowOff(r)) / step), 0, Math.max(0, r === 1 ? len : len - 1));
+    return clamp(r === 1 ? perRow0 + col : col, 0, n - 1);
+  };
+  return { cardW, cardH, step, rows, lift, stageW, stageH, slot, targetIndex };
+}
+
 /**
- * The local player's hand: shown as a fan, auto-sorted weakest→strongest by
- * default, and freely RE-ORDERABLE by drag (pointer = mouse + touch). A short
- * press toggles selection; a drag moves the card. The fan width is fitted to the
- * available space so EVERY card is visible (it never overflows off-screen).
- * Display/order only — moves are sent to the server by card id.
+ * The local player's hand: a fan (one or two rows), auto-sorted weakest→strongest by default and
+ * freely RE-ORDERABLE by drag (pointer = mouse + touch). A short press toggles selection; a drag
+ * moves the card. Sized for the orientation and wrapped to two rows before cards would get too
+ * tight to read — the cards never shrink into an unreadable sliver. Display/order only — moves are
+ * sent to the server by card id.
  *
  * Drag mechanics (smoothness): the pointer is captured on the STAGE, which never moves in the DOM —
- * capturing on the card broke the drag the moment React re-ordered that card's node (moving a node
- * drops its pointer capture, so dragging RIGHT used to stall after one slot). The dragged card follows
- * the finger via a direct, rAF-batched transform write (no React render per pointermove); React only
- * re-renders when the card crosses into a new slot, and the other cards GLIDE to their new places.
+ * capturing on the card broke the drag the moment React re-ordered that card's node. The dragged
+ * card follows the finger via a direct, rAF-batched transform write (no React render per
+ * pointermove); React only re-renders when the card crosses into a new slot, and the other cards
+ * GLIDE to their new places.
  */
-// Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips
-// re-rendering on unrelated table updates (an opponent's move, a timer tick) — it
-// only re-renders when the cards/selection/eligibility actually change.
-export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, fit, myTurn }: HandProps) {
+// Memoized: with a stable onToggle (TableView useCallbacks it) the hand skips re-rendering on
+// unrelated table updates (an opponent's move, a timer tick).
+export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds, layout = 'portrait', myTurn }: HandProps) {
   const byId = new Map(cards.map((c) => [cardKey(c), c] as const));
   const selectedSet = new Set(selected);
 
@@ -100,50 +143,26 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   const ids = order.filter((id) => byId.has(id));
   const n = ids.length;
 
-  // Fit the fan to the available width so all cards stay on-screen.
+  // Measure the available width (before paint → no "small then grow" flash) and track the viewport
+  // height (landscape sizes cards from it).
   const scrollRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [availW, setAvailW] = useState(0);
-  // useLayoutEffect (not useEffect): measure + set the width BEFORE the browser paints,
-  // so the cards render at their final size immediately — no "start small then grow" flash.
+  const [vh, setVh] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 800));
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const measure = () => setAvailW(el.clientWidth);
+    const measure = () => { setAvailW(el.clientWidth); setVh(window.innerHeight); };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
-  const w = availW || 340;
-  let CARD_W: number;
-  let step: number;
-  if (fit) {
-    // LANDSCAPE CANVAS: cards are THINNER + TALLER than a normal card (ratio set below) —
-    // a narrow card overlaps less, so the visible left sliver is wider and the FULL rank
-    // (incl. "10") shows; the extra height keeps them looking big. Constant size (no
-    // grow/shrink with count); the step (overlap) adapts so the fan never scrolls.
-    CARD_W = Math.max(64, Math.min(w < 520 ? 86 : 102, Math.floor(w * 0.86))); // floor so cards (+ their tap area) never shrink unbounded on a narrow canvas
-    const maxStep = Math.round(CARD_W * 0.86);
-    step = n > 1 ? Math.min(maxStep, (w - CARD_W) / (n - 1)) : 0;
-  } else {
-    // PORTRAIT / DESKTOP — original behaviour, unchanged.
-    // BIG, readable cards. `step` overlaps them to fit the width (no scroll); maxStep gives
-    // a little extra breathing room between cards on screens that have room, and min-step
-    // keeps a few px of gap even on a full hand.
-    CARD_W = w < 420 ? 98 : 112;
-    const maxStep = Math.round(CARD_W * 0.72); // more spread on screens with room
-    // min step ≈ enough that each card's rank+suit corner clears the next card (the suit was
-    // getting half-covered when too tight). Cards stay big; the fan scrolls only if a full
-    // hand truly can't fit at this spacing.
-    step = n > 1 ? Math.max(27, Math.min(maxStep, (w - CARD_W - 8) / (n - 1))) : 0;
-  }
-  // Landscape cards are taller+thinner (1.82) so a narrow card still reads as big; portrait keeps 1.4.
-  const CARD_H = Math.round(CARD_W * (fit ? 1.82 : 1.4));
-  const stageW = (n - 1) * step + CARD_W;
+  const L = computeLayout(n, availW, vh, layout);
   // Stable style object → the memoized CardView skips re-rendering while cards slide around.
-  const cardStyle = useMemo<CSSProperties>(() => ({ width: CARD_W, height: CARD_H, pointerEvents: 'none' }), [CARD_W, CARD_H]);
+  const cardStyle = useMemo<CSSProperties>(() => ({ width: L.cardW, height: L.cardH, pointerEvents: 'none' }), [L.cardW, L.cardH]);
 
   // ---------- drag-to-reorder ----------
   const cardEls = useRef(new Map<string, HTMLDivElement>());
@@ -151,8 +170,8 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
   const [dragId, setDragId] = useState<string | null>(null);
   const rafRef = useRef(0);
   // Latest layout + callback for the pointer handlers (a drag outlives several renders).
-  const layout = useRef({ ids, step, n, CARD_W });
-  layout.current = { ids, step, n, CARD_W };
+  const layoutRef = useRef({ ids, L });
+  layoutRef.current = { ids, L };
   const onToggleRef = useRef(onToggle);
   onToggleRef.current = onToggle;
 
@@ -160,11 +179,10 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     rafRef.current = 0;
     const d = dragRef.current;
     if (!d || !d.moved) return;
-    cardEls.current.get(d.id)?.style.setProperty('transform', slotTransform(d.x));
-    const { ids: cur, step: st, n: count } = layout.current;
-    if (st <= 0) return;
-    const target = Math.max(0, Math.min(count - 1, Math.round(d.x / st)));
+    cardEls.current.get(d.id)?.style.setProperty('transform', slotTransform(d.x, d.y));
+    const { ids: cur, L: lay } = layoutRef.current;
     const from = cur.indexOf(d.id);
+    const target = lay.targetIndex(d.x, d.y);
     if (from === -1 || from === target) return;
     const next = cur.slice();
     next.splice(from, 1);
@@ -177,9 +195,14 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     if (dragRef.current) return; // a second finger mid-drag is ignored
     const stage = stageRef.current;
     if (!stage) return;
-    const stageLeft = stage.getBoundingClientRect().left;
-    const cardLeft = Math.max(0, layout.current.ids.indexOf(id)) * layout.current.step;
-    dragRef.current = { id, pointerId: e.pointerId, startX: e.clientX, grab: e.clientX - stageLeft - cardLeft, stageLeft, x: cardLeft, moved: false };
+    const rect = stage.getBoundingClientRect();
+    const { ids: cur, L: lay } = layoutRef.current;
+    const s = lay.slot(Math.max(0, cur.indexOf(id)));
+    dragRef.current = {
+      id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
+      grabX: e.clientX - rect.left - s.x, grabY: e.clientY - rect.top - s.y,
+      stageLeft: rect.left, stageTop: rect.top, x: s.x, y: s.y, moved: false,
+    };
     try { stage.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
   };
 
@@ -187,13 +210,13 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     const d = dragRef.current;
     if (!d || e.pointerId !== d.pointerId) return;
     if (!d.moved) {
-      if (Math.abs(e.clientX - d.startX) <= DRAG_SLOP_PX) return; // still a tap
+      if (Math.abs(e.clientX - d.startX) <= DRAG_SLOP_PX && Math.abs(e.clientY - d.startY) <= DRAG_SLOP_PX) return; // still a tap
       d.moved = true;
       setDragId(d.id);
     }
-    const { step: st, n: count, CARD_W: cw } = layout.current;
-    const maxX = Math.max(0, (count - 1) * st);
-    d.x = Math.max(-cw * 0.25, Math.min(maxX + cw * 0.25, e.clientX - d.stageLeft - d.grab));
+    const { L: lay } = layoutRef.current;
+    d.x = clamp(e.clientX - d.stageLeft - d.grabX, -lay.cardW * 0.25, lay.stageW - lay.cardW * 0.75);
+    d.y = clamp(e.clientY - d.stageTop - d.grabY, 0, lay.stageH - lay.cardH);
     if (!rafRef.current) rafRef.current = requestAnimationFrame(applyDrag);
   };
 
@@ -215,36 +238,22 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
     const id = lastDragged.current;
     lastDragged.current = null;
     if (!id) return;
-    const i = layout.current.ids.indexOf(id);
-    if (i >= 0) cardEls.current.get(id)?.style.setProperty('transform', slotTransform(i * layout.current.step));
+    const { ids: cur, L: lay } = layoutRef.current;
+    const i = cur.indexOf(id);
+    if (i >= 0) { const s = lay.slot(i); cardEls.current.get(id)?.style.setProperty('transform', slotTransform(s.x, s.y)); }
   }, [dragId]);
 
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
-  // Empty hand → render nothing (no "you have no cards" placeholder); keep the row's
-  // height reserved so the layout doesn't jump when the deal arrives. In fit (canvas)
-  // mode the zone already reserves height, so just measure-mount an empty ref.
-  if (n === 0) {
-    return fit
-      ? <div ref={scrollRef} className="w-full flex-1 min-h-0" aria-hidden />
-      : <div className="min-h-[124px]" aria-hidden />;
-  }
+  // Empty hand → render nothing, but keep measuring so the first deal lays out at its final size.
+  if (n === 0) return <div ref={scrollRef} className="hand-wrap" aria-hidden />;
 
   return (
-    <div
-      ref={scrollRef}
-      className={fit
-        ? 'no-scrollbar w-full flex-1 min-h-0 flex items-end justify-center'
-        : 'no-scrollbar overflow-x-auto overflow-y-visible max-w-full px-2'}
-      // fit mode sizes the fan to fit the zone width (no h-overflow), so plain `visible`
-      // lets the tall cards peek UP without the clip+visible combo that CSS forbids — that
-      // combo was clipping/flickering the top of the cards.
-      style={fit ? { overflow: 'visible' } : undefined}
-    >
+    <div ref={scrollRef} className="hand-wrap">
       <div
         ref={stageRef}
-        className={`hand-stage${myTurn ? ' my-turn' : ''}${dragId ? ' dragging' : ''}`}
-        style={{ width: stageW, height: CARD_H + 34 }}
+        className={`hand-stage${myTurn ? ' my-turn' : ''}${dragId ? ' dragging' : ''}${L.rows === 2 ? ' two-rows' : ''}`}
+        style={{ width: L.stageW, height: L.stageH, '--card-lift': `${L.lift}px` } as CSSProperties}
         onPointerMove={onStageMove}
         onPointerUp={(e) => endDrag(e, true)}
         onPointerCancel={(e) => endDrag(e, false)}
@@ -255,11 +264,12 @@ export const Hand = memo(function Hand({ cards, selected, onToggle, eligibleIds,
           if (!card) return null;
           const isSel = selectedSet.has(id);
           const dragging = dragId === id;
-          // Straight row. The dragged card rides on top (z 50) at the finger's position; every
-          // other card sits in its slot with natural stacking (z = i) so a SELECTED card's
-          // raised top edge (rank + gold ring) peeks above the row without covering its neighbours.
-          const x = dragging && dragRef.current ? dragRef.current.x : i * step;
-          const style: CSSProperties = { transform: slotTransform(x), zIndex: dragging ? 50 : i };
+          const s = L.slot(i);
+          // The dragged card rides on top at the finger's position; every other card sits in its
+          // slot with natural stacking (front row above the back row; left → right within a row),
+          // so a SELECTED card's raised top edge peeks above its neighbours without covering them.
+          const pos = dragging && dragRef.current ? { x: dragRef.current.x, y: dragRef.current.y } : s;
+          const style: CSSProperties = { transform: slotTransform(pos.x, pos.y), zIndex: dragging ? 500 : s.r * 100 + i };
           if (eligibleIds && !eligibleIds.has(id)) style.opacity = 0.4;
           const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(id); }

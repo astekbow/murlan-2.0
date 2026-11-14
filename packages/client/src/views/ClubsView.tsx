@@ -70,7 +70,7 @@ export function ClubsView() {
       <div className="pg-ls">
         {dialog}
         <div className="pg-ls-top">
-          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">{t('common.backToLobby')}</button>
           <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">
             {mine ? `[${mine.tag}] ${mine.name}` : t('clubs.clubs')}
           </h1>

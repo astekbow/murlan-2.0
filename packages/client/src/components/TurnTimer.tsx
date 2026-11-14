@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Icon } from './ui/Icon.tsx';
 
-/** Counts down to the current turn's deadline (epoch ms from the server). */
+/** Counts down to the current turn's deadline (epoch ms from the server). Amber chip (time is a
+ *  "watch this" signal, not an action); the last 5 seconds turn it red — with the number, so the
+ *  urgency is never colour-only. */
 export function TurnTimer({ deadline }: { deadline: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -15,11 +18,12 @@ export function TurnTimer({ deadline }: { deadline: number | null }) {
   const low = secs <= 5;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-display font-semibold tabular-nums border ${
-        low ? 'text-red-200 border-suit/60 bg-suit/15' : 'text-gold-hi border-gold/40 bg-black/30'
+      className={`inline-flex items-center gap-1.5 rounded-full min-h-[34px] px-3 text-[13px] font-extrabold tabular-nums ${
+        low ? 'text-white bg-[#C93838]' : 'text-amber-ink bg-amber'
       }`}
     >
-      ⏱ {secs}s
+      <Icon name="clock" size={15} stroke={2.4} />
+      {secs}s
     </span>
   );
 }

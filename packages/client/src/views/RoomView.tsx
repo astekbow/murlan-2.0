@@ -1,3 +1,4 @@
+import { Icon } from '../components/ui/Icon.tsx';
 import type { RoomStateDTO } from '@murlan/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -304,9 +305,9 @@ export function RoomView({ room }: { room: RoomStateDTO }) {
     <button
       type="button"
       onClick={() => { sound.play('button'); setShowInvite(true); }}
-      className="btn btn-gold btn-block flex items-center justify-center gap-2"
+      className="btn btn-ghost btn-block flex items-center justify-center gap-2"
     >
-      <span aria-hidden="true">👥</span> {t('room.inviteFriends')}
+      <Icon name="users" size={18} /> {t('room.inviteFriends')}
       {!friendsLoading && friends.length > 0 && <span className="text-xs opacity-80">({friends.length})</span>}
     </button>
   );

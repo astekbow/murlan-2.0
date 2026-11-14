@@ -417,7 +417,7 @@ export function FriendsView() {
         {sendMoneyModal}
         {dmModal}
         <div className="pg-ls-top">
-          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">← {t('common.backToLobby')}</button>
+          <button onClick={() => setView('lobby')} className="btn btn-ghost btn-sm">{t('common.backToLobby')}</button>
           <h1 className="pg-ls-title gold-text font-display font-bold tracking-wide truncate">{t('friends.title')}</h1>
           <span className="text-sm font-display font-semibold text-gold-hi shrink-0">{dollars(balanceCents)}</span>
         </div>

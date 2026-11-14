@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react';
 import { useAuthStore } from '../store/authStore.ts';
 import { authApi } from '../lib/api.ts';
 import { useLandscapePage } from '../lib/useLandscapePage.ts';
+import { BrandMark } from '../components/ui/Logo.tsx';
 import { isIos, isStandalone } from '../lib/pwa.ts';
 import { Modal } from '../components/ui/Modal.tsx';
 import { InstallGuide } from '../components/ui/InstallGuide.tsx';
@@ -75,16 +76,15 @@ export function AuthView() {
         className={`panel-solid w-full animate-rise ${landscape ? 'max-w-2xl p-5 grid grid-cols-2 gap-6 items-center' : 'max-w-sm p-7 space-y-5'}`}
       >
         <div className="text-center">
-          {/* Brand logo on top — the self-contained app icon (its own dark bg shows on the panel). */}
-          <img
-            src="/icon-192.png"
-            alt="Crypto-Murlan"
-            className={`mx-auto rounded-2xl shadow-lg ring-1 ring-gold/25 mb-3 ${landscape ? 'w-20 h-20' : 'w-16 h-16'}`}
-          />
-          <div className="font-serif text-xs tracking-[0.4em] text-muted mb-1">CARD CLUB</div>
-          <h1 className={`gold-text font-display font-bold tracking-wide leading-none ${landscape ? 'text-3xl' : 'text-4xl'}`}>CRYPTO-MURLAN</h1>
+          {/* Brand: the mint app tile + the "Murlan" wordmark with its CRYPTO pill (rebrand 2026-11). */}
+          <div className="flex justify-center mb-2">
+            <BrandMark size={landscape ? 72 : 64} />
+          </div>
+          <h1 className={`font-display font-extrabold tracking-[-0.04em] leading-none text-txt-hi ${landscape ? 'text-4xl' : 'text-[40px]'}`}>Murlan</h1>
+          <div className="mt-2 flex justify-center"><span className="brand-pill">CRYPTO</span></div>
+          <p className="mt-2 text-sm text-muted">{t('auth.tagline2')}</p>
           {/* Language pill — a pre-login switch (the app defaults to Albanian). */}
-          <div className="mt-3 inline-flex rounded-full border border-gold/25 overflow-hidden text-xs" role="radiogroup" aria-label={t('settings.language')}>
+          <div className="mt-3 inline-flex rounded-full bg-white/5 overflow-hidden text-xs font-bold" role="radiogroup" aria-label={t('settings.language')}>
             {(['sq', 'en'] as Lang[]).map((l) => (
               <button
                 key={l}
@@ -92,7 +92,7 @@ export function AuthView() {
                 role="radio"
                 aria-checked={lang === l}
                 onClick={() => setLang(l)}
-                className={`px-3 py-1 ${lang === l ? 'bg-gold/20 text-gold-hi' : 'text-muted'}`}
+                className={`px-3.5 py-1.5 rounded-full ${lang === l ? 'bg-txt-hi text-bg0' : 'text-muted'}`}
               >
                 {l === 'sq' ? 'SQ' : 'EN'}
               </button>

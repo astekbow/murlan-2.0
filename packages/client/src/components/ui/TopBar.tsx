@@ -22,6 +22,8 @@ import { useSessionMinutes, formatSessionDuration } from '../../store/sessionSto
 import { profileApi, type Profile } from '../../lib/api.ts';
 import { sound } from '../../lib/sound.ts';
 import { useT } from '../../lib/i18n.ts';
+import { Icon, type IconName } from './Icon.tsx';
+import { useRulesStore } from '../../store/rulesStore.ts';
 
 function initials(name: string): string {
   const parts = name.trim().split(/[\s_]+/).filter(Boolean);
@@ -72,7 +74,7 @@ export function TopBar() {
 
   return (
     <>
-    <header className="topbar flex items-center justify-between gap-3 mb-5 animate-rise">
+    <header className="topbar flex items-center justify-between gap-3 mb-4 animate-rise">
       {/* Profile */}
       <button
         type="button"
@@ -90,9 +92,10 @@ export function TopBar() {
           )}
           <span className="lvl">{profile ? profile.level : 1}</span>
         </div>
-        <div className="hidden sm:block">
-          <div className="font-display font-semibold text-lg tracking-wide leading-none">{user.username}</div>
-          <div className="xpbar">
+        <div className="min-w-0 hidden min-[460px]:block">
+          <div className="font-display font-bold text-base leading-tight truncate max-w-[34vw] sm:max-w-[220px]">{user.username}</div>
+          <div className="text-[11px] text-muted leading-tight">{t('topbar.levelN', { n: profile ? profile.level : 1 })}</div>
+          <div className="xpbar hidden sm:block">
             <i style={{ width: profile ? `${profile.levelInfo.pct * 100}%` : '12%' }} />
           </div>
         </div>
@@ -113,14 +116,14 @@ export function TopBar() {
             {t('topbar.connecting')}
           </span>
         )}
-        <button type="button" className="chip max-w-[150px] overflow-hidden" onClick={() => { sound.play('button'); setView('wallet'); }} title={t('topbar.openWallet')}>
+        <button type="button" className="chip max-w-[170px] overflow-hidden shrink-0" onClick={() => { sound.play('button'); setView('wallet'); }} title={t('topbar.openWallet')}>
           <span className="coin shrink-0" />
           <CountUp valueCents={user.balanceCents} className="truncate" />
-          <span className="plus shrink-0">+</span>
+          <span className="plus shrink-0"><Icon name="plus" size={16} stroke={2.6} /></span>
         </button>
         <div className="relative shrink-0">
           <button type="button" className="iconbtn" onClick={() => setNotifOpen((o) => !o)} title={t('topbar.notifications')} aria-label={t('topbar.notifications')} aria-haspopup="true" aria-expanded={notifOpen}>
-            <span aria-hidden="true">🔔</span>
+            <Icon name="bell" />
           </button>
           {unread > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-suit text-white text-[11px] font-bold grid place-items-center pointer-events-none">
@@ -139,42 +142,31 @@ export function TopBar() {
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
-            <span aria-hidden="true">⚙</span>
+            <Icon name="more" size={22} stroke={3} />
           </button>
           {menuOpen && createPortal(
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div ref={menuRef} role="menu" aria-label={t('topbar.settings')} className="fixed top-16 w-44 z-[91] panel-solid p-1.5 animate-pop" style={{ right: 'max(0.75rem, env(safe-area-inset-right))' }}>
-                {user.role === 'admin' && (
+              <div ref={menuRef} role="menu" aria-label={t('topbar.settings')} className="fixed top-16 w-56 z-[91] panel-solid p-1.5 animate-pop" style={{ right: 'max(0.75rem, env(safe-area-inset-right))' }}>
+                {([
+                  ...(user.role === 'admin' ? [{ key: 'admin', icon: 'admin', label: t('topbar.adminPanel'), tone: 'text-gold-hi', run: () => setView('admin') }] : []),
+                  { key: 'vip', icon: 'crown', label: t('navx.vip'), tone: 'text-txt', run: () => setView('vip') },
+                  { key: 'tournaments', icon: 'trophy', label: t('nav.tournaments'), tone: 'text-txt', run: () => setView('tournaments') },
+                  { key: 'rules', icon: 'book', label: t('navx.rules'), tone: 'text-txt', run: () => useRulesStore.getState().setOpen(true) },
+                  { key: 'settings', icon: 'settings', label: t('topbar.settings'), tone: 'text-txt', run: () => setSettingsOpen(true) },
+                  { key: 'support', icon: 'help', label: t('topbar.support'), tone: 'text-txt', run: () => setView('support') },
+                  { key: 'logout', icon: 'logout', label: t('topbar.logout'), tone: 'text-danger', run: () => { void logout(); } },
+                ] as { key: string; icon: IconName; label: string; tone: string; run: () => void }[]).map((it) => (
                   <button
+                    key={it.key}
                     role="menuitem"
-                    className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-white/5 text-gold-hi"
-                    onClick={() => { setMenuOpen(false); setView('admin'); }}
+                    className={`w-full flex items-center gap-3 text-left rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-white/5 ${it.tone}`}
+                    onClick={() => { setMenuOpen(false); it.run(); }}
                   >
-                    {t('topbar.adminPanel')}
+                    <Icon name={it.icon} size={18} className="shrink-0 opacity-80" />
+                    {it.label}
                   </button>
-                )}
-                <button
-                  role="menuitem"
-                  className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-white/5 text-muted"
-                  onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}
-                >
-                  {t('topbar.settings')}
-                </button>
-                <button
-                  role="menuitem"
-                  className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-white/5 text-muted"
-                  onClick={() => { setMenuOpen(false); setView('support'); }}
-                >
-                  {t('topbar.support')}
-                </button>
-                <button
-                  role="menuitem"
-                  className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-white/5 text-suit"
-                  onClick={() => { setMenuOpen(false); void logout(); }}
-                >
-                  {t('topbar.logout')}
-                </button>
+                ))}
               </div>
             </>,
             document.getElementById('root') ?? document.body,
